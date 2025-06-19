@@ -22,7 +22,7 @@ def start_daemon():
         print("Daemon already running")
     except:
         print("Starting daemon...")
-        subprocess.Popen(['python3', 'daemon.py'], 
+        subprocess.Popen(['uv', 'run', 'python', 'daemon.py'], 
                         stdout=subprocess.DEVNULL, 
                         stderr=subprocess.DEVNULL)
         time.sleep(2)  # Give daemon time to start

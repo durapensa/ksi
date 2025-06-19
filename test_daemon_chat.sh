@@ -5,7 +5,7 @@ echo "Testing daemon-centric architecture..."
 echo
 
 # Test with a simple prompt
-echo "Hello Claude! Can you see this message?" | python3 chat.py
+echo "Hello Claude! Can you see this message?" | uv run python chat.py
 
 echo
 echo "Check for logs:"

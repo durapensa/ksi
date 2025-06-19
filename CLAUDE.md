@@ -54,8 +54,8 @@ You can extend this system in any way you prefer:
 ## Running the System
 ```bash
 # Start chatting (auto-starts daemon)
-python3 chat.py
+uv run python chat.py
 
 # Or start daemon directly
-python3 daemon.py
+uv run python daemon.py
 ```

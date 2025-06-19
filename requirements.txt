@@ -1,8 +1,11 @@
-# No Python dependencies required - uses only standard library
+# Python 3.13 required - managed by uv
 
-# System dependencies (install with brew on macOS):
-# - socat: for Unix socket communication
-# - claude: the Claude CLI (see https://claude.ai/code)
+# No Python package dependencies - uses only standard library
 
-# To install system dependencies on macOS:
-# brew install socat
+# System dependencies:
+# - uv: Python package & runtime manager (https://github.com/astral-sh/uv)
+# - socat: Unix socket communication
+# - claude: Claude CLI (https://claude.ai/code)
+
+# To install all dependencies:
+# ./setup.sh

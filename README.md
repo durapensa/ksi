@@ -16,18 +16,21 @@ A minimal daemon for managing Claude processes with conversation continuity.
 ## Prerequisites
 
 ```bash
-# Install socat (required for Unix socket communication)
-brew install socat
+# Run setup script to install dependencies
+./setup.sh
 
-# Ensure claude CLI is installed and working
-claude --help
+# This will:
+# - Install uv (Python package manager)
+# - Configure Python 3.13
+# - Install socat (Unix socket communication)
+# - Check for claude CLI
 ```
 
 ## Quick Start
 
 1. **Start chatting**:
    ```bash
-   python3 chat.py
+   uv run python chat.py
    ```
    
    This will:
