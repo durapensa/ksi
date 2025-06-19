@@ -18,6 +18,8 @@ import importlib.util
 from pathlib import Path
 import logging
 from datetime import datetime
+import tempfile
+import time
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger('daemon')
@@ -35,11 +37,16 @@ class ClaudeDaemon:
         os.makedirs('claude_logs', exist_ok=True)
         os.makedirs('sockets', exist_ok=True)
         
-        # Build command
+        # Write prompt to temp file to avoid shell escaping issues
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as tmp:
+            tmp.write(prompt)
+            prompt_file = tmp.name
+        
+        # Build command using cat instead of echo
         cmd_parts = [
-            'echo', f'"{prompt}"', '|',
+            'cat', prompt_file, '|',
             'claude', '--model', 'sonnet', '--print', '--output-format', 'json',
-            '--allowedTools', '"Task Bash Glob Grep LS Read Edit MultiEdit Write WebFetch WebSearch"'
+            '--allowedTools', 'Task Bash Glob Grep LS Read Edit MultiEdit Write WebFetch WebSearch'
         ]
         
         if session_id:
@@ -63,8 +70,17 @@ class ClaudeDaemon:
         if stderr:
             logger.error(f"Process stderr: {stderr.decode()}")
             
+        # Clean up temp file
+        try:
+            os.unlink(prompt_file)
+        except:
+            pass
+        
         # Read the output
         try:
+            # Wait a bit for file to be written
+            time.sleep(0.1)
+            
             with open('sockets/claude_last_output.json', 'r') as f:
                 output = json.load(f)
             
@@ -104,6 +120,9 @@ class ClaudeDaemon:
             
         except (json.JSONDecodeError, FileNotFoundError) as e:
             logger.error(f"Failed to read output: {e}")
+            # Try to read stdout if available
+            if stdout:
+                logger.info(f"Process stdout: {stdout.decode()[:500]}")
             return {'error': str(e), 'returncode': process.returncode}
     
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
