@@ -195,5 +195,7 @@ cython_debug/
 
 # Runtime files for Claude daemon
 sockets/
+claude_logs/
 *.sock
-claude_last_output.json
+*.json
+*.jsonl

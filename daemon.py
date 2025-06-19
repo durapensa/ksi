@@ -17,6 +17,7 @@ import importlib
 import importlib.util
 from pathlib import Path
 import logging
+from datetime import datetime
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger('daemon')
@@ -30,6 +31,10 @@ class ClaudeDaemon:
         
     async def spawn_claude(self, prompt: str, session_id: str = None) -> dict:
         """Spawn claude process and capture output"""
+        # Ensure directories exist
+        os.makedirs('claude_logs', exist_ok=True)
+        os.makedirs('sockets', exist_ok=True)
+        
         # Build command
         cmd_parts = [
             'echo', f'"{prompt}"', '|',
@@ -40,7 +45,7 @@ class ClaudeDaemon:
         if session_id:
             cmd_parts.extend(['--resume', session_id])
         
-        # Just tee the output to a file - no socket connection from Claude's side
+        # Tee output to file
         cmd_parts.extend(['|', 'tee', 'sockets/claude_last_output.json'])
         
         cmd = ' '.join(cmd_parts)
@@ -58,7 +63,48 @@ class ClaudeDaemon:
         if stderr:
             logger.error(f"Process stderr: {stderr.decode()}")
             
-        return {'command': cmd, 'pid': process.pid, 'returncode': process.returncode}
+        # Read the output
+        try:
+            with open('sockets/claude_last_output.json', 'r') as f:
+                output = json.load(f)
+            
+            # Extract session_id
+            new_session_id = output.get('sessionId') or output.get('session_id')
+            
+            # Log to JSONL
+            if new_session_id:
+                log_file = f'claude_logs/{new_session_id}.jsonl'
+                
+                # Log human input
+                human_entry = {
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "type": "human",
+                    "content": prompt
+                }
+                with open(log_file, 'a') as f:
+                    f.write(json.dumps(human_entry) + '\n')
+                
+                # Log Claude output
+                claude_entry = output.copy()
+                claude_entry["timestamp"] = datetime.utcnow().isoformat() + "Z"
+                claude_entry["type"] = "claude"
+                with open(log_file, 'a') as f:
+                    f.write(json.dumps(claude_entry) + '\n')
+                    
+                # Update session tracking
+                self.sessions[new_session_id] = output
+                
+                # Update latest symlink
+                latest_link = 'claude_logs/latest.jsonl'
+                if os.path.exists(latest_link):
+                    os.unlink(latest_link)
+                os.symlink(f'{new_session_id}.jsonl', latest_link)
+            
+            return output
+            
+        except (json.JSONDecodeError, FileNotFoundError) as e:
+            logger.error(f"Failed to read output: {e}")
+            return {'error': str(e), 'returncode': process.returncode}
     
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         """Handle incoming connections"""
@@ -76,8 +122,8 @@ class ClaudeDaemon:
                 output = json.loads(data.decode())
                 
                 # Extract sessionId if present
-                if 'sessionId' in output:
-                    session_id = output['sessionId']
+                session_id = output.get('sessionId') or output.get('session_id')
+                if session_id:
                     self.sessions[session_id] = output
                     logger.info(f"Captured session: {session_id}")
                 
@@ -89,14 +135,31 @@ class ClaudeDaemon:
                 # Not JSON, might be a command
                 text = data.decode().strip()
                 if text.startswith('SPAWN:'):
-                    # Command to spawn new claude
-                    prompt = text[6:].strip()
-                    await self.spawn_claude(prompt)
+                    # Parse spawn command (format: "SPAWN:[session_id]:<prompt>")
+                    parts = text[6:].split(':', 1)
+                    if len(parts) == 2 and parts[0]:
+                        # Has session_id
+                        session_id = parts[0]
+                        prompt = parts[1]
+                    else:
+                        # No session_id or old format
+                        session_id = None
+                        prompt = text[6:].strip()
+                    
+                    # Spawn Claude and get result
+                    result = await self.spawn_claude(prompt, session_id)
+                    
+                    # Send result back to client
+                    response = json.dumps(result) + '\n'
+                    writer.write(response.encode())
+                    await writer.drain()
+                    
                 elif text.startswith('RELOAD:'):
                     # Reload module
                     module_name = text[7:].strip()
                     self.reload_module(module_name)
                     writer.write(b'OK\n')
+                    await writer.drain()
                     
         except Exception as e:
             logger.error(f"Error handling client: {e}")

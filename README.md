@@ -36,8 +36,9 @@ claude --help
    - Maintain conversation context via sessionId
 
 2. **How it works**:
+   - chat.py sends `SPAWN:prompt` commands to daemon
    - Daemon spawns: `echo "prompt" | claude --model sonnet --print --output-format json --allowedTools "..." | tee sockets/claude_last_output.json`
-   - Claude's JSON output (including sessionId) is captured
+   - Daemon logs all sessions to `claude_logs/<session-id>.jsonl`
    - Subsequent prompts use `--resume sessionId` for continuity
 
 ## Claude Can Extend This
@@ -49,6 +50,16 @@ Claude has full control and can:
 - Build whatever infrastructure it needs
 
 The daemon intentionally does almost nothing - it's just plumbing for Claude to build upon.
+
+## Session Logs
+
+All conversations are logged in JSONL format to `claude_logs/<session-id>.jsonl`:
+```jsonl
+{"timestamp": "2024-06-19T13:52:24Z", "type": "human", "content": "Hi Claude!"}
+{"timestamp": "2024-06-19T13:52:28Z", "type": "claude", "session_id": "...", "result": "Hello!"}
+```
+
+Claude can read and analyze these logs using its tools.
 
 ## Environment Variables
 

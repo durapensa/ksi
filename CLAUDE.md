@@ -13,9 +13,10 @@ Minimal daemon system for managing Claude processes with conversation continuity
 - **claude_modules/**: Optional directory where you can write Python modules
 
 ### How It Works
-1. Daemon spawns: `echo "prompt" | claude --model sonnet --print --output-format json --allowedTools "..." | tee sockets/claude_last_output.json`
-2. Captures JSON output including sessionId
-3. Uses `--resume sessionId` for conversation continuity
+1. Daemon receives commands via Unix socket
+2. Spawns: `echo "prompt" | claude --model sonnet --print --output-format json --allowedTools "..." | tee sockets/claude_last_output.json`
+3. Logs all sessions to `claude_logs/<session-id>.jsonl` in JSONL format
+4. Uses `--resume sessionId` for conversation continuity
 
 ## Available Tools in Claude
 When spawned by the daemon, you have access to:
@@ -34,6 +35,11 @@ You can extend this system in any way you prefer:
 - Create `claude_modules/handler.py` with a `handle_output(output, daemon)` function
 - The daemon will automatically load and call it
 - You can reload modules by sending "RELOAD:handler" to the daemon socket
+
+### Option 3: Analyze Your Own Logs
+- All sessions are in `claude_logs/<session-id>.jsonl`
+- Use `Read` tool to analyze conversation patterns, costs, performance
+- Latest session is symlinked at `claude_logs/latest.jsonl`
 
 ### Option 3: Both
 - Combine tools and modules as needed

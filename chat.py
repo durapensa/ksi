@@ -27,53 +27,59 @@ def start_daemon():
                         stderr=subprocess.DEVNULL)
         time.sleep(2)  # Give daemon time to start
 
+def send_to_daemon(message):
+    """Send message to daemon and get response"""
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        sock.connect(SOCKET_PATH)
+        sock.sendall(message.encode())
+        
+        # Read response
+        response = b''
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            response += chunk
+            if b'\n' in response:
+                break
+        
+        return response.decode().strip()
+    finally:
+        sock.close()
+
 def send_prompt(prompt, session_id=None):
     """Send prompt to Claude via daemon"""
-    # Build command
-    cmd_parts = [
-        'echo', f'"{prompt}"', '|',
-        'claude', '--model', 'sonnet', '--print', '--output-format', 'json',
-        '--allowedTools', '"Task Bash Glob Grep LS Read Edit MultiEdit Write WebFetch WebSearch"'
-    ]
-    
+    # Format spawn command
     if session_id:
-        cmd_parts.extend(['--resume', session_id])
+        command = f"SPAWN:{session_id}:{prompt}"
+    else:
+        command = f"SPAWN:{prompt}"
     
-    # Just tee output to file
-    cmd_parts.extend(['|', 'tee', 'sockets/claude_last_output.json'])
+    # Send to daemon
+    response = send_to_daemon(command)
     
-    cmd = ' '.join(cmd_parts)
-    
-    # Execute
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-    
-    if result.returncode != 0:
-        print(f"Error: {result.stderr}")
-        return None, None
-    
-    # Read the tee'd output
     try:
-        with open('sockets/claude_last_output.json', 'r') as f:
-            output = json.load(f)
+        output = json.loads(response)
         
-        session_id = output.get('sessionId')
+        # Extract session_id
+        new_session_id = output.get('sessionId') or output.get('session_id')
         
-        # Extract message content
-        if 'messages' in output:
-            for msg in output['messages']:
-                if msg.get('role') == 'assistant':
-                    print(f"\nClaude: {msg.get('content', '')}\n")
+        # Display content
+        if 'error' in output:
+            print(f"\nError: {output['error']}\n")
+            return None, None
+        elif 'result' in output:
+            print(f"\nClaude: {output['result']}\n")
+        elif 'content' in output:
+            print(f"\nClaude: {output['content']}\n")
         else:
-            # Handle different output format
-            content = output.get('content', '')
-            if content:
-                print(f"\nClaude: {content}\n")
-            else:
-                print(f"\nClaude output: {json.dumps(output, indent=2)}\n")
-            
-        return output, session_id
-    except (json.JSONDecodeError, FileNotFoundError) as e:
-        print(f"Error reading output: {e}")
+            print(f"\nClaude output: {json.dumps(output, indent=2)}\n")
+        
+        return output, new_session_id
+        
+    except json.JSONDecodeError:
+        print(f"Non-JSON response: {response}")
         return None, None
 
 def main():
