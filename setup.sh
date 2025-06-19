@@ -33,8 +33,10 @@ fi
 
 # Check for claude CLI
 if ! command -v claude &> /dev/null; then
-    echo "⚠️  Claude CLI not found. Please install from https://claude.ai/code"
-    exit 1
+    echo "⚠️  Claude CLI not found in PATH"
+    echo "   Please install from https://claude.ai/code"
+    echo "   Note: If claude is installed via npm/nvm, it may not be in the PATH"
+    echo "   The daemon will still work if claude is accessible when running"
 else
     echo "✓ Claude CLI is installed"
 fi
