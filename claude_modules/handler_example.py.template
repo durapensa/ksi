@@ -1,0 +1,29 @@
+"""
+Example handler module that Claude could write
+(rename to handler.py to activate)
+"""
+
+def handle_output(output, daemon):
+    """
+    Called by daemon whenever Claude output is received
+    
+    Args:
+        output: The full JSON output from Claude
+        daemon: Reference to the daemon instance
+    """
+    # Example: Track costs
+    if 'total_cost_usd' in output:
+        cost = output['total_cost_usd']
+        print(f"[Handler] Session cost: ${cost:.6f}")
+    
+    # Example: Monitor for specific patterns
+    content = output.get('result', output.get('content', ''))
+    if 'error' in content.lower():
+        print("[Handler] Detected error mention in output")
+    
+    # Example: Trigger actions based on content
+    if 'spawn another claude' in content.lower():
+        # Could spawn another Claude process
+        pass
+    
+    # Claude can write any logic here!
