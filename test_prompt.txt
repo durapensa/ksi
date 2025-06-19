@@ -1,0 +1,6 @@
+Hello! I'm running inside the minimal daemon system. Can you:
+1. Tell me about your environment and available tools
+2. Check if you have a sessionId
+3. Suggest how you might extend this daemon system
+
+Please respond in JSON format if possible.

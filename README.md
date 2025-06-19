@@ -36,7 +36,7 @@ claude --help
    - Maintain conversation context via sessionId
 
 2. **How it works**:
-   - Daemon spawns: `echo "prompt" | claude --model sonnet --print --output-format json --allowedTools "..." | socat STDIO UNIX-CONNECT:/tmp/claude_daemon.sock`
+   - Daemon spawns: `echo "prompt" | claude --model sonnet --print --output-format json --allowedTools "..." | tee sockets/claude_last_output.json`
    - Claude's JSON output (including sessionId) is captured
    - Subsequent prompts use `--resume sessionId` for continuity
 
@@ -52,7 +52,7 @@ The daemon intentionally does almost nothing - it's just plumbing for Claude to 
 
 ## Environment Variables
 
-- `CLAUDE_DAEMON_SOCKET`: Unix socket path (default: `/tmp/claude_daemon.sock`)
+- `CLAUDE_DAEMON_SOCKET`: Unix socket path (default: `sockets/claude_daemon.sock`)
 
 ## Minimal Module Example
 

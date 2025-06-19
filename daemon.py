@@ -40,9 +40,8 @@ class ClaudeDaemon:
         if session_id:
             cmd_parts.extend(['--resume', session_id])
         
-        # Note: We'll tee the output so we can both capture it and send to socket
-        cmd_parts.extend(['|', 'tee', '/tmp/claude_last_output.json', '|', 
-                         'socat', 'STDIO', f'UNIX-CONNECT:{self.socket_path}'])
+        # Just tee the output to a file - no socket connection from Claude's side
+        cmd_parts.extend(['|', 'tee', 'sockets/claude_last_output.json'])
         
         cmd = ' '.join(cmd_parts)
         logger.info(f"Spawning: {cmd}")
@@ -165,7 +164,11 @@ class ClaudeDaemon:
         asyncio.get_event_loop().stop()
 
 async def main():
-    socket_path = os.environ.get('CLAUDE_DAEMON_SOCKET', '/tmp/claude_daemon.sock')
+    socket_path = os.environ.get('CLAUDE_DAEMON_SOCKET', 'sockets/claude_daemon.sock')
+    
+    # Ensure socket directory exists
+    os.makedirs(os.path.dirname(socket_path), exist_ok=True)
+    
     daemon = ClaudeDaemon(socket_path)
     await daemon.start()
 

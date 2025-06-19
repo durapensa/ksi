@@ -10,7 +10,7 @@ import sys
 import os
 import json
 
-SOCKET_PATH = os.environ.get('CLAUDE_DAEMON_SOCKET', '/tmp/claude_daemon.sock')
+SOCKET_PATH = os.environ.get('CLAUDE_DAEMON_SOCKET', 'sockets/claude_daemon.sock')
 
 def start_daemon():
     """Start daemon if not running"""
@@ -39,9 +39,8 @@ def send_prompt(prompt, session_id=None):
     if session_id:
         cmd_parts.extend(['--resume', session_id])
     
-    # Tee output to file and send to daemon
-    cmd_parts.extend(['|', 'tee', '/tmp/claude_last_output.json', '|',
-                     'socat', 'STDIO', f'UNIX-CONNECT:{SOCKET_PATH}'])
+    # Just tee output to file
+    cmd_parts.extend(['|', 'tee', 'sockets/claude_last_output.json'])
     
     cmd = ' '.join(cmd_parts)
     
@@ -54,7 +53,7 @@ def send_prompt(prompt, session_id=None):
     
     # Read the tee'd output
     try:
-        with open('/tmp/claude_last_output.json', 'r') as f:
+        with open('sockets/claude_last_output.json', 'r') as f:
             output = json.load(f)
         
         session_id = output.get('sessionId')
@@ -82,6 +81,9 @@ def main():
     print("Claude Chat Interface")
     print("Type 'exit' to quit")
     print("-" * 50)
+    
+    # Ensure sockets directory exists
+    os.makedirs('sockets', exist_ok=True)
     
     start_daemon()
     

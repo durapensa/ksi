@@ -13,7 +13,7 @@ Minimal daemon system for managing Claude processes with conversation continuity
 - **claude_modules/**: Optional directory where you can write Python modules
 
 ### How It Works
-1. Daemon spawns: `echo "prompt" | claude --model sonnet --print --output-format json --allowedTools "..." | socat STDIO UNIX-CONNECT:/tmp/claude_daemon.sock`
+1. Daemon spawns: `echo "prompt" | claude --model sonnet --print --output-format json --allowedTools "..." | tee sockets/claude_last_output.json`
 2. Captures JSON output including sessionId
 3. Uses `--resume sessionId` for conversation continuity
 
