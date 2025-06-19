@@ -1,11 +1,2 @@
-# Python 3.13 required - managed by uv
-
-# No Python package dependencies - uses only standard library
-
-# System dependencies:
-# - uv: Python package & runtime manager (https://github.com/astral-sh/uv)
-# - socat: Unix socket communication
-# - claude: Claude CLI (https://claude.ai/code)
-
-# To install all dependencies:
-# ./setup.sh
+Socket_Singleton==1.0.0
+daemoniker==0.2.3

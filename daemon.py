@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 """
 Minimal Claude Process Management Daemon
 
@@ -18,8 +19,8 @@ import importlib.util
 from pathlib import Path
 import logging
 from datetime import datetime
-import shutil
 import subprocess
+import shutil
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger('daemon')
@@ -30,36 +31,16 @@ class ClaudeDaemon:
         self.sessions = {}  # session_id -> last_output
         self.modules_dir = Path("claude_modules")
         self.loaded_module = None
-        self.claude_path = None
-        
-        # Discover claude executable path
-        self._discover_claude_path()
-    
-    def _discover_claude_path(self):
-        """Find the full path to claude executable"""
-        # First try shutil.which - this respects PATH
-        self.claude_path = shutil.which('claude')
-        
-        if self.claude_path:
-            logger.info(f"Found claude at: {self.claude_path}")
-        else:
-            logger.warning("Could not find claude executable in PATH")
-            logger.info("Make sure claude is installed and in your PATH")
-            logger.info("You may need to run: source ~/.bashrc or restart your terminal")
         
     async def spawn_claude(self, prompt: str, session_id: str = None) -> dict:
         """Spawn claude process and capture output"""
-        if not self.claude_path:
-            logger.error("Claude executable not found")
-            return {'error': 'Claude executable not found during initialization'}
-        
         # Ensure directories exist
         os.makedirs('claude_logs', exist_ok=True)
         os.makedirs('sockets', exist_ok=True)
         
         # Build command
         cmd = [
-            self.claude_path,
+            'claude',
             '--model', 'sonnet',
             '--print',
             '--output-format', 'json',
@@ -69,28 +50,20 @@ class ClaudeDaemon:
         if session_id:
             cmd.extend(['--resume', session_id])
         
-        logger.info(f"Spawning: {' '.join(cmd)}")
-        
         try:
-            # Execute claude with prompt as stdin
-            # Let subprocess inherit the current environment
+            # Execute claude with prompt as stdin - explicitly inherit environment
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
+                env=os.environ
             )
         except FileNotFoundError as e:
-            logger.error(f"FileNotFoundError: Could not find executable 'claude'")
-            logger.error(f"Error details: {e}")
             return {'error': 'claude executable not found in PATH', 'details': str(e)}
         
         # Send prompt and get output
         stdout, stderr = await process.communicate(prompt.encode())
-        
-        logger.info(f"Process returncode: {process.returncode}")
-        if stderr:
-            logger.error(f"Process stderr: {stderr.decode()}")
         
         # Parse output
         try:
@@ -140,26 +113,17 @@ class ClaudeDaemon:
             return output
             
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse claude output as JSON: {e}")
-            if stdout:
-                logger.error(f"Raw stdout: {stdout.decode()[:500]}")
-            return {'error': f'Invalid JSON from claude: {str(e)}', 'returncode': process.returncode, 'stdout': stdout.decode()[:500] if stdout else None}
+            return {'error': f'Invalid JSON from claude: {str(e)}', 'returncode': process.returncode}
         except Exception as e:
-            logger.error(f"Unexpected error in spawn_claude: {type(e).__name__}: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
             return {'error': f'{type(e).__name__}: {str(e)}', 'returncode': -1}
     
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         """Handle incoming connections"""
         try:
-            # Read all data
-            data = b''
-            while True:
-                chunk = await reader.read(4096)
-                if not chunk:
-                    break
-                data += chunk
+            # Read all available data
+            data = await reader.read()
+            if not data:
+                return
             
             # Try to parse as JSON
             try:
@@ -205,12 +169,73 @@ class ClaudeDaemon:
                     writer.write(b'OK\n')
                     await writer.drain()
                     
+                elif text.startswith('CLEANUP:'):
+                    # Cleanup command
+                    cleanup_type = text[8:].strip()
+                    result = self.cleanup(cleanup_type)
+                    writer.write(f"{result}\n".encode())
+                    await writer.drain()
+                    
+                    
         except Exception as e:
             logger.error(f"Error handling client: {e}")
         finally:
             writer.close()
             await writer.wait_closed()
     
+    def cleanup(self, cleanup_type: str) -> str:
+        """Cleanup various daemon resources"""
+        try:
+            if cleanup_type == 'logs':
+                # Clean up old log files
+                logs_dir = Path('claude_logs')
+                if logs_dir.exists():
+                    files_removed = 0
+                    for log_file in logs_dir.glob('*.jsonl'):
+                        if log_file.name != 'latest.jsonl' and not log_file.is_symlink():
+                            log_file.unlink()
+                            files_removed += 1
+                    
+                    # Remove broken symlinks
+                    latest_link = logs_dir / 'latest.jsonl'
+                    if latest_link.is_symlink() and not latest_link.exists():
+                        latest_link.unlink()
+                    
+                    return f"Removed {files_removed} log files"
+                return "No logs directory found"
+                
+            elif cleanup_type == 'sessions':
+                # Clear session tracking
+                sessions_cleared = len(self.sessions)
+                self.sessions.clear()
+                return f"Cleared {sessions_cleared} tracked sessions"
+                
+            elif cleanup_type == 'sockets':
+                # Clean up socket files
+                sockets_dir = Path('sockets')
+                if sockets_dir.exists():
+                    files_removed = 0
+                    for socket_file in sockets_dir.glob('*'):
+                        if socket_file.name != 'claude_daemon.sock':  # Don't remove active daemon socket
+                            socket_file.unlink()
+                            files_removed += 1
+                    return f"Removed {files_removed} socket files"
+                return "No sockets directory found"
+                
+            elif cleanup_type == 'all':
+                # Clean up everything
+                results = []
+                results.append(self.cleanup('logs'))
+                results.append(self.cleanup('sessions'))
+                results.append(self.cleanup('sockets'))
+                return f"Complete cleanup: {'; '.join(results)}"
+                
+            else:
+                return f"Unknown cleanup type: {cleanup_type}. Use: logs, sessions, sockets, or all"
+                
+        except Exception as e:
+            return f"Cleanup failed: {type(e).__name__}: {str(e)}"
+
     def reload_module(self, module_name: str = 'handler'):
         """Reload a module from claude_modules/"""
         try:
@@ -241,10 +266,10 @@ class ClaudeDaemon:
     
     async def start(self):
         """Start the daemon"""
-        # Remove existing socket
+        # Remove existing socket if present
         if os.path.exists(self.socket_path):
             os.unlink(self.socket_path)
-            
+        
         # Start server
         server = await asyncio.start_unix_server(
             self.handle_client,
@@ -256,21 +281,56 @@ class ClaudeDaemon:
         # Try to load handler module if it exists
         self.reload_module('handler')
         
-        # Handle shutdown
+        # Simple signal handler - just exit
+        def signal_handler(signum, frame):
+            logger.info(f"Received signal {signum}, shutting down...")
+            # Clean up socket file
+            if os.path.exists(self.socket_path):
+                os.unlink(self.socket_path)
+            server.close()
+            sys.exit(0)
+            
         for sig in (signal.SIGTERM, signal.SIGINT):
-            signal.signal(sig, lambda s, f: asyncio.create_task(self.shutdown(server)))
+            signal.signal(sig, signal_handler)
         
         async with server:
-            await server.serve_forever()
+            try:
+                await server.serve_forever()
+            except (KeyboardInterrupt, SystemExit):
+                pass
+            finally:
+                # Clean up socket file
+                if os.path.exists(self.socket_path):
+                    os.unlink(self.socket_path)
+
+
+def check_daemon_running():
+    """Simple PID file-based singleton check"""
+    pid_file = '/tmp/claude-daemon.pid'
     
-    async def shutdown(self, server):
-        """Graceful shutdown"""
-        logger.info("Shutting down...")
-        server.close()
-        await server.wait_closed()
-        asyncio.get_event_loop().stop()
+    if os.path.exists(pid_file):
+        try:
+            with open(pid_file, 'r') as f:
+                pid = int(f.read().strip())
+            # Check if process actually exists
+            os.kill(pid, 0)  # Signal 0 = check if process exists
+            logger.info(f"Daemon already running (PID {pid}), exiting")
+            return True
+        except (OSError, ProcessLookupError, ValueError):
+            # Stale PID file, remove it
+            os.unlink(pid_file)
+    
+    # Write our PID
+    with open(pid_file, 'w') as f:
+        f.write(str(os.getpid()))
+    logger.info(f"Daemon started (PID {os.getpid()})")
+    return False
 
 async def main():
+    # Check if daemon already running with reliable PID file approach
+    if check_daemon_running():
+        return
+    
     socket_path = os.environ.get('CLAUDE_DAEMON_SOCKET', 'sockets/claude_daemon.sock')
     
     # Ensure socket directory exists
