@@ -3,68 +3,53 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
-Python project managed with UV - a fast Python package installer and resolver.
+Minimal daemon system for managing Claude processes with conversation continuity.
 
-## Development Setup and Commands
+## Architecture
 
-### UV Installation
-If UV is not installed: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+### Core Components
+- **daemon.py**: Minimal async daemon that spawns Claude processes and tracks sessionId
+- **chat.py**: Simple interface for chatting with Claude
+- **claude_modules/**: Optional directory where you can write Python modules
 
-### Common UV Commands
-- **Create virtual environment**: `uv venv`
-- **Activate virtual environment**: `source .venv/bin/activate`
-- **Install dependencies**: `uv pip install -r requirements.txt`
-- **Add new dependency**: `uv pip install <package>` then `uv pip freeze > requirements.txt`
-- **Run Python scripts**: `uv run python <script.py>`
-- **Install in development mode**: `uv pip install -e .`
+### How It Works
+1. Daemon spawns: `echo "prompt" | claude --model sonnet --print --output-format json --allowedTools "..." | socat STDIO UNIX-CONNECT:/tmp/claude_daemon.sock`
+2. Captures JSON output including sessionId
+3. Uses `--resume sessionId` for conversation continuity
 
-### Project Structure
-- Python source files should be organized in a package directory
-- Use `requirements.txt` for dependency management
-- Create `pyproject.toml` for project metadata if needed
+## Available Tools in Claude
+When spawned by the daemon, you have access to:
+- Task, Bash, Glob, Grep, LS, Read, Edit, MultiEdit, Write, WebFetch, WebSearch
 
-### Testing
-- Run tests: `uv run pytest`
-- Run specific test: `uv run pytest path/to/test_file.py::test_function`
-- Run with coverage: `uv run pytest --cov`
+## Extending the System
 
-### Code Quality
-- Format code: `uv run black .`
-- Lint code: `uv run ruff check`
-- Type check: `uv run mypy .`
+You can extend this system in any way you prefer:
 
-## Development Workflow
-1. Always ensure virtual environment is activated before development
-2. Use UV for all package management operations
-3. Keep requirements.txt updated when adding/removing dependencies
-4. Run formatters and linters before committing code
+### Option 1: Using Your Tools
+- Use `Edit` to modify daemon.py directly
+- Use `Write` to create state files, databases, etc.
+- Use `Bash` to run any commands you need
 
-## Claude Process Management Daemon
+### Option 2: Writing Python Modules
+- Create `claude_modules/handler.py` with a `handle_output(output, daemon)` function
+- The daemon will automatically load and call it
+- You can reload modules by sending "RELOAD:handler" to the daemon socket
 
-This project includes a daemon system for reliable process management and dynamic code execution:
+### Option 3: Both
+- Combine tools and modules as needed
+- You have complete flexibility
 
-### Architecture
-- **daemon.py**: Asyncio-based daemon that listens on Unix domain socket
-- **client.py**: JSONL client library for communicating with daemon
-- **claude_modules/**: Directory for hot-reloadable Python modules
+## Key Points
+- The daemon is intentionally minimal - it's just plumbing
+- You decide how to track sessions, store prompts, analyze outputs
+- You can spawn new Claude sessions anytime
+- Everything is under your control
 
-### Key Features
-- Spawn and manage `claude -p` processes reliably
-- Hot-reload Python modules without restarting daemon
-- Execute functions in loaded modules dynamically
-- JSONL protocol for simple, blocking communication
+## Running the System
+```bash
+# Start chatting (auto-starts daemon)
+python3 chat.py
 
-### Usage
-1. Start daemon: `python3 daemon.py`
-2. Use client: `python3 client.py <command>` or import `ClaudeClient`
-3. Write modules in `claude_modules/` - daemon can reload them on command
-
-### Common Daemon Commands
-- `spawn_process`: Spawn a new managed process
-- `load_module`: Load/reload a Python module from claude_modules/
-- `call_function`: Execute a function in a loaded module
-- `list_processes`: Show all managed processes
-- `list_modules`: Show all loaded modules and their functions
-
-### Writing Claude Modules
-Place Python files in `claude_modules/`. The daemon can dynamically load and execute functions from these modules. This enables Claude to build complex systems incrementally by writing new modules that extend functionality.
+# Or start daemon directly
+python3 daemon.py
+```
