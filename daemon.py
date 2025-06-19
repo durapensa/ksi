@@ -18,6 +18,8 @@ import importlib.util
 from pathlib import Path
 import logging
 from datetime import datetime
+import shutil
+import subprocess
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger('daemon')
@@ -28,16 +30,36 @@ class ClaudeDaemon:
         self.sessions = {}  # session_id -> last_output
         self.modules_dir = Path("claude_modules")
         self.loaded_module = None
+        self.claude_path = None
+        
+        # Discover claude executable path
+        self._discover_claude_path()
+    
+    def _discover_claude_path(self):
+        """Find the full path to claude executable"""
+        # First try shutil.which - this respects PATH
+        self.claude_path = shutil.which('claude')
+        
+        if self.claude_path:
+            logger.info(f"Found claude at: {self.claude_path}")
+        else:
+            logger.warning("Could not find claude executable in PATH")
+            logger.info("Make sure claude is installed and in your PATH")
+            logger.info("You may need to run: source ~/.bashrc or restart your terminal")
         
     async def spawn_claude(self, prompt: str, session_id: str = None) -> dict:
         """Spawn claude process and capture output"""
+        if not self.claude_path:
+            logger.error("Claude executable not found")
+            return {'error': 'Claude executable not found during initialization'}
+        
         # Ensure directories exist
         os.makedirs('claude_logs', exist_ok=True)
         os.makedirs('sockets', exist_ok=True)
         
         # Build command
         cmd = [
-            'claude',
+            self.claude_path,
             '--model', 'sonnet',
             '--print',
             '--output-format', 'json',
@@ -49,13 +71,19 @@ class ClaudeDaemon:
         
         logger.info(f"Spawning: {' '.join(cmd)}")
         
-        # Execute claude with prompt as stdin
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
+        try:
+            # Execute claude with prompt as stdin
+            # Let subprocess inherit the current environment
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+        except FileNotFoundError as e:
+            logger.error(f"FileNotFoundError: Could not find executable 'claude'")
+            logger.error(f"Error details: {e}")
+            return {'error': 'claude executable not found in PATH', 'details': str(e)}
         
         # Send prompt and get output
         stdout, stderr = await process.communicate(prompt.encode())
@@ -116,6 +144,11 @@ class ClaudeDaemon:
             if stdout:
                 logger.error(f"Raw stdout: {stdout.decode()[:500]}")
             return {'error': f'Invalid JSON from claude: {str(e)}', 'returncode': process.returncode, 'stdout': stdout.decode()[:500] if stdout else None}
+        except Exception as e:
+            logger.error(f"Unexpected error in spawn_claude: {type(e).__name__}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return {'error': f'{type(e).__name__}: {str(e)}', 'returncode': -1}
     
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         """Handle incoming connections"""
