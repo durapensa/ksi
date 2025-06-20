@@ -1,0 +1,52 @@
+{
+  "timestamp": 1750394907.486528,
+  "session_id": "73043056-3a37-435b-b1a8-ddefe440717c",
+  "content_length": 972,
+  "cost": 0.16966625,
+  "duration_ms": 34390,
+  "entropy": 4.521035387001514,
+  "token_stats": {
+    "token_count": 129,
+    "unique_tokens": 95,
+    "frequent_tokens": [
+      "the",
+      "debugging",
+      "autonomous",
+      "with",
+      "to",
+      "stderr",
+      "in",
+      "experiments",
+      "are",
+      "working"
+    ],
+    "avg_token_length": 6.10077519379845
+  },
+  "concept_edges": [
+    [
+      "experiments",
+      "working"
+    ],
+    [
+      "agents",
+      "successfully"
+    ],
+    [
+      "infrastructure",
+      "in"
+    ],
+    [
+      "spawning",
+      "largely"
+    ],
+    [
+      "nodes",
+      "227"
+    ],
+    [
+      "logging",
+      "error"
+    ]
+  ],
+  "content_hash": "7d248553"
+}

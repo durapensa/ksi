@@ -1,0 +1,27 @@
+{
+  "timestamp": 1750387662.860977,
+  "session_id": "76e5a2f3-5c2d-45dd-af51-bf34d3e808c1",
+  "content_length": 1037,
+  "cost": 0.10307164999999999,
+  "duration_ms": 35443,
+  "entropy": 4.620418023352729,
+  "token_stats": {
+    "token_count": 133,
+    "unique_tokens": 98,
+    "frequent_tokens": [
+      "the",
+      "claude",
+      "read",
+      "allowedtools",
+      "all",
+      "bash",
+      "write",
+      "to",
+      "tool",
+      "autonomous"
+    ],
+    "avg_token_length": 5.774436090225564
+  },
+  "concept_edges": [],
+  "content_hash": "6f4d8882"
+}

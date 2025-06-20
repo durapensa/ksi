@@ -194,8 +194,20 @@ cython_debug/
 .cursorindexingignore
 
 # Runtime files for Claude daemon
-sockets/
-claude_logs/
-*.sock
-*.json
-*.jsonl
+sockets/claude_daemon.sock
+sockets/claude_last_output.json
+sockets/last_session_id
+
+# Claude session logs (comment out to track some logs)
+# claude_logs/
+
+# Daemon logs
+daemon.log
+
+# Analysis outputs (temporary)
+outputs/
+
+# Test artifacts
+*.tmp
+*.bak
+*.cache

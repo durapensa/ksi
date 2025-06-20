@@ -1,0 +1,48 @@
+{
+  "timestamp": 1750390513.649069,
+  "session_id": "d000e284-ec47-465d-9f84-bca76a87013c",
+  "content_length": 1357,
+  "cost": 0.05259365,
+  "duration_ms": 14976,
+  "entropy": 4.432275342554528,
+  "token_stats": {
+    "token_count": 189,
+    "unique_tokens": 118,
+    "frequent_tokens": [
+      "to",
+      "claude",
+      "the",
+      "s",
+      "code",
+      "chat",
+      "files",
+      "same",
+      "cot",
+      "routing"
+    ],
+    "avg_token_length": 5.544973544973545
+  },
+  "concept_edges": [
+    [
+      "this",
+      "remarkable"
+    ],
+    [
+      "experiments",
+      "working"
+    ],
+    [
+      "diagnosis",
+      "correct"
+    ],
+    [
+      "diagnosis",
+      "accurate"
+    ],
+    [
+      "code",
+      "i"
+    ]
+  ],
+  "content_hash": "c10fbfc4"
+}

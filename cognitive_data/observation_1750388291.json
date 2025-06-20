@@ -1,0 +1,52 @@
+{
+  "timestamp": 1750388291.999742,
+  "session_id": "7c2840a8-43e8-4eb5-9457-a6317810b41b",
+  "content_length": 1447,
+  "cost": 0.10479440000000001,
+  "duration_ms": 25045,
+  "entropy": 4.657168743050109,
+  "token_stats": {
+    "token_count": 186,
+    "unique_tokens": 122,
+    "frequent_tokens": [
+      "autonomous",
+      "you",
+      "to",
+      "chat",
+      "the",
+      "routing",
+      "responses",
+      "experiments",
+      "line",
+      "main"
+    ],
+    "avg_token_length": 5.876344086021505
+  },
+  "concept_edges": [
+    [
+      "they",
+      "working"
+    ],
+    [
+      "claudes",
+      "working"
+    ],
+    [
+      "this",
+      "actually"
+    ],
+    [
+      "instances",
+      "thinking"
+    ],
+    [
+      "observatory",
+      "working"
+    ],
+    [
+      "thinking",
+      "responding"
+    ]
+  ],
+  "content_hash": "6fb09d85"
+}

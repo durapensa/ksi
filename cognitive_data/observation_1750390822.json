@@ -1,0 +1,48 @@
+{
+  "timestamp": 1750390822.5490408,
+  "session_id": "14ebc863-2e2a-4e36-8851-e880f5fe0c04",
+  "content_length": 1463,
+  "cost": 0.05531895,
+  "duration_ms": 15463,
+  "entropy": 4.391577683160952,
+  "token_stats": {
+    "token_count": 186,
+    "unique_tokens": 127,
+    "frequent_tokens": [
+      "technical",
+      "claude",
+      "instances",
+      "the",
+      "context",
+      "between",
+      "is",
+      "session",
+      "be",
+      "sharing"
+    ],
+    "avg_token_length": 6.166666666666667
+  },
+  "concept_edges": [
+    [
+      "technical",
+      "happening"
+    ],
+    [
+      "observatory",
+      "accidentally"
+    ],
+    [
+      "suspect",
+      "creating"
+    ],
+    [
+      "code",
+      "i"
+    ],
+    [
+      "phrasing",
+      "tone"
+    ]
+  ],
+  "content_hash": "888700e8"
+}

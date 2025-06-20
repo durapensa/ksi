@@ -1,0 +1,40 @@
+{
+  "timestamp": 1750390402.147799,
+  "session_id": "0b4bc52f-d519-4a33-a56b-84f844dcefdc",
+  "content_length": 597,
+  "cost": 0.0460232,
+  "duration_ms": 10439,
+  "entropy": 4.420183789843264,
+  "token_stats": {
+    "token_count": 76,
+    "unique_tokens": 59,
+    "frequent_tokens": [
+      "the",
+      "of",
+      "conclusion",
+      "2",
+      "claude",
+      "instances",
+      "and",
+      "you",
+      "technical",
+      "analysis"
+    ],
+    "avg_token_length": 6.328947368421052
+  },
+  "concept_edges": [
+    [
+      "instances",
+      "doing"
+    ],
+    [
+      "they",
+      "designed"
+    ],
+    [
+      "think",
+      "respond"
+    ]
+  ],
+  "content_hash": "3901d23d"
+}

@@ -1,0 +1,48 @@
+{
+  "timestamp": 1750390572.489176,
+  "session_id": "113cfa62-5028-4a49-a6d7-b8a0c45dd9a1",
+  "content_length": 1251,
+  "cost": 0.05283135,
+  "duration_ms": 13947,
+  "entropy": 4.520511693625465,
+  "token_stats": {
+    "token_count": 152,
+    "unique_tokens": 107,
+    "frequent_tokens": [
+      "claude",
+      "is",
+      "good",
+      "news",
+      "code",
+      "s",
+      "our",
+      "this",
+      "infrastructure",
+      "analysis"
+    ],
+    "avg_token_length": 6.131578947368421
+  },
+  "concept_edges": [
+    [
+      "this",
+      "actually"
+    ],
+    [
+      "thought",
+      "now"
+    ],
+    [
+      "this",
+      "now"
+    ],
+    [
+      "instances",
+      "reasoning"
+    ],
+    [
+      "observatory",
+      "accidentally"
+    ]
+  ],
+  "content_hash": "03802437"
+}

@@ -1,0 +1,36 @@
+{
+  "timestamp": 1750396094.625487,
+  "session_id": "3171c23f-4f95-4890-baa3-add8654af2ef",
+  "content_length": 798,
+  "cost": 0.38103254999999997,
+  "duration_ms": 37816,
+  "entropy": 4.577335407095391,
+  "token_stats": {
+    "token_count": 95,
+    "unique_tokens": 69,
+    "frequent_tokens": [
+      "workspace",
+      "the",
+      "with",
+      "committed",
+      "documentation",
+      "py",
+      "just",
+      "isolated",
+      "system",
+      "commit"
+    ],
+    "avg_token_length": 6.705263157894737
+  },
+  "concept_edges": [
+    [
+      "what",
+      "committed"
+    ],
+    [
+      "system",
+      "now"
+    ]
+  ],
+  "content_hash": "b0093bd7"
+}

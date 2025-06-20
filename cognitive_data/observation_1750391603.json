@@ -1,0 +1,27 @@
+{
+  "timestamp": 1750391603.515828,
+  "session_id": "f9c6072e-9123-489b-bedc-18fb29482041",
+  "content_length": 962,
+  "cost": 0.05433485,
+  "duration_ms": 13113,
+  "entropy": 4.5000286913887,
+  "token_stats": {
+    "token_count": 117,
+    "unique_tokens": 88,
+    "frequent_tokens": [
+      "claude",
+      "different",
+      "ksi",
+      "system",
+      "infrastructure",
+      "the",
+      "code",
+      "identical",
+      "interfaces",
+      "s"
+    ],
+    "avg_token_length": 5.9914529914529915
+  },
+  "concept_edges": [],
+  "content_hash": "6aa59cf2"
+}

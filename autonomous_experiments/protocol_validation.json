@@ -1,0 +1,31 @@
+{
+  "timestamp": 1750395271.1852071,
+  "tests_passed": 1,
+  "tests_total": 4,
+  "results": [
+    {
+      "test": "socket_connection",
+      "success": true,
+      "message": "Successfully connected to daemon socket",
+      "timestamp": 1750395261.1828191
+    },
+    {
+      "test": "json_spawn_format",
+      "success": false,
+      "message": "No response received",
+      "timestamp": 1750395261.183342
+    },
+    {
+      "test": "spawn_string_format",
+      "success": false,
+      "message": "Error: timed out",
+      "timestamp": 1750395271.184268
+    },
+    {
+      "test": "stderr_capture",
+      "success": false,
+      "message": "No response received",
+      "timestamp": 1750395271.1850822
+    }
+  ]
+}

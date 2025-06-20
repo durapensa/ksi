@@ -1,0 +1,32 @@
+{
+  "timestamp": 1750383388.2251232,
+  "session_id": "171db4f5-3485-4318-8f73-dcb6e01c555c",
+  "content_length": 1321,
+  "cost": 0.4865056,
+  "duration_ms": 516404,
+  "entropy": 4.745063439112292,
+  "token_stats": {
+    "token_count": 170,
+    "unique_tokens": 132,
+    "frequent_tokens": [
+      "watch",
+      "working",
+      "each",
+      "in",
+      "the",
+      "md",
+      "autonomous",
+      "research",
+      "claude",
+      "processes"
+    ],
+    "avg_token_length": 5.8
+  },
+  "concept_edges": [
+    [
+      "claude",
+      "working"
+    ]
+  ],
+  "content_hash": "138ba468"
+}

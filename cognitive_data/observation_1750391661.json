@@ -1,0 +1,40 @@
+{
+  "timestamp": 1750391661.969356,
+  "session_id": "586923af-be24-4d77-b18e-8f85eb144f92",
+  "content_length": 1322,
+  "cost": 0.057698650000000004,
+  "duration_ms": 15074,
+  "entropy": 4.4715372111504355,
+  "token_stats": {
+    "token_count": 164,
+    "unique_tokens": 92,
+    "frequent_tokens": [
+      "claude",
+      "cognitive",
+      "the",
+      "about",
+      "observatory",
+      "something",
+      "unexpected",
+      "own",
+      "s",
+      "patterns"
+    ],
+    "avg_token_length": 6.359756097560975
+  },
+  "concept_edges": [
+    [
+      "what",
+      "you"
+    ],
+    [
+      "patterns",
+      "attractors"
+    ],
+    [
+      "attractors",
+      "thought"
+    ]
+  ],
+  "content_hash": "d039ab1a"
+}

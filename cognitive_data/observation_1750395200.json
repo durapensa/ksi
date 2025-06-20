@@ -1,0 +1,32 @@
+{
+  "timestamp": 1750395200.58788,
+  "session_id": "f41c83a5-08d5-4020-8669-e24d74b82306",
+  "content_length": 1502,
+  "cost": 0.4022413000000001,
+  "duration_ms": 194781,
+  "entropy": 4.717042232303455,
+  "token_stats": {
+    "token_count": 198,
+    "unique_tokens": 129,
+    "frequent_tokens": [
+      "entropy",
+      "4",
+      "cognitive",
+      "responses",
+      "chars",
+      "3",
+      "modes",
+      "5",
+      "processing",
+      "for"
+    ],
+    "avg_token_length": 5.873737373737374
+  },
+  "concept_edges": [
+    [
+      "analysis",
+      "clustering"
+    ]
+  ],
+  "content_hash": "ffaad6cb"
+}

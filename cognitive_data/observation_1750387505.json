@@ -1,0 +1,29 @@
+{
+  "timestamp": 1750387505.47184,
+  "session_id": "576a27eb-a7df-484f-bbee-361d489409ca",
+  "content_length": 33,
+  "cost": 0.035221850000000006,
+  "duration_ms": 9158,
+  "entropy": 4.147132286799763,
+  "token_stats": {
+    "token_count": 7,
+    "unique_tokens": 7,
+    "frequent_tokens": [
+      "i",
+      "m",
+      "listening",
+      "what",
+      "was",
+      "your",
+      "fix"
+    ],
+    "avg_token_length": 3.5714285714285716
+  },
+  "concept_edges": [
+    [
+      "what",
+      "your"
+    ]
+  ],
+  "content_hash": "e8d6e8c4"
+}

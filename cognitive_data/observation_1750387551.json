@@ -1,0 +1,36 @@
+{
+  "timestamp": 1750387551.0813272,
+  "session_id": "2a318e72-a238-450a-b71c-266ddd38399c",
+  "content_length": 1109,
+  "cost": 0.03927555,
+  "duration_ms": 11248,
+  "entropy": 4.6113863416319445,
+  "token_stats": {
+    "token_count": 140,
+    "unique_tokens": 107,
+    "frequent_tokens": [
+      "fix",
+      "test",
+      "scripts",
+      "the",
+      "protocol",
+      "for",
+      "works",
+      "1",
+      "readline",
+      "2"
+    ],
+    "avg_token_length": 5.914285714285715
+  },
+  "concept_edges": [
+    [
+      "scripts",
+      "essential"
+    ],
+    [
+      "this",
+      "textbook"
+    ]
+  ],
+  "content_hash": "5cd4c59f"
+}

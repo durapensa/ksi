@@ -1,0 +1,56 @@
+{
+  "timestamp": 1750390557.7392828,
+  "session_id": "8f1e4757-e482-45d0-b1d5-3cf138b9a774",
+  "content_length": 1532,
+  "cost": 0.054926850000000006,
+  "duration_ms": 15950,
+  "entropy": 4.498626055695129,
+  "token_stats": {
+    "token_count": 209,
+    "unique_tokens": 132,
+    "frequent_tokens": [
+      "claude",
+      "the",
+      "of",
+      "to",
+      "analysis",
+      "is",
+      "code",
+      "our",
+      "s",
+      "cot"
+    ],
+    "avg_token_length": 5.62200956937799
+  },
+  "concept_edges": [
+    [
+      "experiments",
+      "trying"
+    ],
+    [
+      "outputs",
+      "being"
+    ],
+    [
+      "this",
+      "beyond"
+    ],
+    [
+      "evidence",
+      "so"
+    ],
+    [
+      "deeper",
+      "happening"
+    ],
+    [
+      "analysis",
+      "correct"
+    ],
+    [
+      "convergence",
+      "genuinely"
+    ]
+  ],
+  "content_hash": "97b5414d"
+}

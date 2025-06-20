@@ -1,0 +1,16 @@
+{
+  "timestamp": 1750395261.183062,
+  "session_id": "unknown",
+  "content_length": 0,
+  "cost": 0,
+  "duration_ms": 0,
+  "entropy": 0.0,
+  "token_stats": {
+    "token_count": 0,
+    "unique_tokens": 0,
+    "frequent_tokens": [],
+    "avg_token_length": 0.0
+  },
+  "concept_edges": [],
+  "content_hash": "d41d8cd9"
+}

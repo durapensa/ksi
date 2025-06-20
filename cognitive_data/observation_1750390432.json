@@ -1,0 +1,44 @@
+{
+  "timestamp": 1750390432.611136,
+  "session_id": "908e2651-54b8-437d-8fcd-c7733bbea6f9",
+  "content_length": 794,
+  "cost": 0.0467364,
+  "duration_ms": 10753,
+  "entropy": 4.5008447299539425,
+  "token_stats": {
+    "token_count": 94,
+    "unique_tokens": 73,
+    "frequent_tokens": [
+      "the",
+      "were",
+      "to",
+      "conclusion",
+      "4",
+      "autonomous",
+      "experiments",
+      "cognitive_data",
+      "concept",
+      "graphs"
+    ],
+    "avg_token_length": 6.75531914893617
+  },
+  "concept_edges": [
+    [
+      "experiments",
+      "trying"
+    ],
+    [
+      "experiments",
+      "working"
+    ],
+    [
+      "they",
+      "generating"
+    ],
+    [
+      "patterns",
+      "cognitive"
+    ]
+  ],
+  "content_hash": "d4492ee9"
+}

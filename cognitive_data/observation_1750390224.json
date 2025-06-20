@@ -1,0 +1,40 @@
+{
+  "timestamp": 1750390224.368709,
+  "session_id": "03d26c54-b626-429f-8ea5-c8868fb9c30c",
+  "content_length": 1376,
+  "cost": 0.3328267,
+  "duration_ms": 16527,
+  "entropy": 4.495842765187833,
+  "token_stats": {
+    "token_count": 209,
+    "unique_tokens": 123,
+    "frequent_tokens": [
+      "claude",
+      "code",
+      "s",
+      "we",
+      "thinking",
+      "the",
+      "of",
+      "did",
+      "my",
+      "somehow"
+    ],
+    "avg_token_length": 5.07177033492823
+  },
+  "concept_edges": [
+    [
+      "response",
+      "somehow"
+    ],
+    [
+      "this",
+      "getting"
+    ],
+    [
+      "unsettling",
+      "fascinating"
+    ]
+  ],
+  "content_hash": "a0d1c389"
+}

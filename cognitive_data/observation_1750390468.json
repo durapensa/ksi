@@ -1,0 +1,36 @@
+{
+  "timestamp": 1750390468.763919,
+  "session_id": "d53866dd-61c1-4df6-8784-36c38bbb5dba",
+  "content_length": 462,
+  "cost": 0.046379500000000004,
+  "duration_ms": 8963,
+  "entropy": 4.433462658103348,
+  "token_stats": {
+    "token_count": 62,
+    "unique_tokens": 53,
+    "frequent_tokens": [
+      "the",
+      "your",
+      "is",
+      "autonomous",
+      "experiment",
+      "infrastructure",
+      "of",
+      "exactly",
+      "message",
+      "cut"
+    ],
+    "avg_token_length": 5.741935483870968
+  },
+  "concept_edges": [
+    [
+      "this",
+      "actually"
+    ],
+    [
+      "parts",
+      "all"
+    ]
+  ],
+  "content_hash": "e1a97e26"
+}

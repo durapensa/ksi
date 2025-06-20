@@ -1,0 +1,18 @@
+{
+  "timestamp": 1750394289.4989681,
+  "session_id": "5f2c3913-1482-4217-a379-12d40539685c",
+  "content_length": 5,
+  "cost": 0.03400555,
+  "duration_ms": 6908,
+  "entropy": 2.321928094887362,
+  "token_stats": {
+    "token_count": 1,
+    "unique_tokens": 1,
+    "frequent_tokens": [
+      "done"
+    ],
+    "avg_token_length": 4.0
+  },
+  "concept_edges": [],
+  "content_hash": "f5940523"
+}

@@ -1,0 +1,36 @@
+{
+  "timestamp": 1750387483.174174,
+  "session_id": "489ef5a0-15d5-4091-ac9d-ae15a26bb1f6",
+  "content_length": 433,
+  "cost": 0.21223065,
+  "duration_ms": 97184,
+  "entropy": 4.4071967473333045,
+  "token_stats": {
+    "token_count": 75,
+    "unique_tokens": 57,
+    "frequent_tokens": [
+      "the",
+      "daemon",
+      "shutdown",
+      "test",
+      "with",
+      "be",
+      "to",
+      "is",
+      "cannot",
+      "completed"
+    ],
+    "avg_token_length": 4.586666666666667
+  },
+  "concept_edges": [
+    [
+      "daemon",
+      "already"
+    ],
+    [
+      "this",
+      "a"
+    ]
+  ],
+  "content_hash": "6399bcd7"
+}

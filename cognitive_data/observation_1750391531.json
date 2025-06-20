@@ -1,0 +1,40 @@
+{
+  "timestamp": 1750391531.596679,
+  "session_id": "edabd878-fa86-4ba0-af38-ecb562a21602",
+  "content_length": 1557,
+  "cost": 0.05821620000000001,
+  "duration_ms": 17280,
+  "entropy": 4.491625744628941,
+  "token_stats": {
+    "token_count": 188,
+    "unique_tokens": 123,
+    "frequent_tokens": [
+      "technical",
+      "deterministic",
+      "behavior",
+      "this",
+      "identical",
+      "evidence",
+      "clear",
+      "similar",
+      "for",
+      "claude"
+    ],
+    "avg_token_length": 6.49468085106383
+  },
+  "concept_edges": [
+    [
+      "temperature",
+      "very"
+    ],
+    [
+      "evidence",
+      "overwhelmingly"
+    ],
+    [
+      "patterns",
+      "highly"
+    ]
+  ],
+  "content_hash": "675958a9"
+}

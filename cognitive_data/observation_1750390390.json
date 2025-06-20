@@ -1,0 +1,36 @@
+{
+  "timestamp": 1750390390.929282,
+  "session_id": "d72f74b7-d201-4033-9561-f84bcb3243e0",
+  "content_length": 430,
+  "cost": 0.04416924999999999,
+  "duration_ms": 9159,
+  "entropy": 4.4613016233222655,
+  "token_stats": {
+    "token_count": 54,
+    "unique_tokens": 44,
+    "frequent_tokens": [
+      "the",
+      "autonomous",
+      "conclusion",
+      "this",
+      "researcher",
+      "to",
+      "daemon",
+      "exactly",
+      "1",
+      "spawning"
+    ],
+    "avg_token_length": 6.333333333333333
+  },
+  "concept_edges": [
+    [
+      "instances",
+      "created"
+    ],
+    [
+      "created",
+      "responded"
+    ]
+  ],
+  "content_hash": "15ef705d"
+}

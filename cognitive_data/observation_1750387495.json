@@ -1,0 +1,40 @@
+{
+  "timestamp": 1750387495.6272068,
+  "session_id": "3ef17026-4d55-41fd-a94b-33ed39436dc9",
+  "content_length": 1278,
+  "cost": 0.040966550000000004,
+  "duration_ms": 15160,
+  "entropy": 4.508116360712221,
+  "token_stats": {
+    "token_count": 184,
+    "unique_tokens": 115,
+    "frequent_tokens": [
+      "daemon",
+      "claude",
+      "the",
+      "processes",
+      "socket",
+      "client",
+      "waiting",
+      "for",
+      "never",
+      "to"
+    ],
+    "avg_token_length": 5.282608695652174
+  },
+  "concept_edges": [
+    [
+      "daemon",
+      "still"
+    ],
+    [
+      "claudes",
+      "essentially"
+    ],
+    [
+      "runs",
+      "completes"
+    ]
+  ],
+  "content_hash": "d82d363b"
+}

@@ -1,0 +1,40 @@
+{
+  "timestamp": 1750390248.02744,
+  "session_id": "dbd62f28-3d18-43e3-a469-b92d4e7100bd",
+  "content_length": 254,
+  "cost": 0.041428950000000006,
+  "duration_ms": 7549,
+  "entropy": 4.319223567596699,
+  "token_stats": {
+    "token_count": 42,
+    "unique_tokens": 31,
+    "frequent_tokens": [
+      "to",
+      "the",
+      "you",
+      "were",
+      "being",
+      "of",
+      "written",
+      "what",
+      "your",
+      "message"
+    ],
+    "avg_token_length": 4.761904761904762
+  },
+  "concept_edges": [
+    [
+      "message",
+      "cutting"
+    ],
+    [
+      "you",
+      "saying"
+    ],
+    [
+      "responses",
+      "being"
+    ]
+  ],
+  "content_hash": "11cea94d"
+}

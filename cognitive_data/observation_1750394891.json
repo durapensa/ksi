@@ -1,0 +1,36 @@
+{
+  "timestamp": 1750394891.482399,
+  "session_id": "dd94a091-8252-4477-844a-d8f0b950cb5e",
+  "content_length": 1139,
+  "cost": 0.41881415000000016,
+  "duration_ms": 193237,
+  "entropy": 4.764421899611314,
+  "token_stats": {
+    "token_count": 144,
+    "unique_tokens": 99,
+    "frequent_tokens": [
+      "0",
+      "score",
+      "and",
+      "with",
+      "a",
+      "concept",
+      "graph",
+      "key",
+      "concepts",
+      "this"
+    ],
+    "avg_token_length": 5.8125
+  },
+  "concept_edges": [
+    [
+      "here",
+      "the"
+    ],
+    [
+      "metrics",
+      "graph"
+    ]
+  ],
+  "content_hash": "ec34c527"
+}

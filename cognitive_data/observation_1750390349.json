@@ -1,0 +1,36 @@
+{
+  "timestamp": 1750390349.2613919,
+  "session_id": "51539686-4a6f-44d9-a9b0-385550693cbb",
+  "content_length": 671,
+  "cost": 0.04501285,
+  "duration_ms": 8585,
+  "entropy": 4.540740700747693,
+  "token_stats": {
+    "token_count": 91,
+    "unique_tokens": 72,
+    "frequent_tokens": [
+      "the",
+      "multiple",
+      "experiment_log",
+      "jsonl",
+      "evidence",
+      "4",
+      "experiments",
+      "proving",
+      "what",
+      "key"
+    ],
+    "avg_token_length": 5.8791208791208796
+  },
+  "concept_edges": [
+    [
+      "researcher",
+      "working"
+    ],
+    [
+      "responses",
+      "generated"
+    ]
+  ],
+  "content_hash": "9174742b"
+}

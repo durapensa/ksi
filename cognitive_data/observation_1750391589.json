@@ -1,0 +1,27 @@
+{
+  "timestamp": 1750391589.568746,
+  "session_id": "cbc4bf80-afdc-4198-adb9-a3e91531f943",
+  "content_length": 535,
+  "cost": 0.051803600000000005,
+  "duration_ms": 8392,
+  "entropy": 4.492470117043222,
+  "token_stats": {
+    "token_count": 66,
+    "unique_tokens": 49,
+    "frequent_tokens": [
+      "claude",
+      "what",
+      "identical",
+      "the",
+      "two",
+      "separate",
+      "instances",
+      "producing",
+      "analysis",
+      "suggests"
+    ],
+    "avg_token_length": 6.287878787878788
+  },
+  "concept_edges": [],
+  "content_hash": "618a08c4"
+}

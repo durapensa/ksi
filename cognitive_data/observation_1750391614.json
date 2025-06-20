@@ -1,0 +1,32 @@
+{
+  "timestamp": 1750391614.575291,
+  "session_id": "2ce454c1-34c4-47f2-a143-b1cf4d4b545f",
+  "content_length": 892,
+  "cost": 0.053645500000000006,
+  "duration_ms": 10231,
+  "entropy": 4.462543036480424,
+  "token_stats": {
+    "token_count": 115,
+    "unique_tokens": 84,
+    "frequent_tokens": [
+      "the",
+      "s",
+      "about",
+      "claude",
+      "something",
+      "of",
+      "how",
+      "that",
+      "this",
+      "we"
+    ],
+    "avg_token_length": 5.904347826086957
+  },
+  "concept_edges": [
+    [
+      "responses",
+      "generated"
+    ]
+  ],
+  "content_hash": "4a5e2efa"
+}

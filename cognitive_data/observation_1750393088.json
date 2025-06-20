@@ -1,0 +1,32 @@
+{
+  "timestamp": 1750393088.054477,
+  "session_id": "19e4e01f-98b1-4e70-bd4a-b47ff24c2728",
+  "content_length": 282,
+  "cost": 0.0455095,
+  "duration_ms": 7166,
+  "entropy": 4.257199780857856,
+  "token_stats": {
+    "token_count": 49,
+    "unique_tokens": 41,
+    "frequent_tokens": [
+      "the",
+      "experiment",
+      "what",
+      "did",
+      "you",
+      "when",
+      "they",
+      "right",
+      "i",
+      "see"
+    ],
+    "avg_token_length": 4.612244897959184
+  },
+  "concept_edges": [
+    [
+      "5",
+      "launched"
+    ]
+  ],
+  "content_hash": "a7d5746c"
+}

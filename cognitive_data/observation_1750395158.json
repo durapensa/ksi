@@ -1,0 +1,32 @@
+{
+  "timestamp": 1750395158.1339571,
+  "session_id": "dbb51546-4510-4dd6-86db-1376cb258dc5",
+  "content_length": 1128,
+  "cost": 0.7557151000000001,
+  "duration_ms": 142282,
+  "entropy": 4.378444688334351,
+  "token_stats": {
+    "token_count": 137,
+    "unique_tokens": 96,
+    "frequent_tokens": [
+      "cognitive",
+      "processing",
+      "the",
+      "a",
+      "ai",
+      "with",
+      "entropy",
+      "biological",
+      "cognition",
+      "of"
+    ],
+    "avg_token_length": 6.912408759124087
+  },
+  "concept_edges": [
+    [
+      "load",
+      "complexity"
+    ]
+  ],
+  "content_hash": "b78cdf48"
+}

@@ -1,0 +1,44 @@
+{
+  "timestamp": 1750390481.6509418,
+  "session_id": "2fd73753-6e68-4db0-abf7-d811451829e2",
+  "content_length": 1111,
+  "cost": 0.04813825000000001,
+  "duration_ms": 12119,
+  "entropy": 4.528853017923226,
+  "token_stats": {
+    "token_count": 151,
+    "unique_tokens": 95,
+    "frequent_tokens": [
+      "the",
+      "to",
+      "is",
+      "autonomous",
+      "working",
+      "we",
+      "just",
+      "fix",
+      "output",
+      "what"
+    ],
+    "avg_token_length": 5.629139072847682
+  },
+  "concept_edges": [
+    [
+      "this",
+      "actually"
+    ],
+    [
+      "infrastructure",
+      "working"
+    ],
+    [
+      "observatory",
+      "essentially"
+    ],
+    [
+      "infrastructure",
+      "solid"
+    ]
+  ],
+  "content_hash": "c570b3c1"
+}

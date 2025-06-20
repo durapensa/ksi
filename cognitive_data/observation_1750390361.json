@@ -1,0 +1,52 @@
+{
+  "timestamp": 1750390361.7676291,
+  "session_id": "198c7080-8b6f-43e6-97b5-520160377bfa",
+  "content_length": 1283,
+  "cost": 0.04682845000000001,
+  "duration_ms": 11749,
+  "entropy": 4.593195992838016,
+  "token_stats": {
+    "token_count": 160,
+    "unique_tokens": 109,
+    "frequent_tokens": [
+      "the",
+      "to",
+      "autonomous",
+      "responses",
+      "experiments",
+      "response_received",
+      "true",
+      "researcher",
+      "evidence",
+      "4"
+    ],
+    "avg_token_length": 6.2375
+  },
+  "concept_edges": [
+    [
+      "this",
+      "the"
+    ],
+    [
+      "pipeline",
+      "working"
+    ],
+    [
+      "they",
+      "working"
+    ],
+    [
+      "observatory",
+      "100"
+    ],
+    [
+      "experiments",
+      "thinking"
+    ],
+    [
+      "commands",
+      "spawned"
+    ]
+  ],
+  "content_hash": "6fd9663c"
+}

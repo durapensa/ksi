@@ -1,0 +1,27 @@
+{
+  "timestamp": 1750393161.362924,
+  "session_id": "6a4b7c48-0f84-4c14-acd1-cf091824b7b5",
+  "content_length": 414,
+  "cost": 0.04514245,
+  "duration_ms": 7818,
+  "entropy": 4.432601048687291,
+  "token_stats": {
+    "token_count": 64,
+    "unique_tokens": 51,
+    "frequent_tokens": [
+      "they",
+      "the",
+      "to",
+      "claude",
+      "not",
+      "executing",
+      "what",
+      "t",
+      "re",
+      "exactly"
+    ],
+    "avg_token_length": 5.203125
+  },
+  "concept_edges": [],
+  "content_hash": "baa0bdaf"
+}

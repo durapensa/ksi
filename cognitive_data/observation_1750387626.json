@@ -1,0 +1,40 @@
+{
+  "timestamp": 1750387626.693841,
+  "session_id": "7511de64-c5cd-4acc-b1da-31504849f3e4",
+  "content_length": 871,
+  "cost": 0.0384498,
+  "duration_ms": 10228,
+  "entropy": 4.55624729687338,
+  "token_stats": {
+    "token_count": 106,
+    "unique_tokens": 88,
+    "frequent_tokens": [
+      "the",
+      "socket",
+      "commands",
+      "exactly",
+      "complete",
+      "claude",
+      "autonomous",
+      "experiments",
+      "cognitive",
+      "is"
+    ],
+    "avg_token_length": 6.433962264150943
+  },
+  "concept_edges": [
+    [
+      "observatory",
+      "finally"
+    ],
+    [
+      "what",
+      "needed"
+    ],
+    [
+      "immediately",
+      "complete"
+    ]
+  ],
+  "content_hash": "63375665"
+}

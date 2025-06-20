@@ -1,0 +1,2 @@
+{"timestamp": "2025-06-20T04:54:39.430334Z", "type": "human", "content": ":Test prompt for string format"}
+{"type": "claude", "subtype": "error_during_execution", "duration_ms": 17670, "duration_api_ms": 29461, "is_error": false, "num_turns": 0, "session_id": "6d05ba1d-45f9-4393-b511-5c1ea46099cc", "total_cost_usd": 0.0625542, "usage": {"input_tokens": 32, "cache_creation_input_tokens": 7038, "cache_read_input_tokens": 76939, "output_tokens": 392, "server_tool_use": {"web_search_requests": 0}}, "timestamp": "2025-06-20T04:54:39.430556Z"}

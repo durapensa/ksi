@@ -1,0 +1,32 @@
+{
+  "timestamp": 1750387491.854437,
+  "session_id": "d6f50db8-476d-40af-af19-b26f40d0ef4f",
+  "content_length": 217,
+  "cost": 0.042240099999999996,
+  "duration_ms": 118195,
+  "entropy": 4.087854433696397,
+  "token_stats": {
+    "token_count": 34,
+    "unique_tokens": 27,
+    "frequent_tokens": [
+      "the",
+      "test",
+      "socket",
+      "shutdown",
+      "perfect",
+      "confirmed",
+      "behavior",
+      "without",
+      "timed",
+      "out"
+    ],
+    "avg_token_length": 5.264705882352941
+  },
+  "concept_edges": [
+    [
+      "client",
+      "done"
+    ]
+  ],
+  "content_hash": "8b722960"
+}

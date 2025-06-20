@@ -1,0 +1,2 @@
+{"timestamp": "2025-06-20T01:33:26.440322Z", "type": "human", "content": "What is 1+1?"}
+{"type": "claude", "subtype": "success", "is_error": false, "duration_ms": 2619, "duration_api_ms": 3283, "num_turns": 1, "result": "2", "session_id": "855461c5-511a-4ea5-8896-a0f333bdc3df", "total_cost_usd": 0.013912049999999997, "usage": {"input_tokens": 4, "cache_creation_input_tokens": 2591, "cache_read_input_tokens": 13172, "output_tokens": 7, "server_tool_use": {"web_search_requests": 0}}, "timestamp": "2025-06-20T01:33:26.440890Z"}

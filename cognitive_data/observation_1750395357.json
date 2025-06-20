@@ -1,0 +1,40 @@
+{
+  "timestamp": 1750395357.906749,
+  "session_id": "651a32f9-f823-4c06-8446-a26b4839ca37",
+  "content_length": 1184,
+  "cost": 0.59605995,
+  "duration_ms": 214387,
+  "entropy": 4.429532998271171,
+  "token_stats": {
+    "token_count": 140,
+    "unique_tokens": 101,
+    "frequent_tokens": [
+      "system",
+      "the",
+      "protocol",
+      "documentation",
+      "validation",
+      "autonomous",
+      "knowledge",
+      "daemon",
+      "for",
+      "successfully"
+    ],
+    "avg_token_length": 6.942857142857143
+  },
+  "concept_edges": [
+    [
+      "documentation",
+      "wrong"
+    ],
+    [
+      "daemon",
+      "text"
+    ],
+    [
+      "discovered",
+      "fixed"
+    ]
+  ],
+  "content_hash": "c3d99c13"
+}

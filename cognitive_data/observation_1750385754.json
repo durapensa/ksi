@@ -1,0 +1,32 @@
+{
+  "timestamp": 1750385754.3910851,
+  "session_id": "ecd3c1c7-6bfc-4fee-b0eb-9d757d70acab",
+  "content_length": 1369,
+  "cost": 0.24410074999999998,
+  "duration_ms": 16435,
+  "entropy": 4.7112576660498595,
+  "token_stats": {
+    "token_count": 181,
+    "unique_tokens": 124,
+    "frequent_tokens": [
+      "socket",
+      "spawn",
+      "in",
+      "spawn_claude",
+      "prompt",
+      "it",
+      "hangs",
+      "daemon",
+      "the",
+      "await"
+    ],
+    "avg_token_length": 5.519337016574585
+  },
+  "concept_edges": [
+    [
+      "call",
+      "blocking"
+    ]
+  ],
+  "content_hash": "e9a1a252"
+}
