@@ -22,6 +22,10 @@ class StateManager:
         
         # Ensure directories exist
         os.makedirs('shared_state', exist_ok=True)
+        
+        # TODO: Implement garbage collection system for shared_state/ files
+        # These files accumulate from testing and need periodic cleanup
+        # Consider: TTL-based cleanup, size limits, or explicit cleanup commands
     
     def track_session(self, session_id: str, output: dict):
         """Track a session output"""

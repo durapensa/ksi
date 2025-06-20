@@ -42,6 +42,13 @@ uv run python tests/test_daemon_protocol.py
 - Clean up temporary files promptly
 - Organize files by purpose and audience
 
+### File Deletion Policy
+**CRITICAL**: Always confirm with user before deleting files, especially:
+- `claude_logs/` session files (conversation history)
+- Any existing data files or user-generated content
+- Configuration files or persistent state
+**Exception**: Only delete files without confirmation if user explicitly requests deletion
+
 ## Architecture
 
 ### Core Components
