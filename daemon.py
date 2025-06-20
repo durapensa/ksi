@@ -45,7 +45,7 @@ class ClaudeDaemon:
             '--model', 'sonnet',
             '--print',
             '--output-format', 'json',
-            '--allowedTools', 'all'  # Give spawned instances full tool access
+            '--allowedTools', 'Task Bash Glob Grep LS Read Edit MultiEdit Write WebFetch WebSearch'
         ]
         
         if session_id:
