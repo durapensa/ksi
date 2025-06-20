@@ -52,15 +52,21 @@ uv run python tests/test_daemon_protocol.py
 ## Architecture
 
 ### Core Components
-- **daemon.py**: Minimal async daemon that spawns Claude processes and tracks sessionId
+- **daemon.py**: Modular async daemon with multi-agent coordination capabilities
 - **chat.py**: Simple interface for chatting with Claude
-- **claude_modules/**: Python modules for extending daemon functionality
+- **daemon/**: Modular daemon architecture (core, state_manager, agent_manager, etc.)
 
 ### How It Works
 1. Daemon receives commands via Unix socket
 2. Spawns: `claude --model sonnet --print --output-format json --allowedTools "..." --resume sessionId`
 3. Logs all sessions to `claude_logs/<session-id>.jsonl` in JSONL format
 4. Uses `--resume sessionId` for conversation continuity
+
+### Multi-Agent Capabilities (Implemented - Requires Testing)
+- **Agent coordination**: Register agents, route tasks, manage state
+- **Inter-agent messaging**: Communication between Claude instances
+- **Shared state**: Persistent coordination across agents
+- **Agent profiles**: Pre-configured specialist roles
 
 ## Available Tools
 When working with the system, you have access to:

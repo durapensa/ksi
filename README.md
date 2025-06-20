@@ -44,6 +44,17 @@ A minimal daemon for managing Claude processes with conversation continuity.
    - Daemon logs all sessions to `claude_logs/<session-id>.jsonl`
    - Subsequent prompts use `--resume sessionId` for continuity
 
+## Multi-Agent Capabilities
+
+The daemon now includes multi-agent coordination infrastructure:
+- **Agent registration and management** (`REGISTER_AGENT`, `GET_AGENTS`)
+- **Inter-agent communication** (`SEND_MESSAGE`) with persistent logging
+- **Shared state coordination** (`SET_SHARED`, `GET_SHARED`) across agents
+- **Agent profiles** (orchestrator, researcher, coder, analyst) with template-based spawning
+- **Task routing** (`ROUTE_TASK`) with capability-based agent selection
+
+**Status**: Infrastructure implemented but requires testing before production use.
+
 ## Claude Can Extend This
 
 Claude has full control and can:
@@ -51,8 +62,9 @@ Claude has full control and can:
 - Use its tools (Bash, Edit, Write) to modify anything
 - Spawn new Claude sessions
 - Build whatever infrastructure it needs
+- Coordinate multi-agent workflows using the implemented infrastructure
 
-The daemon intentionally does almost nothing - it's just plumbing for Claude to build upon.
+The daemon provides minimal coordination plumbing - Claude instances handle the sophisticated logic.
 
 ## Session Logs
 
