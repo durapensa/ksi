@@ -1,0 +1,27 @@
+{
+  "timestamp": 1750400445.829489,
+  "session_id": "f3cf3932-52a8-4857-b3b1-ccfdaa2fa2e6",
+  "content_length": 190,
+  "cost": 0.0293925,
+  "duration_ms": 3592,
+  "entropy": 4.2652149785841775,
+  "token_stats": {
+    "token_count": 33,
+    "unique_tokens": 28,
+    "frequent_tokens": [
+      "i",
+      "to",
+      "code",
+      "understand",
+      "m",
+      "claude",
+      "ready",
+      "help",
+      "with",
+      "software"
+    ],
+    "avg_token_length": 4.545454545454546
+  },
+  "concept_edges": [],
+  "content_hash": "a0c52dfe"
+}

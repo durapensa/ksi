@@ -1,0 +1,52 @@
+{
+  "timestamp": 1750398768.552286,
+  "session_id": "56a0e519-0b6d-4a2d-9710-6390141434c8",
+  "content_length": 2557,
+  "cost": 0.39990359999999997,
+  "duration_ms": 21828,
+  "entropy": 4.505768620055176,
+  "token_stats": {
+    "token_count": 349,
+    "unique_tokens": 151,
+    "frequent_tokens": [
+      "memory",
+      "claude",
+      "to",
+      "spawned",
+      "code",
+      "read",
+      "files",
+      "in",
+      "this",
+      "what"
+    ],
+    "avg_token_length": 5.581661891117479
+  },
+  "concept_edges": [
+    [
+      "this",
+      "documented"
+    ],
+    [
+      "memory",
+      "available"
+    ],
+    [
+      "files",
+      "actually"
+    ],
+    [
+      "discover",
+      "read"
+    ],
+    [
+      "read",
+      "include"
+    ],
+    [
+      "test",
+      "validate"
+    ]
+  ],
+  "content_hash": "bfc94cfd"
+}

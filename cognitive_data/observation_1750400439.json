@@ -1,0 +1,27 @@
+{
+  "timestamp": 1750400439.576129,
+  "session_id": "2a825fa1-e75c-4f3c-80b1-6f91f84aedda",
+  "content_length": 198,
+  "cost": 0.0292891,
+  "duration_ms": 3601,
+  "entropy": 4.294210584853221,
+  "token_stats": {
+    "token_count": 31,
+    "unique_tokens": 25,
+    "frequent_tokens": [
+      "i",
+      "code",
+      "can",
+      "help",
+      "you",
+      "m",
+      "claude",
+      "an",
+      "ai",
+      "assistant"
+    ],
+    "avg_token_length": 5.096774193548387
+  },
+  "concept_edges": [],
+  "content_hash": "bd94f830"
+}

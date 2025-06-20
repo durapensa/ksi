@@ -1,0 +1,40 @@
+{
+  "timestamp": 1750399884.2079492,
+  "session_id": "c3aec718-02f5-4948-8000-55eb20099429",
+  "content_length": 3362,
+  "cost": 0.41719105,
+  "duration_ms": 27713,
+  "entropy": 4.64113709406107,
+  "token_stats": {
+    "token_count": 387,
+    "unique_tokens": 221,
+    "frequent_tokens": [
+      "prompt",
+      "components",
+      "could",
+      "the",
+      "composition",
+      "community",
+      "to",
+      "with",
+      "yaml",
+      "source"
+    ],
+    "avg_token_length": 6.550387596899225
+  },
+  "concept_edges": [
+    [
+      "sharing",
+      "a"
+    ],
+    [
+      "generalize",
+      "document"
+    ],
+    [
+      "examples",
+      "tutorials"
+    ]
+  ],
+  "content_hash": "f8e7aa46"
+}

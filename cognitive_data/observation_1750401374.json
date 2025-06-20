@@ -1,0 +1,52 @@
+{
+  "timestamp": 1750401374.5499752,
+  "session_id": "63601230-f613-49c5-add7-0cbade3e37f1",
+  "content_length": 1405,
+  "cost": 1.2293364500000001,
+  "duration_ms": 133327,
+  "entropy": 4.467393630644872,
+  "token_stats": {
+    "token_count": 185,
+    "unique_tokens": 126,
+    "frequent_tokens": [
+      "session",
+      "for",
+      "and",
+      "memory",
+      "context",
+      "this",
+      "the",
+      "system",
+      "we",
+      "compact"
+    ],
+    "avg_token_length": 6.135135135135135
+  },
+  "concept_edges": [
+    [
+      "data",
+      "there"
+    ],
+    [
+      "structure",
+      "implementation"
+    ],
+    [
+      "decisions",
+      "rationale"
+    ],
+    [
+      "state",
+      "integration"
+    ],
+    [
+      "analyze",
+      "compress"
+    ],
+    [
+      "immediate",
+      "long"
+    ]
+  ],
+  "content_hash": "3408023d"
+}
