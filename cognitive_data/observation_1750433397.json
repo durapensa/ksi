@@ -1,0 +1,36 @@
+{
+  "timestamp": 1750433397.3625212,
+  "session_id": "3c1cdac8-6c84-4e55-96fc-4479a8bbe2b7",
+  "content_length": 1887,
+  "cost": 0.2979533,
+  "duration_ms": 172023,
+  "entropy": 4.461060698641371,
+  "token_stats": {
+    "token_count": 214,
+    "unique_tokens": 150,
+    "frequent_tokens": [
+      "compression",
+      "cognitive",
+      "that",
+      "the",
+      "session",
+      "system",
+      "your",
+      "with",
+      "weighted",
+      "dimensions"
+    ],
+    "avg_token_length": 6.9766355140186915
+  },
+  "concept_edges": [
+    [
+      "compression",
+      "about"
+    ],
+    [
+      "quality",
+      "effectiveness"
+    ]
+  ],
+  "content_hash": "d38fc68f"
+}

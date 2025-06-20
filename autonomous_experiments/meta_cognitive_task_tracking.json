@@ -1,0 +1,8 @@
+{
+  "task_type": "meta_cognitive_compression",
+  "session_id": "44d37365-519f-4fe9-aed7-f239aae679af",
+  "timestamp": 1750433408.136776,
+  "description": "Multi-dimensional session compression capturing technical, cognitive, meta-cognitive, collaborative, philosophical, and aesthetic dimensions",
+  "expected_output": "meta_cognitive_session_essence.md",
+  "framework": "6-layer extraction model"
+}

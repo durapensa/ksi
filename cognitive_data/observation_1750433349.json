@@ -1,0 +1,36 @@
+{
+  "timestamp": 1750433349.767018,
+  "session_id": "0e8c7c7f-52a4-47c6-a629-a4ddfe07b640",
+  "content_length": 625,
+  "cost": 0.1067468,
+  "duration_ms": 22972,
+  "entropy": 4.281102901184868,
+  "token_stats": {
+    "token_count": 89,
+    "unique_tokens": 60,
+    "frequent_tokens": [
+      "you",
+      "compression",
+      "cognitive",
+      "session",
+      "for",
+      "i",
+      "see",
+      "meta",
+      "with",
+      "synthesis"
+    ],
+    "avg_token_length": 5.842696629213483
+  },
+  "concept_edges": [
+    [
+      "compression",
+      "orchestration"
+    ],
+    [
+      "data",
+      "observations"
+    ]
+  ],
+  "content_hash": "91940424"
+}

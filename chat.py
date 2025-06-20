@@ -59,7 +59,8 @@ def send_prompt(prompt, session_id=None):
     if session_id:
         command = f"SPAWN:{session_id}:{prompt}"
     else:
-        command = f"SPAWN:{prompt}"
+        # Use double colon to indicate no session_id
+        command = f"SPAWN::{prompt}"
     
     # Send to daemon
     response = send_to_daemon(command)

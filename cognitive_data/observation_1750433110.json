@@ -1,0 +1,27 @@
+{
+  "timestamp": 1750433110.657685,
+  "session_id": "f0fc1c71-55b1-4f44-a277-a6508833c7d5",
+  "content_length": 61,
+  "cost": 0.01434295,
+  "duration_ms": 7145,
+  "entropy": 4.15172904420188,
+  "token_stats": {
+    "token_count": 11,
+    "unique_tokens": 11,
+    "frequent_tokens": [
+      "what",
+      "would",
+      "you",
+      "like",
+      "me",
+      "to",
+      "do",
+      "with",
+      "meta",
+      "cognitive"
+    ],
+    "avg_token_length": 4.545454545454546
+  },
+  "concept_edges": [],
+  "content_hash": "36e49d7a"
+}

@@ -1,0 +1,27 @@
+{
+  "timestamp": 1750433346.292841,
+  "session_id": "651e1f55-7425-4084-8d07-2165e1da0fdf",
+  "content_length": 81,
+  "cost": 0.17778415000000003,
+  "duration_ms": 48421,
+  "entropy": 4.142707836877881,
+  "token_stats": {
+    "token_count": 14,
+    "unique_tokens": 14,
+    "frequent_tokens": [
+      "what",
+      "specific",
+      "aspect",
+      "of",
+      "meta",
+      "cognitive",
+      "compression",
+      "would",
+      "you",
+      "like"
+    ],
+    "avg_token_length": 4.785714285714286
+  },
+  "concept_edges": [],
+  "content_hash": "637bf410"
+}

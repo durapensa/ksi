@@ -1,0 +1,48 @@
+{
+  "timestamp": 1750433564.959184,
+  "session_id": "03b4fa9d-e654-465c-829c-c431a9c22566",
+  "content_length": 1582,
+  "cost": 0.5793721,
+  "duration_ms": 311571,
+  "entropy": 4.552374963637404,
+  "token_stats": {
+    "token_count": 203,
+    "unique_tokens": 136,
+    "frequent_tokens": [
+      "compression",
+      "the",
+      "priority",
+      "session",
+      "system",
+      "1",
+      "cognitive",
+      "dimensional",
+      "that",
+      "on"
+    ],
+    "avg_token_length": 6.197044334975369
+  },
+  "concept_edges": [
+    [
+      "dimensions",
+      "most"
+    ],
+    [
+      "effort",
+      "focused"
+    ],
+    [
+      "system",
+      "ready"
+    ],
+    [
+      "implemented",
+      "tested"
+    ],
+    [
+      "journey",
+      "meta"
+    ]
+  ],
+  "content_hash": "82771b90"
+}

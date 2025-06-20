@@ -1,0 +1,12 @@
+{
+  "weights": {
+    "technical": 0.8571428571428571,
+    "cognitive": 1.1627329192546583,
+    "meta_cognitive": 1.4534161490683228,
+    "collaborative": 1.0658385093167702,
+    "philosophical": 0.8049689440993787,
+    "aesthetic": 0.6559006211180125
+  },
+  "timestamp": 1750433536.037753,
+  "total_chunks": 5
+}

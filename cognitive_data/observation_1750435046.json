@@ -1,0 +1,32 @@
+{
+  "timestamp": 1750435046.660816,
+  "session_id": "06257048-9e85-4d8d-9e25-2beecc5fade4",
+  "content_length": 489,
+  "cost": 0.047323649999999995,
+  "duration_ms": 6574,
+  "entropy": 4.360799522296561,
+  "token_stats": {
+    "token_count": 77,
+    "unique_tokens": 51,
+    "frequent_tokens": [
+      "or",
+      "with",
+      "daemon",
+      "you",
+      "on",
+      "the",
+      "i",
+      "a",
+      "cognitive",
+      "compression"
+    ],
+    "avg_token_length": 5.090909090909091
+  },
+  "concept_edges": [
+    [
+      "this",
+      "a"
+    ]
+  ],
+  "content_hash": "9c92e7c6"
+}

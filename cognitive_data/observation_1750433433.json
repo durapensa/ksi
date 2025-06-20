@@ -1,0 +1,52 @@
+{
+  "timestamp": 1750433433.844203,
+  "session_id": "e18dfd3a-fbea-427c-917f-fb426de23cda",
+  "content_length": 1042,
+  "cost": 0.17423195000000002,
+  "duration_ms": 59313,
+  "entropy": 4.484070369516541,
+  "token_stats": {
+    "token_count": 122,
+    "unique_tokens": 84,
+    "frequent_tokens": [
+      "the",
+      "cognitive",
+      "meta",
+      "compression",
+      "and",
+      "a",
+      "system",
+      "task",
+      "has",
+      "been"
+    ],
+    "avg_token_length": 7.147540983606557
+  },
+  "concept_edges": [
+    [
+      "itself",
+      "a"
+    ],
+    [
+      "infrastructure",
+      "operational"
+    ],
+    [
+      "framework",
+      "ready"
+    ],
+    [
+      "discovered",
+      "analyzed"
+    ],
+    [
+      "exists",
+      "documents"
+    ],
+    [
+      "operational",
+      "has"
+    ]
+  ],
+  "content_hash": "cdebf16a"
+}

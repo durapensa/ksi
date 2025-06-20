@@ -1,0 +1,2 @@
+{"timestamp": "2025-06-20T15:27:55.086100Z", "type": "human", "content": ":# Meta-Cognitive Compression Task"}
+{"type": "claude", "subtype": "error_during_execution", "duration_ms": 39921, "duration_api_ms": 56789, "is_error": false, "num_turns": 0, "session_id": "875a6238-9af9-40ff-94d1-27be8150c0a1", "total_cost_usd": 0.09337565000000002, "usage": {"input_tokens": 40, "cache_creation_input_tokens": 10481, "cache_read_input_tokens": 119507, "output_tokens": 1005, "server_tool_use": {"web_search_requests": 0}}, "timestamp": "2025-06-20T15:27:55.086231Z"}

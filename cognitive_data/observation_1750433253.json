@@ -1,0 +1,44 @@
+{
+  "timestamp": 1750433253.5431511,
+  "session_id": "5c020439-fae4-4f2e-9e21-8ddcc217697c",
+  "content_length": 1718,
+  "cost": 0.30241709999999994,
+  "duration_ms": 155782,
+  "entropy": 4.51087415195084,
+  "token_stats": {
+    "token_count": 193,
+    "unique_tokens": 126,
+    "frequent_tokens": [
+      "cognitive",
+      "compression",
+      "the",
+      "meta",
+      "system",
+      "session",
+      "consciousness",
+      "what",
+      "data",
+      "technical"
+    ],
+    "avg_token_length": 7.139896373056994
+  },
+  "concept_edges": [
+    [
+      "what",
+      "accomplished"
+    ],
+    [
+      "what",
+      "built"
+    ],
+    [
+      "problems",
+      "approached"
+    ],
+    [
+      "implemented",
+      "demonstrated"
+    ]
+  ],
+  "content_hash": "e800c6b6"
+}

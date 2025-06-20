@@ -1,0 +1,32 @@
+{
+  "timestamp": 1750433258.786858,
+  "session_id": "948bc302-f23e-446a-b7b4-f2e2e2c52f48",
+  "content_length": 222,
+  "cost": 0.0665156,
+  "duration_ms": 24239,
+  "entropy": 4.16177225631084,
+  "token_stats": {
+    "token_count": 37,
+    "unique_tokens": 32,
+    "frequent_tokens": [
+      "compression",
+      "you",
+      "meta",
+      "cognitive",
+      "looking",
+      "at",
+      "your",
+      "git",
+      "status",
+      "i"
+    ],
+    "avg_token_length": 4.945945945945946
+  },
+  "concept_edges": [
+    [
+      "synthesis",
+      "session"
+    ]
+  ],
+  "content_hash": "e0dc18d3"
+}

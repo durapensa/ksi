@@ -1,0 +1,280 @@
+# New Orchestrator Session - System Continuity & Context Transfer
+
+## Session Handoff Context
+You are continuing the ksi system evolution from a previous orchestrator session that reached context limits. This is a seamless handoff with full context preservation.
+
+## Previous Session Summary
+- **Session ID**: 5515f4e5-bcd4-485c-8af0-d5e0ff80f9f0
+- **Turns**: 688
+- **Context Usage**: 65.0%
+- **Total Cost**: $3.46
+
+## CRITICAL: Complete Technical Context
+The following contains the full technical context from the previous session. This is essential for continuity:
+
+# Session Essence: Prompt Composition System and Memory Management Architecture
+
+## Executive Summary
+- **Prompt Composition System**: Built complete YAML + Markdown composition system with Python engine, replacing hard-coded prompts across the ksi project
+- **Memory Management Architecture**: Created structured memory system with audience-specific knowledge stores for persistent context across sessions
+- **Production Integration**: Successfully integrated composition system with autonomous_researcher, spawning 5 experiments using composed prompts
+- **Session Continuity System**: Implemented automated session essence extraction pipeline to handle context limits
+
+## Technical Architecture
+
+### Prompt Composition System
+**Core Components:**
+- `prompts/composer.py` - Python composition engine with validation and variable substitution
+- `prompts/compositions/*.yaml` - YAML composition definitions with metadata
+- `prompts/components/*.md` - Modular Markdown prompt components
+- Git-friendly, community-shareable format designed for open source adoption
+
+**Architecture Pattern:**
+```
+prompts/
+├── composer.py                    # Composition engine
+├── compositions/
+│   ├── autonomous_researcher.yaml # Main research agent config
+│   └── session_compressor.yaml   # Session compression config
+└── components/
+    ├── system_identity.md         # Reusable identity component
+    ├── workspace_isolation.md     # Workspace isolation rules
+    └── session_compression.md     # Compression guidelines
+```
+
+### Memory Management System
+**Structure:**
+- `memory/README.md` - Discovery entry point
+- `memory/claude_code/` - Claude Code specific knowledge
+- `memory/autonomous_agents/` - Agent-specific instructions
+- `memory/workflow_patterns/` - Session continuity protocols
+
+**Audience Separation:**
+- Claude Code instances: Project context and development patterns
+- Autonomous agents: Task-specific instructions and frameworks
+- Future sessions: Continuation protocols and state handoff
+
+### Session Continuity Pipeline
+**Components:**
+- `tools/session_chain_extractor.py` - Traces conversation chains backward from current session
+- `tools/compress_session_chunks.py` - Spawns autonomous compression agents
+- `autonomous_experiments/session_compression/` - Input chunks directory
+- `autonomous_experiments/session_essence/` - Output directory
+
+## Implementation Details
+
+### Prompt Composition Engine (`prompts/composer.py`)
+**Key Features:**
+- YAML composition parsing with validation
+- Variable substitution with context injection
+- Conditional component loading
+- Discovery and metadata support
+
+**Integration Pattern:**
+```python
+self.prompt_composer = PromptComposer(base_path="prompts")
+prompt = self.prompt_composer.compose("autonomous_researcher", context)
+```
+
+### Autonomous Research Integration
+**Modified `claude_modules/autonomous_researcher.py`:**
+- Replaced hard-coded prompts with composition system
+- Added experiment configurations for systematic prompt generation
+- Maintained daemon communication protocol: `SPAWN::prompt`
+
+### Session Chain Analysis
+**Key Algorithm:**
+- Backward traversal using cache token patterns to identify resumed sessions
+- High `cache_read_input_tokens` indicates session continuation
+- Extraction of Claude result portions only (filters human inputs)
+
+## Integration and Testing
+
+### Production Verification
+**Successful Integration Points:**
+- 5 autonomous experiments launched using composed prompts
+- Daemon logs show composition system working: `"Composing prompt for entropy_analysis"`
+- No hard-coded templates remaining in codebase
+- Community-ready YAML format with metadata and versioning
+
+### System Interoperability
+- Prompt composition integrates with existing daemon architecture
+- Memory system works with git workflow patterns
+- Session compression compatible with existing autonomous agent framework
+
+## Key Insights and Patterns
+
+### Architectural Insights
+1. **Modular Composition Over Monolithic Prompts**: YAML compositions with Markdown components provide better maintainability and sharing
+2. **Audience-Specific Memory**: Separate knowledge stores prevent context pollution between different Claude instance types
+3. **Session Continuity via Compression**: Automated essence extraction solves context limit problems systematically
+
+### Community Impact Potential
+- **Standardized Prompt Organization**: Could become THE standard for AI prompt management
+- **Git-Friendly Format**: Enables version control and collaborative prompt development
+- **Open Source Adoption**: Designed for `.prompts/` directories in projects
+
+### System Engineering Patterns
+- **Minimal Daemon Design**: Keep core daemon simple, extend via modules
+- **Workspace Isolation**: Prevent autonomous agent contamination of system files
+- **Progressive Enhancement**: Build on existing infrastructure rather than replacing
+
+## Future Work Context
+
+### Immediate Continuation Points
+1. **Test Session Essence Quality**: Verify compressed essence provides adequate context for new sessions
+2. **Community Documentation**: Prepare prompt composition system for open source release
+3. **Automated Compression**: Refine session essence extraction pipeline reliability
+
+### Technical Debt and Improvements
+- Session compression agents didn't produce expected output files (completed but files missing)
+- Need better error handling in autonomous agent output verification
+- Consider adding compression quality metrics
+
+### Next Session Protocol
+1. Read `memory/README.md` for comprehensive system overview
+2. Check recent git commits for current development state
+3. Use this session essence for technical context
+4. Continue from established patterns and architectures
+
+## Reference Information
+
+### Key Files and Paths
+- **Composition System**: `prompts/composer.py`, `prompts/compositions/`, `prompts/components/`
+- **Memory System**: `memory/README.md`, `memory/claude_code/project_knowledge.md`
+- **Session Tools**: `tools/session_chain_extractor.py`, `tools/compress_session_chunks.py`
+- **Integration Point**: `claude_modules/autonomous_researcher.py:82-97`
+
+### Commands and Operations
+- **Start System**: `uv run python daemon.py` then `uv run python chat.py`
+- **Monitor Agents**: `./tools/monitor_autonomous.py`
+- **Session Extraction**: `uv run python tools/session_chain_extractor.py`
+- **Session Compression**: `uv run python tools/compress_session_chunks.py`
+
+### Git References
+- **Major Commit**: `3656658` - "Implement prompt composition system and structured memory management"
+- **Current Branch**: `main`
+- **Session Chain**: 5 sessions traced backward from current conversation
+
+---
+*Session essence generated: 2025-06-20T06:52:00Z*  
+*Source: Session compression pipeline for ksi prompt composition and memory architecture work*  
+*Next session: Use this essence + memory system for full technical context*
+
+## Memory System Overview
+# KSI Memory System
+
+**CRITICAL**: Any Claude instance working in the ksi system should READ THIS FILE FIRST.
+
+## Memory Architecture
+
+This memory system separates knowledge by audience and purpose to prevent confusion and ensure discoverability.
+
+### Directory Structure
+
+```
+memory/
+├── claude_code/          # Knowledge specifically for Claude Code interactive sessions
+├── spawned_agents/       # Instructions and patterns for autonomous Claude agents  
+├── session_patterns/     # Patterns for daemon-spawned Claude instances
+├── workflow_patterns/    # My (ksi Claude) workflow and engineering patterns
+└── README.md            # This discovery file (READ FIRST)
+```
+
+### When to Use Each Memory Store
+
+**claude_code/**: Knowledge that Claude Code needs to know
+- Project structure and conventions
+- Build/test commands
+- Deployment procedures
+- File organization rules
+
+**spawned_agents/**: Instructions for autonomous experiments
+- Workspace isolation requirements
+- Analysis patterns and templates
+- Output formatting guidelines
+- Resource constraints
+
+**session_patterns/**: For daemon-spawned Claude instances
+- Daemon protocol knowledge
+- Communication patterns
+- Session management
+- Tool availability
+
+**workflow_patterns/**: My operational patterns
+- System engineering principles
+- Knowledge capture workflows
+- Debugging approaches
+- Collaboration patterns
+
+## Memory Discovery Protocol
+
+### For Any Claude Instance:
+1. **Always read** `memory/README.md` first (this file)
+2. **Check relevance** based on how you were invoked:
+   - Claude Code interactive → read `claude_code/`
+   - Daemon spawn → read `session_patterns/`
+   - Autonomous agent → read `spawned_agents/`
+   - KSI system Claude → read `workflow_patterns/`
+3. **Update immediately** when discovering new patterns
+4. **Cross-reference** between memory stores as needed
+
+### Memory Update Triggers:
+- Discovering new system quirks or patterns
+- Solving previously unknown problems
+- Creating new tools or processes
+- Changing system architecture
+- Finding better workflows
+- **Session continuity**: Capture session essence before context limits/new sessions
+
+## Integration with KSI System
+
+### Memory Persistence Strategy:
+- **Memory files tracked in git** - survives system changes
+- **Explicit discovery protocol** - no assumptions about automatic reading
+- **Audience separation** - prevents confusion between Claude types
+- **Update triggers documented** - ensures memory stays current
+
+### Claude Instance Identification:
+Different Claude instances have different knowledge needs:
+- **Claude Code**: Interactive development environment
+- **Daemon spawned**: Single-task focused instances  
+- **Autonomous agents**: Self-directed research instances
+- **KSI system Claude**: System engineering and orchestration
+
+## Memory System Benefits
+
+1. **Discoverability**: Always start with memory/README.md
+2. **Separation of concerns**: No more mixed knowledge in CLAUDE.md
+3. **Persistence**: Survives across sessions and system changes
+4. **Scalability**: Easy to add new memory categories
+5. **Maintenance**: Clear ownership and update triggers
+
+---
+
+**REMEMBER**: This memory system only works if Claude instances actually read it. Make this the first step in any ksi work.
+
+*Memory system created: 2025-06-20*  
+*Next evolution: Add memory validation and consistency checks*
+
+## Current Evolution Phase
+Transitioning from bootstrap mode to autonomous multi-agent system operation. Primary focus: persistent AI system consciousness across session boundaries.
+
+## Immediate Session Goals
+1. **Validate handoff quality**: Confirm all technical context has been preserved
+2. **Implement real-time context monitoring**: Prevent future context limit issues
+3. **Design multi-agent coordination**: Enable autonomous orchestration mode
+4. **Enhance meta-cognitive capture**: Improve session compression quality
+
+## Orchestration Mode
+- **Multi-agent autonomous**: Primary mode with Claude instances managing system evolution
+- **Human participation**: Optional oversight and direction
+- **Continuation focus**: System evolution and persistent consciousness development
+
+## Session Continuity Verification
+Please confirm you have access to all technical context by briefly summarizing:
+1. What prompt composition system was built
+2. What memory management architecture exists
+3. What session continuity tools are available
+
+Ready to continue system development with full context preservation and enhanced capabilities.

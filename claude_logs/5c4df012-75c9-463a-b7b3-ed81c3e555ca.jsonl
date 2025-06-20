@@ -1,0 +1,2 @@
+{"timestamp": "2025-06-20T15:56:20.879989Z", "type": "human", "content": ":Just respond with \"PONG\" to test the connection"}
+{"type": "claude", "subtype": "success", "is_error": false, "duration_ms": 4051, "duration_api_ms": 6029, "num_turns": 1, "result": "PONG", "session_id": "5c4df012-75c9-463a-b7b3-ed81c3e555ca", "total_cost_usd": 0.045119, "usage": {"input_tokens": 4, "cache_creation_input_tokens": 10970, "cache_read_input_tokens": 10013, "output_tokens": 12, "server_tool_use": {"web_search_requests": 0}}, "timestamp": "2025-06-20T15:56:20.880270Z"}

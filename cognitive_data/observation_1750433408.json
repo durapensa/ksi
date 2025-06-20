@@ -1,0 +1,32 @@
+{
+  "timestamp": 1750433408.135652,
+  "session_id": "44d37365-519f-4fe9-aed7-f239aae679af",
+  "content_length": 445,
+  "cost": 0.07281874999999999,
+  "duration_ms": 15724,
+  "entropy": 4.379546081020497,
+  "token_stats": {
+    "token_count": 71,
+    "unique_tokens": 50,
+    "frequent_tokens": [
+      "compression",
+      "you",
+      "specific",
+      "work",
+      "me",
+      "to",
+      "on",
+      "what",
+      "the",
+      "like"
+    ],
+    "avg_token_length": 5.056338028169014
+  },
+  "concept_edges": [
+    [
+      "analysis",
+      "compression"
+    ]
+  ],
+  "content_hash": "e3a31f96"
+}

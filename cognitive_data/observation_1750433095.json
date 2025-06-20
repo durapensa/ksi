@@ -1,0 +1,32 @@
+{
+  "timestamp": 1750433095.163393,
+  "session_id": "f61f1129-1900-4e26-b731-7a6db64379fb",
+  "content_length": 234,
+  "cost": 0.013437250000000001,
+  "duration_ms": 7353,
+  "entropy": 4.180281517485385,
+  "token_stats": {
+    "token_count": 41,
+    "unique_tokens": 35,
+    "frequent_tokens": [
+      "you",
+      "specific",
+      "to",
+      "the",
+      "compression",
+      "i",
+      "could",
+      "clarify",
+      "what",
+      "work"
+    ],
+    "avg_token_length": 4.658536585365853
+  },
+  "concept_edges": [
+    [
+      "there",
+      "some"
+    ]
+  ],
+  "content_hash": "9a292118"
+}

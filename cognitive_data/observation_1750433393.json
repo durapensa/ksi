@@ -1,0 +1,27 @@
+{
+  "timestamp": 1750433393.522916,
+  "session_id": "3efbf55f-9e3e-4ca7-a539-5a9eaf5a3cde",
+  "content_length": 593,
+  "cost": 0.15435610000000002,
+  "duration_ms": 39411,
+  "entropy": 4.465383513084639,
+  "token_stats": {
+    "token_count": 88,
+    "unique_tokens": 60,
+    "frequent_tokens": [
+      "compression",
+      "you",
+      "the",
+      "meta",
+      "cognitive",
+      "session",
+      "to",
+      "on",
+      "i",
+      "see"
+    ],
+    "avg_token_length": 5.511363636363637
+  },
+  "concept_edges": [],
+  "content_hash": "29bc62bb"
+}

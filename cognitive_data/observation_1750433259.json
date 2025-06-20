@@ -1,0 +1,36 @@
+{
+  "timestamp": 1750433259.371676,
+  "session_id": "e88bfd9f-703e-4ad0-9bbe-299d7bae9551",
+  "content_length": 295,
+  "cost": 0.10819579999999998,
+  "duration_ms": 13028,
+  "entropy": 4.287425364214457,
+  "token_stats": {
+    "token_count": 43,
+    "unique_tokens": 38,
+    "frequent_tokens": [
+      "what",
+      "you",
+      "session",
+      "compression",
+      "and",
+      "specifically",
+      "are",
+      "asking",
+      "me",
+      "to"
+    ],
+    "avg_token_length": 5.674418604651163
+  },
+  "concept_edges": [
+    [
+      "specifically",
+      "you"
+    ],
+    [
+      "compression",
+      "meta"
+    ]
+  ],
+  "content_hash": "30b24c43"
+}

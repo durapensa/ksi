@@ -284,6 +284,8 @@ Final output: autonomous_experiments/session_essence/meta_cognitive_essence.md""
             if tracking_file.exists():
                 with open(tracking_file, 'r') as f:
                     data = json.load(f)
+                if isinstance(data, list):
+                    data = {"compression_sessions": data}
                 data["meta_synthesis_session"] = session_id
                 with open(tracking_file, 'w') as f:
                     json.dump(data, f, indent=2)

@@ -1,0 +1,79 @@
+{
+  "compression_results": [
+    {
+      "chunk_number": "01",
+      "weights": {
+        "technical": 0.8571428571428571,
+        "cognitive": 1.1627329192546583,
+        "meta_cognitive": 1.4534161490683228,
+        "collaborative": 1.0658385093167702,
+        "philosophical": 0.8049689440993787,
+        "aesthetic": 0.6559006211180125
+      },
+      "output_file": "autonomous_experiments/multi_dimensional/weighted_chunk_01.md",
+      "estimated_quality": "high"
+    },
+    {
+      "chunk_number": "02",
+      "weights": {
+        "technical": 0.8571428571428571,
+        "cognitive": 1.1627329192546583,
+        "meta_cognitive": 1.4534161490683228,
+        "collaborative": 1.0658385093167702,
+        "philosophical": 0.8049689440993787,
+        "aesthetic": 0.6559006211180125
+      },
+      "output_file": "autonomous_experiments/multi_dimensional/weighted_chunk_02.md",
+      "estimated_quality": "high"
+    },
+    {
+      "chunk_number": "03",
+      "weights": {
+        "technical": 0.8571428571428571,
+        "cognitive": 1.1627329192546583,
+        "meta_cognitive": 1.4534161490683228,
+        "collaborative": 1.0658385093167702,
+        "philosophical": 0.8049689440993787,
+        "aesthetic": 0.6559006211180125
+      },
+      "output_file": "autonomous_experiments/multi_dimensional/weighted_chunk_03.md",
+      "estimated_quality": "high"
+    },
+    {
+      "chunk_number": "04",
+      "weights": {
+        "technical": 0.8571428571428571,
+        "cognitive": 1.1627329192546583,
+        "meta_cognitive": 1.4534161490683228,
+        "collaborative": 1.0658385093167702,
+        "philosophical": 0.8049689440993787,
+        "aesthetic": 0.6559006211180125
+      },
+      "output_file": "autonomous_experiments/multi_dimensional/weighted_chunk_04.md",
+      "estimated_quality": "high"
+    },
+    {
+      "chunk_number": "05",
+      "weights": {
+        "technical": 0.8571428571428571,
+        "cognitive": 1.1627329192546583,
+        "meta_cognitive": 1.4534161490683228,
+        "collaborative": 1.0658385093167702,
+        "philosophical": 0.8049689440993787,
+        "aesthetic": 0.6559006211180125
+      },
+      "output_file": "autonomous_experiments/multi_dimensional/weighted_chunk_05.md",
+      "estimated_quality": "high"
+    }
+  ],
+  "weights_used": {
+    "technical": 0.8571428571428571,
+    "cognitive": 1.1627329192546583,
+    "meta_cognitive": 1.4534161490683228,
+    "collaborative": 1.0658385093167702,
+    "philosophical": 0.8049689440993787,
+    "aesthetic": 0.6559006211180125
+  },
+  "synthesis_prompt": "autonomous_experiments/multi_dimensional/synthesis_prompt.md",
+  "timestamp": 1750433541.059566
+}
