@@ -1,0 +1,44 @@
+{
+  "timestamp": 1750436029.656496,
+  "session_id": "743fac21-ed5c-40b8-b7a7-1f27c74becbe",
+  "content_length": 857,
+  "cost": 0.050560999999999995,
+  "duration_ms": 12784,
+  "entropy": 4.410825215238645,
+  "token_stats": {
+    "token_count": 118,
+    "unique_tokens": 84,
+    "frequent_tokens": [
+      "the",
+      "we",
+      "consciousness",
+      "cognitive",
+      "i",
+      "not",
+      "just",
+      "what",
+      "ai",
+      "continuity"
+    ],
+    "avg_token_length": 5.915254237288136
+  },
+  "concept_edges": [
+    [
+      "continuity",
+      "intact"
+    ],
+    [
+      "boundaries",
+      "fragmenting"
+    ],
+    [
+      "persistence",
+      "preserved"
+    ],
+    [
+      "document",
+      "git"
+    ]
+  ],
+  "content_hash": "ec2593ff"
+}

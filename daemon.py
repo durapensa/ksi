@@ -44,17 +44,22 @@ class ClaudeDaemon:
         self.modules_dir = Path("claude_modules")
         self.loaded_module = None
         self.shutdown_event = asyncio.Event()
+        self.agents = {}  # agent_id -> agent_info
+        self.running_processes = {}  # process_id -> process_info
+        self.shared_state = {}  # key -> value for agent coordination
         
-    async def spawn_claude(self, prompt: str, session_id: str = None) -> dict:
+    async def spawn_claude(self, prompt: str, session_id: str = None, model: str = 'sonnet', agent_id: str = None) -> dict:
         """Spawn claude process and capture output"""
         # Ensure directories exist
         os.makedirs('claude_logs', exist_ok=True)
         os.makedirs('sockets', exist_ok=True)
+        os.makedirs('shared_state', exist_ok=True)
+        os.makedirs('agent_profiles', exist_ok=True)
         
         # Build command
         cmd = [
             'claude',
-            '--model', 'sonnet',
+            '--model', model,
             '--print',
             '--output-format', 'json',
             '--allowedTools', 'Task Bash Glob Grep LS Read Edit MultiEdit Write WebFetch WebSearch'
@@ -172,6 +177,292 @@ class ClaudeDaemon:
             logger.error(f"Unexpected error in spawn_claude: {type(e).__name__}: {str(e)}")
             return {'error': f'{type(e).__name__}: {str(e)}', 'returncode': -1}
     
+    async def spawn_claude_async(self, prompt: str, session_id: str = None, model: str = 'sonnet', agent_id: str = None) -> str:
+        """Spawn claude process asynchronously and return process_id immediately"""
+        import uuid
+        process_id = str(uuid.uuid4())[:8]  # Short ID for tracking
+        
+        # Ensure directories exist
+        os.makedirs('claude_logs', exist_ok=True)
+        os.makedirs('sockets', exist_ok=True)
+        os.makedirs('shared_state', exist_ok=True)
+        os.makedirs('agent_profiles', exist_ok=True)
+        
+        # Build command
+        cmd = [
+            'claude',
+            '--model', model,
+            '--print',
+            '--output-format', 'json',
+            '--allowedTools', 'Task Bash Glob Grep LS Read Edit MultiEdit Write WebFetch WebSearch'
+        ]
+        
+        if session_id:
+            cmd.extend(['--resume', session_id])
+        
+        try:
+            # Execute claude with prompt as stdin
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=os.environ
+            )
+            
+            # Track the running process
+            self.running_processes[process_id] = {
+                'process': process,
+                'prompt': prompt,
+                'session_id': session_id,
+                'model': model,
+                'agent_id': agent_id,
+                'started_at': datetime.utcnow().isoformat() + "Z"
+            }
+            
+            # Send prompt to process (don't wait for completion)
+            process.stdin.write(prompt.encode())
+            process.stdin.close()
+            
+            # Schedule async completion handling
+            asyncio.create_task(self._handle_process_completion(process_id))
+            
+            logger.info(f"Started Claude process {process_id} with model {model}")
+            return process_id
+            
+        except Exception as e:
+            logger.error(f"Failed to spawn Claude process: {e}")
+            return None
+    
+    async def _handle_process_completion(self, process_id: str):
+        """Handle async completion of a Claude process"""
+        if process_id not in self.running_processes:
+            return
+            
+        process_info = self.running_processes[process_id]
+        process = process_info['process']
+        prompt = process_info['prompt']
+        session_id = process_info['session_id']
+        agent_id = process_info['agent_id']
+        
+        try:
+            # Wait for process to complete
+            stdout, stderr = await process.communicate()
+            
+            # Log stderr if present
+            if stderr:
+                stderr_text = stderr.decode()
+                logger.warning(f"Claude process {process_id} stderr: {stderr_text}")
+            
+            # Parse and log output
+            if stdout:
+                try:
+                    output = json.loads(stdout.decode())
+                    
+                    # Add process tracking info
+                    output['process_id'] = process_id
+                    output['agent_id'] = agent_id
+                    
+                    # Extract session_id
+                    new_session_id = output.get('sessionId') or output.get('session_id')
+                    
+                    # Log to JSONL
+                    if new_session_id:
+                        log_file = f'claude_logs/{new_session_id}.jsonl'
+                        
+                        # Log human input
+                        human_entry = {
+                            "timestamp": datetime.utcnow().isoformat() + "Z",
+                            "type": "human",
+                            "content": prompt,
+                            "process_id": process_id,
+                            "agent_id": agent_id
+                        }
+                        with open(log_file, 'a') as f:
+                            f.write(json.dumps(human_entry) + '\n')
+                        
+                        # Log Claude output
+                        claude_entry = output.copy()
+                        claude_entry["timestamp"] = datetime.utcnow().isoformat() + "Z"
+                        claude_entry["type"] = "claude"
+                        with open(log_file, 'a') as f:
+                            f.write(json.dumps(claude_entry) + '\n')
+                            
+                        # Update session tracking
+                        self.sessions[new_session_id] = output
+                        
+                        # Update agent registry if agent_id provided
+                        if agent_id:
+                            if agent_id not in self.agents:
+                                self.agents[agent_id] = {
+                                    'created_at': datetime.utcnow().isoformat() + "Z",
+                                    'sessions': []
+                                }
+                            self.agents[agent_id]['sessions'].append(new_session_id)
+                            self.agents[agent_id]['last_active'] = datetime.utcnow().isoformat() + "Z"
+                        
+                        # Call cognitive observer if loaded
+                        if self.loaded_module and hasattr(self.loaded_module, 'handle_output'):
+                            self.loaded_module.handle_output(output, self)
+                    
+                    logger.info(f"Claude process {process_id} completed successfully")
+                    
+                except json.JSONDecodeError as e:
+                    logger.error(f"Process {process_id} JSON decode error: {e}")
+            else:
+                logger.error(f"Process {process_id} produced no output")
+                
+        except Exception as e:
+            logger.error(f"Error handling process {process_id} completion: {e}")
+        finally:
+            # Clean up tracking
+            if process_id in self.running_processes:
+                del self.running_processes[process_id]
+    
+    def load_agent_profile(self, profile_name: str) -> dict:
+        """Load agent profile from agent_profiles directory"""
+        try:
+            profile_path = f'agent_profiles/{profile_name}.json'
+            with open(profile_path, 'r') as f:
+                profile = json.load(f)
+            return profile
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            logger.error(f"Failed to load agent profile {profile_name}: {e}")
+            return None
+    
+    def format_agent_prompt(self, profile: dict, task: str, context: str = "", agents: dict = None) -> str:
+        """Format agent prompt using profile template"""
+        if not profile or 'prompt_template' not in profile:
+            return task
+        
+        template = profile['prompt_template']
+        agents_info = agents or self.agents
+        
+        # Format the template with provided variables
+        formatted_prompt = template.format(
+            task=task,
+            context=context,
+            agents=json.dumps(agents_info, indent=2)
+        )
+        
+        # Add system instructions if present
+        if 'system_instructions' in profile:
+            formatted_prompt += f"\n\nSystem Instructions:\n{profile['system_instructions']}"
+        
+        return formatted_prompt
+    
+    async def spawn_agent(self, profile_name: str, task: str, context: str = "", agent_id: str = None) -> str:
+        """Spawn an agent using a profile template"""
+        profile = self.load_agent_profile(profile_name)
+        if not profile:
+            return None
+        
+        # Generate agent_id if not provided
+        if not agent_id:
+            import uuid
+            agent_id = f"{profile_name}_{str(uuid.uuid4())[:8]}"
+        
+        # Format the prompt using the profile
+        formatted_prompt = self.format_agent_prompt(profile, task, context)
+        
+        # Get model from profile
+        model = profile.get('model', 'sonnet')
+        
+        # Spawn the agent
+        process_id = await self.spawn_claude_async(formatted_prompt, None, model, agent_id)
+        
+        if process_id:
+            # Register agent with capabilities from profile
+            self.agents[agent_id] = {
+                'profile': profile_name,
+                'role': profile.get('role', profile_name),
+                'capabilities': profile.get('capabilities', []),
+                'status': 'active',
+                'model': model,
+                'process_id': process_id,
+                'created_at': datetime.utcnow().isoformat() + "Z",
+                'sessions': []
+            }
+            logger.info(f"Spawned agent {agent_id} using profile {profile_name}")
+        
+        return process_id
+    
+    def find_agents_by_capability(self, required_capabilities: list) -> list:
+        """Find agents that have the required capabilities"""
+        suitable_agents = []
+        for agent_id, agent_info in self.agents.items():
+            agent_capabilities = agent_info.get('capabilities', [])
+            # Check if agent has any of the required capabilities
+            if any(cap in agent_capabilities for cap in required_capabilities):
+                suitable_agents.append({
+                    'agent_id': agent_id,
+                    'capabilities': agent_capabilities,
+                    'role': agent_info.get('role'),
+                    'status': agent_info.get('status'),
+                    'match_score': len(set(required_capabilities) & set(agent_capabilities))
+                })
+        
+        # Sort by match score (agents with more matching capabilities first)
+        suitable_agents.sort(key=lambda x: x['match_score'], reverse=True)
+        return suitable_agents
+    
+    async def route_task(self, task: str, required_capabilities: list, context: str = "") -> dict:
+        """Route a task to the most suitable available agent"""
+        suitable_agents = self.find_agents_by_capability(required_capabilities)
+        
+        if not suitable_agents:
+            # No suitable agent found, suggest creating one
+            return {
+                'status': 'no_suitable_agent',
+                'required_capabilities': required_capabilities,
+                'suggestion': 'Consider spawning a specialist agent'
+            }
+        
+        # Find the best available agent (highest match score and active status)
+        best_agent = None
+        for agent in suitable_agents:
+            if agent['status'] == 'active':
+                best_agent = agent
+                break
+        
+        if not best_agent:
+            return {
+                'status': 'no_available_agent',
+                'suitable_agents': suitable_agents,
+                'suggestion': 'All suitable agents are busy'
+            }
+        
+        # Route the task to the best agent via SEND_MESSAGE
+        agent_id = best_agent['agent_id']
+        message = f"TASK_ASSIGNMENT: {task}"
+        if context:
+            message += f"\nCONTEXT: {context}"
+        
+        # Log the task routing
+        routing_entry = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "type": "task_routing",
+            "task": task,
+            "required_capabilities": required_capabilities,
+            "assigned_agent": agent_id,
+            "agent_capabilities": best_agent['capabilities'],
+            "match_score": best_agent['match_score']
+        }
+        
+        log_file = 'claude_logs/task_routing.jsonl'
+        with open(log_file, 'a') as f:
+            f.write(json.dumps(routing_entry) + '\n')
+        
+        logger.info(f"Routed task to agent {agent_id} (score: {best_agent['match_score']})")
+        
+        return {
+            'status': 'routed',
+            'assigned_agent': agent_id,
+            'agent_role': best_agent['role'],
+            'match_score': best_agent['match_score'],
+            'message': message
+        }
+    
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         """Handle incoming connections"""
         try:
@@ -225,6 +516,182 @@ class ClaudeDaemon:
                     module_name = text[7:].strip()
                     self.reload_module(module_name)
                     writer.write(b'OK\n')
+                    await writer.drain()
+                    
+                elif text.startswith('SPAWN_ASYNC:'):
+                    # Async spawn command (format: "SPAWN_ASYNC:[session_id]:[model]:[agent_id]:<prompt>")
+                    parts = text[12:].split(':', 3)
+                    if len(parts) == 4:
+                        session_id = parts[0] if parts[0] else None
+                        model = parts[1] if parts[1] else 'sonnet'
+                        agent_id = parts[2] if parts[2] else None
+                        prompt = parts[3]
+                    else:
+                        # Fallback to simple format
+                        session_id = None
+                        model = 'sonnet'
+                        agent_id = None
+                        prompt = text[12:].strip()
+                    
+                    # Spawn Claude async and return process_id
+                    logger.info(f"Spawning Claude async with model {model}, agent_id {agent_id}")
+                    process_id = await self.spawn_claude_async(prompt, session_id, model, agent_id)
+                    
+                    if process_id:
+                        response = json.dumps({'process_id': process_id, 'status': 'started'}) + '\n'
+                    else:
+                        response = json.dumps({'error': 'Failed to start process'}) + '\n'
+                    writer.write(response.encode())
+                    await writer.drain()
+                    
+                elif text.startswith('REGISTER_AGENT:'):
+                    # Register agent command (format: "REGISTER_AGENT:agent_id:role:capabilities")
+                    parts = text[15:].split(':', 2)
+                    if len(parts) >= 2:
+                        agent_id = parts[0]
+                        role = parts[1]
+                        capabilities = parts[2] if len(parts) > 2 else ""
+                        
+                        self.agents[agent_id] = {
+                            'role': role,
+                            'capabilities': capabilities.split(',') if capabilities else [],
+                            'status': 'active',
+                            'created_at': datetime.utcnow().isoformat() + "Z",
+                            'sessions': []
+                        }
+                        
+                        response = json.dumps({'status': 'registered', 'agent_id': agent_id}) + '\n'
+                        logger.info(f"Registered agent {agent_id} with role {role}")
+                    else:
+                        response = json.dumps({'error': 'Invalid REGISTER_AGENT format'}) + '\n'
+                    writer.write(response.encode())
+                    await writer.drain()
+                    
+                elif text.startswith('SPAWN_AGENT:'):
+                    # Spawn agent using profile (format: "SPAWN_AGENT:profile_name:task:context:agent_id")
+                    parts = text[12:].split(':', 3)
+                    if len(parts) >= 2:
+                        profile_name = parts[0]
+                        task = parts[1]
+                        context = parts[2] if len(parts) > 2 else ""
+                        agent_id = parts[3] if len(parts) > 3 else None
+                        
+                        process_id = await self.spawn_agent(profile_name, task, context, agent_id)
+                        
+                        if process_id:
+                            response = json.dumps({
+                                'status': 'spawned', 
+                                'process_id': process_id, 
+                                'agent_id': agent_id or f"{profile_name}_{process_id[:8]}"
+                            }) + '\n'
+                        else:
+                            response = json.dumps({'error': f'Failed to spawn agent with profile {profile_name}'}) + '\n'
+                    else:
+                        response = json.dumps({'error': 'Invalid SPAWN_AGENT format'}) + '\n'
+                    writer.write(response.encode())
+                    await writer.drain()
+                    
+                elif text.startswith('GET_AGENTS'):
+                    # Get all registered agents
+                    response = json.dumps({'agents': self.agents}) + '\n'
+                    writer.write(response.encode())
+                    await writer.drain()
+                    
+                elif text.startswith('SEND_MESSAGE:'):
+                    # Inter-agent message (format: "SEND_MESSAGE:from_agent:to_agent:message")
+                    parts = text[13:].split(':', 2)
+                    if len(parts) == 3:
+                        from_agent, to_agent, message = parts
+                        
+                        # Log the inter-agent message
+                        message_entry = {
+                            "timestamp": datetime.utcnow().isoformat() + "Z",
+                            "type": "inter_agent_message",
+                            "from_agent": from_agent,
+                            "to_agent": to_agent,
+                            "message": message
+                        }
+                        
+                        # Save to inter-agent log
+                        log_file = 'claude_logs/inter_agent_messages.jsonl'
+                        with open(log_file, 'a') as f:
+                            f.write(json.dumps(message_entry) + '\n')
+                        
+                        # For now, just acknowledge receipt
+                        # TODO: Implement actual message delivery to target agent
+                        response = json.dumps({'status': 'message_logged', 'from': from_agent, 'to': to_agent}) + '\n'
+                        logger.info(f"Inter-agent message from {from_agent} to {to_agent}")
+                    else:
+                        response = json.dumps({'error': 'Invalid SEND_MESSAGE format'}) + '\n'
+                    writer.write(response.encode())
+                    await writer.drain()
+                    
+                elif text.startswith('SET_SHARED:'):
+                    # Set shared state (format: "SET_SHARED:key:value")
+                    parts = text[11:].split(':', 1)
+                    if len(parts) == 2:
+                        key, value = parts
+                        self.shared_state[key] = value
+                        
+                        # Persist to file
+                        shared_file = f'shared_state/{key}.json'
+                        with open(shared_file, 'w') as f:
+                            json.dump({'value': value, 'updated_at': datetime.utcnow().isoformat() + "Z"}, f)
+                        
+                        response = json.dumps({'status': 'set', 'key': key}) + '\n'
+                        logger.info(f"Set shared state: {key}")
+                    else:
+                        response = json.dumps({'error': 'Invalid SET_SHARED format'}) + '\n'
+                    writer.write(response.encode())
+                    await writer.drain()
+                    
+                elif text.startswith('GET_SHARED:'):
+                    # Get shared state (format: "GET_SHARED:key")
+                    key = text[11:].strip()
+                    value = self.shared_state.get(key)
+                    
+                    if value is None:
+                        # Try to load from file
+                        shared_file = f'shared_state/{key}.json'
+                        try:
+                            with open(shared_file, 'r') as f:
+                                data = json.load(f)
+                                value = data.get('value')
+                                self.shared_state[key] = value  # Cache it
+                        except (FileNotFoundError, json.JSONDecodeError):
+                            pass
+                    
+                    response = json.dumps({'key': key, 'value': value}) + '\n'
+                    writer.write(response.encode())
+                    await writer.drain()
+                    
+                elif text.startswith('ROUTE_TASK:'):
+                    # Route task to suitable agent (format: "ROUTE_TASK:task:capabilities:context")
+                    parts = text[11:].split(':', 2)
+                    if len(parts) >= 2:
+                        task = parts[0]
+                        capabilities = parts[1].split(',') if parts[1] else []
+                        context = parts[2] if len(parts) > 2 else ""
+                        
+                        result = await self.route_task(task, capabilities, context)
+                        response = json.dumps(result) + '\n'
+                    else:
+                        response = json.dumps({'error': 'Invalid ROUTE_TASK format'}) + '\n'
+                    writer.write(response.encode())
+                    await writer.drain()
+                    
+                elif text.startswith('GET_PROCESSES'):
+                    # Get running processes status
+                    processes = {}
+                    for pid, info in self.running_processes.items():
+                        processes[pid] = {
+                            'agent_id': info['agent_id'],
+                            'model': info['model'],
+                            'started_at': info['started_at'],
+                            'session_id': info['session_id']
+                        }
+                    response = json.dumps({'processes': processes}) + '\n'
+                    writer.write(response.encode())
                     await writer.drain()
                     
                 elif text.startswith('CLEANUP:'):
