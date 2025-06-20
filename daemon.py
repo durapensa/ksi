@@ -109,6 +109,15 @@ class ClaudeDaemon:
                 if os.path.exists(latest_link):
                     os.unlink(latest_link)
                 os.symlink(f'{new_session_id}.jsonl', latest_link)
+                
+                # Save session ID for easy resumption
+                session_file = 'sockets/last_session_id'
+                with open(session_file, 'w') as f:
+                    f.write(new_session_id)
+            
+            # Call cognitive observer if loaded
+            if self.loaded_module and hasattr(self.loaded_module, 'handle_output'):
+                self.loaded_module.handle_output(output, self)
             
             return output
             
