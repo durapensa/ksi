@@ -68,6 +68,25 @@ uv run python tests/test_daemon_protocol.py
 - **Shared state**: Persistent coordination across agents
 - **Agent profiles**: Pre-configured specialist roles
 
+### Multi-Claude Orchestrator (NEW)
+- **Peer-to-peer conversations**: Multiple Claudes conversing autonomously
+- **Event-driven architecture**: No polling, efficient async design
+- **Rich conversation modes**: Debate, collaboration, teaching, brainstorming
+- **Real-time TUI monitor**: Observe conversations, tool calls, metrics
+- **Persistent Claude nodes**: Maintain context across messages
+
+Quick start:
+```bash
+# Test the system
+python test_multi_claude.py
+
+# Start a debate
+python orchestrate.py "AI ethics" --mode debate
+
+# Monitor in another terminal
+python monitor_tui.py
+```
+
 ## Available Tools
 When working with the system, you have access to:
 - Task, Bash, Glob, Grep, LS, Read, Edit, MultiEdit, Write, WebFetch, WebSearch

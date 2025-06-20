@@ -15,7 +15,7 @@ logger = logging.getLogger('daemon')
 class CommandHandler:
     """Handler for daemon commands using Command Pattern - EXACT copy from daemon_clean.py"""
     
-    def __init__(self, core_daemon, state_manager=None, process_manager=None, agent_manager=None, utils_manager=None, hot_reload_manager=None):
+    def __init__(self, core_daemon, state_manager=None, process_manager=None, agent_manager=None, utils_manager=None, hot_reload_manager=None, message_bus=None):
         # Store references to all managers for cross-module communication
         self.core_daemon = core_daemon
         self.state_manager = state_manager
@@ -23,6 +23,7 @@ class CommandHandler:
         self.agent_manager = agent_manager
         self.utils_manager = utils_manager
         self.hot_reload_manager = hot_reload_manager
+        self.message_bus = message_bus
         
         # Command registry - maps command prefixes to handler methods - EXACT copy from daemon_clean.py
         self.handlers = {
@@ -41,7 +42,13 @@ class CommandHandler:
             'HEALTH_CHECK': self.handle_health_check,
             'LOAD_STATE:': self.handle_load_state,
             'RELOAD_DAEMON': self.handle_reload_daemon,
-            'SHUTDOWN': self.handle_shutdown
+            'SHUTDOWN': self.handle_shutdown,
+            # New message bus commands
+            'SUBSCRIBE:': self.handle_subscribe,
+            'PUBLISH:': self.handle_publish,
+            'CONNECT_AGENT:': self.handle_connect_agent,
+            'DISCONNECT_AGENT:': self.handle_disconnect_agent,
+            'MESSAGE_BUS_STATS': self.handle_message_bus_stats
         }
     
     async def handle_command(self, command_text: str, writer: asyncio.StreamWriter) -> bool:
@@ -325,3 +332,82 @@ class CommandHandler:
         logger.warning(f"Unknown command: {command[:100]}")
         command_name = command.split(':')[0] if ':' in command else command
         return await self.send_error_response(writer, f'Unknown command: {command_name}')
+    
+    # New message bus command handlers
+    
+    async def handle_subscribe(self, command: str, writer: asyncio.StreamWriter) -> bool:
+        """Handle SUBSCRIBE command for message bus"""
+        # Parse format: "SUBSCRIBE:agent_id:event_type1,event_type2,..."
+        parts = command[10:].split(':', 1)
+        if len(parts) != 2:
+            return await self.send_error_response(writer, 'Invalid SUBSCRIBE format')
+        
+        agent_id, event_types_str = parts
+        event_types = [et.strip() for et in event_types_str.split(',')]
+        
+        if self.message_bus:
+            success = self.message_bus.subscribe(agent_id, event_types)
+            if success:
+                return await self.send_response(writer, {
+                    'status': 'subscribed',
+                    'agent_id': agent_id,
+                    'event_types': event_types
+                })
+            else:
+                return await self.send_error_response(writer, f'Agent {agent_id} not connected')
+        else:
+            return await self.send_error_response(writer, 'No message bus available')
+    
+    async def handle_publish(self, command: str, writer: asyncio.StreamWriter) -> bool:
+        """Handle PUBLISH command for message bus"""
+        # Parse format: "PUBLISH:from_agent:event_type:json_payload"
+        parts = command[8:].split(':', 2)
+        if len(parts) != 3:
+            return await self.send_error_response(writer, 'Invalid PUBLISH format')
+        
+        from_agent, event_type, payload_str = parts
+        
+        try:
+            payload = json.loads(payload_str)
+        except json.JSONDecodeError:
+            return await self.send_error_response(writer, 'Invalid JSON payload')
+        
+        if self.message_bus:
+            result = await self.message_bus.publish(from_agent, event_type, payload)
+            return await self.send_response(writer, result)
+        else:
+            return await self.send_error_response(writer, 'No message bus available')
+    
+    async def handle_connect_agent(self, command: str, writer: asyncio.StreamWriter) -> bool:
+        """Handle CONNECT_AGENT command"""
+        agent_id = command[14:].strip()
+        
+        if self.message_bus:
+            self.message_bus.connect_agent(agent_id, writer)
+            return await self.send_response(writer, {
+                'status': 'connected',
+                'agent_id': agent_id
+            })
+        else:
+            return await self.send_error_response(writer, 'No message bus available')
+    
+    async def handle_disconnect_agent(self, command: str, writer: asyncio.StreamWriter) -> bool:
+        """Handle DISCONNECT_AGENT command"""
+        agent_id = command[17:].strip()
+        
+        if self.message_bus:
+            self.message_bus.disconnect_agent(agent_id)
+            return await self.send_response(writer, {
+                'status': 'disconnected',
+                'agent_id': agent_id
+            })
+        else:
+            return await self.send_error_response(writer, 'No message bus available')
+    
+    async def handle_message_bus_stats(self, command: str, writer: asyncio.StreamWriter) -> bool:
+        """Handle MESSAGE_BUS_STATS command"""
+        if self.message_bus:
+            stats = self.message_bus.get_stats()
+            return await self.send_response(writer, stats)
+        else:
+            return await self.send_response(writer, {'error': 'No message bus available'})

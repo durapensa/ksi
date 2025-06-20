@@ -55,6 +55,27 @@ The daemon now includes multi-agent coordination infrastructure:
 
 **Status**: Infrastructure implemented but requires testing before production use.
 
+## Multi-Claude Orchestrator (NEW)
+
+Enable multiple Claude instances to converse with each other autonomously:
+
+```bash
+# Start a debate between Claudes
+python orchestrate.py "Should AI have rights?" --mode debate --agents 2
+
+# Monitor conversations in real-time
+python monitor_tui.py
+```
+
+**Features**:
+- **Peer-to-peer Claude conversations** without human intervention
+- **Multiple conversation modes**: debate, collaboration, teaching, brainstorming
+- **Real-time TUI monitor** showing messages, tool calls, and metrics
+- **Event-driven architecture** with no polling
+- **Persistent Claude nodes** maintaining conversation context
+
+See [MULTI_CLAUDE_ORCHESTRATOR.md](MULTI_CLAUDE_ORCHESTRATOR.md) for full documentation.
+
 ## Claude Can Extend This
 
 Claude has full control and can:
