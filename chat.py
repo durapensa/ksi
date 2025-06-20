@@ -131,6 +131,8 @@ def main():
                        help='Start new session (default: resume last)')
     parser.add_argument('--resume', '-r', metavar='SESSION_ID',
                        help='Resume specific session ID')
+    parser.add_argument('--prompt', '-p', metavar='FILENAME',
+                       help='Send initial prompt from file (implies --new)')
     args = parser.parse_args()
     
     print("Claude Chat Interface")
@@ -141,6 +143,20 @@ def main():
     os.makedirs('sockets', exist_ok=True)
     
     start_daemon()
+    
+    # Handle initial prompt from file
+    initial_prompt = None
+    if args.prompt:
+        try:
+            prompt_path = Path(args.prompt)
+            if not prompt_path.exists():
+                print(f"Error: Prompt file not found: {args.prompt}")
+                return
+            initial_prompt = prompt_path.read_text().strip()
+            print(f"Loaded prompt from {args.prompt} ({len(initial_prompt)} characters)")
+        except Exception as e:
+            print(f"Error reading prompt file: {e}")
+            return
     
     # Determine session ID based on arguments
     session_id = None
@@ -157,6 +173,16 @@ def main():
             print(f"Resuming last session: {session_id}")
         else:
             print("No previous session found, starting new session...")
+    
+    # Send initial prompt if provided
+    if initial_prompt:
+        print("\nSending initial prompt...")
+        print("-" * 50)
+        output, new_session_id = send_prompt(initial_prompt, session_id)
+        if new_session_id:
+            session_id = new_session_id
+            print(f"Session started: {session_id}")
+        print("-" * 50)
     
     while True:
         try:
