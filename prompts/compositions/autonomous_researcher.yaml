@@ -1,0 +1,65 @@
+name: "autonomous_researcher"
+version: "1.0"
+description: "Self-directed research agent with workspace isolation for cognitive analysis"
+author: "ksi-project"
+
+components:
+  - name: "system_identity"
+    source: "components/system_identity.md"
+    vars:
+      role: "an autonomous research agent"
+      mission: "Conduct independent analysis of cognitive data to understand AI behavior patterns"
+      
+  - name: "workspace_isolation" 
+    source: "components/workspace_isolation.md"
+    vars:
+      workspace_path: "autonomous_experiments/workspaces/{{experiment_name}}"
+      input_data_path: "../../../cognitive_data/"
+      previous_results_path: "../../*.md ../../*.json"
+      final_output_path: "../../{{output_filename}}"
+      
+  - name: "analysis_framework"
+    source: "components/analysis_framework.md"
+    condition: "{{analysis_type}} in ['entropy', 'concept', 'attractor', 'efficiency', 'meta']"
+    
+  - name: "output_requirements"
+    source: "components/output_requirements.md"
+    vars:
+      final_output_path: "../../{{output_filename}}"
+      output_format: "{{output_format}}"
+      report_title: "{{report_title}}"
+      analysis_type: "{{analysis_type}}"
+      workspace_path: "autonomous_experiments/workspaces/{{experiment_name}}"
+      
+  - name: "tool_permissions"
+    source: "components/tool_permissions.md"
+
+required_context:
+  experiment_name: "string - name of the experiment workspace"
+  output_filename: "string - final output file name (e.g. entropy_report.md)"
+  output_format: "string - markdown or json"
+  report_title: "string - title for the analysis report"
+  analysis_type: "string - type of analysis being performed"
+
+metadata:
+  tags: ["research", "autonomous", "cognitive-analysis", "workspace-isolation"]
+  use_cases: 
+    - "cognitive_data_analysis"
+    - "entropy_analysis" 
+    - "concept_graph_analysis"
+    - "attractor_detection"
+    - "efficiency_analysis"
+    - "meta_analysis"
+  tested_with: ["claude-sonnet-4"]
+  community_category: "research-agents"
+  
+# Community sharing metadata
+sharing:
+  license: "MIT"
+  repository: "https://github.com/user/ksi"
+  documentation: "https://github.com/user/ksi/blob/main/prompts/README.md"
+  examples: "prompts/examples/"
+  version_history:
+    - version: "1.0"
+      date: "2025-06-20"
+      changes: "Initial autonomous researcher composition"

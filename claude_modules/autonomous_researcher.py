@@ -12,6 +12,11 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 import random
+import sys
+
+# Add prompts directory to path for composition system
+sys.path.append(str(Path(__file__).parent.parent / "prompts"))
+from composer import PromptComposer
 
 class AutonomousResearcher:
     def __init__(self):
@@ -19,22 +24,46 @@ class AutonomousResearcher:
         self.experiments_dir.mkdir(exist_ok=True)
         self.socket_path = "sockets/claude_daemon.sock"
         
-        # Experiment templates for cognitive research
-        self.experiment_templates = {
-            "entropy_analysis": "WORKSPACE: autonomous_experiments/workspaces/entropy_analysis/. Analyze the ../../../cognitive_data directory. Create all analysis scripts in your workspace. Calculate entropy trends, identify low/high entropy patterns. Final report: ../../entropy_report.md. Focus: What triggers high vs low entropy responses?",
-            
-            "concept_graph_analysis": "WORKSPACE: autonomous_experiments/workspaces/concept_graph_analysis/. Read all observation files in ../../../cognitive_data/. Create analysis scripts in your workspace. Build unified concept graph from concept_edges. Final results: ../../concept_graph.json. Identify: Which concepts are cognitive hubs?",
-            
-            "attractor_detection": "WORKSPACE: autonomous_experiments/workspaces/attractor_detection/. Analyze temporal patterns in ../../../cognitive_data observations. Create all scripts in your workspace. Use clustering to identify cognitive attractors. Final findings: ../../attractors.json. Question: What are the distinct modes of Claude cognition?",
-            
-            "cost_efficiency_analysis": "WORKSPACE: autonomous_experiments/workspaces/cost_efficiency_analysis/. Correlate cost, entropy, and response quality from ../../../cognitive_data. Create analysis scripts in your workspace. Find optimal cost/quality ratios. Final recommendations: ../../efficiency_analysis.md. Goal: Identify most efficient prompt patterns.",
-            
-            "meta_analysis": "WORKSPACE: autonomous_experiments/workspaces/meta_analysis/. Read all previous autonomous experiment results from ../../*.md and ../../*.json. Create synthesis scripts in your workspace. Synthesize findings into unified theory. Final report: ../../meta_synthesis.md. Focus: What have we learned about AI cognition?"
+        # Initialize prompt composition system
+        self.prompt_composer = PromptComposer(base_path="prompts")
+        
+        # Experiment configurations for cognitive research
+        self.experiment_configs = {
+            "entropy_analysis": {
+                "output_filename": "entropy_report.md",
+                "output_format": "markdown", 
+                "report_title": "Cognitive Entropy Analysis Report",
+                "analysis_type": "entropy"
+            },
+            "concept_graph_analysis": {
+                "output_filename": "concept_graph.json",
+                "output_format": "json",
+                "report_title": "Concept Graph Analysis",
+                "analysis_type": "concept"
+            },
+            "attractor_detection": {
+                "output_filename": "attractors.json", 
+                "output_format": "json",
+                "report_title": "Cognitive Attractor Detection",
+                "analysis_type": "attractor"
+            },
+            "cost_efficiency_analysis": {
+                "output_filename": "efficiency_analysis.md",
+                "output_format": "markdown",
+                "report_title": "Cost Efficiency Analysis",
+                "analysis_type": "efficiency"
+            },
+            "meta_analysis": {
+                "output_filename": "meta_synthesis.md",
+                "output_format": "markdown", 
+                "report_title": "Meta-Analysis of Cognitive Research",
+                "analysis_type": "meta"
+            }
         }
         
-        print("[AutonomousResearcher] Initialized - ready for independent research")
+        print("[AutonomousResearcher] Initialized with prompt composition system")
     
-    def spawn_independent_claude(self, experiment_name, prompt, resume_session=None):
+    def spawn_independent_claude(self, experiment_name, custom_prompt=None, resume_session=None):
         """Spawn a Claude instance for independent research
         
         Args:
@@ -48,6 +77,24 @@ class AutonomousResearcher:
         try:
             # Create unique session ID for this experiment
             session_id = f"auto_{experiment_name}_{int(time.time())}"
+            
+            # Compose prompt using composition system or use custom prompt
+            if custom_prompt:
+                prompt = custom_prompt
+            else:
+                # Get experiment configuration
+                if experiment_name not in self.experiment_configs:
+                    raise ValueError(f"Unknown experiment: {experiment_name}. Available: {list(self.experiment_configs.keys())}")
+                
+                config = self.experiment_configs[experiment_name]
+                context = {
+                    "experiment_name": experiment_name,
+                    **config  # Merge experiment-specific config
+                }
+                
+                # Compose prompt using the composition system
+                print(f"[AutonomousResearcher] Composing prompt for {experiment_name}")
+                prompt = self.prompt_composer.compose("autonomous_researcher", context)
             
             # Format spawn command - use resume_session if provided
             if resume_session:
@@ -126,8 +173,8 @@ class AutonomousResearcher:
         print("[AutonomousResearcher] Starting autonomous experiment suite...")
         
         # Run experiments in sequence with delays
-        for experiment_name, prompt in self.experiment_templates.items():
-            session_id = self.spawn_independent_claude(experiment_name, prompt)
+        for experiment_name in self.experiment_configs.keys():
+            session_id = self.spawn_independent_claude(experiment_name)
             if session_id:
                 print(f"[AutonomousResearcher] Launched {experiment_name} -> {session_id}")
                 time.sleep(2)  # Brief delay between experiments
@@ -137,7 +184,7 @@ class AutonomousResearcher:
         # Create status file for human to check
         status = {
             "launch_time": datetime.utcnow().isoformat() + "Z",
-            "total_experiments": len(self.experiment_templates),
+            "total_experiments": len(self.experiment_configs),
             "status": "experiments_running",
             "check_files": [
                 "autonomous_experiments/entropy_report.md",
