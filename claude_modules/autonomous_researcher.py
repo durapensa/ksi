@@ -60,8 +60,8 @@ Focus: What have we learned about AI cognition from this research?
             # Create unique session ID for this experiment
             session_id = f"auto_{experiment_name}_{int(time.time())}"
             
-            # Format spawn command
-            command = f"SPAWN:{session_id}:{prompt}"
+            # Format spawn command - no session_id so Claude starts fresh
+            command = f"SPAWN:{prompt}"
             
             # Send to daemon
             sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
