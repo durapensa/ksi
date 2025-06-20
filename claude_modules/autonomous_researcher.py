@@ -54,14 +54,26 @@ Focus: What have we learned about AI cognition from this research?
         
         print("[AutonomousResearcher] Initialized - ready for independent research")
     
-    def spawn_independent_claude(self, experiment_name, prompt):
-        """Spawn a Claude instance for independent research"""
+    def spawn_independent_claude(self, experiment_name, prompt, resume_session=None):
+        """Spawn a Claude instance for independent research
+        
+        Args:
+            experiment_name: Name of the experiment for tracking
+            prompt: The prompt to send to Claude
+            resume_session: Optional Claude session ID to resume conversation
+            
+        Returns:
+            Claude's session ID (for use with resume_session in subsequent calls)
+        """
         try:
             # Create unique session ID for this experiment
             session_id = f"auto_{experiment_name}_{int(time.time())}"
             
-            # Format spawn command - no session_id so Claude starts fresh
-            command = f"SPAWN:{prompt}"
+            # Format spawn command - use resume_session if provided
+            if resume_session:
+                command = f"SPAWN:{resume_session}:{prompt}"
+            else:
+                command = f"SPAWN:{prompt}"
             
             # Send to daemon
             sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -79,11 +91,22 @@ Focus: What have we learned about AI cognition from this research?
             
             sock.close()
             
-            # Log the experiment
+            # Parse response to get the real session ID
+            real_session_id = None
+            try:
+                if response:
+                    result = json.loads(response.decode())
+                    real_session_id = result.get('sessionId') or result.get('session_id')
+                    print(f"[AutonomousResearcher] Got Claude session: {real_session_id}")
+            except:
+                print(f"[AutonomousResearcher] Could not parse session ID from response")
+            
+            # Log the experiment with both IDs
             experiment_log = {
                 "timestamp": datetime.utcnow().isoformat() + "Z",
                 "experiment_name": experiment_name,
-                "session_id": session_id,
+                "tracking_id": session_id,  # Our internal ID
+                "claude_session_id": real_session_id,  # Claude's actual session ID
                 "prompt": prompt,
                 "response_received": len(response) > 0
             }
@@ -93,7 +116,7 @@ Focus: What have we learned about AI cognition from this research?
                 f.write(json.dumps(experiment_log) + '\n')
             
             print(f"[AutonomousResearcher] Spawned experiment: {experiment_name}")
-            return session_id
+            return real_session_id or session_id  # Return Claude's ID if available
             
         except Exception as e:
             print(f"[AutonomousResearcher] Error spawning experiment: {e}")
