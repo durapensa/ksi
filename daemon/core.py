@@ -107,8 +107,8 @@ class ClaudeDaemonCore:
                 pass
     
     async def start(self):
-        """Start the daemon server - EXACT copy from daemon_clean.py"""
-        # Create directories - EXACT copy from daemon_clean.py
+        """Start the daemon server with improved graceful shutdown"""
+        # Create directories
         for dir_name in ['shared_state', 'sockets', 'claude_logs', 'agent_profiles']:
             os.makedirs(dir_name, exist_ok=True)
         
@@ -122,5 +122,66 @@ class ClaudeDaemonCore:
         
         logger.info(f"Modular daemon listening on {self.socket_path}")
         
-        async with server:
-            await self.shutdown_event.wait()
+        try:
+            async with server:
+                # Wait for shutdown signal
+                await self.shutdown_event.wait()
+                logger.info("Shutdown event received, stopping server...")
+                
+                # Close server to stop accepting new connections
+                server.close()
+                await server.wait_closed()
+                logger.info("Server closed")
+                
+                # Clean up any running processes
+                if self.process_manager and hasattr(self.process_manager, 'running_processes'):
+                    running_processes = self.process_manager.running_processes
+                    if running_processes:
+                        logger.info(f"Cleaning up {len(running_processes)} running processes...")
+                        for process_id, process_info in list(running_processes.items()):
+                            try:
+                                process = process_info.get('process')
+                                if process and process.poll() is None:
+                                    logger.info(f"Terminating process {process_id}")
+                                    process.terminate()
+                                    # Give process a moment to terminate gracefully
+                                    try:
+                                        # Use a simple timeout approach instead of asyncio.to_thread
+                                        for _ in range(30):  # 3 seconds timeout (30 * 0.1s)
+                                            if process.poll() is not None:
+                                                break
+                                            await asyncio.sleep(0.1)
+                                        else:
+                                            # Process didn't terminate gracefully
+                                            logger.warning(f"Process {process_id} didn't terminate gracefully, killing...")
+                                            process.kill()
+                                            process.wait()
+                                    except Exception as kill_error:
+                                        logger.error(f"Error killing process {process_id}: {kill_error}")
+                            except Exception as e:
+                                logger.error(f"Error terminating process {process_id}: {e}")
+                        
+                        # Clear the running processes dict
+                        running_processes.clear()
+                        logger.info("All processes cleaned up")
+                
+                # Clean up socket file
+                try:
+                    if os.path.exists(self.socket_path):
+                        os.unlink(self.socket_path)
+                        logger.info(f"Removed socket file: {self.socket_path}")
+                except Exception as e:
+                    logger.warning(f"Error removing socket file: {e}")
+                
+                logger.info("Graceful shutdown complete")
+                
+        except Exception as e:
+            logger.error(f"Error during daemon operation: {e}")
+            raise
+        finally:
+            # Ensure socket cleanup even if there was an error
+            try:
+                if os.path.exists(self.socket_path):
+                    os.unlink(self.socket_path)
+            except:
+                pass

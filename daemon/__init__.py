@@ -9,6 +9,7 @@ import asyncio
 import argparse
 import logging
 import signal
+import os
 from pathlib import Path
 
 # Import all modules
@@ -44,16 +45,27 @@ def setup_logging():
     return logging.getLogger('daemon')
 
 def setup_signal_handlers(core_daemon):
-    """Setup signal handlers for graceful shutdown"""
+    """Setup simple signal handlers for graceful shutdown"""
+    logger = logging.getLogger('daemon')
+    
     def signal_handler(signum, frame):
-        logging.getLogger('daemon').info(f"Received signal {signum}, shutting down...")
-        core_daemon.shutdown_event.set()
+        logger.info(f"Received signal {signum}, initiating shutdown...")
         
+        # Simply set shutdown event - let the main shutdown sequence handle cleanup
+        if hasattr(core_daemon, 'shutdown_event') and core_daemon.shutdown_event:
+            core_daemon.shutdown_event.set()
+            logger.info("Shutdown event set")
+        else:
+            logger.error("No shutdown event available")
+        
+    # Set up signal handlers for both SIGTERM and SIGINT
     for sig in (signal.SIGTERM, signal.SIGINT):
         try:
             signal.signal(sig, signal_handler)
-        except ValueError:
+            logger.info(f"Signal handler registered for {sig}")
+        except ValueError as e:
             # Can't set signal handler in some contexts (like threads)
+            logger.warning(f"Could not register signal handler for {sig}: {e}")
             pass
 
 async def create_daemon(socket_path: str, hot_reload_from: str = None):
