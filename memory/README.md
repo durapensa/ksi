@@ -61,6 +61,7 @@ memory/
 - Creating new tools or processes
 - Changing system architecture
 - Finding better workflows
+- **Session continuity**: Capture session essence before context limits/new sessions
 
 ## Integration with KSI System
 
