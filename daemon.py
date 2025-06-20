@@ -129,8 +129,8 @@ class ClaudeDaemon:
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         """Handle incoming connections"""
         try:
-            # Read all available data
-            data = await reader.read()
+            # Read until newline or max size (more robust than waiting for EOF)
+            data = await reader.readline()  # Read one line at a time
             if not data:
                 return
             
@@ -151,6 +151,7 @@ class ClaudeDaemon:
             except json.JSONDecodeError:
                 # Not JSON, might be a command
                 text = data.decode().strip()
+                logger.info(f"Received command: {text[:50]}...")
                 if text.startswith('SPAWN:'):
                     # Parse spawn command (format: "SPAWN:[session_id]:<prompt>")
                     parts = text[6:].split(':', 1)
@@ -164,7 +165,9 @@ class ClaudeDaemon:
                         prompt = text[6:].strip()
                     
                     # Spawn Claude and get result
+                    logger.info(f"Spawning Claude with prompt: {prompt[:50]}...")
                     result = await self.spawn_claude(prompt, session_id)
+                    logger.info(f"Claude spawn completed, result type: {type(result)}")
                     
                     # Send result back to client
                     response = json.dumps(result) + '\n'

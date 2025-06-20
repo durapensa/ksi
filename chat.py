@@ -29,6 +29,9 @@ def send_to_daemon(message):
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         sock.connect(SOCKET_PATH)
+        # Ensure message ends with newline for daemon's readline()
+        if not message.endswith('\n'):
+            message += '\n'
         sock.sendall(message.encode())
         sock.shutdown(socket.SHUT_WR)  # Signal end of writing
         

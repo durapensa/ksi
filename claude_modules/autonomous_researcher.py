@@ -66,7 +66,7 @@ Focus: What have we learned about AI cognition from this research?
             # Send to daemon
             sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             sock.connect(self.socket_path)
-            sock.sendall(command.encode())
+            sock.sendall(command.encode() + b'\n')  # Add newline for daemon's readline()
             sock.shutdown(socket.SHUT_WR)
             
             # Read response
