@@ -202,10 +202,11 @@ sockets/last_session_id
 # claude_logs/
 
 # Daemon logs
+logs/
 daemon.log
 
 # Analysis outputs (temporary)
-outputs/
+autonomous_experiments/outputs/
 
 # Test artifacts
 *.tmp
