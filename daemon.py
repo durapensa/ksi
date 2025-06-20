@@ -31,6 +31,7 @@ class ClaudeDaemon:
         self.sessions = {}  # session_id -> last_output
         self.modules_dir = Path("claude_modules")
         self.loaded_module = None
+        self.shutdown_event = asyncio.Event()
         
     async def spawn_claude(self, prompt: str, session_id: str = None) -> dict:
         """Spawn claude process and capture output"""
@@ -44,7 +45,7 @@ class ClaudeDaemon:
             '--model', 'sonnet',
             '--print',
             '--output-format', 'json',
-            '--allowedTools', 'Task Bash Glob Grep LS Read Edit MultiEdit Write WebFetch WebSearch'
+            '--allowedTools', 'all'  # Give spawned instances full tool access
         ]
         
         if session_id:
@@ -60,7 +61,11 @@ class ClaudeDaemon:
                 env=os.environ
             )
         except FileNotFoundError as e:
+            logger.error(f"Claude executable not found: {e}")
             return {'error': 'claude executable not found in PATH', 'details': str(e)}
+        except Exception as e:
+            logger.error(f"Failed to spawn Claude process: {e}")
+            return {'error': f'Failed to spawn process: {type(e).__name__}', 'details': str(e)}
         
         # Send prompt and get output
         stdout, stderr = await process.communicate(prompt.encode())
@@ -188,6 +193,17 @@ class ClaudeDaemon:
                     writer.write(f"{result}\n".encode())
                     await writer.drain()
                     
+                elif text == 'SHUTDOWN':
+                    # Shutdown daemon
+                    logger.info("Received SHUTDOWN command")
+                    writer.write(b'SHUTTING DOWN\n')
+                    await writer.drain()
+                    writer.close()
+                    await writer.wait_closed()
+                    # Signal shutdown
+                    self.shutdown_event.set()
+                    return
+                    
                     
         except Exception as e:
             logger.error(f"Error handling client: {e}")
@@ -293,21 +309,19 @@ class ClaudeDaemon:
         # Try to load handler module if it exists
         self.reload_module('handler')
         
-        # Simple signal handler - just exit
+        # Simple signal handler - set shutdown event
         def signal_handler(signum, frame):
             logger.info(f"Received signal {signum}, shutting down...")
-            # Clean up socket file
-            if os.path.exists(self.socket_path):
-                os.unlink(self.socket_path)
-            server.close()
-            sys.exit(0)
+            self.shutdown_event.set()
             
         for sig in (signal.SIGTERM, signal.SIGINT):
             signal.signal(sig, signal_handler)
         
         async with server:
             try:
-                await server.serve_forever()
+                # Wait for shutdown event or keyboard interrupt
+                await self.shutdown_event.wait()
+                logger.info("Shutdown event received, stopping server...")
             except (KeyboardInterrupt, SystemExit):
                 pass
             finally:
