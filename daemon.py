@@ -70,13 +70,28 @@ class ClaudeDaemon:
         # Send prompt and get output
         stdout, stderr = await process.communicate(prompt.encode())
         
+        # Log stderr if present
+        if stderr:
+            stderr_text = stderr.decode()
+            logger.warning(f"Claude stderr output: {stderr_text}")
+        
         # Parse output
         try:
             if not stdout:
-                return {'error': 'No output from claude', 'returncode': process.returncode}
+                error_response = {
+                    'error': 'No output from claude',
+                    'returncode': process.returncode
+                }
+                if stderr:
+                    error_response['stderr'] = stderr.decode()
+                return error_response
             
             # Parse JSON output
             output = json.loads(stdout.decode())
+            
+            # Add stderr to output if present (for debugging)
+            if stderr:
+                output['stderr'] = stderr.decode()
             
             # Save to file for debugging/reference
             output_file = 'sockets/claude_last_output.json'
@@ -127,8 +142,22 @@ class ClaudeDaemon:
             return output
             
         except json.JSONDecodeError as e:
-            return {'error': f'Invalid JSON from claude: {str(e)}', 'returncode': process.returncode}
+            logger.error(f"JSON decode error: {str(e)}")
+            logger.error(f"Raw stdout: {stdout.decode()[:500]}...")  # First 500 chars
+            if stderr:
+                logger.error(f"Raw stderr: {stderr.decode()}")
+            
+            error_response = {
+                'error': f'Invalid JSON from claude: {str(e)}',
+                'returncode': process.returncode,
+                'raw_stdout': stdout.decode()[:1000]  # Include partial stdout for debugging
+            }
+            if stderr:
+                error_response['stderr'] = stderr.decode()
+            return error_response
+            
         except Exception as e:
+            logger.error(f"Unexpected error in spawn_claude: {type(e).__name__}: {str(e)}")
             return {'error': f'{type(e).__name__}: {str(e)}', 'returncode': -1}
     
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):

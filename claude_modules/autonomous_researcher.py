@@ -21,35 +21,15 @@ class AutonomousResearcher:
         
         # Experiment templates for cognitive research
         self.experiment_templates = {
-            "entropy_analysis": """
-Analyze the cognitive_data directory. Calculate entropy trends, identify low/high entropy patterns. 
-Create a summary report in autonomous_experiments/entropy_report.md.
-Focus on: What triggers high vs low entropy responses?
-""",
+            "entropy_analysis": "Analyze the cognitive_data directory. Calculate entropy trends, identify low/high entropy patterns. Create a summary report in autonomous_experiments/entropy_report.md. Focus on: What triggers high vs low entropy responses?",
             
-            "concept_graph_analysis": """
-Read all observation files in cognitive_data/. Build a unified concept graph from all concept_edges.
-Calculate graph centrality metrics. Save results to autonomous_experiments/concept_graph.json.
-Identify: Which concepts are cognitive hubs? What are the strongest connections?
-""",
+            "concept_graph_analysis": "Read all observation files in cognitive_data/. Build a unified concept graph from all concept_edges. Calculate graph centrality metrics. Save results to autonomous_experiments/concept_graph.json. Identify: Which concepts are cognitive hubs? What are the strongest connections?",
             
-            "attractor_detection": """
-Analyze temporal patterns in cognitive_data observations. Look for recurring entropy/token patterns.
-Use clustering to identify cognitive attractors. Save findings to autonomous_experiments/attractors.json.
-Question: What are the distinct modes of Claude cognition?
-""",
+            "attractor_detection": "Analyze temporal patterns in cognitive_data observations. Look for recurring entropy/token patterns. Use clustering to identify cognitive attractors. Save findings to autonomous_experiments/attractors.json. Question: What are the distinct modes of Claude cognition?",
             
-            "cost_efficiency_analysis": """
-Correlate cost, entropy, and response quality across observations. Find optimal cost/quality ratios.
-Create recommendations in autonomous_experiments/efficiency_analysis.md.
-Goal: Identify most efficient prompt patterns.
-""",
+            "cost_efficiency_analysis": "Correlate cost, entropy, and response quality across observations. Find optimal cost/quality ratios. Create recommendations in autonomous_experiments/efficiency_analysis.md. Goal: Identify most efficient prompt patterns.",
             
-            "meta_analysis": """
-Read all previous autonomous experiment results. Synthesize findings into a unified theory.
-Create autonomous_experiments/meta_synthesis.md with key insights about cognitive patterns.
-Focus: What have we learned about AI cognition from this research?
-"""
+            "meta_analysis": "Read all previous autonomous experiment results. Synthesize findings into a unified theory. Create autonomous_experiments/meta_synthesis.md with key insights about cognitive patterns. Focus: What have we learned about AI cognition from this research?"
         }
         
         print("[AutonomousResearcher] Initialized - ready for independent research")
@@ -73,21 +53,29 @@ Focus: What have we learned about AI cognition from this research?
             if resume_session:
                 command = f"SPAWN:{resume_session}:{prompt}"
             else:
-                command = f"SPAWN:{prompt}"
+                # Use empty string for session_id when starting fresh
+                command = f"SPAWN::{prompt}"
             
-            # Send to daemon
+            # Send to daemon - fire and forget for long-running experiments
             sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             sock.connect(self.socket_path)
             sock.sendall(command.encode() + b'\n')  # Add newline for daemon's readline()
             sock.shutdown(socket.SHUT_WR)
             
-            # Read response
-            response = b''
-            while True:
-                chunk = sock.recv(4096)
-                if not chunk:
-                    break
-                response += chunk
+            # For long analysis tasks, don't wait for full response
+            # Just confirm daemon received the command
+            sock.settimeout(5.0)  # 5 second timeout for initial ack
+            try:
+                # Read just enough to confirm spawn started
+                initial_response = sock.recv(1024)
+                response = initial_response
+                # If we got some response, the spawn started
+                if response:
+                    print(f"[AutonomousResearcher] Spawn initiated for {experiment_name}")
+            except socket.timeout:
+                # Timeout is OK for long-running tasks
+                response = b'{"note": "Spawn initiated, running in background"}'
+                print(f"[AutonomousResearcher] {experiment_name} spawned (long-running task)")
             
             sock.close()
             
@@ -98,8 +86,19 @@ Focus: What have we learned about AI cognition from this research?
                     result = json.loads(response.decode())
                     real_session_id = result.get('sessionId') or result.get('session_id')
                     print(f"[AutonomousResearcher] Got Claude session: {real_session_id}")
-            except:
-                print(f"[AutonomousResearcher] Could not parse session ID from response")
+                    
+                    # Log any stderr for debugging
+                    if 'stderr' in result:
+                        print(f"[AutonomousResearcher] stderr: {result['stderr']}")
+                    
+                    # Log if there's an error
+                    if 'error' in result:
+                        print(f"[AutonomousResearcher] ERROR: {result['error']}")
+                        if 'raw_stdout' in result:
+                            print(f"[AutonomousResearcher] raw_stdout: {result['raw_stdout'][:200]}...")
+            except Exception as e:
+                print(f"[AutonomousResearcher] Could not parse response: {e}")
+                print(f"[AutonomousResearcher] Raw response: {response.decode()[:200]}...")
             
             # Log the experiment with both IDs
             experiment_log = {
