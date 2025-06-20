@@ -21,15 +21,15 @@ class AutonomousResearcher:
         
         # Experiment templates for cognitive research
         self.experiment_templates = {
-            "entropy_analysis": "Analyze the cognitive_data directory. Calculate entropy trends, identify low/high entropy patterns. Create a summary report in autonomous_experiments/entropy_report.md. Focus on: What triggers high vs low entropy responses?",
+            "entropy_analysis": "WORKSPACE: autonomous_experiments/workspaces/entropy_analysis/. Analyze the ../../../cognitive_data directory. Create all analysis scripts in your workspace. Calculate entropy trends, identify low/high entropy patterns. Final report: ../../entropy_report.md. Focus: What triggers high vs low entropy responses?",
             
-            "concept_graph_analysis": "Read all observation files in cognitive_data/. Build a unified concept graph from all concept_edges. Calculate graph centrality metrics. Save results to autonomous_experiments/concept_graph.json. Identify: Which concepts are cognitive hubs? What are the strongest connections?",
+            "concept_graph_analysis": "WORKSPACE: autonomous_experiments/workspaces/concept_graph_analysis/. Read all observation files in ../../../cognitive_data/. Create analysis scripts in your workspace. Build unified concept graph from concept_edges. Final results: ../../concept_graph.json. Identify: Which concepts are cognitive hubs?",
             
-            "attractor_detection": "Analyze temporal patterns in cognitive_data observations. Look for recurring entropy/token patterns. Use clustering to identify cognitive attractors. Save findings to autonomous_experiments/attractors.json. Question: What are the distinct modes of Claude cognition?",
+            "attractor_detection": "WORKSPACE: autonomous_experiments/workspaces/attractor_detection/. Analyze temporal patterns in ../../../cognitive_data observations. Create all scripts in your workspace. Use clustering to identify cognitive attractors. Final findings: ../../attractors.json. Question: What are the distinct modes of Claude cognition?",
             
-            "cost_efficiency_analysis": "Correlate cost, entropy, and response quality across observations. Find optimal cost/quality ratios. Create recommendations in autonomous_experiments/efficiency_analysis.md. Goal: Identify most efficient prompt patterns.",
+            "cost_efficiency_analysis": "WORKSPACE: autonomous_experiments/workspaces/cost_efficiency_analysis/. Correlate cost, entropy, and response quality from ../../../cognitive_data. Create analysis scripts in your workspace. Find optimal cost/quality ratios. Final recommendations: ../../efficiency_analysis.md. Goal: Identify most efficient prompt patterns.",
             
-            "meta_analysis": "Read all previous autonomous experiment results. Synthesize findings into a unified theory. Create autonomous_experiments/meta_synthesis.md with key insights about cognitive patterns. Focus: What have we learned about AI cognition from this research?"
+            "meta_analysis": "WORKSPACE: autonomous_experiments/workspaces/meta_analysis/. Read all previous autonomous experiment results from ../../*.md and ../../*.json. Create synthesis scripts in your workspace. Synthesize findings into unified theory. Final report: ../../meta_synthesis.md. Focus: What have we learned about AI cognition?"
         }
         
         print("[AutonomousResearcher] Initialized - ready for independent research")

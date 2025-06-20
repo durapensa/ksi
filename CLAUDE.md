@@ -74,12 +74,45 @@ The daemon expects text-based commands via Unix socket (NOT JSON):
 - Socket path is `sockets/claude_daemon.sock` (not `sockets/daemon.sock`)
 - Commands must end with newline character
 
+## Autonomous Agent Workspace System
+
+### Isolated Workspaces
+- **Each experiment gets isolated workspace**: `autonomous_experiments/workspaces/{experiment_name}/`
+- **Agents work only in their workspace**: Prevents contamination of ksi system files
+- **Scripts and temp files stay isolated**: Easy cleanup and debugging
+- **Final outputs go to parent directory**: `autonomous_experiments/{report}.md`
+
+### Workspace Structure
+```
+autonomous_experiments/workspaces/
+├── entropy_analysis/          # Isolated workspace per experiment
+├── concept_graph_analysis/    
+├── attractor_detection/       
+├── cost_efficiency_analysis/  
+├── meta_analysis/            
+└── shared/                   # Read-only shared utilities
+```
+
+### Agent Instructions Pattern
+Always include in autonomous agent prompts:
+- `WORKSPACE: autonomous_experiments/workspaces/{experiment_name}/`
+- `Create all analysis scripts in your workspace`
+- `Use relative paths: ../../../cognitive_data/ for input data`
+- `Final output: ../../{report_name}.md or .json`
+
+### Benefits
+- **No system contamination**: Agent scripts don't mix with ksi core files
+- **Parallel execution**: Multiple agents can work without conflicts
+- **Easy cleanup**: Delete entire workspace when experiment done
+- **Organized debugging**: All experiment files in one place
+
 ## Key Points
 - The daemon is intentionally minimal - it's just plumbing
 - You decide how to track sessions, store prompts, analyze outputs
 - You can spawn new Claude sessions anytime
 - Everything is under your control
 - **CRITICAL**: Document daemon quirks immediately when discovered
+- **CRITICAL**: Keep agents in isolated workspaces to prevent system contamination
 
 ## Running the System
 ```bash
