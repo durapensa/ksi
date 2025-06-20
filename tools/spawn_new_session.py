@@ -17,7 +17,7 @@ def spawn_new_session():
     handoff_file = Path("autonomous_experiments/session_handoff.json")
     if not handoff_file.exists():
         print("❌ No session handoff found. Run session orchestrator first:")
-        print("uv run python tools/session_orchestrator.py --prepare-handoff")
+        print("python3 tools/session_orchestrator.py --prepare-handoff")
         return False
     
     with open(handoff_file, 'r') as f:
@@ -47,7 +47,7 @@ def spawn_new_session():
     try:
         # Use cat to pipe the seed prompt into chat.py
         result = subprocess.run([
-            "sh", "-c", f"cat '{seed_file}' | uv run python chat.py"
+            "sh", "-c", f"cat '{seed_file}' | python3 chat.py"
         ], cwd=".")
         
         # Clean up temp file

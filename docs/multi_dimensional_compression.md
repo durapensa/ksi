@@ -141,13 +141,13 @@ Revolutionary preservation of how understanding evolved:
 
 ```bash
 # Start the daemon
-uv run python daemon.py
+python3 daemon.py
 
 # Run multi-dimensional compression
-uv run python tools/enhanced_multi_dimensional_compressor.py
+python3 tools/enhanced_multi_dimensional_compressor.py
 
 # Validate compression quality
-uv run python tools/multi_dimensional_quality_validator.py
+python3 tools/multi_dimensional_quality_validator.py
 ```
 
 ### Expected Input

@@ -6,7 +6,7 @@
 Main compression engine that processes session chunks across 7 dimensions:
 
 ```bash
-uv run python tools/enhanced_multi_dimensional_compressor.py
+python3 tools/enhanced_multi_dimensional_compressor.py
 ```
 
 **Features:**
@@ -19,7 +19,7 @@ uv run python tools/enhanced_multi_dimensional_compressor.py
 Validates compression quality and generates reports:
 
 ```bash
-uv run python tools/multi_dimensional_quality_validator.py
+python3 tools/multi_dimensional_quality_validator.py
 ```
 
 **Validates:**
@@ -33,10 +33,10 @@ For debugging and development:
 
 ```bash
 # Test single dimension extraction
-uv run python tools/test_single_dimension_compression.py
+python3 tools/test_single_dimension_compression.py
 
 # Test simple compression (existing)
-uv run python tools/multi_dimensional_compressor.py
+python3 tools/multi_dimensional_compressor.py
 ```
 
 ## Prerequisites
@@ -76,6 +76,6 @@ For successful compression:
 
 ## Troubleshooting
 
-**Connection Issues**: Ensure daemon is running (`uv run python daemon.py`)
+**Connection Issues**: Ensure daemon is running (`python3 daemon.py`)
 **No Output**: Check `logs/daemon.log` for errors
 **Quality Issues**: Review dimension-specific validation criteria in quality validator

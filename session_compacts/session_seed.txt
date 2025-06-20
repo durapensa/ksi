@@ -146,10 +146,10 @@ prompt = self.prompt_composer.compose("autonomous_researcher", context)
 - **Integration Point**: `claude_modules/autonomous_researcher.py:82-97`
 
 ### Commands and Operations
-- **Start System**: `uv run python daemon.py` then `uv run python chat.py`
+- **Start System**: `python3 daemon.py` then `python3 chat.py`
 - **Monitor Agents**: `./tools/monitor_autonomous.py`
-- **Session Extraction**: `uv run python tools/session_chain_extractor.py`
-- **Session Compression**: `uv run python tools/compress_session_chunks.py`
+- **Session Extraction**: `python3 tools/session_chain_extractor.py`
+- **Session Compression**: `python3 tools/compress_session_chunks.py`
 
 ### Git References
 - **Major Commit**: `3656658` - "Implement prompt composition system and structured memory management"

@@ -1,115 +1,249 @@
-# Minimal Claude Process Daemon
+# KSI - Minimal Claude Process Daemon
 
-A minimal daemon for managing Claude processes with conversation continuity.
+A lightweight daemon system for managing Claude AI processes with conversation continuity and multi-agent orchestration capabilities.
 
-## Architecture
+## Features
 
-- **daemon.py**: Minimal async daemon that:
-  - Spawns `claude` processes with prompts
-  - Tracks sessionId for `--resume` flag
-  - Supports hot-reloading Python modules (optional)
-  
-- **chat.py**: Simple chat interface to interact with Claude
+- 🚀 **Minimal daemon architecture** - Simple Unix socket-based process management
+- 💬 **Conversation continuity** - Maintains context across Claude interactions using sessionId
+- 🤖 **Multi-agent orchestration** - Enable multiple Claude instances to converse autonomously
+- 📊 **Real-time monitoring** - Beautiful TUI for observing multi-Claude conversations
+- 🔧 **Extensible** - Claude can write Python modules to extend functionality
+- 📝 **Complete logging** - All sessions logged in JSONL format for analysis
 
-- **claude_modules/**: Directory where Claude can write Python modules (optional)
+## Table of Contents
 
-## Prerequisites
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Architecture](#architecture)
+- [Multi-Claude Orchestrator](#multi-claude-orchestrator)
+- [API Reference](#api-reference)
+- [Development](#development)
+- [Contributing](#contributing)
+- [License](#license)
 
-```bash
-# Run setup script to install dependencies
-./setup.sh
+## Installation
 
-# This will:
-# - Install uv (Python package manager)
-# - Configure Python 3.13
-# - Install socat (Unix socket communication)
-# - Check for claude CLI
-```
+### Prerequisites
 
-## Quick Start
+- Python 3.8 or higher
+- [Claude CLI](https://claude.ai/download) installed and configured
+- Unix-like operating system (macOS, Linux)
+- socat (for socket communication)
 
-1. **Start chatting**:
+### Setup
+
+1. **Clone the repository**:
    ```bash
-   uv run python chat.py
+   git clone https://github.com/yourusername/ksi.git
+   cd ksi
+   ```
+
+2. **Run the setup script**:
+   ```bash
+   ./setup.sh
    ```
    
    This will:
-   - Start the daemon if not running
-   - Let you chat with Claude
-   - Maintain conversation context via sessionId
+   - Create a Python virtual environment
+   - Install required dependencies (PyYAML, textual)
+   - Check for Claude CLI availability
+   - Create necessary directories
 
-2. **How it works**:
-   - chat.py sends `SPAWN:prompt` commands to daemon
-   - Daemon spawns: `echo "prompt" | claude --model sonnet --print --output-format json --allowedTools "..." | tee sockets/claude_last_output.json`
-   - Daemon logs all sessions to `claude_logs/<session-id>.jsonl`
-   - Subsequent prompts use `--resume sessionId` for continuity
+3. **Manual setup** (if preferred):
+   ```bash
+   # Create virtual environment
+   python3 -m venv .venv
+   
+   # Activate virtual environment
+   source .venv/bin/activate  # On macOS/Linux
+   # or
+   .venv\Scripts\activate     # On Windows
+   
+   # Install dependencies
+   pip install -r requirements.txt
+   ```
 
-## Multi-Agent Capabilities
+### Important Note on Process Isolation
 
-The daemon now includes multi-agent coordination infrastructure:
-- **Agent registration and management** (`REGISTER_AGENT`, `GET_AGENTS`)
-- **Inter-agent communication** (`SEND_MESSAGE`) with persistent logging
-- **Shared state coordination** (`SET_SHARED`, `GET_SHARED`) across agents
-- **Agent profiles** (orchestrator, researcher, coder, analyst) with template-based spawning
-- **Task routing** (`ROUTE_TASK`) with capability-based agent selection
+**Do not use `uv run`** - it creates process isolation that breaks Unix socket communication between the daemon and client processes. Always use `python3` directly after activating the virtual environment.
 
-**Status**: Infrastructure implemented but requires testing before production use.
+## Quick Start
 
-## Multi-Claude Orchestrator (NEW)
-
-Enable multiple Claude instances to converse with each other autonomously:
+### Basic Chat Interface
 
 ```bash
-# Start a debate between Claudes
-python orchestrate.py "Should AI have rights?" --mode debate --agents 2
+# Activate virtual environment
+source .venv/bin/activate
 
-# Monitor conversations in real-time
-python monitor_tui.py
+# Start chatting (daemon starts automatically)
+python3 chat.py
 ```
 
-**Features**:
-- **Peer-to-peer Claude conversations** without human intervention
-- **Multiple conversation modes**: debate, collaboration, teaching, brainstorming
-- **Real-time TUI monitor** showing messages, tool calls, and metrics
-- **Event-driven architecture** with no polling
-- **Persistent Claude nodes** maintaining conversation context
+This will:
+- Start the daemon if not running
+- Let you chat with Claude
+- Maintain conversation context via sessionId
 
-See [MULTI_CLAUDE_ORCHESTRATOR.md](MULTI_CLAUDE_ORCHESTRATOR.md) for full documentation.
+### Multi-Claude Conversations
 
-## Claude Can Extend This
+```bash
+# Start a debate between two Claudes
+python3 orchestrate.py "Should AI have rights?" --mode debate --agents 2
 
-Claude has full control and can:
-- Write handler modules in `claude_modules/`
-- Use its tools (Bash, Edit, Write) to modify anything
-- Spawn new Claude sessions
-- Build whatever infrastructure it needs
-- Coordinate multi-agent workflows using the implemented infrastructure
+# In another terminal, monitor the conversation
+python3 monitor_tui.py
+```
 
-The daemon provides minimal coordination plumbing - Claude instances handle the sophisticated logic.
+### Available Conversation Modes
 
-## Session Logs
+- **debate** - Claudes take opposing positions
+- **collaboration** - Work together on problems  
+- **teaching** - One Claude teaches, others learn
+- **brainstorm** - Creative idea generation
+- **analysis** - Systematic problem analysis
+
+## Architecture
+
+### Core Components
+
+- **daemon.py** - Minimal async daemon that:
+  - Spawns Claude processes with prompts
+  - Tracks sessionId for conversation continuity
+  - Manages inter-agent communication via message bus
+  - Supports hot-reloading of Python modules
+
+- **chat.py** - Simple interface for human-Claude interaction
+
+- **claude_node.py** - Persistent Claude process for multi-agent conversations
+
+- **orchestrate.py** - High-level orchestration for multi-Claude conversations
+
+- **monitor_tui.py** - Real-time TUI for monitoring conversations
+
+### How It Works
+
+1. Daemon receives commands via Unix socket
+2. Spawns: `claude --model sonnet --print --output-format json --resume sessionId`
+3. Logs all sessions to `claude_logs/<session-id>.jsonl`
+4. Uses `--resume sessionId` for conversation continuity
+
+### Multi-Agent Infrastructure
+
+The daemon includes built-in multi-agent coordination:
+
+- **Agent registration** (`REGISTER_AGENT`, `GET_AGENTS`)
+- **Inter-agent messaging** (`SEND_MESSAGE`, `PUBLISH`)
+- **Shared state** (`SET_SHARED`, `GET_SHARED`)
+- **Task routing** (`ROUTE_TASK`)
+- **Event-driven message bus** with persistent connections
+
+## Multi-Claude Orchestrator
+
+Enable multiple Claude instances to converse autonomously:
+
+### Quick Examples
+
+```bash
+# AI ethics debate
+python3 orchestrate.py "AI consciousness and rights" --mode debate --agents 3
+
+# Collaborative problem solving
+python3 orchestrate.py "Design a sustainable city" --mode collaboration --agents 4
+
+# Teaching session
+python3 orchestrate.py "Explain quantum computing" --mode teaching --agents 2
+```
+
+### Features
+
+- **Peer-to-peer conversations** - No human intervention required
+- **Rich conversation modes** - Debate, collaborate, teach, brainstorm, analyze
+- **Real-time monitoring** - Watch conversations, tool usage, and metrics
+- **Event-driven** - Efficient async architecture with no polling
+- **Persistent context** - Each Claude maintains conversation history
+
+See [MULTI_CLAUDE_ORCHESTRATOR.md](MULTI_CLAUDE_ORCHESTRATOR.md) for detailed documentation.
+
+## API Reference
+
+### Daemon Commands
+
+| Command | Format | Description |
+|---------|--------|-------------|
+| SPAWN | `SPAWN:[session_id]:<prompt>` | Spawn Claude with prompt |
+| REGISTER_AGENT | `REGISTER_AGENT:id:role:capabilities` | Register an agent |
+| SEND_MESSAGE | `SEND_MESSAGE:from:to:message` | Send inter-agent message |
+| SET_SHARED | `SET_SHARED:key:value` | Set shared state |
+| GET_SHARED | `GET_SHARED:key` | Get shared state |
+| HEALTH_CHECK | `HEALTH_CHECK` | Check daemon health |
+
+### Session Logs
 
 All conversations are logged in JSONL format to `claude_logs/<session-id>.jsonl`:
+
 ```jsonl
 {"timestamp": "2024-06-19T13:52:24Z", "type": "human", "content": "Hi Claude!"}
 {"timestamp": "2024-06-19T13:52:28Z", "type": "claude", "session_id": "...", "result": "Hello!"}
 ```
 
-Claude can read and analyze these logs using its tools.
+## Development
 
-## Environment Variables
+### Extending the System
 
-- `CLAUDE_DAEMON_SOCKET`: Unix socket path (default: `sockets/claude_daemon.sock`)
-
-## Minimal Module Example
-
-If Claude wants to handle outputs specially, it can write:
+Claude can extend functionality by writing Python modules:
 
 ```python
 # claude_modules/handler.py
 def handle_output(output, daemon):
-    # Claude decides what to do with outputs
+    # Custom output handling logic
     pass
 ```
 
-The daemon will automatically load and call this if it exists.
+The daemon automatically loads and calls modules in `claude_modules/`.
+
+### Project Structure
+
+```
+ksi/
+├── daemon.py              # Core daemon
+├── chat.py               # Human chat interface
+├── claude_node.py        # Persistent Claude process
+├── orchestrate.py        # Multi-Claude orchestrator
+├── monitor_tui.py        # TUI monitor
+├── daemon/               # Modular daemon components
+├── claude_modules/       # Extension modules
+├── agent_profiles/       # Agent personality profiles
+├── claude_logs/          # Session logs
+└── tests/               # Test suite
+```
+
+### Running Tests
+
+```bash
+python3 tests/test_daemon_protocol.py
+```
+
+### Environment Variables
+
+- `CLAUDE_DAEMON_SOCKET` - Unix socket path (default: `sockets/claude_daemon.sock`)
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- Built for use with [Claude AI](https://claude.ai)
+- TUI powered by [Textual](https://textual.textualize.io/)
+- Inspired by Unix philosophy of simple, composable tools

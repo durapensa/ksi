@@ -16,11 +16,11 @@ Minimal daemon system for managing Claude processes with conversation continuity
 ## Quick Start
 ```bash
 # Start system
-uv run python daemon.py
-uv run python chat.py
+python3 daemon.py
+python3 chat.py
 
 # Run tests  
-uv run python tests/test_daemon_protocol.py
+python3 tests/test_daemon_protocol.py
 
 # Monitor system
 ./tools/monitor_autonomous.py
@@ -117,10 +117,10 @@ When working with the system, you have access to:
 ## Running the System
 ```bash
 # Start chatting (auto-starts daemon)
-uv run python chat.py
+python3 chat.py
 
 # Or start daemon directly
-uv run python daemon.py
+python3 daemon.py
 ```
 
 ---

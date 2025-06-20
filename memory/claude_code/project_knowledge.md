@@ -51,11 +51,11 @@ ksi/
 ## Build/Test Commands
 ```bash
 # Start system
-uv run python daemon.py
-uv run python chat.py
+python3 daemon.py
+python3 chat.py
 
 # Run tests  
-uv run python tests/test_daemon_protocol.py
+python3 tests/test_daemon_protocol.py
 
 # Monitor system
 ./tools/monitor_autonomous.py

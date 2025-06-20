@@ -179,7 +179,7 @@ class AutonomousMonitor:
         print("💡 Recommendations:")
         
         if daemon['status'] != 'running':
-            print("   🔧 Start daemon: uv run python daemon.py")
+            print("   🔧 Start daemon: python3 daemon.py")
             
         # Check if experiments are stalled
         if experiments:

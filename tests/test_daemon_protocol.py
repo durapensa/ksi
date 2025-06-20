@@ -182,7 +182,7 @@ def main():
     # Check if daemon is running
     if not Path("sockets/claude_daemon.sock").exists():
         print("❌ Daemon socket not found. Start daemon first:")
-        print("   uv run python daemon.py")
+        print("   python3 daemon.py")
         sys.exit(1)
     
     tester.run_all_tests()
