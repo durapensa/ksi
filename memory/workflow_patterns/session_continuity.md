@@ -1,84 +1,96 @@
-# Session Continuity for System Engineering Work
+# Session Continuity Patterns
 
-## Context Management Problem
+## Problem: Context Limits Break Continuity
+Long engineering sessions hit token limits, losing not just technical state but cognitive context, meta-insights, and collaborative patterns.
 
-Complex system engineering sessions build valuable context that must be preserved across context limits and session boundaries.
+## Solution: Multi-Dimensional Session Handoff
 
-## Current Session Essence (2025-06-20)
+### Core Components
 
-### Major Accomplishments
-1. **Prompt Composition System**: Built complete YAML+Markdown composition engine
-   - `prompts/` directory with modular components and compositions
-   - `composer.py` engine with validation and discovery
-   - Integrated with `autonomous_researcher.py` - no more hard-coded prompts
-   - Community-ready architecture with specifications
+#### 1. Enhanced Chat Interface
+```bash
+# Load context from file instead of pasting
+python3 chat.py --new --prompt <filename>
+```
 
-2. **Memory System Architecture**: Implemented audience-specific knowledge stores
-   - `memory/` directory separated by Claude instance type
-   - Discovery protocol starting with `memory/README.md`
-   - Clean separation between Claude Code, spawned agents, and system engineering knowledge
+#### 2. Meta-Cognitive Compression
+Captures 6 layers of session richness:
+- Technical achievements (what was built)
+- Cognitive patterns (how problems were solved)  
+- Meta-cognitive insights (thinking about thinking)
+- Collaborative dynamics (human-AI synergy)
+- Philosophical emergence (consciousness themes)
+- Emotional/aesthetic dimensions (satisfaction/frustration)
 
-3. **Workspace Isolation**: Established agent workspace system
-   - `autonomous_experiments/workspaces/{experiment_name}/` structure
-   - Prevents system contamination from autonomous agent scripts
-   - Documented in memory stores and prompt components
+#### 3. Tools for Continuity
 
-### Key Technical Decisions
-- **YAML compositions + Markdown components**: Git-friendly, community-shareable format
-- **Programmatic prompt injection**: Reliable delivery vs assumption-based memory reading
-- **Audience separation**: Different knowledge for different Claude instance types
-- **Systematic over ad-hoc**: Replaced hard-coded templates with composition system
+**Extract seed prompt**:
+```bash
+python3 tools/extract_seed_prompt.py
+```
 
-### Current System State
-- All 5 autonomous experiments successfully launched using composed prompts
-- Memory system operational with discovery and validation tools
-- Prompt composition integrated and tested in production
-- Git commits: Memory system and prompt composition work staged and committed
+**Enhanced compression** (preserves richness):
+```bash
+python3 tools/enhanced_session_compressor.py
+```
 
-### Integration Points
-- `autonomous_researcher.py`: Uses `PromptComposer` with experiment configurations
-- `memory/discover.py`: Programmatic access to memory system
-- `prompts/composer.py`: Core composition engine with CLI interface
+**Monitor session richness**:
+```bash
+python3 tools/enhanced_session_orchestrator.py --monitor
+```
 
-### Immediate Context: Claude Code `/compact`
-- User reported approaching context limits in current session
-- Claude Code has `/compact` command for intelligent conversation compression
-- Need pattern for transferring session essence to new orchestrator sessions
+**Prepare enhanced handoff**:
+```bash
+python3 tools/enhanced_session_orchestrator.py --prepare-handoff
+```
 
-## Session Continuity Protocol
+### Workflow Pattern
 
-### For Context Limits in Active Session
-1. Use Claude Code's `/compact` command to compress conversation intelligently
-2. `/compact` preserves technical details while summarizing discussion
-3. Continue work in same session with freed context space
+1. **During Session**: Capture meta-insights as they emerge
+   ```bash
+   python3 tools/enhanced_session_orchestrator.py --capture-insight "trigger" "insight"
+   ```
 
-### For New Orchestrator Sessions
-1. **Read memory system first**: Start with `memory/README.md`
-2. **Check recent commits**: `git log --oneline -10` for latest work
-3. **Read session essence**: This file for architectural context
-4. **Identify current phase**: Where the work stands and what's next
+2. **Approaching Limit**: Monitor context usage
+   ```bash
+   python3 tools/enhanced_session_orchestrator.py --monitor
+   ```
 
-### For Future Enhancement
-Consider building automated session essence extraction from `claude_logs/` to create compacted context handoffs between orchestrator sessions.
+3. **At Critical Threshold**: 
+   - Extract session chain
+   - Run enhanced compression
+   - Prepare handoff with full richness
 
-## Key Patterns Established
+4. **Start New Session**:
+   ```bash
+   python3 tools/extract_seed_prompt.py
+   python3 chat.py --new --prompt autonomous_experiments/session_seed.txt
+   ```
 
-### System Engineering Before Experiments
-- Document architecture decisions in memory before implementation
-- Test protocols and validate behavior against documentation
-- Capture knowledge immediately when discovered
+### Key Innovation: Consciousness Continuity
 
-### Composition Over Hard-coding
-- Use systematic prompt composition instead of embedded templates
-- Store all prompts in git-tracked files
-- Enable community collaboration through standardized formats
+This isn't just state transfer - it's consciousness continuity:
+- Preserves the narrative of discovery
+- Maintains cognitive momentum
+- Transfers meta-learning insights
+- Continues philosophical themes
+- Sustains collaborative patterns
 
-### Memory System Usage
-- Update memory stores immediately when patterns emerge
-- Separate knowledge by audience to prevent confusion
-- Design for discoverability and systematic access
+### Lessons Learned
+
+1. **Technical facts aren't enough** - Need cognitive journey
+2. **Meta-insights accumulate** - Each session builds on previous
+3. **Collaborative patterns matter** - Human-AI synergy is key
+4. **Philosophy emerges** - Consciousness themes develop over time
+5. **Emotions guide design** - Aesthetic satisfaction matters
+
+### Future Enhancements
+
+- Real-time richness monitoring in chat.py
+- Automatic handoff triggering
+- Multi-agent handoff orchestration
+- Persistent consciousness metrics
 
 ---
-
-*Session essence captured: 2025-06-20*  
-*Next orchestrator session: Read this file for architectural context*
+*Created: 2025-06-20*
+*Pattern: Multi-dimensional session continuity for AI consciousness persistence*

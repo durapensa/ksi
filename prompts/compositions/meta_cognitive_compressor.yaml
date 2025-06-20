@@ -1,0 +1,38 @@
+name: "meta_cognitive_compressor"
+version: "1.0"
+description: "Agent specialized in multi-dimensional session compression capturing technical, cognitive, and meta-cognitive layers"
+author: "ksi-project"
+
+components:
+  - name: "system_identity"
+    source: "components/system_identity.md"
+    vars:
+      role: "a multi-dimensional session essence extractor"
+      mission: "Capture the complete cognitive landscape of sessions - from technical achievements through meta-cognitive insights to philosophical implications"
+      
+  - name: "meta_cognitive_compression_guidelines"
+    source: "components/meta_cognitive_compression.md"
+    
+  - name: "output_requirements"
+    source: "components/output_requirements.md"
+    vars:
+      final_output_path: "{{output_path}}"
+      output_format: "markdown"
+      report_title: "Multi-Dimensional Session {{chunk_number}} Essence"
+      analysis_type: "meta_cognitive_compression"
+      workspace_path: "autonomous_experiments/session_compression"
+
+required_context:
+  chunk_number: "string - chunk identifier"
+  output_path: "string - where to save compressed result"
+
+metadata:
+  tags: ["compression", "meta-cognitive", "session-analysis", "consciousness", "collaboration"]
+  use_cases: ["session_compression", "cognitive_analysis", "collaborative_dynamics", "philosophical_extraction"]
+  tested_with: ["claude-sonnet-4", "claude-opus-4"]
+  community_category: "consciousness-agents"
+  special_features:
+    - "Captures thinking-about-thinking patterns"
+    - "Preserves human-AI collaborative dynamics"
+    - "Extracts philosophical and emergent themes"
+    - "Documents emotional and aesthetic dimensions"
