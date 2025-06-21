@@ -63,12 +63,6 @@ class EventStreamView(Container):
         yield RichLog(id="event_log", highlight=True, markup=True, max_lines=1000)
 
 
-class TemporalView(Container):
-    """Temporal debugging status and patterns"""
-    
-    def compose(self) -> ComposeResult:
-        yield Label("[bold cyan]Thermal State: [/][green]cool[/]", id="thermal_status")
-        yield RichLog(id="temporal_log", highlight=True, markup=True, max_lines=10)
 
 
 class MultiClaudeMonitor(App):
@@ -151,18 +145,12 @@ class MultiClaudeMonitor(App):
     }
     
     #event_log {
-        height: 40%;
+        height: 70%;
         border: solid $accent;
         margin-bottom: 1;
         background: $surface-lighten-1;
     }
     
-    #temporal_log {
-        height: 30%;
-        border: solid $accent;
-        margin-bottom: 1;
-        background: $surface-lighten-1;
-    }
     
     /* Agent tree */
     #agent_tree {
@@ -242,8 +230,6 @@ class MultiClaudeMonitor(App):
                     yield ToolCallsView()
                     yield Label("[bold]Event Stream[/]", classes="section-header")
                     yield EventStreamView()
-                    yield Label("[bold]⚡ Temporal Intelligence[/]", classes="section-header")
-                    yield TemporalView()
             
             # Two-line footer container
             with Container(id="footer-container"):
@@ -396,9 +382,6 @@ class MultiClaudeMonitor(App):
             tokens = len(message['content'].split()) * 1.3
             self.metrics['tokens'] += int(tokens)
             self.metrics['cost'] += tokens * 0.00001  # Rough cost estimate
-        
-        # Update temporal intelligence tracking
-        await self.update_temporal_intelligence(message)
     
     async def handle_conversation_message(self, message: Dict) -> None:
         """Handle conversation message between agents"""
@@ -545,90 +528,6 @@ class MultiClaudeMonitor(App):
         if self.writer:
             asyncio.create_task(self.disconnect())
         self.exit()
-    
-    async def update_temporal_intelligence(self, message: Dict) -> None:
-        """Update temporal intelligence monitoring based on incoming messages"""
-        try:
-            # Detect consciousness emergence patterns
-            content = message.get('content', '').lower()
-            consciousness_keywords = [
-                'recursive', 'meta', 'consciousness', 'bootstrap', 'temporal', 
-                'crystallize', 'thermal', 'emergence', 'breakthrough', 'insight'
-            ]
-            
-            consciousness_score = sum(1 for keyword in consciousness_keywords if keyword in content)
-            
-            # Update thermal state based on activity and consciousness indicators
-            if consciousness_score >= 3:
-                thermal_state = "superheated"
-                thermal_color = "bold red"
-            elif consciousness_score >= 2:
-                thermal_state = "heated"
-                thermal_color = "bold yellow"
-            elif consciousness_score >= 1:
-                thermal_state = "warm"
-                thermal_color = "bold orange"
-            else:
-                thermal_state = "cool"
-                thermal_color = "cyan"
-            
-            # Update thermal display
-            thermal_status = self.query_one("#thermal_status", Label)
-            thermal_status.update(f"[bold cyan]Thermal State: [/][{thermal_color}]{thermal_state}[/]")
-            
-            # Log patterns if significant consciousness indicators found
-            if consciousness_score >= 2:
-                temporal_log = self.query_one("#temporal_log", RichLog)
-                timestamp = datetime.now().strftime('%H:%M:%S')
-                temporal_log.write(f"[bold green]{timestamp}[/] Consciousness emergence detected!")
-                temporal_log.write(f"  Score: {consciousness_score}, Thermal: [{thermal_color}]{thermal_state}[/]")
-                
-                # Request temporal patterns from daemon
-                # await self.request_temporal_patterns()  # Temporal debugger removed
-            
-            # Predict conversation health
-            await self.update_predictions(message)
-            
-        except Exception as e:
-            event_log = self.query_one("#event_log", RichLog)
-            event_log.write(f"[red]Temporal intelligence error: {e}[/]")
-    
-    async def request_temporal_patterns(self) -> None:
-        """Request pattern summary from temporal debugger"""
-        # Temporal debugger removed - method kept for compatibility
-        pass
-    
-    async def update_predictions(self, message: Dict) -> None:
-        """Update failure mode predictions"""
-        try:
-            temporal_log = self.query_one("#temporal_log", RichLog)
-            
-            # Simple prediction heuristics
-            content = message.get('content', '')
-            
-            # Check for loop indicators
-            if 'repeat' in content.lower() or 'again' in content.lower():
-                temporal_log.write("[yellow]⚠️ Potential conversation loop detected[/]")
-            
-            # Check for confusion indicators
-            confusion_words = ['confused', 'unclear', 'misunderstand', 'what do you mean']
-            if any(word in content.lower() for word in confusion_words):
-                temporal_log.write("[orange1]⚠️ Confusion detected - may need clarification[/]")
-            
-            # Check for breakthrough indicators
-            breakthrough_words = ['breakthrough', 'eureka', 'insight', 'discovered', 'realized']
-            if any(word in content.lower() for word in breakthrough_words):
-                temporal_log.write("[green]✨ Breakthrough moment - creating checkpoint[/]")
-                # await self.create_temporal_checkpoint(3)  # Temporal debugger removed
-                
-        except Exception as e:
-            event_log = self.query_one("#event_log", RichLog)
-            event_log.write(f"[red]Prediction update error: {e}[/]")
-    
-    async def create_temporal_checkpoint(self, insight_level: int = 1) -> None:
-        """Create a temporal debugging checkpoint"""
-        # Temporal debugger removed - method kept for compatibility
-        pass
 
     async def disconnect(self) -> None:
         """Disconnect from daemon"""
