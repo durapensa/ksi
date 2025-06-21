@@ -25,7 +25,13 @@
 - Created `simple_hello_goodbye` composition for testing
 - Components are selected based on agent role
 
-### 5. Test Infrastructure Updates
+### 5. Template Engine Limitations
+- The PromptComposer uses simple string replacement, not a full template engine
+- Handlebars syntax like `{{#each}}` in `daemon_commands.md` doesn't work
+- Variables are replaced with `str(value)` representation
+- Despite this, Claude agents receive command info as stringified JSON
+
+### 6. Test Infrastructure Updates
 - Moved all test scripts to `tests/` directory
 - Updated test scripts to use composition system
 - Fixed import paths and dependencies

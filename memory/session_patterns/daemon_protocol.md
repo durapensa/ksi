@@ -1,18 +1,26 @@
 # Daemon Protocol Knowledge for Spawned Claude Sessions
 
-## Socket Communication Format
+**Note**: This document describes the legacy protocol. For current protocol, see `memory/claude_code/project_knowledge.md`
 
-The daemon expects text-based commands via Unix socket (NOT JSON):
+## Socket Communication Format (LEGACY)
+
+The daemon originally used these formats:
 - **Fresh spawn**: `SPAWN::prompt_text` (double colon for empty sessionId)
 - **Resume session**: `SPAWN:sessionId:prompt_text`
 - **Module reload**: `RELOAD:module_name`
 - **Shutdown**: `SHUTDOWN`
 
-## AutonomousResearcher Usage
-- Use `spawn_independent_claude(experiment_name, prompt, resume_session=None)`
-- Prompts must be single-line strings (no multiline strings with \n)
-- Fresh sessions use format: `SPAWN::prompt` (empty sessionId)
-- Resume sessions use format: `SPAWN:sessionId:prompt`
+## Current Protocol (as of 2025-06-21)
+The daemon now uses a unified SPAWN command:
+- **Format**: `SPAWN:[mode]:[type]:[session_id]:[model]:[agent_id]:<prompt>`
+- **Example**: `SPAWN:sync:claude::sonnet::Hello world`
+- Legacy formats are auto-detected for backward compatibility
+- Use `GET_COMMANDS` to discover all available commands dynamically
+
+## AutonomousResearcher Usage (LEGACY)
+- Originally used `spawn_independent_claude(experiment_name, prompt, resume_session=None)`
+- Modern agents should use the unified SPAWN command or SPAWN_AGENT for profile-based spawning
+- Prompts must still be single-line strings (no multiline strings with \n)
 
 ## Debugging & Error Handling
 - daemon.py captures stderr and adds to output JSON

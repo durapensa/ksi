@@ -6,9 +6,11 @@ Minimal daemon system for managing Claude processes with conversation continuity
 ## Architecture
 
 ### Core Components
-- **daemon.py**: Minimal async daemon that spawns Claude processes and tracks sessionId
+- **daemon.py**: Modular async daemon with multi-agent coordination capabilities
+- **daemon/**: Modular daemon architecture (core, state_manager, agent_manager, etc.)
 - **chat.py**: Simple interface for chatting with Claude
 - **claude_modules/**: Python modules for extending daemon functionality
+- **prompts/**: Prompt composition system for modular prompt building
 
 ### How It Works
 1. Daemon receives commands via Unix socket
@@ -16,15 +18,62 @@ Minimal daemon system for managing Claude processes with conversation continuity
 3. Logs all sessions to `claude_logs/<session-id>.jsonl` in JSONL format
 4. Uses `--resume sessionId` for conversation continuity
 
-### Multi-Agent Infrastructure Status
-**Implementation**: Foundational components implemented but require testing
-- **Agent Registry**: `REGISTER_AGENT`, `GET_AGENTS` commands available
-- **Inter-Agent Communication**: `SEND_MESSAGE` with logging to `claude_logs/inter_agent_messages.jsonl`
-- **Shared State Store**: `SET_SHARED`/`GET_SHARED` with file persistence in `shared_state/`
-- **Agent Templates**: 4 profiles in `agent_profiles/` (orchestrator, researcher, coder, analyst)
-- **Task Distribution**: `ROUTE_TASK` with capability-based routing
+### Daemon Command System
+**Unified SPAWN Command** (as of 2025-06-21):
+- Format: `SPAWN:[mode]:[type]:[session_id]:[model]:[agent_id]:<prompt>`
+- Examples:
+  - `SPAWN:sync:claude::sonnet::Hello world`
+  - `SPAWN:async:claude:session123:sonnet:agent1:Complex task`
+- Legacy formats auto-detected for backward compatibility
 
-**Status**: Ready for multi-agent testing but not yet validated in production
+**Command Organization**:
+- Total: ~20 commands organized into functional groups
+- Groups: Process Spawning, Agent Management, Communication & Events, State Management, System Management
+- Aliases available: `S:` → `SPAWN:`, `R:` → `RELOAD:`, `SA:` → `SPAWN_AGENT:`, etc.
+- Use `GET_COMMANDS` to discover all available commands dynamically
+
+**GET_COMMANDS Response** (enhanced 2025-06-21):
+```json
+{
+  "commands": { /* flat list of all commands */ },
+  "grouped_commands": { /* commands organized by functional area */ },
+  "total_commands": 20,
+  "groups": ["Process Spawning", "Agent Management", ...]
+}
+```
+
+### Prompt Composition System
+**Architecture**:
+- **composer.py**: Composition engine using simple string replacement
+- **components/**: Reusable markdown templates with `{{variable}}` placeholders
+- **compositions/**: YAML recipes defining which components to include
+
+**How Claude Agents Use It**:
+1. Call `GET_COMMANDS` to get available daemon commands
+2. Pass commands as `daemon_commands` context to prompt composer
+3. Composer replaces `{{daemon_commands}}` with stringified JSON
+
+**Known Limitation**: 
+- Template engine only does simple string replacement
+- Handlebars syntax (`{{#each}}`) in components doesn't work
+- Despite this, Claude agents still receive command info as JSON string
+
+### Multi-Agent Infrastructure Status
+**Implementation**: Core components operational with recent architectural improvements
+- **Agent Registry**: `REGISTER_AGENT`, `GET_AGENTS` commands available
+- **Inter-Agent Communication**: Message bus system with event-driven architecture
+  - `PUBLISH:from_agent:event_type:json_payload` for sending messages
+  - `SUBSCRIBE:agent_id:event_type1,event_type2` for receiving messages
+  - `AGENT_CONNECTION:connect|disconnect:agent_id` (new unified command)
+- **Shared State Store**: `SET_SHARED`/`GET_SHARED` with file persistence in `shared_state/`
+- **Agent Templates**: 15+ profiles in `agent_profiles/` including orchestrator, researcher, coder, analyst, debater, teacher, etc.
+- **Task Distribution**: `ROUTE_TASK` with capability-based routing
+- **Process Spawning**: `SPAWN_AGENT:profile:task:context:agent_id` for profile-based agent creation
+
+**Key Architectural Principles**:
+- **Event-Driven**: No polling, timers, or wait loops - all communication via message bus events
+- **SPAWN_AGENT vs SPAWN**: SPAWN_AGENT provides profile templating and auto-registration, justifying its separate existence
+- **Command Consolidation**: Recent cleanup removed legacy commands and added aliases
 
 ## File Organization (Claude Code Standards)
 

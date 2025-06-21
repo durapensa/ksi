@@ -169,14 +169,24 @@ See [MULTI_CLAUDE_ORCHESTRATOR.md](MULTI_CLAUDE_ORCHESTRATOR.md) for detailed do
 
 ### Daemon Commands
 
-| Command | Format | Description |
-|---------|--------|-------------|
-| SPAWN | `SPAWN:[session_id]:<prompt>` | Spawn Claude with prompt |
-| REGISTER_AGENT | `REGISTER_AGENT:id:role:capabilities` | Register an agent |
-| SEND_MESSAGE | `SEND_MESSAGE:from:to:message` | Send inter-agent message |
-| SET_SHARED | `SET_SHARED:key:value` | Set shared state |
-| GET_SHARED | `GET_SHARED:key` | Get shared state |
-| HEALTH_CHECK | `HEALTH_CHECK` | Check daemon health |
+The daemon supports ~20 commands organized into functional groups. Use `GET_COMMANDS` to discover all available commands dynamically.
+
+#### Key Commands
+
+| Command | Format | Description | Alias |
+|---------|--------|-------------|-------|
+| SPAWN | `SPAWN:[mode]:[type]:[session_id]:[model]:[agent_id]:<prompt>` | Unified Claude spawning | S: |
+| SPAWN_AGENT | `SPAWN_AGENT:profile:task:context:agent_id` | Profile-based agent spawning | SA: |
+| GET_COMMANDS | `GET_COMMANDS` | Get all commands with grouping | - |
+| REGISTER_AGENT | `REGISTER_AGENT:id:role:capabilities` | Register an agent | - |
+| PUBLISH | `PUBLISH:from:event_type:json_payload` | Publish message to bus | - |
+| SUBSCRIBE | `SUBSCRIBE:agent_id:event_type1,event_type2` | Subscribe to events | - |
+| SET_SHARED | `SET_SHARED:key:value` | Set shared state | SET: |
+| GET_SHARED | `GET_SHARED:key` | Get shared state | GET: |
+
+**Command Groups**: Process Spawning, Agent Management, Communication & Events, State Management, System Management
+
+**Note**: Legacy command formats are auto-detected for backward compatibility.
 
 ### Session Logs
 
