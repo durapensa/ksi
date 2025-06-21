@@ -629,10 +629,6 @@ class MultiClaudeMonitor(App):
         """Create a temporal debugging checkpoint"""
         # Temporal debugger removed - method kept for compatibility
         pass
-                
-            except Exception as e:
-                event_log = self.query_one("#event_log", RichLog)
-                event_log.write(f"[red]Failed to create checkpoint: {e}[/]")
 
     async def disconnect(self) -> None:
         """Disconnect from daemon"""
