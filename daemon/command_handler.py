@@ -29,14 +29,20 @@ class CommandHandler:
         # Command registry - maps command prefixes to handler methods
         self.handlers = {
             'SPAWN:': self.handle_spawn_unified,  # Unified handler with sync/async mode
-            'SPAWN_LEGACY_SYNC:': self.handle_spawn_legacy_sync,  # Backup for transition
+            'S:': self.handle_spawn_unified,  # Alias for SPAWN
             'RELOAD:': self.handle_reload_module,
+            'R:': self.handle_reload_module,  # Alias for RELOAD
             'REGISTER_AGENT:': self.handle_register_agent,
             'SPAWN_AGENT:': self.handle_spawn_agent,
+            'SA:': self.handle_spawn_agent,  # Alias for SPAWN_AGENT
             'GET_AGENTS': self.handle_get_agents,
+            'GA': self.handle_get_agents,  # Alias for GET_AGENTS
             'SEND_MESSAGE:': self.handle_send_message,
+            'MSG:': self.handle_send_message,  # Alias for SEND_MESSAGE
             'SET_SHARED:': self.handle_set_shared,
+            'SET:': self.handle_set_shared,  # Alias for SET_SHARED
             'GET_SHARED:': self.handle_get_shared,
+            'GET:': self.handle_get_shared,  # Alias for GET_SHARED
             'ROUTE_TASK:': self.handle_route_task,
             'GET_PROCESSES': self.handle_get_processes,
             'CLEANUP:': self.handle_cleanup,
@@ -47,8 +53,9 @@ class CommandHandler:
             # New message bus commands
             'SUBSCRIBE:': self.handle_subscribe,
             'PUBLISH:': self.handle_publish,
-            'CONNECT_AGENT:': self.handle_connect_agent,
-            'DISCONNECT_AGENT:': self.handle_disconnect_agent,
+            'AGENT_CONNECTION:': self.handle_agent_connection,
+            'CONNECT_AGENT:': self.handle_connect_agent,  # Legacy - deprecated
+            'DISCONNECT_AGENT:': self.handle_disconnect_agent,  # Legacy - deprecated
             'MESSAGE_BUS_STATS': self.handle_message_bus_stats,
             'GET_COMMANDS': self.handle_get_commands
         }
@@ -102,25 +109,6 @@ class CommandHandler:
     
     # Individual command handlers - clean, focused, testable - EXACT copies from daemon_clean.py
     
-    async def handle_spawn_legacy_sync(self, command: str, writer: asyncio.StreamWriter) -> bool:
-        """Handle legacy SPAWN command for backward compatibility"""
-        logger.info("Processing SPAWN command")
-        
-        # Parse command format: "SPAWN:[session_id]:<prompt>"
-        parts = command[6:].split(':', 1)
-        if len(parts) == 2 and parts[0]:
-            session_id, prompt = parts[0], parts[1]
-        else:
-            session_id, prompt = None, command[6:].strip()
-        
-        logger.info(f"Spawning Claude with prompt: {prompt[:50]}...")
-        if self.process_manager:
-            result = await self.process_manager.spawn_claude(prompt, session_id)
-        else:
-            result = {'error': 'No process manager available'}
-        logger.info(f"Claude spawn completed")
-        
-        return await self.send_response(writer, result)
     
     async def handle_spawn_unified(self, command: str, writer: asyncio.StreamWriter) -> bool:
         """Handle unified SPAWN command with mode parameter"""
@@ -441,8 +429,43 @@ class CommandHandler:
         else:
             return await self.send_error_response(writer, 'No message bus available')
     
+    async def handle_agent_connection(self, command: str, writer: asyncio.StreamWriter) -> bool:
+        """Handle unified AGENT_CONNECTION command for connect/disconnect operations"""
+        # Parse format: "AGENT_CONNECTION:action:agent_id" where action is "connect" or "disconnect"
+        parts = command[17:].split(':', 1)
+        if len(parts) != 2:
+            return await self.send_error_response(writer, 'Invalid AGENT_CONNECTION format. Use: AGENT_CONNECTION:connect|disconnect:agent_id')
+        
+        action, agent_id = parts
+        action = action.lower()
+        
+        if action == 'connect':
+            if self.message_bus:
+                self.message_bus.connect_agent(agent_id, writer)
+                return await self.send_response(writer, {
+                    'status': 'connected',
+                    'agent_id': agent_id,
+                    'action': 'connect'
+                })
+            else:
+                return await self.send_error_response(writer, 'No message bus available')
+                
+        elif action == 'disconnect':
+            if self.message_bus:
+                self.message_bus.disconnect_agent(agent_id)
+                return await self.send_response(writer, {
+                    'status': 'disconnected',
+                    'agent_id': agent_id,
+                    'action': 'disconnect'
+                })
+            else:
+                return await self.send_error_response(writer, 'No message bus available')
+        else:
+            return await self.send_error_response(writer, f'Invalid action: {action}. Use "connect" or "disconnect"')
+    
     async def handle_connect_agent(self, command: str, writer: asyncio.StreamWriter) -> bool:
-        """Handle CONNECT_AGENT command"""
+        """Handle CONNECT_AGENT command - DEPRECATED: Use AGENT_CONNECTION:connect:agent_id instead"""
+        logger.warning("CONNECT_AGENT is deprecated. Use AGENT_CONNECTION:connect:agent_id instead")
         agent_id = command[14:].strip()
         
         if self.message_bus:
@@ -455,7 +478,8 @@ class CommandHandler:
             return await self.send_error_response(writer, 'No message bus available')
     
     async def handle_disconnect_agent(self, command: str, writer: asyncio.StreamWriter) -> bool:
-        """Handle DISCONNECT_AGENT command"""
+        """Handle DISCONNECT_AGENT command - DEPRECATED: Use AGENT_CONNECTION:disconnect:agent_id instead"""
+        logger.warning("DISCONNECT_AGENT is deprecated. Use AGENT_CONNECTION:disconnect:agent_id instead")
         agent_id = command[17:].strip()
         
         if self.message_bus:
@@ -481,8 +505,23 @@ class CommandHandler:
         
         commands = {}
         
+        # Define aliases mapping for documentation
+        aliases = {
+            'S:': 'SPAWN:',
+            'R:': 'RELOAD:',
+            'SA:': 'SPAWN_AGENT:',
+            'GA': 'GET_AGENTS',
+            'MSG:': 'SEND_MESSAGE:',
+            'SET:': 'SET_SHARED:',
+            'GET:': 'GET_SHARED:'
+        }
+        
         # Extract command info from handlers and their docstrings
         for cmd_prefix, handler_func in self.handlers.items():
+            # Skip aliases in main listing (they'll be added as metadata)
+            if cmd_prefix in aliases:
+                continue
+                
             # Parse docstring for description
             docstring = handler_func.__doc__ or ""
             description = docstring.split(' - ')[1].strip() if ' - ' in docstring else docstring.strip()
@@ -523,6 +562,8 @@ class CommandHandler:
                         format_match = "CLEANUP:<cleanup_type>"
                     elif cmd_name == 'RELOAD':
                         format_match = "RELOAD:<module_name>"
+                    elif cmd_name == 'AGENT_CONNECTION':
+                        format_match = "AGENT_CONNECTION:connect|disconnect:agent_id"
                     elif cmd_name == 'CONNECT_AGENT':
                         format_match = "CONNECT_AGENT:agent_id"
                     elif cmd_name == 'DISCONNECT_AGENT':
@@ -536,14 +577,42 @@ class CommandHandler:
                 format_match = cmd_prefix
                 cmd_key = cmd_prefix
             
+            # Find aliases for this command
+            command_aliases = [alias.rstrip(':') for alias, parent in aliases.items() if parent == cmd_prefix]
+            
             commands[cmd_key] = {
                 "format": format_match,
-                "description": description
+                "description": description,
+                "aliases": command_aliases
             }
+        
+        # Group commands by functional area
+        grouped_commands = {
+            "Process Spawning": {},
+            "Agent Management": {},
+            "Communication & Events": {},
+            "State Management": {},
+            "System Management": {}
+        }
+        
+        # Categorize commands
+        for cmd_name, cmd_info in commands.items():
+            if cmd_name in ['SPAWN', 'SPAWN_AGENT']:
+                grouped_commands["Process Spawning"][cmd_name] = cmd_info
+            elif cmd_name in ['REGISTER_AGENT', 'GET_AGENTS', 'ROUTE_TASK']:
+                grouped_commands["Agent Management"][cmd_name] = cmd_info
+            elif cmd_name in ['SEND_MESSAGE', 'SUBSCRIBE', 'PUBLISH', 'AGENT_CONNECTION', 'CONNECT_AGENT', 'DISCONNECT_AGENT', 'MESSAGE_BUS_STATS']:
+                grouped_commands["Communication & Events"][cmd_name] = cmd_info
+            elif cmd_name in ['SET_SHARED', 'GET_SHARED', 'LOAD_STATE']:
+                grouped_commands["State Management"][cmd_name] = cmd_info
+            else:
+                grouped_commands["System Management"][cmd_name] = cmd_info
         
         result = {
             "commands": commands,
-            "total_commands": len(commands)
+            "grouped_commands": grouped_commands,
+            "total_commands": len(commands),
+            "groups": list(grouped_commands.keys())
         }
         
         logger.info(f"Returning {len(commands)} command definitions")
