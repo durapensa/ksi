@@ -392,6 +392,254 @@ class CommandHandlers:
             }
         })
     
+    async def _handle_get_compositions(self, parameters: dict, writer: asyncio.StreamWriter, full_command: dict) -> bool:
+        """Handle GET_COMPOSITIONS command"""
+        try:
+            # Import composer locally to avoid circular dependencies
+            import sys
+            import os
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            from prompts.composer import PromptComposer
+            
+            composer = PromptComposer()
+            compositions = composer.list_compositions()
+            
+            include_metadata = parameters.get('include_metadata', True)
+            category_filter = parameters.get('category')
+            
+            result_compositions = {}
+            
+            for comp_name in compositions:
+                try:
+                    if include_metadata:
+                        composition = composer.load_composition(comp_name)
+                        metadata = composition.metadata
+                        
+                        # Apply category filter if specified
+                        if category_filter and metadata.get('category') != category_filter:
+                            continue
+                        
+                        result_compositions[comp_name] = {
+                            'name': composition.name,
+                            'version': composition.version,
+                            'description': composition.description,
+                            'author': composition.author,
+                            'required_context': composition.required_context,
+                            'metadata': metadata
+                        }
+                    else:
+                        result_compositions[comp_name] = {'name': comp_name}
+                except Exception as e:
+                    logger.warning(f"Failed to load composition {comp_name}: {e}")
+            
+            return await self.cmd_handler.send_response(writer, {
+                'status': 'success',
+                'command': 'GET_COMPOSITIONS',
+                'result': {
+                    'compositions': result_compositions,
+                    'total': len(result_compositions)
+                }
+            })
+            
+        except Exception as e:
+            return await self.cmd_handler.send_error_response(writer, "GET_COMPOSITIONS_FAILED", str(e))
+    
+    async def _handle_get_composition(self, parameters: dict, writer: asyncio.StreamWriter, full_command: dict) -> bool:
+        """Handle GET_COMPOSITION command"""
+        try:
+            name = parameters.get('name')
+            
+            # Import composer locally
+            import sys
+            import os
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            from prompts.composer import PromptComposer
+            
+            composer = PromptComposer()
+            composition = composer.load_composition(name)
+            
+            # Convert composition to dict
+            comp_dict = {
+                'name': composition.name,
+                'version': composition.version,
+                'description': composition.description,
+                'author': composition.author,
+                'components': [
+                    {
+                        'name': comp.name,
+                        'source': comp.source,
+                        'vars': comp.vars,
+                        'condition': comp.condition
+                    }
+                    for comp in composition.components
+                ],
+                'required_context': composition.required_context,
+                'metadata': composition.metadata
+            }
+            
+            return await self.cmd_handler.send_response(writer, {
+                'status': 'success',
+                'command': 'GET_COMPOSITION',
+                'result': {
+                    'composition': comp_dict
+                }
+            })
+            
+        except FileNotFoundError as e:
+            return await self.cmd_handler.send_error_response(writer, "COMPOSITION_NOT_FOUND", str(e))
+        except Exception as e:
+            return await self.cmd_handler.send_error_response(writer, "GET_COMPOSITION_FAILED", str(e))
+    
+    async def _handle_validate_composition(self, parameters: dict, writer: asyncio.StreamWriter, full_command: dict) -> bool:
+        """Handle VALIDATE_COMPOSITION command"""
+        try:
+            name = parameters.get('name')
+            context = parameters.get('context')
+            
+            # Import composer locally
+            import sys
+            import os
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            from prompts.composer import PromptComposer
+            
+            composer = PromptComposer()
+            
+            # First validate the composition exists and is valid
+            issues = composer.validate_composition(name)
+            
+            if issues:
+                return await self.cmd_handler.send_response(writer, {
+                    'status': 'success',
+                    'command': 'VALIDATE_COMPOSITION',
+                    'result': {
+                        'valid': False,
+                        'issues': issues
+                    }
+                })
+            
+            # Now validate the context
+            try:
+                composition = composer.load_composition(name)
+                missing_context = []
+                
+                for required_key in composition.required_context.keys():
+                    if required_key not in context:
+                        missing_context.append(required_key)
+                
+                if missing_context:
+                    return await self.cmd_handler.send_response(writer, {
+                        'status': 'success',
+                        'command': 'VALIDATE_COMPOSITION',
+                        'result': {
+                            'valid': False,
+                            'missing_context': missing_context,
+                            'required_context': composition.required_context
+                        }
+                    })
+                
+                # Try to compose to check for other issues
+                prompt = composer.compose(name, context)
+                
+                return await self.cmd_handler.send_response(writer, {
+                    'status': 'success',
+                    'command': 'VALIDATE_COMPOSITION',
+                    'result': {
+                        'valid': True,
+                        'prompt_length': len(prompt)
+                    }
+                })
+                
+            except Exception as e:
+                return await self.cmd_handler.send_response(writer, {
+                    'status': 'success',
+                    'command': 'VALIDATE_COMPOSITION',
+                    'result': {
+                        'valid': False,
+                        'error': str(e)
+                    }
+                })
+                
+        except Exception as e:
+            return await self.cmd_handler.send_error_response(writer, "VALIDATE_COMPOSITION_FAILED", str(e))
+    
+    async def _handle_list_components(self, parameters: dict, writer: asyncio.StreamWriter, full_command: dict) -> bool:
+        """Handle LIST_COMPONENTS command"""
+        try:
+            directory_filter = parameters.get('directory')
+            
+            # Import composer locally
+            import sys
+            import os
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            from prompts.composer import PromptComposer
+            
+            composer = PromptComposer()
+            all_components = composer.list_components()
+            
+            # Apply directory filter if specified
+            if directory_filter:
+                components = [c for c in all_components if c.startswith(directory_filter)]
+            else:
+                components = all_components
+            
+            # Group by directory
+            by_directory = {}
+            for comp in components:
+                parts = comp.split('/')
+                if len(parts) > 1:
+                    dir_name = parts[0]
+                else:
+                    dir_name = ''
+                
+                if dir_name not in by_directory:
+                    by_directory[dir_name] = []
+                by_directory[dir_name].append(comp)
+            
+            return await self.cmd_handler.send_response(writer, {
+                'status': 'success',
+                'command': 'LIST_COMPONENTS',
+                'result': {
+                    'components': components,
+                    'by_directory': by_directory,
+                    'total': len(components)
+                }
+            })
+            
+        except Exception as e:
+            return await self.cmd_handler.send_error_response(writer, "LIST_COMPONENTS_FAILED", str(e))
+    
+    async def _handle_compose_prompt(self, parameters: dict, writer: asyncio.StreamWriter, full_command: dict) -> bool:
+        """Handle COMPOSE_PROMPT command"""
+        try:
+            composition_name = parameters.get('composition')
+            context = parameters.get('context')
+            
+            # Import composer locally
+            import sys
+            import os
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            from prompts.composer import PromptComposer
+            
+            composer = PromptComposer()
+            prompt = composer.compose(composition_name, context)
+            
+            return await self.cmd_handler.send_response(writer, {
+                'status': 'success',
+                'command': 'COMPOSE_PROMPT',
+                'result': {
+                    'prompt': prompt,
+                    'length': len(prompt),
+                    'composition': composition_name
+                }
+            })
+            
+        except FileNotFoundError as e:
+            return await self.cmd_handler.send_error_response(writer, "COMPOSITION_NOT_FOUND", str(e))
+        except ValueError as e:
+            return await self.cmd_handler.send_error_response(writer, "CONTEXT_VALIDATION_ERROR", str(e))
+        except Exception as e:
+            return await self.cmd_handler.send_error_response(writer, "COMPOSE_PROMPT_FAILED", str(e))
+    
     # System Control Commands
     
     async def _handle_reload_daemon(self, parameters: dict, writer: asyncio.StreamWriter, full_command: dict) -> bool:

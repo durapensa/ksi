@@ -80,6 +80,34 @@ Minimal daemon system for managing Claude processes with conversation continuity
 - `claude_agent_default.yaml` - Updated to include tool signaling
 - Enhanced logging captures tool_calls from Claude output
 
+### Composition Discovery System (Added 2025-06-21)
+**Implementation**:
+- Added 5 new daemon commands for composition discovery
+- Commands: GET_COMPOSITIONS, GET_COMPOSITION, VALIDATE_COMPOSITION, LIST_COMPONENTS, COMPOSE_PROMPT
+- All commands validated with JSON schemas in SYSTEM_STATUS category
+- Created `prompts/discovery.py` module for unified discovery interface
+
+**Features**:
+- List all compositions with metadata filtering
+- Get detailed composition information including components
+- Validate context against composition requirements
+- List all available components organized by directory
+- Compose prompts directly via daemon
+- Fallback to direct file access if daemon unavailable
+
+**Usage**:
+- `GET_COMPOSITIONS` - Returns all compositions with metadata
+- `GET_COMPOSITION:name` - Returns full composition details
+- `VALIDATE_COMPOSITION:name:context` - Validates context completeness
+- `LIST_COMPONENTS` - Returns all components grouped by directory
+- `COMPOSE_PROMPT:composition:context` - Composes and returns prompt
+
+**Discovery Module** (`prompts/discovery.py`):
+- Provides high-level API for composition discovery
+- Supports finding compositions by capability, role, or task
+- Includes CLI interface for exploration
+- Enables dynamic composition selection by agents
+
 ### Multi-Agent Infrastructure Status
 **Implementation**: Core components operational with recent architectural improvements
 - **Agent Registry**: `REGISTER_AGENT`, `GET_AGENTS` commands available

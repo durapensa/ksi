@@ -513,15 +513,134 @@ SYSTEM_STATUS_SCHEMA = {
     "allOf": [
         BASE_COMMAND_SCHEMA,
         {
-            "properties": {
-                "command": {
-                    "enum": ["HEALTH_CHECK", "GET_COMMANDS", "GET_PROCESSES"]
+            "oneOf": [
+                # HEALTH_CHECK command
+                {
+                    "properties": {
+                        "command": {"const": "HEALTH_CHECK"},
+                        "parameters": {
+                            "type": "object",
+                            "additionalProperties": False
+                        }
+                    }
                 },
-                "parameters": {
-                    "type": "object",
-                    "additionalProperties": False
+                # GET_COMMANDS command
+                {
+                    "properties": {
+                        "command": {"const": "GET_COMMANDS"},
+                        "parameters": {
+                            "type": "object",
+                            "additionalProperties": False
+                        }
+                    }
+                },
+                # GET_PROCESSES command
+                {
+                    "properties": {
+                        "command": {"const": "GET_PROCESSES"},
+                        "parameters": {
+                            "type": "object",
+                            "additionalProperties": False
+                        }
+                    }
+                },
+                # GET_COMPOSITIONS command
+                {
+                    "properties": {
+                        "command": {"const": "GET_COMPOSITIONS"},
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "include_metadata": {
+                                    "type": "boolean",
+                                    "default": True,
+                                    "description": "Include composition metadata"
+                                },
+                                "category": {
+                                    "type": ["string", "null"],
+                                    "description": "Filter by category"
+                                }
+                            },
+                            "additionalProperties": False
+                        }
+                    }
+                },
+                # GET_COMPOSITION command
+                {
+                    "properties": {
+                        "command": {"const": "GET_COMPOSITION"},
+                        "parameters": {
+                            "type": "object",
+                            "required": ["name"],
+                            "properties": {
+                                "name": {
+                                    "type": "string",
+                                    "description": "Composition name"
+                                }
+                            },
+                            "additionalProperties": False
+                        }
+                    }
+                },
+                # VALIDATE_COMPOSITION command
+                {
+                    "properties": {
+                        "command": {"const": "VALIDATE_COMPOSITION"},
+                        "parameters": {
+                            "type": "object",
+                            "required": ["name", "context"],
+                            "properties": {
+                                "name": {
+                                    "type": "string",
+                                    "description": "Composition name"
+                                },
+                                "context": {
+                                    "type": "object",
+                                    "description": "Context to validate"
+                                }
+                            },
+                            "additionalProperties": False
+                        }
+                    }
+                },
+                # LIST_COMPONENTS command
+                {
+                    "properties": {
+                        "command": {"const": "LIST_COMPONENTS"},
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "directory": {
+                                    "type": ["string", "null"],
+                                    "description": "Filter by directory"
+                                }
+                            },
+                            "additionalProperties": False
+                        }
+                    }
+                },
+                # COMPOSE_PROMPT command
+                {
+                    "properties": {
+                        "command": {"const": "COMPOSE_PROMPT"},
+                        "parameters": {
+                            "type": "object",
+                            "required": ["composition", "context"],
+                            "properties": {
+                                "composition": {
+                                    "type": "string",
+                                    "description": "Composition name"
+                                },
+                                "context": {
+                                    "type": "object",
+                                    "description": "Context for composition"
+                                }
+                            },
+                            "additionalProperties": False
+                        }
+                    }
                 }
-            }
+            ]
         }
     ]
 }
@@ -634,6 +753,11 @@ COMMAND_MAPPINGS = {
     "HEALTH_CHECK": CommandType.SYSTEM_STATUS,
     "GET_COMMANDS": CommandType.SYSTEM_STATUS,
     "GET_PROCESSES": CommandType.SYSTEM_STATUS,
+    "GET_COMPOSITIONS": CommandType.SYSTEM_STATUS,
+    "GET_COMPOSITION": CommandType.SYSTEM_STATUS,
+    "VALIDATE_COMPOSITION": CommandType.SYSTEM_STATUS,
+    "LIST_COMPONENTS": CommandType.SYSTEM_STATUS,
+    "COMPOSE_PROMPT": CommandType.SYSTEM_STATUS,
     
     # System Control
     "SHUTDOWN": CommandType.SYSTEM_CONTROL,

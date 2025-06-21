@@ -80,6 +80,7 @@ class ClaudeDaemonCore:
     
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         """JSON Protocol v2.0 client handler"""
+        agent_id = None  # Initialize to avoid UnboundLocalError
         try:
             # Read first JSON command
             first_data = await reader.readline()
