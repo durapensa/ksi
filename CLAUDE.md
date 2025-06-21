@@ -87,6 +87,20 @@ python orchestrate.py "AI ethics" --mode debate
 python monitor_tui.py
 ```
 
+#### Monitor TUI Troubleshooting
+If the monitor shows no data:
+1. The monitor must CONNECT_AGENT before SUBSCRIBE (fixed in latest version)
+2. Start in debug mode ('d' key) to see raw message flow
+3. Check Event Stream panel for connection/subscription status
+4. Ensure daemon is running and orchestrate.py is actively sending messages
+
+#### Multi-Claude Conversation Troubleshooting
+If nodes disconnect with "Broken pipe" errors:
+- This was fixed on 2025-06-21 - claude_node.py now uses separate connections for commands
+- Kill all existing processes and restart with fresh daemon and orchestrate.py
+- Check logs/daemon.log for connection errors
+- Nodes should now maintain stable connections and continue conversing
+
 ## Available Tools
 When working with the system, you have access to:
 - Task, Bash, Glob, Grep, LS, Read, Edit, MultiEdit, Write, WebFetch, WebSearch

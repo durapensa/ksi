@@ -72,5 +72,40 @@ python3 tests/test_daemon_protocol.py
 - **Autonomous experiments**: Results in `autonomous_experiments/`
 - **Cognitive data**: Analysis inputs in `cognitive_data/`
 
+## Known Issues & Fixes
+
+### Monitor TUI Connection Issue (FIXED 2025-06-21)
+**Problem**: Monitor would connect but display no data
+**Root Cause**: The message bus requires agents to:
+1. First call `CONNECT_AGENT:agent_id` to register the connection
+2. Then call `SUBSCRIBE:agent_id:event_types` to subscribe to events
+
+**Solution**: Modified monitor_tui.py to:
+- Send CONNECT_AGENT command first
+- Use separate connection for SUBSCRIBE command  
+- Keep main connection exclusively for receiving messages
+- Enable debug mode by default for troubleshooting
+
+### Claude Node Connection Architecture Issue (FIXED 2025-06-21)
+**Problem**: Claude nodes would connect, send 1-2 messages, then disconnect with "Broken pipe" errors
+**Root Cause**: claude_node.py was using the same connection for:
+1. Receiving messages (reader connection from CONNECT_AGENT)
+2. Sending commands (PUBLISH, etc.)
+
+This caused the daemon to close the connection when it received a command on a message-receiving connection.
+
+**Solution**: Modified claude_node.py to use separate connections:
+- Main connection (`self.reader`/`self.writer`) - exclusively for receiving messages
+- Temporary connections for each command send operation:
+  - `send_message()` - opens new connection for PUBLISH:DIRECT_MESSAGE
+  - `start_conversation()` - opens new connection for PUBLISH:CONVERSATION_INVITE
+  - `_subscribe_to_events()` - opens new connection for SUBSCRIBE command
+
+**Additional Fixes**:
+- Added allowedTools parameter to Claude CLI command (comma-separated list)
+- Fixed Claude output parsing for new CLI format (`type: result` with `result` field)
+- Enhanced error handling for broken connections (ConnectionResetError, BrokenPipeError)
+- Added detailed logging for Claude CLI failures
+
 ---
 *For Claude Code interactive development sessions*
