@@ -172,6 +172,7 @@ class ChatInterface(App):
         Binding("ctrl+b", "toggle_past_browser", "Past Sessions"),
         Binding("ctrl+a", "toggle_active_browser", "Active Sessions"),
         Binding("ctrl+l", "clear_conversation", "Clear"),
+        Binding("ctrl+e", "export_conversation", "Export", show=False),
         Binding("f1", "show_help", "Help"),
     ]
     
@@ -190,6 +191,7 @@ class ChatInterface(App):
         self.available_sessions: List[Tuple[str, str, int]] = []  # (session_id, timestamp, message_count)
         self.active_conversations: Dict[str, Dict] = {}  # conversation_id -> info
         self.profile_data: Optional[Dict] = None
+        self.selected_past_session: Optional[str] = None  # For export functionality
         
         # For multi-agent mode
         self.agent_id: Optional[str] = None
@@ -793,6 +795,7 @@ class ChatInterface(App):
   Ctrl+B         - Browse past sessions (replay)
   Ctrl+A         - Browse active conversations (join)
   Ctrl+L         - Clear conversation
+  Ctrl+E         - Export selected conversation (when browsing past)
   F1             - Show help
   Up/Down        - Navigate input history
 
@@ -843,6 +846,7 @@ class ChatInterface(App):
         # Check which list view sent the event
         if event.list_view.id == "past-conversation-list":
             if hasattr(event.item, 'session_id'):
+                self.selected_past_session = event.item.session_id
                 await self.load_past_conversation(event.item.session_id)
         elif event.list_view.id == "active-conversation-list":
             if hasattr(event.item, 'conversation_id'):
@@ -1005,6 +1009,99 @@ class ChatInterface(App):
         """Clear the conversation log"""
         self.query_one("#conversation_log", RichLog).clear()
         self.notify("Conversation cleared")
+    
+    def action_export_conversation(self) -> None:
+        """Export the selected conversation to markdown"""
+        if not self.selected_past_session:
+            self.notify("No conversation selected to export", severity="warning")
+            return
+        
+        # Run export in background
+        self.run_worker(self.export_conversation_to_markdown())
+    
+    async def export_conversation_to_markdown(self) -> None:
+        """Export conversation to markdown file"""
+        session_id = self.selected_past_session
+        
+        # Determine export filename
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        export_dir = Path('exports')
+        export_dir.mkdir(exist_ok=True)
+        export_file = export_dir / f'conversation_{session_id}_{timestamp}.md'
+        
+        try:
+            # Build markdown content
+            md_lines = [f"# Conversation Export: {session_id}\n"]
+            md_lines.append(f"*Exported on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n")
+            md_lines.append("---\n")
+            
+            # Load conversation from log file
+            log_file = Path(f'claude_logs/{session_id}.jsonl')
+            if not log_file.exists():
+                self.notify(f"Session file not found: {session_id}", severity="error")
+                return
+            
+            # Special handling for message_bus
+            if session_id == "message_bus":
+                md_lines.append("## Inter-Agent Conversation Messages\n")
+                with open(log_file, 'r') as f:
+                    for line in f:
+                        try:
+                            msg = json.loads(line)
+                            if msg.get('type') == 'DIRECT_MESSAGE':
+                                sender = msg.get('from', 'Unknown')
+                                to = msg.get('to', 'Unknown')
+                                content = msg.get('content', '')
+                                timestamp = msg.get('timestamp', '')
+                                
+                                # Format timestamp
+                                try:
+                                    dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                                    time_str = dt.strftime('%Y-%m-%d %H:%M:%S')
+                                except:
+                                    time_str = timestamp
+                                
+                                md_lines.append(f"### {time_str} - {sender} → {to}\n")
+                                md_lines.append(f"{content}\n")
+                                md_lines.append("---\n")
+                        except:
+                            continue
+            else:
+                # Normal conversation log
+                with open(log_file, 'r') as f:
+                    for line in f:
+                        try:
+                            entry = json.loads(line)
+                            timestamp = entry.get('timestamp', '')
+                            
+                            # Format timestamp
+                            try:
+                                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                                time_str = dt.strftime('%Y-%m-%d %H:%M:%S')
+                            except:
+                                time_str = timestamp
+                            
+                            if entry.get('type') in ['user', 'human']:
+                                md_lines.append(f"### {time_str} - You\n")
+                                md_lines.append(f"{entry.get('content', '')}\n")
+                                md_lines.append("---\n")
+                            elif entry.get('type') == 'claude':
+                                content = entry.get('result', entry.get('content', ''))
+                                md_lines.append(f"### {time_str} - Claude\n")
+                                md_lines.append(f"{content}\n")
+                                md_lines.append("---\n")
+                        except:
+                            continue
+            
+            # Write to file
+            with open(export_file, 'w', encoding='utf-8') as f:
+                f.writelines(md_lines)
+            
+            # Show success notification
+            self.notify(f"Exported to: {export_file.name}", title="Export Complete", timeout=3)
+            
+        except Exception as e:
+            self.notify(f"Export failed: {str(e)}", severity="error")
     
     def action_show_help(self) -> None:
         """Show help"""

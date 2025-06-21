@@ -45,7 +45,9 @@ python3 chat_textual.py --prompt initial_prompt.txt
 - `Ctrl+Q` - Quit the application
 - `Ctrl+N` - Start a new session
 - `Ctrl+B` - Browse/replay past conversations
+- `Ctrl+A` - Browse active conversations
 - `Ctrl+L` - Clear conversation display
+- `Ctrl+E` - Export selected conversation to markdown (when browsing past)
 - `F1` - Show help
 - `Escape` - Close conversation browser (when open)
 - `Up/Down` - Navigate input history
@@ -105,6 +107,20 @@ To use a different profile:
 ```bash
 python3 chat_textual.py --profile researcher
 ```
+
+## Export Feature
+
+Export any conversation to a markdown file:
+
+1. Press `Ctrl+B` to open the past conversations browser
+2. Click on any conversation to select it
+3. Press `Ctrl+E` to export
+4. A notification will show the export location
+
+Exported files are saved to the `exports/` directory with timestamps:
+- Format: `conversation_<session_id>_<timestamp>.md`
+- Includes timestamps, sender names, and full message content
+- Special formatting for inter-agent messages
 
 ## Multi-Agent Mode (Coming Soon)
 

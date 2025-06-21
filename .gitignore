@@ -216,3 +216,6 @@ autonomous_experiments/outputs/
 # Agent communication logs
 claude_logs/inter_agent_messages.jsonl
 claude_logs/task_routing.jsonl
+
+# Exported conversations
+exports/
