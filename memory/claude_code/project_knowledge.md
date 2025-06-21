@@ -183,6 +183,8 @@ This caused the daemon to close the connection when it received a command on a m
 - Updated CLAUDE.md with mandatory session start instructions
 - Cleaned up project root: reduced from 15 to 3 essential .md files
 - Organized documentation into docs/features/, docs/analysis/, docs/archive/
+- Replaced start-daemon.sh with daemon_control.sh (start|stop|restart|status|health)
+- Enhanced daemon commands with better self-documentation and workflow guidance
 
 ---
 *For Claude Code interactive development sessions*

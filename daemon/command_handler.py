@@ -111,7 +111,10 @@ class CommandHandler:
     
     
     async def handle_spawn_unified(self, command: str, writer: asyncio.StreamWriter) -> bool:
-        """Handle unified SPAWN command with mode parameter"""
+        """Handle SPAWN command - Spawn Claude processes in sync or async mode
+        Format: SPAWN:[sync|async]:claude:[session_id]:[model]:[agent_id]:<prompt>
+        Sync mode: Waits for Claude response before returning
+        Async mode: Returns immediately with process_id"""
         logger.info("Processing unified SPAWN command")
         
         # Parse unified format: "SPAWN:[mode]:[type]:[session_id]:[model]:[agent_id]:<prompt>"
@@ -197,14 +200,18 @@ class CommandHandler:
     
     
     async def handle_reload_module(self, command: str, writer: asyncio.StreamWriter) -> bool:
-        """Handle RELOAD command - EXACT copy from daemon_clean.py"""
+        """Handle RELOAD command - Hot-reload Python modules without restarting daemon
+        Format: RELOAD:<module_name>
+        Useful for updating claude_modules handlers during development"""
         module_name = command[7:].strip()
         if self.utils_manager:
             self.utils_manager.reload_module(module_name)
         return await self.send_text_response(writer, 'OK')
     
     async def handle_register_agent(self, command: str, writer: asyncio.StreamWriter) -> bool:
-        """Handle REGISTER_AGENT command - EXACT copy from daemon_clean.py"""
+        """Handle REGISTER_AGENT command - Register an agent with the system
+        Format: REGISTER_AGENT:agent_id:role:capabilities
+        Makes agent discoverable for task routing and inter-agent messaging"""
         logger.info("Processing REGISTER_AGENT command")
         
         # Parse format: "REGISTER_AGENT:agent_id:role:capabilities"
@@ -222,7 +229,9 @@ class CommandHandler:
             return await self.send_error_response(writer, 'No agent manager available')
     
     async def handle_spawn_agent(self, command: str, writer: asyncio.StreamWriter) -> bool:
-        """Handle SPAWN_AGENT command - EXACT copy from daemon_clean.py"""
+        """Handle SPAWN_AGENT command - Spawn agent process using predefined profile
+        Format: SPAWN_AGENT:profile_name:task:context:agent_id
+        Creates message-bus-aware agent that can participate in conversations"""
         logger.info("Processing SPAWN_AGENT command")
         
         # Parse format: "SPAWN_AGENT:profile_name:task:context:agent_id"
@@ -249,7 +258,8 @@ class CommandHandler:
             return await self.send_error_response(writer, f'Failed to spawn agent with profile {profile_name}')
     
     async def handle_get_agents(self, command: str, writer: asyncio.StreamWriter) -> bool:
-        """Handle GET_AGENTS command - EXACT copy from daemon_clean.py"""
+        """Handle GET_AGENTS command - List all registered agents and their capabilities
+        Returns agent profiles, roles, and current status"""
         logger.info("Processing GET_AGENTS command")
         if self.agent_manager:
             agents = self.agent_manager.get_all_agents()
@@ -260,7 +270,9 @@ class CommandHandler:
         return result
     
     async def handle_send_message(self, command: str, writer: asyncio.StreamWriter) -> bool:
-        """Handle SEND_MESSAGE command - EXACT copy from daemon_clean.py"""
+        """Handle SEND_MESSAGE command - Send direct message between agents (deprecated)
+        Format: SEND_MESSAGE:from_agent:to_agent:message
+        Note: Use PUBLISH for message bus communication instead"""
         # Parse format: "SEND_MESSAGE:from_agent:to_agent:message"
         parts = command[13:].split(':', 2)
         if len(parts) != 3:
@@ -275,7 +287,9 @@ class CommandHandler:
             return await self.send_error_response(writer, 'No agent manager available')
     
     async def handle_set_shared(self, command: str, writer: asyncio.StreamWriter) -> bool:
-        """Handle SET_SHARED command - EXACT copy from daemon_clean.py"""
+        """Handle SET_SHARED command - Store shared state accessible by all agents
+        Format: SET_SHARED:key:value
+        Persists to shared_state/ directory for cross-agent coordination"""
         logger.info("Processing SET_SHARED command")
         
         # Parse format: "SET_SHARED:key:value"
@@ -295,7 +309,9 @@ class CommandHandler:
             return await self.send_error_response(writer, 'No state manager available')
     
     async def handle_get_shared(self, command: str, writer: asyncio.StreamWriter) -> bool:
-        """Handle GET_SHARED command - EXACT copy from daemon_clean.py"""
+        """Handle GET_SHARED command - Retrieve shared state by key
+        Format: GET_SHARED:key
+        Returns value stored with SET_SHARED or null if not found"""
         logger.info("Processing GET_SHARED command")
         
         key = command[11:].strip()
@@ -387,7 +403,10 @@ class CommandHandler:
     # New message bus command handlers
     
     async def handle_subscribe(self, command: str, writer: asyncio.StreamWriter) -> bool:
-        """Handle SUBSCRIBE command for message bus"""
+        """Handle SUBSCRIBE command - Subscribe agent to message bus events
+        Format: SUBSCRIBE:agent_id:event_type1,event_type2,...
+        Prerequisite: Call AGENT_CONNECTION:connect first
+        Common events: DIRECT_MESSAGE, BROADCAST, TASK_ASSIGNMENT, PROCESS_COMPLETE"""
         # Parse format: "SUBSCRIBE:agent_id:event_type1,event_type2,..."
         parts = command[10:].split(':', 1)
         if len(parts) != 2:
@@ -410,7 +429,10 @@ class CommandHandler:
             return await self.send_error_response(writer, 'No message bus available')
     
     async def handle_publish(self, command: str, writer: asyncio.StreamWriter) -> bool:
-        """Handle PUBLISH command for message bus"""
+        """Handle PUBLISH command - Publish event to message bus subscribers
+        Format: PUBLISH:from_agent:event_type:json_payload
+        Events are delivered to all agents subscribed to the event_type
+        Use DIRECT_MESSAGE for point-to-point, BROADCAST for all agents"""
         # Parse format: "PUBLISH:from_agent:event_type:json_payload"
         parts = command[8:].split(':', 2)
         if len(parts) != 3:
@@ -608,11 +630,36 @@ class CommandHandler:
             else:
                 grouped_commands["System Management"][cmd_name] = cmd_info
         
+        # Add workflow guidance
+        workflows = {
+            "agent_startup": [
+                "1. AGENT_CONNECTION:connect:your_agent_id - Establish connection",
+                "2. SUBSCRIBE:your_agent_id:DIRECT_MESSAGE,BROADCAST,PROCESS_COMPLETE - Listen for events", 
+                "3. REGISTER_AGENT:your_agent_id:role:capabilities - Register capabilities (optional)",
+                "4. Start processing messages and tasks"
+            ],
+            "spawn_claude": [
+                "Sync: SPAWN:sync:claude::sonnet::your_prompt - Wait for response",
+                "Async: SPAWN:async:claude::sonnet:agent_id:your_prompt - Get process_id immediately",
+                "Then: Wait for PROCESS_COMPLETE event with matching process_id"
+            ],
+            "inter_agent_communication": [
+                "1. Both agents must be connected (AGENT_CONNECTION:connect)",
+                "2. Both agents must subscribe to DIRECT_MESSAGE events",
+                "3. PUBLISH:sender:DIRECT_MESSAGE:{\"to\":\"recipient\",\"content\":\"message\"}"
+            ],
+            "shared_state": [
+                "SET_SHARED:config_key:{\"some\":\"data\"} - Store shared configuration",
+                "GET_SHARED:config_key - Retrieve from any agent"
+            ]
+        }
+        
         result = {
             "commands": commands,
             "grouped_commands": grouped_commands,
             "total_commands": len(commands),
-            "groups": list(grouped_commands.keys())
+            "groups": list(grouped_commands.keys()),
+            "workflows": workflows
         }
         
         logger.info(f"Returning {len(commands)} command definitions")
