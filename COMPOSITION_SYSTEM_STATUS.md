@@ -8,14 +8,14 @@
 - Agents can query for current daemon capabilities
 
 ### 2. Prompt Composer Integration
-- Integrated `PromptComposer` into `claude_node.py`
+- Integrated `PromptComposer` into `agent_process.py`
 - Agents use compositions instead of hard-coded prompts
 - Profile-based composition selection (`composition` field in profiles)
 - Fallback to legacy prompts if composition not found
 
 ### 3. Conversation Control System
 - Created response control component with [END], [NO_RESPONSE], [TERMINATE] signals
-- Added signal detection and handling in `claude_node.py`
+- Added signal detection and handling in `agent_process.py`
 - Agents can terminate gracefully when they detect [END] signal
 - Response filtering prevents sending messages with control signals
 

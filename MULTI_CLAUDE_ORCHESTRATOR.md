@@ -16,7 +16,7 @@ This system transforms the ksi daemon from a hierarchical orchestrator→agent m
 
 ### Core Components
 
-1. **claude_node.py** - Persistent Claude process
+1. **agent_process.py** - Persistent Claude process
    - Maintains socket connection to daemon
    - Listens for incoming messages
    - Spawns Claude CLI to generate responses
@@ -131,13 +131,13 @@ Start individual Claude nodes for custom setups:
 
 ```bash
 # Start first node
-python claude_node.py --id researcher_1 --profile researcher
+python agent_process.py --id researcher_1 --profile researcher
 
 # Start second node
-python claude_node.py --id analyst_1 --profile analyst
+python agent_process.py --id analyst_1 --profile analyst
 
 # Start a conversation between them
-python claude_node.py --id orchestrator --start-conversation \
+python agent_process.py --id orchestrator --start-conversation \
     --with-agents researcher_1 analyst_1 \
     --topic "Analyze recent AI breakthroughs"
 ```

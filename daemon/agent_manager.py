@@ -67,7 +67,7 @@ class AgentManager:
             import uuid
             agent_id = f"{profile_name}_{str(uuid.uuid4())[:8]}"
         
-        # Spawn agent process (claude_node.py) instead of raw Claude
+        # Spawn agent process (agent_process.py) instead of raw Claude
         # This allows agents to participate in the message bus system
         if self.process_manager:
             process_id = await self.process_manager.spawn_agent_process_async(agent_id, profile_name)

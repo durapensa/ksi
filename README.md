@@ -115,7 +115,7 @@ python3 monitor_tui.py
 
 - **chat.py** - Simple interface for human-Claude interaction
 
-- **claude_node.py** - Persistent Claude process for multi-agent conversations
+- **agent_process.py** - Persistent Claude process for multi-agent conversations
 
 - **orchestrate.py** - High-level orchestration for multi-Claude conversations
 
@@ -218,7 +218,7 @@ The daemon automatically loads and calls modules in `claude_modules/`.
 ksi/
 ├── daemon.py              # Core daemon
 ├── chat.py               # Human chat interface
-├── claude_node.py        # Persistent Claude process
+├── agent_process.py      # Persistent Claude process
 ├── orchestrate.py        # Multi-Claude orchestrator
 ├── monitor_tui.py        # TUI monitor
 ├── daemon/               # Modular daemon components

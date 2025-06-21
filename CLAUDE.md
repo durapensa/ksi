@@ -2,13 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Session Start Instructions
+
+**MANDATORY FIRST STEP**: At the beginning of every session, read:
+1. **`memory/claude_code/project_knowledge.md`** - Contains critical project-specific knowledge, architecture decisions, and recent changes
+2. **This file (CLAUDE.md)** - For current development guidelines and practices
+
 ## Memory System Integration
 
-**IMPORTANT**: This project uses a structured memory system. For comprehensive knowledge:
-
-1. **Read the memory system**: `memory/README.md` (start here)
-2. **Claude Code specific knowledge**: `memory/claude_code/project_knowledge.md`
-3. **Return here** for basic project information
+**PROJECT KNOWLEDGE STRUCTURE**:
+- **`memory/README.md`** - Overview of the memory system organization
+- **`memory/claude_code/project_knowledge.md`** - **[READ EVERY SESSION]** Technical details, issues, fixes, and architectural decisions
+- **`memory/human/`** - Human audience documentation (if you need background context)
 
 ## Project Overview
 Minimal daemon system for managing Claude processes with conversation continuity.
@@ -153,7 +158,7 @@ If the monitor shows no data:
 
 #### Multi-Claude Conversation Troubleshooting
 If nodes disconnect with "Broken pipe" errors:
-- This was fixed on 2025-06-21 - claude_node.py now uses separate connections for commands
+- This was fixed on 2025-06-21 - agent_process.py (formerly claude_node.py) now uses separate connections for commands
 - Kill all existing processes and restart with fresh daemon and orchestrate.py
 - Check logs/daemon.log for connection errors
 - Nodes should now maintain stable connections and continue conversing
@@ -180,6 +185,7 @@ When working with the system, you have access to:
 - Latest session is symlinked at `claude_logs/latest.jsonl`
 
 ## Key Points for Claude Code
+- **FIRST**: Always read `memory/claude_code/project_knowledge.md` at session start
 - Keep the daemon minimal and focused
 - Organize files by purpose and audience
 - Check the memory system for detailed knowledge

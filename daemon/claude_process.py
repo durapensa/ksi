@@ -359,13 +359,13 @@ class ClaudeProcessManager:
         self.message_bus = message_bus
     
     async def spawn_agent_process_async(self, agent_id: str, profile_name: str) -> str:
-        """Spawn agent process (claude_node.py) for message-bus-aware agents"""
+        """Spawn agent process (agent_process.py) for message-bus-aware agents"""
         import uuid
         process_id = str(uuid.uuid4())[:8]
         
         cmd = [
             sys.executable,  # Use current Python interpreter
-            'claude_node.py',  # TODO: Consider renaming this file to agent_process.py
+            'agent_process.py',
             '--id', agent_id,
             '--profile', profile_name,
             '--socket', 'sockets/claude_daemon.sock'

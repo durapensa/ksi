@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test script to verify unified SPAWN async implementation with claude_node.py
+Test script to verify unified SPAWN async implementation with agent_process.py
 """
 
 import asyncio

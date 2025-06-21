@@ -137,13 +137,13 @@ python3 tests/test_daemon_protocol.py
 
 ### Claude Node Connection Architecture Issue (FIXED 2025-06-21)
 **Problem**: Claude nodes would connect, send 1-2 messages, then disconnect with "Broken pipe" errors
-**Root Cause**: claude_node.py was using the same connection for:
+**Root Cause**: agent_process.py (formerly claude_node.py) was using the same connection for:
 1. Receiving messages (reader connection from CONNECT_AGENT)
 2. Sending commands (PUBLISH, etc.)
 
 This caused the daemon to close the connection when it received a command on a message-receiving connection.
 
-**Solution**: Modified claude_node.py to use separate connections:
+**Solution**: Modified agent_process.py to use separate connections:
 - Main connection (`self.reader`/`self.writer`) - exclusively for receiving messages
 - Temporary connections for each command send operation:
   - `send_message()` - opens new connection for PUBLISH:DIRECT_MESSAGE
@@ -167,7 +167,7 @@ This caused the daemon to close the connection when it received a command on a m
 
 **SPAWN_AGENT Fixed for Multi-Agent Support**:
 - Problem: Was spawning raw Claude CLI processes that couldn't use message bus
-- Solution: Now spawns claude_node.py processes via spawn_agent_process_async()
+- Solution: Now spawns agent_process.py processes via spawn_agent_process_async()
 - Agents can now receive DIRECT_MESSAGE events and participate in conversations
 - Cleaned up confusing node/agent terminology throughout
 
@@ -179,7 +179,7 @@ This caused the daemon to close the connection when it received a command on a m
 
 **Remaining Work**:
 - Fix [END] signal handling (agents don't terminate properly)
-- Consider renaming claude_node.py to agent_process.py
+- Renamed claude_node.py to agent_process.py (completed 2025-06-21)
 - Complete terminology cleanup across codebase
 
 ---

@@ -11,7 +11,7 @@ Implemented a composition-based prompt system to replace hard-coded prompts and 
 - Enables agents to discover daemon capabilities dynamically
 
 ### 2. Prompt Composer Integration  
-- Modified claude_node.py to use PromptComposer for all prompt generation
+- Modified agent_process.py to use PromptComposer for all prompt generation
 - Agents load compositions from profile configuration
 - Fallback to legacy prompts if composition not found
 - Context includes: agent_id, role, conversation_history, daemon_commands
@@ -19,7 +19,7 @@ Implemented a composition-based prompt system to replace hard-coded prompts and 
 ### 3. Response Control System
 - Created conversation_control/response_rules.md component
 - Implemented control signals: [END], [NO_RESPONSE], [TERMINATE]
-- Added signal detection and filtering in claude_node.py
+- Added signal detection and filtering in agent_process.py
 - Agents can terminate gracefully using [END] signal
 
 ### 4. Conversation Patterns

@@ -53,7 +53,7 @@ mkdir -p claude_modules sockets claude_logs logs shared_state agent_profiles
 echo "✓ Created required directories"
 
 # Make scripts executable
-chmod +x daemon.py chat.py orchestrate.py monitor_tui.py claude_node.py test_multi_claude.py
+chmod +x daemon.py chat.py orchestrate.py monitor_tui.py agent_process.py test_multi_claude.py
 echo "✓ Made scripts executable"
 
 echo ""
