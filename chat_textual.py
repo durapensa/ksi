@@ -342,6 +342,34 @@ class ChatInterface(App):
         except Exception as e:
             return json.dumps({"error": f"Command failed: {str(e)}"})
     
+    async def send_spawn_command(self, command: str, prompt_bytes: bytes) -> str:
+        """Send SPAWN command with length-prefixed prompt data"""
+        try:
+            # Create new connection for each command
+            reader, writer = await asyncio.open_unix_connection(SOCKET_PATH)
+            
+            # Send command line
+            if not command.endswith('\n'):
+                command += '\n'
+            writer.write(command.encode())
+            await writer.drain()
+            
+            # Send prompt bytes immediately after
+            writer.write(prompt_bytes)
+            await writer.drain()
+            writer.write_eof()
+            
+            # Read full response
+            response = await reader.read()
+            
+            writer.close()
+            await writer.wait_closed()
+            
+            return response.decode().strip()
+            
+        except Exception as e:
+            return json.dumps({"error": f"SPAWN command failed: {str(e)}"})
+    
     def load_profile(self) -> None:
         """Load the specified profile"""
         profile_name = self.args.profile
@@ -650,14 +678,18 @@ class ChatInterface(App):
             # Compose prompt using profile if available
             composed_prompt = self.compose_prompt(message)
             
-            # Build spawn command
-            if self.session_id:
-                command = f"SPAWN:{self.session_id}:{composed_prompt}"
-            else:
-                command = f"SPAWN::{composed_prompt}"
+            # Build spawn command using unified length-prefixed format
+            # Format: SPAWN:sync:claude:session_id:model:agent_id:LENGTH + prompt_bytes
+            prompt_bytes = composed_prompt.encode('utf-8')
+            prompt_length = len(prompt_bytes)
             
-            # Send command
-            response = await self.send_to_daemon(command)
+            if self.session_id:
+                command = f"SPAWN:sync:claude:{self.session_id}:sonnet::{prompt_length}"
+            else:
+                command = f"SPAWN:sync:claude::sonnet::{prompt_length}"
+            
+            # Send command with length-prefixed protocol
+            response = await self.send_spawn_command(command, prompt_bytes)
             
             try:
                 output = json.loads(response)

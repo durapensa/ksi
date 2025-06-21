@@ -206,7 +206,13 @@ class ClaudeProcessManager:
             }
             
             # Send prompt to process (don't wait for completion)
-            process.stdin.write(prompt.encode())
+            prompt_bytes = prompt.encode()
+            logger.info(f"Sending prompt to Claude: {len(prompt_bytes)} bytes")
+            logger.info(f"Prompt starts with: {prompt[:100]!r}")
+            logger.info(f"Prompt ends with: {prompt[-100:]!r}")
+            
+            process.stdin.write(prompt_bytes)
+            await process.stdin.drain()  # Ensure data is written
             process.stdin.close()
             
             # Schedule async completion handling

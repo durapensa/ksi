@@ -85,6 +85,9 @@ class AgentProcess:
             if result.get('status') == 'connected':
                 logger.info(f"Successfully registered as agent {self.agent_id}")
                 
+                # Create or update identity for this agent
+                await self._ensure_identity()
+                
                 # Subscribe to relevant events
                 await self._subscribe_to_events()
                 return True
@@ -95,6 +98,67 @@ class AgentProcess:
         except Exception as e:
             logger.error(f"Failed to connect to daemon: {e}")
             return False
+    
+    async def _ensure_identity(self):
+        """Create or update identity for this agent"""
+        try:
+            # Try to get existing identity first
+            result = await self._send_daemon_command(f"GET_IDENTITY:{self.agent_id}")
+            
+            if result and result.get('status') == 'identity_found':
+                logger.info(f"Found existing identity for {self.agent_id}: {result['identity']['display_name']}")
+                return
+            
+            # Create new identity
+            role = self.profile_config.get('role', self.profile)
+            display_name = f"{role.title()}-{self.agent_id[-4:]}" if role != 'default' else f"Agent-{self.agent_id[-8:]}"
+            
+            # Get personality traits from profile capabilities
+            capabilities = self.profile_config.get('capabilities', [])
+            traits = self._capabilities_to_traits(capabilities)
+            
+            create_command = f"CREATE_IDENTITY:{self.agent_id}:{display_name}:{role}:{json.dumps(traits)}"
+            result = await self._send_daemon_command(create_command)
+            
+            if result and result.get('status') == 'identity_created':
+                logger.info(f"Created identity '{display_name}' for agent {self.agent_id}")
+            else:
+                logger.warning(f"Failed to create identity: {result}")
+                
+        except Exception as e:
+            logger.error(f"Error ensuring identity: {e}")
+    
+    def _capabilities_to_traits(self, capabilities):
+        """Convert capabilities to personality traits"""
+        trait_mapping = {
+            'web_search': 'research-oriented',
+            'information_gathering': 'thorough', 
+            'analysis': 'analytical',
+            'fact_checking': 'precise',
+            'coding': 'logical',
+            'debugging': 'systematic',
+            'testing': 'methodical',
+            'code_review': 'detail-oriented',
+            'architecture': 'strategic',
+            'conversation': 'communicative',
+            'teaching': 'patient',
+            'learning': 'curious',
+            'debate': 'articulate',
+            'collaboration': 'cooperative',
+            'creativity': 'imaginative',
+            'problem_solving': 'resourceful'
+        }
+        
+        traits = []
+        for cap in capabilities:
+            if cap in trait_mapping:
+                traits.append(trait_mapping[cap])
+        
+        # Add default traits if none found
+        if not traits:
+            traits = ['helpful', 'professional', 'reliable']
+            
+        return traits[:4]  # Limit to 4 traits
     
     async def _subscribe_to_events(self):
         """Subscribe to message bus events"""
@@ -258,6 +322,33 @@ class AgentProcess:
             logger.error(f"Error communicating with daemon: {e}")
             return None
     
+    async def _send_spawn_command(self, command: str, prompt_bytes: bytes) -> dict:
+        """Send SPAWN command with length-prefixed prompt data"""
+        try:
+            reader, writer = await asyncio.open_unix_connection(self.daemon_socket)
+            
+            # Send command line
+            if not command.endswith('\n'):
+                command += '\n'
+            writer.write(command.encode())
+            await writer.drain()
+            
+            # Send prompt bytes immediately after
+            writer.write(prompt_bytes)
+            await writer.drain()
+            
+            # Wait for response
+            response = await reader.readline()
+            writer.close()
+            await writer.wait_closed()
+            
+            if response:
+                return json.loads(response.decode().strip())
+            return None
+        except Exception as e:
+            logger.error(f"Error sending spawn command: {e}")
+            return None
+    
     async def get_daemon_commands(self) -> dict:
         """Get available daemon commands dynamically"""
         result = await self._send_daemon_command("GET_COMMANDS")
@@ -281,7 +372,8 @@ class AgentProcess:
                 'conversation_id': conversation_id,
                 'daemon_commands': daemon_commands,
                 'user_prompt': prompt,
-                'conversation_history': self._build_conversation_context(conversation_id)
+                'conversation_history': self._build_conversation_context(conversation_id),
+                'enable_tools': self.profile_config.get('enable_tools', True)
             }
             
             # Use composition from profile or default
@@ -313,15 +405,19 @@ class AgentProcess:
                     full_prompt = f"{self.profile_config['system_prompt']}\n\n{full_prompt}"
             
             # Build unified daemon command for non-blocking operation
-            # Format: SPAWN:async:claude:session_id:model:agent_id:prompt
+            # Format: SPAWN:async:claude:session_id:model:agent_id:LENGTH + prompt_bytes
+            # Use length-prefixed protocol to handle multi-line prompts
+            prompt_bytes = full_prompt.encode('utf-8')
+            prompt_length = len(prompt_bytes)
+            
             model = self.profile_config.get('model', 'sonnet')
             if self.session_id:
-                command = f"SPAWN:async:claude:{self.session_id}:{model}:{self.agent_id}:{full_prompt}"
+                command = f"SPAWN:async:claude:{self.session_id}:{model}:{self.agent_id}:{prompt_length}"
             else:
-                command = f"SPAWN:async:claude::{model}:{self.agent_id}:{full_prompt}"
+                command = f"SPAWN:async:claude::{model}:{self.agent_id}:{prompt_length}"
             
-            # Send to daemon
-            result = await self._send_daemon_command(command)
+            # Send to daemon using length-prefixed protocol
+            result = await self._send_spawn_command(command, prompt_bytes)
             
             if not result:
                 logger.error("No response from daemon")
@@ -369,7 +465,8 @@ class AgentProcess:
                 'conversation_id': conversation_id,
                 'daemon_commands': daemon_commands,
                 'user_prompt': prompt,
-                'conversation_history': self._build_conversation_context(conversation_id)
+                'conversation_history': self._build_conversation_context(conversation_id),
+                'enable_tools': self.profile_config.get('enable_tools', True)
             }
             
             # Use composition from profile or default
@@ -401,14 +498,17 @@ class AgentProcess:
                     full_prompt = f"{self.profile_config['system_prompt']}\n\n{full_prompt}"
             
             # Use unified SPAWN for synchronous response
-            # Format: SPAWN:sync:claude:session_id:model:agent_id:prompt
+            # Format: SPAWN:sync:claude:session_id:model:agent_id:LENGTH + prompt_bytes
+            prompt_bytes = full_prompt.encode('utf-8')
+            prompt_length = len(prompt_bytes)
+            
             model = self.profile_config.get('model', 'sonnet')
             if self.session_id:
-                command = f"SPAWN:sync:claude:{self.session_id}:{model}:{self.agent_id}:{full_prompt}"
+                command = f"SPAWN:sync:claude:{self.session_id}:{model}:{self.agent_id}:{prompt_length}"
             else:
-                command = f"SPAWN:sync:claude::{model}:{self.agent_id}:{full_prompt}"
+                command = f"SPAWN:sync:claude::{model}:{self.agent_id}:{prompt_length}"
             
-            result = await self._send_daemon_command(command)
+            result = await self._send_spawn_command(command, prompt_bytes)
             
             if not result:
                 return None

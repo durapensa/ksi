@@ -106,6 +106,10 @@ class AgentManager:
         logger.info(f"Registered agent {agent_id} with role {role}")
         return {'status': 'registered', 'agent_id': agent_id}
     
+    def get_agents(self) -> dict:
+        """Get all registered agents"""
+        return self.agents.copy()
+    
     def find_agents_by_capability(self, required_capabilities: list) -> list:
         """Find agents that have the required capabilities - EXACT copy from daemon_clean.py"""
         suitable_agents = []

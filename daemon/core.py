@@ -35,8 +35,9 @@ class ClaudeDaemonCore:
         self.hot_reload_manager = None
         self.command_handler = None
         self.message_bus = None
+        self.identity_manager = None
     
-    def set_managers(self, state_manager, process_manager, agent_manager, utils_manager, hot_reload_manager, command_handler, message_bus=None):
+    def set_managers(self, state_manager, process_manager, agent_manager, utils_manager, hot_reload_manager, command_handler, message_bus=None, identity_manager=None):
         """Dependency injection - wire all managers together"""
         self.state_manager = state_manager
         self.process_manager = process_manager
@@ -45,6 +46,7 @@ class ClaudeDaemonCore:
         self.hot_reload_manager = hot_reload_manager
         self.command_handler = command_handler
         self.message_bus = message_bus
+        self.identity_manager = identity_manager
         
         # Set up cross-manager dependencies
         if self.process_manager and self.agent_manager:
@@ -97,7 +99,7 @@ class ClaudeDaemonCore:
                 
                 # Process the connection command
                 if self.command_handler:
-                    await self.command_handler.handle_command(first_command, writer)
+                    await self.command_handler.handle_command(first_command, writer, reader)
                 
                 # Keep connection open for persistent agent
                 while not self.shutdown_event.is_set():
@@ -120,7 +122,7 @@ class ClaudeDaemonCore:
                     logger.debug(f"Agent {agent_id} command: {command[:50]}...")
                     
                     if self.command_handler:
-                        should_continue = await self.command_handler.handle_command(command, writer)
+                        should_continue = await self.command_handler.handle_command(command, writer, reader)
                         if not should_continue:
                             break
             else:
@@ -141,7 +143,7 @@ class ClaudeDaemonCore:
                     
                     # Route to command handler - clean and simple!
                     if self.command_handler:
-                        should_continue = await self.command_handler.handle_command(first_command, writer)
+                        should_continue = await self.command_handler.handle_command(first_command, writer, reader)
                         if not should_continue:
                             return  # Shutdown requested
                     else:

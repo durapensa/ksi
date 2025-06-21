@@ -21,6 +21,7 @@ from .utils import UtilsManager
 from .hot_reload import HotReloadManager
 from .command_handler import CommandHandler
 from .message_bus import MessageBus
+from .identity_manager import IdentityManager
 
 def parse_args():
     """Parse command line arguments - EXACT copy from daemon_clean.py"""
@@ -91,6 +92,7 @@ async def create_daemon(socket_path: str, hot_reload_from: str = None):
     utils_manager = UtilsManager(state_manager=state_manager)
     hot_reload_manager = HotReloadManager(core_daemon, state_manager, agent_manager)
     message_bus = MessageBus()
+    identity_manager = IdentityManager()
     
     # Create command handler with all dependencies
     command_handler = CommandHandler(
@@ -100,7 +102,8 @@ async def create_daemon(socket_path: str, hot_reload_from: str = None):
         agent_manager=agent_manager,
         utils_manager=utils_manager,
         hot_reload_manager=hot_reload_manager,
-        message_bus=message_bus
+        message_bus=message_bus,
+        identity_manager=identity_manager
     )
     
     # Wire everything together via dependency injection
@@ -111,7 +114,8 @@ async def create_daemon(socket_path: str, hot_reload_from: str = None):
         utils_manager=utils_manager,
         hot_reload_manager=hot_reload_manager,
         command_handler=command_handler,
-        message_bus=message_bus
+        message_bus=message_bus,
+        identity_manager=identity_manager
     )
     
     # Set up cross-manager dependencies

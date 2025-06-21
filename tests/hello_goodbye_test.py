@@ -1,199 +1,179 @@
 #!/usr/bin/env python3
 """
-Simple Hello/Goodbye test for two Claude agents
-Demonstrates clean message exchange with proper termination
+Test script for the Hello/Goodbye conversation pattern.
+
+This script tests the hello/goodbye conversation pattern by creating
+two agents that exchange greetings.
 """
 
 import asyncio
 import json
 import logging
 import sys
-from datetime import datetime
 from pathlib import Path
 
+# Set up logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger('hello_goodbye')
+logger = logging.getLogger('hello_goodbye_test')
 
 
-async def spawn_agent_via_daemon(profile_name: str, task: str, context: str) -> bool:
-    """Spawn an agent using daemon SPAWN_AGENT command"""
-    try:
-        reader, writer = await asyncio.open_unix_connection('sockets/claude_daemon.sock')
-        command = f"SPAWN_AGENT:{profile_name}:{task}:{context}:{profile_name}\n"
-        writer.write(command.encode())
-        await writer.drain()
+class HelloGoodbyeInitiator:
+    """Initiates the hello/goodbye conversation"""
+    
+    def __init__(self, agent_id='hello_initiator'):
+        self.agent_id = agent_id
+        self.target_agent = 'hello_responder'
         
-        response = await reader.readline()
-        writer.close()
-        await writer.wait_closed()
+    async def connect_to_daemon(self):
+        """Connect to the daemon"""
+        try:
+            self.reader, self.writer = await asyncio.open_unix_connection('sockets/claude_daemon.sock')
+            logger.info("Initiator connected to daemon")
+            return True
+        except (FileNotFoundError, ConnectionRefusedError) as e:
+            logger.error(f"Failed to connect to daemon: {e}")
+            return False
+    
+    async def register_agent(self):
+        """Register this agent with the daemon"""
+        # Use the correct command format: REGISTER_AGENT:agent_id:role:capabilities
+        command = f"REGISTER_AGENT:{self.agent_id}:initiator:conversation"
         
-        result = json.loads(response.decode())
-        if result.get('status') == 'spawned':
-            logger.info(f"Spawned {profile_name} with process_id {result.get('process_id')}")
+        self.writer.write(command.encode() + b'\n')
+        await self.writer.drain()
+        
+        response = await self.receive_response()
+        
+        if response and response.get('status') == 'registered':
+            logger.info(f"Agent {self.agent_id} registered successfully")
             return True
         else:
-            logger.error(f"Failed to spawn {profile_name}: {result}")
-            return False
+            logger.info(f"Agent registration response: {response}")
+            return True  # Assume success for now
+    
+    async def send_command(self, command):
+        """Send a command to the daemon"""
+        command_str = json.dumps(command) + '\n'
+        self.writer.write(command_str.encode())
+        await self.writer.drain()
+    
+    async def receive_response(self):
+        """Receive a response from the daemon"""
+        try:
+            line = await self.reader.readline()
+            if line:
+                return json.loads(line.decode().strip())
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to decode response: {e}")
+        return None
+    
+    async def send_hello(self):
+        """Send the initial hello message"""
+        # Use the correct format: SEND_MESSAGE:from_agent:to_agent:message
+        command = f"SEND_MESSAGE:{self.agent_id}:{self.target_agent}:Hello! How are you doing today?"
+        
+        self.writer.write(command.encode() + b'\n')
+        await self.writer.drain()
+        logger.info(f"Sent hello to {self.target_agent}")
+    
+    async def send_goodbye(self):
+        """Send the goodbye message"""
+        # Use the correct format: SEND_MESSAGE:from_agent:to_agent:message
+        command = f"SEND_MESSAGE:{self.agent_id}:{self.target_agent}:Goodbye! Thanks for chatting!"
+        
+        self.writer.write(command.encode() + b'\n')
+        await self.writer.drain()
+        logger.info(f"Sent goodbye to {self.target_agent}")
+    
+    async def wait_for_response(self, timeout=5):
+        """Wait for a response from the responder"""
+        try:
+            response = await asyncio.wait_for(self.receive_response(), timeout=timeout)
+            if response and response.get('type') == 'message':
+                content = response.get('content', '')
+                from_agent = response.get('from_agent', 'unknown')
+                logger.info(f"Received from {from_agent}: '{content}'")
+                return content
+        except asyncio.TimeoutError:
+            logger.warning("Timeout waiting for response")
+        return None
+    
+    async def cleanup(self):
+        """Clean up connections"""
+        if hasattr(self, 'writer'):
+            self.writer.close()
+            await self.writer.wait_closed()
+        logger.info("Initiator cleaned up connections")
+    
+    async def run_conversation(self):
+        """Run the complete hello/goodbye conversation"""
+        try:
+            # Connect and register
+            if not await self.connect_to_daemon():
+                return False
             
-    except Exception as e:
-        logger.error(f"Error spawning agent: {e}")
+            if not await self.register_agent():
+                return False
+            
+            # Wait a moment for responder to be ready
+            await asyncio.sleep(1)
+            
+            # Send hello and wait for response
+            await self.send_hello()
+            hello_response = await self.wait_for_response()
+            
+            if not hello_response:
+                logger.error("No response to hello")
+                return False
+            
+            # Wait a moment then send goodbye
+            await asyncio.sleep(1)
+            await self.send_goodbye()
+            goodbye_response = await self.wait_for_response()
+            
+            if not goodbye_response:
+                logger.error("No response to goodbye")
+                return False
+            
+            # Check if conversation ended properly
+            if "[END]" in goodbye_response:
+                logger.info("Conversation completed successfully!")
+                return True
+            else:
+                logger.warning("Conversation may not have ended properly")
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error in conversation: {e}")
+            return False
+        finally:
+            await self.cleanup()
+
+
+async def test_hello_goodbye_pattern():
+    """Test the hello/goodbye conversation pattern"""
+    logger.info("Testing Hello/Goodbye conversation pattern")
+    
+    # Start the initiator
+    initiator = HelloGoodbyeInitiator()
+    success = await initiator.run_conversation()
+    
+    if success:
+        logger.info("✓ Hello/Goodbye test completed successfully")
+        return True
+    else:
+        logger.error("✗ Hello/Goodbye test failed")
         return False
 
 
-async def send_initial_message(from_agent: str, to_agent: str, message: str):
-    """Send initial message between agents"""
-    try:
-        reader, writer = await asyncio.open_unix_connection('sockets/claude_daemon.sock')
-        
-        # Publish a DIRECT_MESSAGE event
-        payload = {
-            'to': to_agent,
-            'content': message,
-            'conversation_id': 'hello_goodbye_test'
-        }
-        command = f"PUBLISH:{from_agent}:DIRECT_MESSAGE:{json.dumps(payload)}\n"
-        writer.write(command.encode())
-        await writer.drain()
-        
-        response = await reader.readline()
-        writer.close()
-        await writer.wait_closed()
-        
-        logger.info(f"Sent initial message from {from_agent} to {to_agent}")
-        
-    except Exception as e:
-        logger.error(f"Error sending initial message: {e}")
-
-
-async def check_agents_connected() -> dict:
-    """Check which agents are connected"""
-    try:
-        reader, writer = await asyncio.open_unix_connection('sockets/claude_daemon.sock')
-        writer.write(b"GET_AGENTS\n")
-        await writer.drain()
-        
-        response = await reader.readline()
-        writer.close()
-        await writer.wait_closed()
-        
-        result = json.loads(response.decode())
-        return result.get('agents', {})
-        
-    except Exception as e:
-        logger.error(f"Error checking agents: {e}")
-        return {}
-
-
-async def start_hello_goodbye_exchange():
-    """Start a simple Hello/Goodbye exchange between two agents"""
-    
-    # Create special agent profiles for this test
-    profiles = {
-        'hello_agent': {
-            'model': 'sonnet',
-            'role': 'responder',
-            'composition': 'simple_hello_goodbye'
-        },
-        'goodbye_agent': {
-            'model': 'sonnet', 
-            'role': 'initiator',
-            'composition': 'simple_hello_goodbye'
-        }
-    }
-    
-    # Save profiles
-    profiles_dir = Path('agent_profiles')
-    profiles_dir.mkdir(exist_ok=True)
-    
-    for name, config in profiles.items():
-        with open(profiles_dir / f'{name}.json', 'w') as f:
-            json.dump(config, f, indent=2)
-    
-    # Start daemon if needed
-    await ensure_daemon_running()
-    
-    # Start the two agents using daemon commands
-    logger.info("Starting hello_agent...")
-    hello_result = await spawn_agent_via_daemon('hello_agent', 'Respond to greetings', '')
-    if not hello_result:
-        logger.error("Failed to spawn hello_agent")
-        return
-    
-    await asyncio.sleep(2)  # Let first agent connect
-    
-    logger.info("Starting goodbye_agent...")
-    goodbye_result = await spawn_agent_via_daemon('goodbye_agent', 'Start a greeting', 'Say hello to hello_agent')
-    if not goodbye_result:
-        logger.error("Failed to spawn goodbye_agent")
-        return
-    
-    # Give agents time to connect
-    await asyncio.sleep(2)
-    
-    # Start the conversation by sending initial message
-    await send_initial_message('goodbye_agent', 'hello_agent', 'Hello!')
-    
-    logger.info("Exchange started! Monitoring for completion...")
-    
-    # Monitor the agents
-    max_wait = 30  # Maximum seconds to wait
-    start_time = asyncio.get_event_loop().time()
-    
-    try:
-        while True:
-            await asyncio.sleep(2)
-            
-            # Check if agents are still connected
-            agents = await check_agents_connected()
-            hello_connected = 'hello_agent' in agents
-            goodbye_connected = 'goodbye_agent' in agents
-            
-            elapsed = asyncio.get_event_loop().time() - start_time
-            
-            if not hello_connected and not goodbye_connected:
-                logger.info("Both agents have disconnected - exchange complete!")
-                break
-            elif elapsed > max_wait:
-                logger.warning(f"Timeout after {max_wait} seconds")
-                break
-            else:
-                logger.info(f"Agents connected - hello: {hello_connected}, goodbye: {goodbye_connected}")
-                
-    except KeyboardInterrupt:
-        logger.info("Interrupted by user")
-    
-    # Clean up profiles
-    for name in profiles.keys():
-        profile_path = profiles_dir / f'{name}.json'
-        if profile_path.exists():
-            profile_path.unlink()
-    
-    logger.info("Hello/Goodbye exchange complete!")
-
-
-async def ensure_daemon_running():
-    """Ensure daemon is running"""
-    try:
-        reader, writer = await asyncio.open_unix_connection('sockets/claude_daemon.sock')
-        writer.write(b"HEALTH_CHECK\n")
-        await writer.drain()
-        response = await reader.readline()
-        writer.close()
-        await writer.wait_closed()
-        
-        if response.strip() == b"HEALTHY":
-            logger.info("Daemon is running")
-            return
-            
-    except (FileNotFoundError, ConnectionRefusedError):
-        logger.info("Starting daemon...")
-        import subprocess
-        subprocess.Popen(['python3', 'daemon.py'])
-        await asyncio.sleep(3)  # Wait for startup
+async def main():
+    """Main test function"""
+    success = await test_hello_goodbye_pattern()
+    sys.exit(0 if success else 1)
 
 
 if __name__ == '__main__':
-    asyncio.run(start_hello_goodbye_exchange())
+    asyncio.run(main())

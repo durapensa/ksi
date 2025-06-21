@@ -1,5 +1,3 @@
-# Current Message
-
-Please respond to the following message:
+# Your Task
 
 {{user_prompt}}

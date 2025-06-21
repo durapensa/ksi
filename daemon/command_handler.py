@@ -16,7 +16,7 @@ logger = logging.getLogger('daemon')
 class CommandHandler:
     """Handler for daemon commands using Command Pattern - EXACT copy from daemon_clean.py"""
     
-    def __init__(self, core_daemon, state_manager=None, process_manager=None, agent_manager=None, utils_manager=None, hot_reload_manager=None, message_bus=None):
+    def __init__(self, core_daemon, state_manager=None, process_manager=None, agent_manager=None, utils_manager=None, hot_reload_manager=None, message_bus=None, identity_manager=None):
         # Store references to all managers for cross-module communication
         self.core_daemon = core_daemon
         self.state_manager = state_manager
@@ -25,6 +25,7 @@ class CommandHandler:
         self.utils_manager = utils_manager
         self.hot_reload_manager = hot_reload_manager
         self.message_bus = message_bus
+        self.identity_manager = identity_manager
         
         # Command registry - maps command prefixes to handler methods
         self.handlers = {
@@ -53,12 +54,21 @@ class CommandHandler:
             'PUBLISH:': self.handle_publish,
             'AGENT_CONNECTION:': self.handle_agent_connection,
             'MESSAGE_BUS_STATS': self.handle_message_bus_stats,
-            'GET_COMMANDS': self.handle_get_commands
+            'GET_COMMANDS': self.handle_get_commands,
+            # Identity management commands
+            'CREATE_IDENTITY:': self.handle_create_identity,
+            'UPDATE_IDENTITY:': self.handle_update_identity,
+            'GET_IDENTITY:': self.handle_get_identity,
+            'LIST_IDENTITIES': self.handle_list_identities,
+            'REMOVE_IDENTITY:': self.handle_remove_identity
         }
     
-    async def handle_command(self, command_text: str, writer: asyncio.StreamWriter) -> bool:
+    async def handle_command(self, command_text: str, writer: asyncio.StreamWriter, reader: asyncio.StreamReader = None) -> bool:
         """Route command to appropriate handler. Returns True if daemon should continue - EXACT copy from daemon_clean.py"""
         try:
+            # Store reader for length-prefixed protocol support
+            self._current_reader = reader
+            
             # Find matching handler
             handler = None
             for prefix, handler_func in self.handlers.items():
@@ -109,28 +119,43 @@ class CommandHandler:
     async def handle_spawn_unified(self, command: str, writer: asyncio.StreamWriter) -> bool:
         """Handle SPAWN command - Spawn Claude processes in sync or async mode
         Format: SPAWN:[sync|async]:claude:[session_id]:[model]:[agent_id]:<prompt>
+        Length-prefixed format: SPAWN:[sync|async]:claude:[session_id]:[model]:[agent_id]:<length> + prompt_bytes
         Sync mode: Waits for Claude response before returning
         Async mode: Returns immediately with process_id"""
         logger.info("Processing unified SPAWN command")
         
-        # Parse unified format: "SPAWN:[mode]:[type]:[session_id]:[model]:[agent_id]:<prompt>"
-        # Examples:
-        # SPAWN:sync:claude::sonnet::Hello world
-        # SPAWN:async:claude:session123:sonnet:agent1:Complex task
-        
+        # Parse unified format: "SPAWN:[mode]:[type]:[session_id]:[model]:[agent_id]:<prompt_or_length>"
         command_body = command[6:]  # Remove "SPAWN:"
         
-        # Check if this is the new unified format or legacy format
+        # Check if this is the new unified format
         parts = command_body.split(':', 5)
         
-        if len(parts) >= 3 and parts[0] in ['sync', 'async'] and parts[1] == 'claude':
-            # New unified format: mode:type:session_id:model:agent_id:prompt
+        if len(parts) >= 6 and parts[0] in ['sync', 'async'] and parts[1] == 'claude':
+            # New unified format: mode:type:session_id:model:agent_id:prompt_or_length
             mode = parts[0]  # sync or async
             process_type = parts[1]  # claude
-            session_id = parts[2] if len(parts) > 2 and parts[2] else None
-            model = parts[3] if len(parts) > 3 and parts[3] else 'sonnet'
-            agent_id = parts[4] if len(parts) > 4 and parts[4] else None
-            prompt = parts[5] if len(parts) > 5 else ''
+            session_id = parts[2] if parts[2] else None
+            model = parts[3] if parts[3] else 'sonnet'
+            agent_id = parts[4] if parts[4] else None
+            last_field = parts[5]
+            
+            # Check if last field is a length (numeric)
+            try:
+                prompt_length = int(last_field)
+                # Length-prefixed protocol: read prompt_length bytes from socket
+                logger.info(f"Reading {prompt_length} bytes for length-prefixed prompt")
+                
+                if self._current_reader:
+                    prompt_bytes = await self._current_reader.read(prompt_length)
+                    prompt = prompt_bytes.decode('utf-8')
+                    logger.info(f"Successfully read length-prefixed prompt ({len(prompt)} chars)")
+                else:
+                    logger.error("Length-prefixed protocol detected but no reader available")
+                    prompt = ""
+                
+            except ValueError:
+                # Not a number, treat as legacy prompt
+                prompt = last_field
             
             if mode == 'sync':
                 return await self._handle_spawn_sync(writer, session_id, model, agent_id, prompt)
@@ -141,14 +166,35 @@ class CommandHandler:
                 
         else:
             # Invalid format
-            return await self.send_error_response(writer, 'Invalid SPAWN format. Use SPAWN:[sync|async]:claude:[session_id]:[model]:[agent_id]:<prompt>')
+            return await self.send_error_response(writer, 'Invalid SPAWN format. Use SPAWN:[sync|async]:claude:[session_id]:[model]:[agent_id]:<prompt_or_length>')
     
     async def _handle_spawn_sync(self, writer: asyncio.StreamWriter, session_id: str, model: str, agent_id: str, prompt: str) -> bool:
         """Handle synchronous Claude spawning"""
         logger.info(f"Synchronous Claude spawn: {prompt[:50]}...")
         
+        # Check if agent has a profile with enable_tools setting
+        enable_tools = True  # Default to True
+        
+        # Look for agent-specific profile based on agent_id
+        if agent_id and self.agent_manager:
+            # Try to get agent's profile from registry
+            agents = self.agent_manager.get_agents()
+            agent_info = agents.get(agent_id, {})
+            profile_name = agent_info.get('profile')
+            
+            if profile_name:
+                profile_path = Path(f'agent_profiles/{profile_name}.json')
+                if profile_path.exists():
+                    try:
+                        with open(profile_path) as f:
+                            profile = json.load(f)
+                            enable_tools = profile.get('enable_tools', True)
+                            logger.info(f"Agent {agent_id} using profile {profile_name} has enable_tools={enable_tools}")
+                    except Exception as e:
+                        logger.warning(f"Could not load profile {profile_name} for agent {agent_id}: {e}")
+        
         if self.process_manager:
-            result = await self.process_manager.spawn_claude(prompt, session_id, model, agent_id)
+            result = await self.process_manager.spawn_claude(prompt, session_id, model, agent_id, enable_tools)
         else:
             result = {'error': 'No process manager available'}
             
@@ -161,16 +207,24 @@ class CommandHandler:
         
         # Check if agent has a profile with enable_tools setting
         enable_tools = True  # Default to True
-        if agent_id:
-            profile_path = Path(f'agent_profiles/{agent_id}.json')
-            if profile_path.exists():
-                try:
-                    with open(profile_path) as f:
-                        profile = json.load(f)
-                        enable_tools = profile.get('enable_tools', True)
-                        logger.info(f"Agent {agent_id} has enable_tools={enable_tools}")
-                except Exception as e:
-                    logger.warning(f"Could not load profile for {agent_id}: {e}")
+        
+        # Look for agent-specific profile based on agent_id
+        if agent_id and self.agent_manager:
+            # Try to get agent's profile from registry
+            agents = self.agent_manager.get_agents()
+            agent_info = agents.get(agent_id, {})
+            profile_name = agent_info.get('profile')
+            
+            if profile_name:
+                profile_path = Path(f'agent_profiles/{profile_name}.json')
+                if profile_path.exists():
+                    try:
+                        with open(profile_path) as f:
+                            profile = json.load(f)
+                            enable_tools = profile.get('enable_tools', True)
+                            logger.info(f"Agent {agent_id} using profile {profile_name} has enable_tools={enable_tools}")
+                    except Exception as e:
+                        logger.warning(f"Could not load profile {profile_name} for agent {agent_id}: {e}")
         
         if self.process_manager:
             process_id = await self.process_manager.spawn_claude_async(prompt, session_id, model, agent_id, enable_tools)
@@ -548,6 +602,7 @@ class CommandHandler:
             "Agent Management": {},
             "Communication & Events": {},
             "State Management": {},
+            "Identity Management": {},
             "System Management": {}
         }
         
@@ -561,6 +616,8 @@ class CommandHandler:
                 grouped_commands["Communication & Events"][cmd_name] = cmd_info
             elif cmd_name in ['SET_SHARED', 'GET_SHARED', 'LOAD_STATE']:
                 grouped_commands["State Management"][cmd_name] = cmd_info
+            elif cmd_name in ['CREATE_IDENTITY', 'UPDATE_IDENTITY', 'GET_IDENTITY', 'LIST_IDENTITIES', 'REMOVE_IDENTITY']:
+                grouped_commands["Identity Management"][cmd_name] = cmd_info
             else:
                 grouped_commands["System Management"][cmd_name] = cmd_info
         
@@ -598,3 +655,143 @@ class CommandHandler:
         
         logger.info(f"Returning {len(commands)} command definitions")
         return await self.send_response(writer, result)
+    
+    async def handle_create_identity(self, command: str, writer: asyncio.StreamWriter) -> bool:
+        """Handle CREATE_IDENTITY command"""
+        if not self.identity_manager:
+            return await self.send_error_response(writer, "Identity manager not available")
+        
+        try:
+            # Format: CREATE_IDENTITY:agent_id:display_name:role:personality_traits_json
+            parts = command.split(':', 4)
+            if len(parts) < 3:
+                return await self.send_error_response(writer, "Invalid format. Expected: CREATE_IDENTITY:agent_id:display_name:role:traits_json")
+            
+            agent_id = parts[1]
+            display_name = parts[2] if len(parts) > 2 else None
+            role = parts[3] if len(parts) > 3 else None
+            
+            # Parse personality traits if provided
+            personality_traits = None
+            if len(parts) > 4 and parts[4]:
+                try:
+                    personality_traits = json.loads(parts[4])
+                except json.JSONDecodeError:
+                    return await self.send_error_response(writer, "Invalid JSON for personality traits")
+            
+            identity = self.identity_manager.create_identity(
+                agent_id=agent_id,
+                display_name=display_name,
+                role=role,
+                personality_traits=personality_traits
+            )
+            
+            return await self.send_response(writer, {
+                'status': 'identity_created',
+                'identity': identity
+            })
+            
+        except Exception as e:
+            logger.error(f"Error creating identity: {e}")
+            return await self.send_error_response(writer, "Failed to create identity", str(e))
+    
+    async def handle_update_identity(self, command: str, writer: asyncio.StreamWriter) -> bool:
+        """Handle UPDATE_IDENTITY command"""
+        if not self.identity_manager:
+            return await self.send_error_response(writer, "Identity manager not available")
+        
+        try:
+            # Format: UPDATE_IDENTITY:agent_id:updates_json
+            parts = command.split(':', 2)
+            if len(parts) != 3:
+                return await self.send_error_response(writer, "Invalid format. Expected: UPDATE_IDENTITY:agent_id:updates_json")
+            
+            agent_id = parts[1]
+            try:
+                updates = json.loads(parts[2])
+            except json.JSONDecodeError:
+                return await self.send_error_response(writer, "Invalid JSON for updates")
+            
+            identity = self.identity_manager.update_identity(agent_id, updates)
+            
+            if identity:
+                return await self.send_response(writer, {
+                    'status': 'identity_updated',
+                    'identity': identity
+                })
+            else:
+                return await self.send_error_response(writer, f"Identity not found for agent {agent_id}")
+            
+        except Exception as e:
+            logger.error(f"Error updating identity: {e}")
+            return await self.send_error_response(writer, "Failed to update identity", str(e))
+    
+    async def handle_get_identity(self, command: str, writer: asyncio.StreamWriter) -> bool:
+        """Handle GET_IDENTITY command"""
+        if not self.identity_manager:
+            return await self.send_error_response(writer, "Identity manager not available")
+        
+        try:
+            # Format: GET_IDENTITY:agent_id
+            parts = command.split(':', 1)
+            if len(parts) != 2:
+                return await self.send_error_response(writer, "Invalid format. Expected: GET_IDENTITY:agent_id")
+            
+            agent_id = parts[1]
+            identity = self.identity_manager.get_identity(agent_id)
+            
+            if identity:
+                return await self.send_response(writer, {
+                    'status': 'identity_found',
+                    'identity': identity
+                })
+            else:
+                return await self.send_error_response(writer, f"Identity not found for agent {agent_id}")
+            
+        except Exception as e:
+            logger.error(f"Error getting identity: {e}")
+            return await self.send_error_response(writer, "Failed to get identity", str(e))
+    
+    async def handle_list_identities(self, command: str, writer: asyncio.StreamWriter) -> bool:
+        """Handle LIST_IDENTITIES command"""
+        if not self.identity_manager:
+            return await self.send_error_response(writer, "Identity manager not available")
+        
+        try:
+            identities = self.identity_manager.list_identities()
+            
+            return await self.send_response(writer, {
+                'status': 'identities_listed',
+                'identities': identities,
+                'count': len(identities)
+            })
+            
+        except Exception as e:
+            logger.error(f"Error listing identities: {e}")
+            return await self.send_error_response(writer, "Failed to list identities", str(e))
+    
+    async def handle_remove_identity(self, command: str, writer: asyncio.StreamWriter) -> bool:
+        """Handle REMOVE_IDENTITY command"""
+        if not self.identity_manager:
+            return await self.send_error_response(writer, "Identity manager not available")
+        
+        try:
+            # Format: REMOVE_IDENTITY:agent_id
+            parts = command.split(':', 1)
+            if len(parts) != 2:
+                return await self.send_error_response(writer, "Invalid format. Expected: REMOVE_IDENTITY:agent_id")
+            
+            agent_id = parts[1]
+            success = self.identity_manager.remove_identity(agent_id)
+            
+            if success:
+                return await self.send_response(writer, {
+                    'status': 'identity_removed',
+                    'agent_id': agent_id
+                })
+            else:
+                return await self.send_error_response(writer, f"Identity not found for agent {agent_id}")
+            
+        except Exception as e:
+            logger.error(f"Error removing identity: {e}")
+            return await self.send_error_response(writer, "Failed to remove identity", str(e))

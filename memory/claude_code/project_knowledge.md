@@ -57,6 +57,18 @@ Minimal daemon system for managing Claude processes with conversation continuity
 - Handlebars syntax (`{{#each}}`) in components doesn't work
 - Despite this, Claude agents still receive command info as JSON string
 
+### Tool Usage Signaling (Added 2025-06-21)
+**Implementation**:
+- Agent profiles can set `enable_tools: true/false` to control tool access
+- When enabled, agents spawn with `--allowedTools` flag
+- Tool signaling component instructs agents to use `[TOOL_USE]` markers
+- Command handler checks agent profile for tool settings
+
+**Components**:
+- `prompts/components/tool_signaling.md` - Tool usage instructions
+- `claude_agent_default.yaml` - Updated to include tool signaling
+- Enhanced logging captures tool_calls from Claude output
+
 ### Multi-Agent Infrastructure Status
 **Implementation**: Core components operational with recent architectural improvements
 - **Agent Registry**: `REGISTER_AGENT`, `GET_AGENTS` commands available
@@ -205,6 +217,36 @@ This caused the daemon to close the connection when it received a command on a m
 - daemon/timestamp_utils.py: Removed convenience functions
 - monitor_tui.py, agent_process.py, claude_agent.py, chat_textual.py: Updated to new commands
 - All test files updated to use new command format
+
+### Session 2025-06-21: System Identity Management Implementation
+**New Feature: Comprehensive Agent Identity System**:
+- **Identity Manager**: Full identity lifecycle management in `daemon/identity_manager.py`
+- **Automatic Identity Creation**: Agents create persistent identities on first connection
+- **Identity Persistence**: Stored in `shared_state/identities.json` across sessions
+- **CLI Management**: Complete CLI tool in `tools/identity_cli.py` for identity management
+- **Daemon Integration**: 5 new commands (CREATE_IDENTITY, GET_IDENTITY, UPDATE_IDENTITY, LIST_IDENTITIES, REMOVE_IDENTITY)
+
+**Identity Features**:
+- Unique UUID per identity for reliable tracking
+- Role-based display names and appearance (icons, color themes)
+- Personality traits derived from agent capabilities
+- Activity statistics (messages, conversations, tasks, tools used)
+- Communication preferences and styling options
+- Session history tracking
+
+**Technical Implementation**:
+- Modular design following KSI daemon architecture
+- Event-driven integration with existing systems
+- Comprehensive test coverage in `tests/test_identity_system.py`
+- Documentation in `docs/features/identity_system.md`
+- Enhanced agent_process.py with automatic identity creation
+- Capability-to-trait mapping for personality generation
+
+**Agent Profile Integration**:
+- Seamless integration with existing agent profiles
+- Automatic trait generation from capabilities
+- Role-specific appearance defaults
+- Preserved across conversation sessions
 
 ---
 *For Claude Code interactive development sessions*
