@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Claude Node - Persistent Claude process that maintains connection to daemon
+Agent Process - Persistent Claude agent that maintains connection to daemon
 This enables Claude-to-Claude conversations and autonomous agent behavior
 """
 
@@ -26,14 +26,14 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger('claude_node')
+logger = logging.getLogger('agent_process')
 
 
-class ClaudeNode:
+class AgentProcess:
     """A persistent Claude instance that can converse with other Claudes"""
     
-    def __init__(self, node_id: str, profile: str = 'default', daemon_socket: str = 'sockets/claude_daemon.sock'):
-        self.node_id = node_id
+    def __init__(self, agent_id: str, profile: str = 'default', daemon_socket: str = 'sockets/claude_daemon.sock'):
+        self.agent_id = agent_id
         self.profile = profile
         self.daemon_socket = daemon_socket
         self.reader: Optional[asyncio.StreamReader] = None
@@ -73,7 +73,7 @@ class ClaudeNode:
             logger.info(f"Connected to daemon at {self.daemon_socket}")
             
             # Register as persistent agent
-            command = f"CONNECT_AGENT:{self.node_id}\n"
+            command = f"CONNECT_AGENT:{self.agent_id}\n"
             self.writer.write(command.encode())
             await self.writer.drain()
             
@@ -82,7 +82,7 @@ class ClaudeNode:
             result = json.loads(response.decode().strip())
             
             if result.get('status') == 'connected':
-                logger.info(f"Successfully registered as agent {self.node_id}")
+                logger.info(f"Successfully registered as agent {self.agent_id}")
                 
                 # Subscribe to relevant events
                 await self._subscribe_to_events()
@@ -102,7 +102,7 @@ class ClaudeNode:
         # Need separate connection for subscription
         sub_reader, sub_writer = await asyncio.open_unix_connection(self.daemon_socket)
         
-        command = f"SUBSCRIBE:{self.node_id}:{','.join(event_types)}\n"
+        command = f"SUBSCRIBE:{self.agent_id}:{','.join(event_types)}\n"
         sub_writer.write(command.encode())
         await sub_writer.drain()
         
@@ -150,7 +150,7 @@ class ClaudeNode:
         except Exception as e:
             logger.error(f"Error in message listener: {e}")
         finally:
-            logger.info(f"Node {self.node_id} shutting down")
+            logger.info(f"Agent {self.agent_id} shutting down")
             await self.disconnect()
     
     async def handle_message(self, message: Dict):
@@ -195,7 +195,7 @@ class ClaudeNode:
         return 'NO_RESPONSE' not in signals
     
     def _should_terminate(self, response: str) -> bool:
-        """Check if node should terminate based on control signals"""
+        """Check if agent should terminate based on control signals"""
         _, signals = self._extract_control_signals(response)
         return 'END' in signals or 'TERMINATE' in signals
     
@@ -207,7 +207,7 @@ class ClaudeNode:
         
         # Check if incoming message contains termination signal
         if content and self._should_terminate(content):
-            logger.info(f"Agent {self.node_id} received [END] signal from {from_agent}, preparing to shut down")
+            logger.info(f"Agent {self.agent_id} received [END] signal from {from_agent}, preparing to shut down")
             self.running = False
             # Send acknowledgment before shutting down
             await self.send_message(from_agent, "Acknowledged [END] signal. Shutting down.", conversation_id)
@@ -217,7 +217,7 @@ class ClaudeNode:
         # Add to conversation context
         if conversation_id not in self.active_conversations:
             self.active_conversations[conversation_id] = {
-                'participants': [from_agent, self.node_id],
+                'participants': [from_agent, self.agent_id],
                 'history': []
             }
         
@@ -275,7 +275,7 @@ class ClaudeNode:
             
             # Build context for prompt composer
             context = {
-                'agent_id': self.node_id,
+                'agent_id': self.agent_id,
                 'agent_role': agent_role,
                 'conversation_id': conversation_id,
                 'daemon_commands': daemon_commands,
@@ -306,9 +306,9 @@ class ClaudeNode:
             # Format: SPAWN:async:claude:session_id:model:agent_id:prompt
             model = self.profile_config.get('model', 'sonnet')
             if self.session_id:
-                command = f"SPAWN:async:claude:{self.session_id}:{model}:{self.node_id}:{full_prompt}"
+                command = f"SPAWN:async:claude:{self.session_id}:{model}:{self.agent_id}:{full_prompt}"
             else:
-                command = f"SPAWN:async:claude::{model}:{self.node_id}:{full_prompt}"
+                command = f"SPAWN:async:claude::{model}:{self.agent_id}:{full_prompt}"
             
             # Send to daemon
             result = await self._send_daemon_command(command)
@@ -354,7 +354,7 @@ class ClaudeNode:
             
             # Build context for prompt composer
             context = {
-                'agent_id': self.node_id,
+                'agent_id': self.agent_id,
                 'agent_role': agent_role,
                 'conversation_id': conversation_id,
                 'daemon_commands': daemon_commands,
@@ -385,9 +385,9 @@ class ClaudeNode:
             # Format: SPAWN:sync:claude:session_id:model:agent_id:prompt
             model = self.profile_config.get('model', 'sonnet')
             if self.session_id:
-                command = f"SPAWN:sync:claude:{self.session_id}:{model}:{self.node_id}:{full_prompt}"
+                command = f"SPAWN:sync:claude:{self.session_id}:{model}:{self.agent_id}:{full_prompt}"
             else:
-                command = f"SPAWN:sync:claude::{model}:{self.node_id}:{full_prompt}"
+                command = f"SPAWN:sync:claude::{model}:{self.agent_id}:{full_prompt}"
             
             result = await self._send_daemon_command(command)
             
@@ -447,7 +447,7 @@ class ClaudeNode:
             # Use a separate connection for sending commands
             cmd_reader, cmd_writer = await asyncio.open_unix_connection(self.daemon_socket)
             
-            command = f"PUBLISH:{self.node_id}:DIRECT_MESSAGE:{json.dumps(message)}\n"
+            command = f"PUBLISH:{self.agent_id}:DIRECT_MESSAGE:{json.dumps(message)}\n"
             cmd_writer.write(command.encode())
             await cmd_writer.drain()
             
@@ -463,7 +463,7 @@ class ClaudeNode:
             # Add to our conversation history
             if conversation_id in self.active_conversations:
                 self.active_conversations[conversation_id]['history'].append({
-                    'from': self.node_id,
+                    'from': self.agent_id,
                     'content': content,
                     'timestamp': TimestampManager.timestamp_utc()
                 })
@@ -473,11 +473,11 @@ class ClaudeNode:
     
     async def start_conversation(self, with_agents: List[str], topic: str):
         """Start a new conversation with other agents"""
-        conversation_id = f"conv_{self.node_id}_{TimestampManager.utc_now().timestamp()}"
+        conversation_id = f"conv_{self.agent_id}_{TimestampManager.utc_now().timestamp()}"
         
         # Initialize conversation
         self.active_conversations[conversation_id] = {
-            'participants': [self.node_id] + with_agents,
+            'participants': [self.agent_id] + with_agents,
             'topic': topic,
             'history': []
         }
@@ -489,13 +489,13 @@ class ClaudeNode:
                     'to': agent,
                     'conversation_id': conversation_id,
                     'topic': topic,
-                    'initiator': self.node_id
+                    'initiator': self.agent_id
                 }
                 
                 # Use separate connection for sending command
                 cmd_reader, cmd_writer = await asyncio.open_unix_connection(self.daemon_socket)
                 
-                command = f"PUBLISH:{self.node_id}:CONVERSATION_INVITE:{json.dumps(invite)}\n"
+                command = f"PUBLISH:{self.agent_id}:CONVERSATION_INVITE:{json.dumps(invite)}\n"
                 cmd_writer.write(command.encode())
                 await cmd_writer.drain()
                 
@@ -526,7 +526,7 @@ class ClaudeNode:
         
         # Accept the invitation by adding to active conversations
         self.active_conversations[conversation_id] = {
-            'participants': [initiator, self.node_id],
+            'participants': [initiator, self.agent_id],
             'topic': topic,
             'history': []
         }
@@ -586,7 +586,7 @@ class ClaudeNode:
                 
                 # Check if we should terminate
                 if self._should_terminate(response):
-                    logger.info(f"Agent {self.node_id} received termination signal [END], shutting down")
+                    logger.info(f"Agent {self.agent_id} received termination signal [END], shutting down")
                     self.running = False
                     # Force immediate disconnect to exit cleanly
                     asyncio.create_task(self._delayed_shutdown())
@@ -599,7 +599,7 @@ class ClaudeNode:
     async def _delayed_shutdown(self):
         """Delayed shutdown to ensure clean exit after [END] signal"""
         await asyncio.sleep(0.5)  # Brief delay to ensure message is sent
-        logger.info(f"Agent {self.node_id} terminating process")
+        logger.info(f"Agent {self.agent_id} terminating process")
         # Exit the entire process
         import os
         os._exit(0)
@@ -608,7 +608,7 @@ class ClaudeNode:
         """Disconnect from daemon"""
         if self.writer:
             try:
-                command = f"DISCONNECT_AGENT:{self.node_id}\n"
+                command = f"DISCONNECT_AGENT:{self.agent_id}\n"
                 self.writer.write(command.encode())
                 await self.writer.drain()
                 
@@ -618,7 +618,7 @@ class ClaudeNode:
                 logger.error(f"Error during disconnect: {e}")
         
         self.running = False
-        logger.info(f"Node {self.node_id} disconnected")
+        logger.info(f"Agent {self.agent_id} disconnected")
     
     async def run(self):
         """Main run loop"""
@@ -636,8 +636,8 @@ class ClaudeNode:
 
 async def main():
     """Main entry point"""
-    parser = argparse.ArgumentParser(description='Claude Node - Persistent Claude agent')
-    parser.add_argument('--id', required=True, help='Unique node ID')
+    parser = argparse.ArgumentParser(description='Agent Process - Persistent Claude agent')
+    parser.add_argument('--id', required=True, help='Unique agent ID')
     parser.add_argument('--profile', default='default', help='Agent profile to use')
     parser.add_argument('--socket', default='sockets/claude_daemon.sock', help='Daemon socket path')
     parser.add_argument('--start-conversation', action='store_true', help='Start a conversation with other nodes')
@@ -646,18 +646,18 @@ async def main():
     
     args = parser.parse_args()
     
-    # Create and run node
-    node = ClaudeNode(args.id, args.profile, args.socket)
+    # Create and run agent
+    agent = AgentProcess(args.id, args.profile, args.socket)
     
     if args.start_conversation and args.with_agents and args.topic:
         # Start conversation mode
-        await node.connect()
-        conversation_id = await node.start_conversation(args.with_agents, args.topic)
+        await agent.connect()
+        conversation_id = await agent.start_conversation(args.with_agents, args.topic)
         logger.info(f"Started conversation {conversation_id}")
-        await node.listen_for_messages()
+        await agent.listen_for_messages()
     else:
         # Just run as listener
-        await node.run()
+        await agent.run()
 
 
 if __name__ == '__main__':
