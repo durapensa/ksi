@@ -89,31 +89,26 @@ class HelloGoodbyeResponder:
         content_lower = content.lower()
         
         if content_lower.startswith('hello'):
-            # Respond to hello message
+            # Respond to hello message - strict pattern
             await asyncio.sleep(0.5)  # Brief pause before responding
-            response = "Hello! Nice to meet you. How are you doing?"
+            response = "Hello! Nice to meet you!"
             await self.send_message(response)
             self.conversation_active = True
             return True
             
         elif content_lower.startswith('goodbye'):
-            # Respond to goodbye message and end conversation
+            # Respond to goodbye message and end conversation - strict pattern
             await asyncio.sleep(0.5)  # Brief pause before responding
-            response = "Goodbye! It was nice chatting with you!"
+            response = "Goodbye! It was nice talking to you! [END]"
             await self.send_message(response)
             self.conversation_active = False
             logger.info("Conversation completed successfully!")
             return False
             
         else:
-            # Handle other messages during conversation
-            if self.conversation_active:
-                response = f"I received: '{content}'. What else would you like to talk about?"
-                await self.send_message(response)
-                return True
-            else:
-                logger.warning(f"Received unexpected message when not in conversation: {content}")
-                return True
+            # Ignore other messages - strict pattern only handles hello/goodbye
+            logger.warning(f"Ignoring unexpected message: {content}")
+            return True
     
     async def send_message(self, content):
         """Send a message to the target agent"""

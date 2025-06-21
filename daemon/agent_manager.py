@@ -67,15 +67,10 @@ class AgentManager:
             import uuid
             agent_id = f"{profile_name}_{str(uuid.uuid4())[:8]}"
         
-        # Format the prompt using the profile
-        formatted_prompt = self.format_agent_prompt(profile, task, context)
-        
-        # Get model from profile
-        model = profile.get('model', 'sonnet')
-        
-        # Spawn the agent
+        # Spawn agent process (claude_node.py) instead of raw Claude
+        # This allows agents to participate in the message bus system
         if self.process_manager:
-            process_id = await self.process_manager.spawn_claude_async(formatted_prompt, None, model, agent_id)
+            process_id = await self.process_manager.spawn_agent_process_async(agent_id, profile_name)
         else:
             logger.error("No process manager available for spawning agent")
             return None
@@ -87,12 +82,14 @@ class AgentManager:
                 'role': profile.get('role', profile_name),
                 'capabilities': profile.get('capabilities', []),
                 'status': 'active',
-                'model': model,
+                'model': profile.get('model', 'sonnet'),
                 'process_id': process_id,
+                'initial_task': task,  # Save for reference
+                'initial_context': context,  # Save for reference
                 'created_at': datetime.utcnow().isoformat() + "Z",
                 'sessions': []
             }
-            logger.info(f"Spawned agent {agent_id} using profile {profile_name}")
+            logger.info(f"Spawned agent {agent_id} using profile {profile_name} with initial task: {task}")
         
         return process_id
     

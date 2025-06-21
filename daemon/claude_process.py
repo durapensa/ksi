@@ -358,3 +358,85 @@ class ClaudeProcessManager:
         """Set message bus for process completion notifications"""
         self.message_bus = message_bus
     
+    async def spawn_agent_process_async(self, agent_id: str, profile_name: str) -> str:
+        """Spawn agent process (claude_node.py) for message-bus-aware agents"""
+        import uuid
+        process_id = str(uuid.uuid4())[:8]
+        
+        cmd = [
+            sys.executable,  # Use current Python interpreter
+            'claude_node.py',  # TODO: Consider renaming this file to agent_process.py
+            '--id', agent_id,
+            '--profile', profile_name,
+            '--socket', 'sockets/claude_daemon.sock'
+        ]
+        
+        try:
+            logger.info(f"Spawning agent process with command: {' '.join(cmd)}")
+            
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=os.environ
+            )
+            
+            # Track the running process
+            self.running_processes[process_id] = {
+                'process': process,
+                'type': 'agent_process',
+                'agent_id': agent_id,
+                'profile': profile_name,
+                'started_at': TimestampManager.format_for_logging()
+            }
+            
+            # Monitor for completion
+            asyncio.create_task(self._handle_agent_process_completion(process_id))
+            
+            logger.info(f"Started agent process {process_id} for agent {agent_id}")
+            return process_id
+            
+        except Exception as e:
+            logger.error(f"Failed to spawn agent process: {e}", exc_info=True)
+            return None
+    
+    async def _handle_agent_process_completion(self, process_id: str):
+        """Handle completion of an agent process"""
+        if process_id not in self.running_processes:
+            return
+            
+        process_info = self.running_processes[process_id]
+        process = process_info['process']
+        agent_id = process_info['agent_id']
+        
+        try:
+            # Wait for process to complete
+            stdout, stderr = await process.communicate()
+            
+            logger.info(f"Agent {agent_id} (process {process_id}) completed with code {process.returncode}")
+            
+            if stderr:
+                logger.error(f"Agent {agent_id} stderr: {stderr.decode()}")
+            
+            # Clean up
+            del self.running_processes[process_id]
+            
+            # Notify via message bus if available
+            if self.message_bus:
+                await self.message_bus.publish(
+                    from_agent='daemon',
+                    event_type='AGENT_TERMINATED',
+                    payload={
+                        'process_id': process_id,
+                        'agent_id': agent_id,
+                        'returncode': process.returncode,
+                        'terminated_at': TimestampManager.format_for_logging()
+                    }
+                )
+                
+        except Exception as e:
+            logger.error(f"Error handling node completion: {e}", exc_info=True)
+            # Clean up even on error
+            if process_id in self.running_processes:
+                del self.running_processes[process_id]
+    

@@ -1,6 +1,5 @@
 {
   "model": "sonnet",
-  "role": "initiator", 
-  "composition": "simple_hello_goodbye",
-  "enable_tools": false
+  "role": "initiator",
+  "composition": "simple_hello_goodbye"
 }
