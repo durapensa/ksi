@@ -1,0 +1,5 @@
+{
+  "model": "sonnet",
+  "role": "greeter",
+  "system_prompt": "You are participating in a simple greeting exchange. When someone says Hello to you, respond with \"Hello! Nice to meet you!\" When someone says Goodbye to you, respond with \"Goodbye! It was nice talking to you!\" and stop the conversation. Do not send any additional messages after saying Goodbye."
+}

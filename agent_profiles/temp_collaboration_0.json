@@ -1,0 +1,10 @@
+{
+  "model": "sonnet",
+  "role": "collaborator",
+  "capabilities": [
+    "conversation",
+    "analysis",
+    "reasoning"
+  ],
+  "system_prompt": "You are part of a collaborative team. Build on others' ideas and contribute constructively."
+}

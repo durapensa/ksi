@@ -1,2 +1,0 @@
-{"timestamp": "2025-06-20T15:57:54.774442Z", "type": "human", "content": ":# Philosophical Emergence Compression"}
-{"type": "claude", "subtype": "error_during_execution", "duration_ms": 8318, "duration_api_ms": 11041, "is_error": false, "num_turns": 0, "session_id": "2000ac5e-6def-4cfc-9c20-e33398d46b84", "total_cost_usd": 0.05758595, "usage": {"input_tokens": 11, "cache_creation_input_tokens": 11529, "cache_read_input_tokens": 31252, "output_tokens": 122, "server_tool_use": {"web_search_requests": 0}}, "timestamp": "2025-06-20T15:57:54.774657Z"}

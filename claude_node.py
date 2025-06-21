@@ -189,8 +189,32 @@ class ClaudeNode:
         if response:
             await self.send_message(from_agent, response, conversation_id)
     
+    async def _send_daemon_command(self, command: str) -> Optional[dict]:
+        """Send command to daemon and get response"""
+        try:
+            reader, writer = await asyncio.open_unix_connection(self.daemon_socket)
+            
+            # Send command
+            if not command.endswith('\n'):
+                command += '\n'
+            writer.write(command.encode())
+            await writer.drain()
+            
+            # Read response
+            response = await reader.readline()
+            writer.close()
+            await writer.wait_closed()
+            
+            if response:
+                return json.loads(response.decode().strip())
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error communicating with daemon: {e}")
+            return None
+
     async def generate_claude_response(self, prompt: str, conversation_id: str) -> Optional[str]:
-        """Generate response using Claude CLI"""
+        """Generate response using daemon SPAWN command"""
         try:
             # Build conversation context
             context = self._build_conversation_context(conversation_id)
@@ -205,54 +229,36 @@ class ClaudeNode:
             if self.profile_config.get('system_prompt'):
                 full_prompt = f"{self.profile_config['system_prompt']}\n\n{full_prompt}"
             
-            # Create or resume session
-            cmd = [
-                'claude',
-                '--model', self.profile_config.get('model', 'sonnet'),
-                '--print',
-                '--output-format', 'json',
-                '--allowedTools', 'Task,Bash,Glob,Grep,LS,Read,Edit,MultiEdit,Write,WebFetch,WebSearch'
-            ]
-            
+            # Build daemon command with session resumption
             if self.session_id:
-                cmd.extend(['--resume', self.session_id])
+                command = f"SPAWN:{self.session_id}:{full_prompt}"
+            else:
+                command = f"SPAWN:{full_prompt}"
             
-            # Run Claude
-            process = subprocess.Popen(
-                cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
-            )
+            # Send to daemon
+            result = await self._send_daemon_command(command)
             
-            stdout, stderr = process.communicate(input=full_prompt)
-            
-            if process.returncode != 0:
-                logger.error(f"Claude CLI failed with code {process.returncode}")
-                logger.error(f"Command: {' '.join(cmd)}")
-                logger.error(f"Stderr: {stderr}")
-                logger.error(f"Stdout: {stdout}")
+            if not result:
+                logger.error("No response from daemon")
                 return None
             
-            # Parse output
-            try:
-                for line in stdout.strip().split('\n'):
-                    if line.strip():
-                        output = json.loads(line)
-                        # Handle new claude CLI output format
-                        if output.get('type') == 'result' and output.get('result'):
-                            # Store session_id for future use
-                            if output.get('session_id'):
-                                self.session_id = output['session_id']
-                            return output.get('result', '').strip()
-                        # Legacy format support
-                        elif output.get('type') == 'text':
-                            return output.get('text', '').strip()
-                        elif output.get('sessionId'):
-                            self.session_id = output['sessionId']
-            except json.JSONDecodeError:
-                logger.error(f"Failed to parse Claude output: {stdout}")
+            if result.get('error'):
+                logger.error(f"Daemon error: {result['error']}")
+                return None
+            
+            # Extract response and session_id from daemon result
+            if result.get('type') == 'result':
+                # Store session_id for future use
+                if result.get('session_id'):
+                    self.session_id = result['session_id']
+                return result.get('result', '').strip()
+            elif result.get('sessionId'):
+                # Legacy format support
+                self.session_id = result['sessionId']
+                return result.get('result', '').strip()
+            else:
+                logger.error(f"Unexpected daemon response format: {result}")
+                return None
                 
         except Exception as e:
             logger.error(f"Error generating Claude response: {e}")

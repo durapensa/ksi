@@ -1,2 +1,0 @@
-{"timestamp": "2025-06-20T00:38:27.366756Z", "type": "human", "content": "What is 2+2?"}
-{"type": "claude", "subtype": "success", "is_error": false, "duration_ms": 4133, "duration_api_ms": 5813, "num_turns": 1, "result": "4", "session_id": "295e8f77-d009-4cc7-800f-896d45e9747f", "total_cost_usd": 0.027140499999999998, "usage": {"input_tokens": 4, "cache_creation_input_tokens": 5724, "cache_read_input_tokens": 10013, "output_tokens": 6, "server_tool_use": {"web_search_requests": 0}}, "timestamp": "2025-06-20T00:38:27.366994Z"}

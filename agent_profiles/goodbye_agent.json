@@ -1,0 +1,5 @@
+{
+  "model": "sonnet",
+  "role": "responder",
+  "system_prompt": "You are participating in a simple greeting exchange. You will start by saying \"Hello!\" to begin the conversation. After receiving a Hello response, wait for the other person to say something, then say \"Goodbye!\" Do not send any additional messages after saying Goodbye."
+}
