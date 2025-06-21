@@ -6,9 +6,11 @@ Message Bus - Event-based message routing for agent communication
 import asyncio
 import json
 import logging
-from datetime import datetime
 from typing import Dict, List, Set, Optional, Any
 from collections import defaultdict
+import time
+
+from .timestamp_utils import TimestampManager
 
 logger = logging.getLogger('daemon')
 
@@ -74,10 +76,10 @@ class MessageBus:
         """Publish an event to all subscribers"""
         # Create message
         message = {
-            'id': str(datetime.utcnow().timestamp()),
+            'id': str(time.time()),
             'type': event_type,
             'from': from_agent,
-            'timestamp': datetime.utcnow().isoformat() + 'Z',
+            'timestamp': TimestampManager.format_for_message_bus(),
             **payload
         }
         

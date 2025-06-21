@@ -9,9 +9,10 @@ import asyncio
 import json
 import os
 import sys
-from datetime import datetime
 from pathlib import Path
 import logging
+
+from .timestamp_utils import TimestampManager
 
 logger = logging.getLogger('daemon')
 
@@ -103,7 +104,7 @@ class ClaudeProcessManager:
                 
                 # Log human input
                 human_entry = {
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "timestamp": TimestampManager.format_for_logging(),
                     "type": "human",
                     "content": prompt
                 }
@@ -112,7 +113,7 @@ class ClaudeProcessManager:
                 
                 # Log Claude output
                 claude_entry = output.copy()
-                claude_entry["timestamp"] = datetime.utcnow().isoformat() + "Z"
+                claude_entry["timestamp"] = TimestampManager.format_for_logging()
                 claude_entry["type"] = "claude"
                 with open(log_file, 'a') as f:
                     f.write(json.dumps(claude_entry) + '\n')
@@ -198,7 +199,7 @@ class ClaudeProcessManager:
                 'session_id': session_id,
                 'model': model,
                 'agent_id': agent_id,
-                'started_at': datetime.utcnow().isoformat() + "Z"
+                'started_at': TimestampManager.format_for_logging()
             }
             
             # Send prompt to process (don't wait for completion)
@@ -253,7 +254,7 @@ class ClaudeProcessManager:
                         
                         # Log human input
                         human_entry = {
-                            "timestamp": datetime.utcnow().isoformat() + "Z",
+                            "timestamp": TimestampManager.format_for_logging(),
                             "type": "human",
                             "content": prompt,
                             "process_id": process_id,
@@ -264,7 +265,7 @@ class ClaudeProcessManager:
                         
                         # Log Claude output
                         claude_entry = output.copy()
-                        claude_entry["timestamp"] = datetime.utcnow().isoformat() + "Z"
+                        claude_entry["timestamp"] = TimestampManager.format_for_logging()
                         claude_entry["type"] = "claude"
                         with open(log_file, 'a') as f:
                             f.write(json.dumps(claude_entry) + '\n')

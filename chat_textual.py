@@ -15,6 +15,10 @@ from typing import Optional, Dict, List, Tuple
 import subprocess
 import time
 
+# Import timestamp utilities for consistent timezone handling
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from daemon.timestamp_utils import TimestampManager
+
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
 from textual.widgets import Header, Footer, Static, Label, Input, RichLog, Button, ListView, ListItem, Tree
@@ -426,10 +430,11 @@ class ChatInterface(App):
         list_view.clear()
         
         for session_id, timestamp, message_count in self.available_sessions[:20]:  # Show last 20
-            # Format timestamp
+            # Format timestamp for display (convert UTC to local)
             try:
-                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-                time_str = dt.strftime('%Y-%m-%d %H:%M')
+                dt = TimestampManager.parse_iso_timestamp(timestamp)
+                local_dt = TimestampManager.utc_to_local(dt)
+                time_str = local_dt.strftime('%Y-%m-%d %H:%M')
             except:
                 time_str = timestamp[:19] if len(timestamp) > 19 else timestamp
             
@@ -613,7 +618,7 @@ class ChatInterface(App):
             entry = {
                 "type": "user" if sender == "You" else "claude",
                 "content": content,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": TimestampManager.format_for_logging(),
                 "sender": sender
             }
             self.current_conversation.append(entry)
@@ -1023,8 +1028,8 @@ class ChatInterface(App):
         """Export conversation to markdown file"""
         session_id = self.selected_past_session
         
-        # Determine export filename
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        # Determine export filename (use local time for user convenience)
+        timestamp = TimestampManager.filename_timestamp(utc=False)
         export_dir = Path('exports')
         export_dir.mkdir(exist_ok=True)
         export_file = export_dir / f'conversation_{session_id}_{timestamp}.md'
@@ -1032,7 +1037,7 @@ class ChatInterface(App):
         try:
             # Build markdown content
             md_lines = [f"# Conversation Export: {session_id}\n"]
-            md_lines.append(f"*Exported on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n")
+            md_lines.append(f"*Exported on {TimestampManager.display_timestamp('%Y-%m-%d %H:%M:%S', utc=False)}*\n")
             md_lines.append("---\n")
             
             # Load conversation from log file
@@ -1054,10 +1059,11 @@ class ChatInterface(App):
                                 content = msg.get('content', '')
                                 timestamp = msg.get('timestamp', '')
                                 
-                                # Format timestamp
+                                # Format timestamp (convert UTC to local for display)
                                 try:
-                                    dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-                                    time_str = dt.strftime('%Y-%m-%d %H:%M:%S')
+                                    dt = TimestampManager.parse_iso_timestamp(timestamp)
+                                    local_dt = TimestampManager.utc_to_local(dt)
+                                    time_str = local_dt.strftime('%Y-%m-%d %H:%M:%S')
                                 except:
                                     time_str = timestamp
                                 

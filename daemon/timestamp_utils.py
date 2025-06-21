@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+
+"""
+Timestamp Utilities - Centralized timestamp generation and formatting
+Ensures consistent timezone handling across the entire KSI system
+
+Standard: All internal timestamps use UTC with 'Z' suffix (ISO 8601)
+Display: Local time conversion available for user-facing output
+"""
+
+from datetime import datetime, timezone
+import time
+from typing import Optional, Union
+
+class TimestampManager:
+    """Centralized timestamp management for consistent timezone handling"""
+    
+    @staticmethod
+    def utc_now() -> datetime:
+        """Get current UTC datetime with timezone awareness"""
+        return datetime.now(timezone.utc)
+    
+    @staticmethod
+    def timestamp_utc() -> str:
+        """
+        Generate ISO 8601 UTC timestamp with 'Z' suffix
+        Standard format for all internal logging and storage
+        
+        Returns:
+            str: e.g., "2025-06-20T23:17:27.832348Z"
+        """
+        return datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+    
+    @staticmethod
+    def timestamp_local_iso() -> str:
+        """
+        Generate ISO 8601 local timestamp with timezone offset
+        For backward compatibility where local time is expected
+        
+        Returns:
+            str: e.g., "2025-06-20T19:17:27.832348-04:00"
+        """
+        return datetime.now().astimezone().isoformat()
+    
+    @staticmethod
+    def filename_timestamp(utc: bool = False) -> str:
+        """
+        Generate timestamp suitable for filenames
+        
+        Args:
+            utc: If True, use UTC time. If False, use local time.
+            
+        Returns:
+            str: e.g., "20250620_191724"
+        """
+        dt = datetime.now(timezone.utc) if utc else datetime.now()
+        return dt.strftime('%Y%m%d_%H%M%S')
+    
+    @staticmethod
+    def display_timestamp(format: str = '%Y-%m-%d %H:%M:%S', utc: bool = False) -> str:
+        """
+        Generate human-readable timestamp for display
+        
+        Args:
+            format: strftime format string
+            utc: If True, show UTC time. If False, show local time.
+            
+        Returns:
+            str: Formatted timestamp
+        """
+        dt = datetime.now(timezone.utc) if utc else datetime.now()
+        return dt.strftime(format)
+    
+    @staticmethod
+    def parse_iso_timestamp(timestamp_str: str) -> datetime:
+        """
+        Parse ISO 8601 timestamp with proper timezone handling
+        Handles both 'Z' suffix and timezone offsets
+        
+        Args:
+            timestamp_str: ISO 8601 timestamp string
+            
+        Returns:
+            datetime: Timezone-aware datetime object
+        """
+        # Handle 'Z' suffix for UTC
+        if timestamp_str.endswith('Z'):
+            timestamp_str = timestamp_str[:-1] + '+00:00'
+        
+        # Parse with timezone
+        try:
+            return datetime.fromisoformat(timestamp_str)
+        except ValueError:
+            # Fallback for timestamps without timezone
+            dt = datetime.fromisoformat(timestamp_str)
+            # Assume local time if no timezone specified
+            return dt.astimezone()
+    
+    @staticmethod
+    def utc_to_local(utc_timestamp: Union[str, datetime]) -> datetime:
+        """
+        Convert UTC timestamp to local timezone
+        
+        Args:
+            utc_timestamp: UTC datetime or ISO string
+            
+        Returns:
+            datetime: Local timezone datetime
+        """
+        if isinstance(utc_timestamp, str):
+            utc_timestamp = TimestampManager.parse_iso_timestamp(utc_timestamp)
+        
+        # Ensure UTC timezone if not specified
+        if utc_timestamp.tzinfo is None:
+            utc_timestamp = utc_timestamp.replace(tzinfo=timezone.utc)
+        
+        return utc_timestamp.astimezone()
+    
+    @staticmethod
+    def local_to_utc(local_timestamp: Union[str, datetime]) -> datetime:
+        """
+        Convert local timestamp to UTC
+        
+        Args:
+            local_timestamp: Local datetime or ISO string
+            
+        Returns:
+            datetime: UTC datetime
+        """
+        if isinstance(local_timestamp, str):
+            local_timestamp = TimestampManager.parse_iso_timestamp(local_timestamp)
+        
+        # Ensure local timezone if not specified
+        if local_timestamp.tzinfo is None:
+            local_timestamp = local_timestamp.astimezone()
+        
+        return local_timestamp.astimezone(timezone.utc)
+    
+    @staticmethod
+    def format_for_logging() -> str:
+        """Standard timestamp format for log entries"""
+        return TimestampManager.timestamp_utc()
+    
+    @staticmethod
+    def format_for_display(include_seconds: bool = True) -> str:
+        """Standard timestamp format for user display"""
+        fmt = '%H:%M:%S' if include_seconds else '%H:%M'
+        return TimestampManager.display_timestamp(fmt)
+    
+    @staticmethod
+    def format_for_message_bus() -> str:
+        """Standard timestamp format for message bus"""
+        return TimestampManager.timestamp_utc()
+    
+    @staticmethod
+    def get_timezone_offset() -> str:
+        """
+        Get current timezone offset from UTC
+        
+        Returns:
+            str: e.g., "-04:00" for EDT
+        """
+        local_time = datetime.now().astimezone()
+        return local_time.strftime('%z')
+    
+    @staticmethod
+    def ensure_utc_suffix(timestamp_str: str) -> str:
+        """
+        Ensure timestamp has proper UTC indicator
+        Adds 'Z' if missing and timestamp appears to be UTC
+        
+        Args:
+            timestamp_str: Timestamp string
+            
+        Returns:
+            str: Timestamp with proper UTC indicator
+        """
+        if timestamp_str.endswith('Z') or '+' in timestamp_str or '-' in timestamp_str[-6:]:
+            return timestamp_str
+        
+        # Check if it looks like a UTC timestamp without suffix
+        if 'T' in timestamp_str and timestamp_str.count(':') >= 2:
+            return timestamp_str + 'Z'
+        
+        return timestamp_str
+
+
+# Convenience functions for backward compatibility
+def get_utc_timestamp() -> str:
+    """Get UTC timestamp with Z suffix - backward compatible function"""
+    return TimestampManager.timestamp_utc()
+
+def get_local_timestamp() -> str:
+    """Get local timestamp with timezone - backward compatible function"""
+    return TimestampManager.timestamp_local_iso()
+
+def get_filename_timestamp(utc: bool = False) -> str:
+    """Get filename-safe timestamp - backward compatible function"""
+    return TimestampManager.filename_timestamp(utc)
+
+
+# Global instance for easy access
+timestamp_manager = TimestampManager()
