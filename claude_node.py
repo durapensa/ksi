@@ -205,6 +205,15 @@ class ClaudeNode:
         content = message.get('content')
         from_agent = message.get('from')
         
+        # Check if incoming message contains termination signal
+        if content and self._should_terminate(content):
+            logger.info(f"Agent {self.node_id} received [END] signal from {from_agent}, preparing to shut down")
+            self.running = False
+            # Send acknowledgment before shutting down
+            await self.send_message(from_agent, "Acknowledged [END] signal. Shutting down.", conversation_id)
+            asyncio.create_task(self._delayed_shutdown())
+            return
+        
         # Add to conversation context
         if conversation_id not in self.active_conversations:
             self.active_conversations[conversation_id] = {
@@ -577,13 +586,23 @@ class ClaudeNode:
                 
                 # Check if we should terminate
                 if self._should_terminate(response):
-                    logger.info("Response contains termination signal, shutting down")
+                    logger.info(f"Agent {self.node_id} received termination signal [END], shutting down")
                     self.running = False
+                    # Force immediate disconnect to exit cleanly
+                    asyncio.create_task(self._delayed_shutdown())
         else:
             # Process failed
             error = message.get('error', 'Unknown error')
             logger.error(f"Process {process_id} failed: {error}")
             # Could send error message to other agent
+    
+    async def _delayed_shutdown(self):
+        """Delayed shutdown to ensure clean exit after [END] signal"""
+        await asyncio.sleep(0.5)  # Brief delay to ensure message is sent
+        logger.info(f"Agent {self.node_id} terminating process")
+        # Exit the entire process
+        import os
+        os._exit(0)
     
     async def disconnect(self):
         """Disconnect from daemon"""
