@@ -3,9 +3,9 @@
 
 import sys
 import os
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from prompt_composer import PromptComposer
+from prompts.composer import PromptComposer
 import json
 
 def test_prompt_composition():

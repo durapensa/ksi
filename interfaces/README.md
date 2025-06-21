@@ -12,10 +12,6 @@ This directory contains all user-facing interfaces for the KSI daemon system.
 - Real-time conversation display
 - Session management
 
-**`claude_chat.py`** - Simple conversation starter
-- Quick setup for multi-Claude conversations
-- Automatic monitor launching
-- Command-line conversation initiation
 
 ### Orchestration
 
@@ -40,8 +36,6 @@ This directory contains all user-facing interfaces for the KSI daemon system.
 # Rich TUI chat interface
 python3 interfaces/chat_textual.py
 
-# Quick conversation starter
-python3 interfaces/claude_chat.py "AI ethics" --mode debate
 ```
 
 ### Multi-Claude Conversations
