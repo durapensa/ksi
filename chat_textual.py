@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Textual-based chat interface for Claude via the daemon
-Rich TUI with support for single-agent chat and multi-agent participation
+Enhanced Textual-based chat interface for Claude via the daemon
+Rich TUI with support for single-agent chat, multi-agent participation, and conversation browsing
 """
 
 import asyncio
@@ -28,12 +28,20 @@ from textual.worker import Worker, WorkerState
 SOCKET_PATH = os.environ.get('CLAUDE_DAEMON_SOCKET', 'sockets/claude_daemon.sock')
 
 
-class ConversationBrowser(Container):
+class PastConversationBrowser(Container):
     """Browse and select past conversations"""
     
     def compose(self) -> ComposeResult:
-        yield Label("Past Conversations (Click to replay)", classes="section-header")
-        yield ListView(id="conversation-list")
+        yield Label("📚 Past Conversations (Click to replay)", classes="section-header")
+        yield ListView(id="past-conversation-list")
+
+
+class ActiveConversationBrowser(Container):
+    """Browse and join active conversations"""
+    
+    def compose(self) -> ComposeResult:
+        yield Label("🔴 Active Conversations (Click to join)", classes="section-header")
+        yield ListView(id="active-conversation-list")
 
 
 class ConversationView(ScrollableContainer):
@@ -49,17 +57,19 @@ class StatusBar(Static):
     def __init__(self, id: str = None):
         super().__init__("", id=id)
         self.session_id = "None"
-        self.mode = "browse"
+        self.mode = "chat"
+        self.conversation_id = None
         self.tokens = 0
         self.cost = 0.0
     
     def update_display(self):
         """Update the status bar display"""
-        self.update(f"Session: {self.session_id} | Mode: {self.mode} | Tokens: {self.tokens:,} | Cost: ${self.cost:.4f}")
+        conv_info = f" | Conv: {self.conversation_id}" if self.conversation_id else ""
+        self.update(f"Session: {self.session_id} | Mode: {self.mode}{conv_info} | Tokens: {self.tokens:,} | Cost: ${self.cost:.4f}")
 
 
 class ChatInterface(App):
-    """Textual-based chat interface"""
+    """Enhanced Textual-based chat interface"""
     
     CSS = """
     Screen {
@@ -78,27 +88,38 @@ class ChatInterface(App):
         height: 1fr;
     }
     
-    #sidebar {
-        width: 40;
+    #past-sidebar {
+        width: 45;
         border-right: solid $primary;
         padding: 1;
         display: none;
     }
     
-    #sidebar.visible {
+    #past-sidebar.visible {
         display: block;
     }
     
-    #conversation-list {
+    #active-sidebar {
+        width: 45;
+        border-right: solid $primary;
+        padding: 1;
+        display: none;
+    }
+    
+    #active-sidebar.visible {
+        display: block;
+    }
+    
+    #past-conversation-list, #active-conversation-list {
         height: 1fr;
         background: $surface;
     }
     
-    #conversation-list > ListItem {
+    #past-conversation-list > ListItem, #active-conversation-list > ListItem {
         padding: 0 1;
     }
     
-    #conversation-list > ListItem.--highlight {
+    #past-conversation-list > ListItem.--highlight, #active-conversation-list > ListItem.--highlight {
         background: $primary;
     }
     
@@ -148,24 +169,32 @@ class ChatInterface(App):
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit", priority=True),
         Binding("ctrl+n", "new_session", "New Session"),
-        Binding("ctrl+b", "toggle_browser", "Browse Sessions"),
+        Binding("ctrl+b", "toggle_past_browser", "Past Sessions"),
+        Binding("ctrl+a", "toggle_active_browser", "Active Sessions"),
         Binding("ctrl+l", "clear_conversation", "Clear"),
         Binding("f1", "show_help", "Help"),
-        Binding("escape", "escape", "Close Browser", show=False),
     ]
     
     def __init__(self, args):
         super().__init__()
         self.args = args
         self.session_id: Optional[str] = None
-        self.mode = "chat"  # chat, browse, or replay
-        self.show_browser = False
+        self.mode = "chat"  # chat, replay, or multi
+        self.conversation_id: Optional[str] = None  # For multi-agent conversations
+        self.show_past_browser = False
+        self.show_active_browser = False
         self.input_history: List[str] = []
         self.history_index = -1
         self.daemon_connected = False
         self.current_conversation: List[Dict] = []
         self.available_sessions: List[Tuple[str, str, int]] = []  # (session_id, timestamp, message_count)
+        self.active_conversations: Dict[str, Dict] = {}  # conversation_id -> info
         self.profile_data: Optional[Dict] = None
+        
+        # For multi-agent mode
+        self.agent_id: Optional[str] = None
+        self.message_reader: Optional[asyncio.StreamReader] = None
+        self.message_writer: Optional[asyncio.StreamWriter] = None
         
         # Metrics tracking
         self.metrics = {
@@ -178,13 +207,17 @@ class ChatInterface(App):
         """Create the UI layout"""
         # Header
         with Container(id="header-container"):
-            yield Label("🤖 Claude Chat (Textual) - Press F1 for help", classes="section-header")
+            yield Label("🤖 Claude Chat (Textual) - F1: Help | Ctrl+B: Past | Ctrl+A: Active", classes="section-header")
         
         # Main content area
         with Container(id="main-container"):
-            # Sidebar for conversation browser
-            with Container(id="sidebar"):
-                yield ConversationBrowser()
+            # Past conversations sidebar
+            with Container(id="past-sidebar"):
+                yield PastConversationBrowser()
+            
+            # Active conversations sidebar
+            with Container(id="active-sidebar"):
+                yield ActiveConversationBrowser()
             
             # Chat area
             with Container(id="chat-container"):
@@ -224,6 +257,9 @@ class ChatInterface(App):
         if self.daemon_connected:
             # Load available sessions
             await self.load_available_sessions()
+            
+            # Load active conversations
+            await self.load_active_conversations()
             
             # Initialize session based on arguments
             await self.initialize_session()
@@ -363,25 +399,28 @@ class ChatInterface(App):
         
         for log_file in sorted(log_files, key=lambda p: p.stat().st_mtime, reverse=True):
             try:
-                # Read first and last lines to get session info
+                # Read first line to get timestamp
                 with open(log_file, 'r') as f:
-                    lines = f.readlines()
-                    if lines:
-                        first_line = json.loads(lines[0])
+                    first_line = f.readline()
+                    if first_line:
+                        first_entry = json.loads(first_line)
                         session_id = log_file.stem
-                        timestamp = first_line.get('timestamp', 'Unknown')
-                        message_count = len(lines)
+                        timestamp = first_entry.get('timestamp', 'Unknown')
+                        
+                        # Count messages
+                        f.seek(0)
+                        message_count = sum(1 for _ in f)
                         
                         self.available_sessions.append((session_id, timestamp, message_count))
             except:
                 continue
         
         # Update the conversation list
-        self.update_conversation_list()
+        self.update_past_conversation_list()
     
-    def update_conversation_list(self) -> None:
-        """Update the conversation browser list"""
-        list_view = self.query_one("#conversation-list", ListView)
+    def update_past_conversation_list(self) -> None:
+        """Update the past conversation browser list"""
+        list_view = self.query_one("#past-conversation-list", ListView)
         list_view.clear()
         
         for session_id, timestamp, message_count in self.available_sessions[:20]:  # Show last 20
@@ -396,6 +435,101 @@ class ChatInterface(App):
             item = ListItem(Label(label))
             item.session_id = session_id  # Store session_id on the item
             list_view.append(item)
+    
+    async def load_active_conversations(self) -> None:
+        """Load list of active conversations from daemon"""
+        # Query daemon for active agents/conversations
+        response = await self.send_to_daemon("MESSAGE_BUS_STATS")
+        
+        try:
+            stats = json.loads(response)
+            # Always scan for conversations regardless of daemon response
+            self.scan_recent_conversations()
+            # Then update with combined info
+            self.update_active_conversation_list(stats)
+        except:
+            # Fallback: scan for recent message_bus activity
+            self.scan_recent_conversations()
+    
+    def scan_recent_conversations(self) -> None:
+        """Scan message_bus.jsonl for recent conversations"""
+        self.active_conversations.clear()
+        
+        message_bus_file = Path('claude_logs/message_bus.jsonl')
+        if not message_bus_file.exists():
+            self.log_message("System", f"No message bus file found at {message_bus_file}")
+            return
+        
+        try:
+            with open(message_bus_file, 'r') as f:
+                for line in f:
+                    try:
+                        msg = json.loads(line)
+                        conv_id = msg.get('conversation_id')
+                        if conv_id and conv_id not in self.active_conversations:
+                            self.active_conversations[conv_id] = {
+                                'id': conv_id,
+                                'participants': [],
+                                'last_message': msg.get('timestamp', ''),
+                                'message_count': 0
+                            }
+                        
+                        if conv_id:
+                            # Update conversation info
+                            conv = self.active_conversations[conv_id]
+                            from_agent = msg.get('from', 'Unknown')
+                            to_agent = msg.get('to', 'Unknown')
+                            
+                            # Add participants if not already present
+                            if from_agent not in conv['participants']:
+                                conv['participants'].append(from_agent)
+                            if to_agent not in conv['participants']:
+                                conv['participants'].append(to_agent)
+                            conv['message_count'] += 1
+                            conv['last_message'] = msg.get('timestamp', conv['last_message'])
+                    except:
+                        continue
+            
+            # Log what we found
+            if self.active_conversations:
+                self.log_message("System", f"Found {len(self.active_conversations)} active conversations")
+            else:
+                self.log_message("System", "No active conversations found in message bus")
+                
+        except Exception as e:
+            self.log_message("Error", f"Failed to scan message bus: {e}")
+        
+        self.update_active_conversation_list()
+    
+    def update_active_conversation_list(self, stats: Dict = None) -> None:
+        """Update the active conversation browser list"""
+        list_view = self.query_one("#active-conversation-list", ListView)
+        list_view.clear()
+        
+        if stats and 'connected_agents' in stats:
+            # Use daemon-provided stats
+            for agent_id in stats['connected_agents']:
+                label = f"🟢 {agent_id}"
+                item = ListItem(Label(label))
+                item.agent_id = agent_id
+                list_view.append(item)
+        
+        # Add discovered conversations
+        for conv_id, conv_info in sorted(self.active_conversations.items(), 
+                                       key=lambda x: x[1]['last_message'], 
+                                       reverse=True)[:10]:
+            participants = conv_info['participants'][:2]  # Show first 2
+            participant_str = " ↔ ".join(participants)
+            if len(conv_info['participants']) > 2:
+                participant_str += f" +{len(conv_info['participants']) - 2}"
+            
+            label = f"💬 {participant_str} ({conv_info['message_count']} msgs)"
+            item = ListItem(Label(label))
+            item.conversation_id = conv_id
+            list_view.append(item)
+        
+        # Force refresh
+        list_view.refresh()
     
     async def initialize_session(self) -> None:
         """Initialize session based on command line arguments"""
@@ -465,18 +599,20 @@ class ChatInterface(App):
         elif sender == "Error":
             conv_log.write(f"\n[bold red]{sender}:[/]")
         else:
-            conv_log.write(f"\n[dim]{sender}:[/]")
+            # Other agents in multi-agent mode
+            conv_log.write(f"\n[bold magenta]{sender}:[/]")
         
         # Write content with proper formatting
         for line in content.split('\n'):
             conv_log.write(f"  {line}")
         
         # Track conversation for context
-        if sender in ["You", "Claude"]:
+        if sender in ["You", "Claude"] or (self.mode == "multi" and sender != "System"):
             entry = {
                 "type": "user" if sender == "You" else "claude",
                 "content": content,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
+                "sender": sender
             }
             self.current_conversation.append(entry)
     
@@ -499,50 +635,60 @@ class ChatInterface(App):
             await self.handle_command(message)
             return
         
-        # Compose prompt using profile if available
-        composed_prompt = self.compose_prompt(message)
-        
-        # Build spawn command
-        if self.session_id:
-            command = f"SPAWN:{self.session_id}:{composed_prompt}"
+        if self.mode == "multi" and self.conversation_id:
+            # Send via message bus
+            await self.send_multi_agent_message(message)
         else:
-            command = f"SPAWN::{composed_prompt}"
-        
-        # Send command
-        response = await self.send_to_daemon(command)
-        
-        try:
-            output = json.loads(response)
+            # Normal single-agent mode
+            # Compose prompt using profile if available
+            composed_prompt = self.compose_prompt(message)
             
-            # Extract session_id
-            new_session_id = output.get('sessionId') or output.get('session_id')
-            if new_session_id:
-                self.session_id = new_session_id
-            
-            # Display response
-            if 'error' in output:
-                self.log_message("Error", output['error'])
-            elif 'result' in output:
-                self.log_message("Claude", output['result'])
-            elif 'content' in output:
-                self.log_message("Claude", output['content'])
+            # Build spawn command
+            if self.session_id:
+                command = f"SPAWN:{self.session_id}:{composed_prompt}"
             else:
-                self.log_message("System", "No response content")
+                command = f"SPAWN::{composed_prompt}"
             
-            # Update metrics
-            self.metrics['messages'] += 2
-            if 'result' in output or 'content' in output:
-                content = output.get('result', output.get('content', ''))
-                tokens = len(content.split()) * 1.3
-                self.metrics['tokens'] += int(tokens)
-                self.metrics['cost'] += tokens * 0.00001
+            # Send command
+            response = await self.send_to_daemon(command)
             
-        except json.JSONDecodeError:
-            self.log_message("Error", f"Invalid response from daemon")
+            try:
+                output = json.loads(response)
+                
+                # Extract session_id
+                new_session_id = output.get('sessionId') or output.get('session_id')
+                if new_session_id:
+                    self.session_id = new_session_id
+                
+                # Display response
+                if 'error' in output:
+                    self.log_message("Error", output['error'])
+                elif 'result' in output:
+                    self.log_message("Claude", output['result'])
+                elif 'content' in output:
+                    self.log_message("Claude", output['content'])
+                else:
+                    self.log_message("System", "No response content")
+                
+                # Update metrics
+                self.metrics['messages'] += 2
+                if 'result' in output or 'content' in output:
+                    content = output.get('result', output.get('content', ''))
+                    tokens = len(content.split()) * 1.3
+                    self.metrics['tokens'] += int(tokens)
+                    self.metrics['cost'] += tokens * 0.00001
+                
+            except json.JSONDecodeError:
+                self.log_message("Error", f"Invalid response from daemon")
         
         # Update status and refresh sessions list
         self.update_status()
         await self.load_available_sessions()
+    
+    async def send_multi_agent_message(self, message: str) -> None:
+        """Send message in multi-agent mode"""
+        # TODO: Implement multi-agent message sending via message bus
+        self.log_message("System", "Multi-agent messaging coming soon...")
     
     async def handle_command(self, command: str) -> None:
         """Handle special commands"""
@@ -554,12 +700,84 @@ class ChatInterface(App):
         elif cmd == '/clear':
             self.action_clear_conversation()
         elif cmd == '/new':
-            self.session_id = None
-            self.mode = "chat"
-            self.log_message("System", "Started new session")
-            self.update_status()
+            await self.start_new_session()
+        elif cmd == '/join' and len(parts) > 1:
+            conversation_id = parts[1]
+            await self.join_conversation(conversation_id)
         else:
             self.log_message("System", f"Unknown command: {command}")
+    
+    async def start_new_session(self) -> None:
+        """Start a new chat session"""
+        # Disconnect from multi-agent if connected
+        if self.mode == "multi" and self.agent_id:
+            await self.disconnect_from_conversation()
+        
+        self.session_id = None
+        self.mode = "chat"
+        self.conversation_id = None
+        self.log_message("System", "Started new session")
+        self.update_status()
+    
+    async def join_conversation(self, conversation_id: str) -> None:
+        """Join an active multi-agent conversation"""
+        self.log_message("System", f"Joining conversation: {conversation_id}")
+        
+        # TODO: Implement actual connection to message bus
+        # For now, just switch mode and show messages from message_bus.jsonl
+        
+        self.mode = "multi"
+        self.conversation_id = conversation_id
+        self.session_id = None
+        
+        # Clear current display
+        conv_log = self.query_one("#conversation_log", RichLog)
+        conv_log.clear()
+        self.current_conversation.clear()
+        
+        # Load recent messages from this conversation
+        await self.load_conversation_messages(conversation_id)
+        
+        self.log_message("System", f"Joined conversation: {conversation_id}")
+        self.log_message("System", "Multi-agent interaction coming soon. For now, viewing conversation history.")
+        
+        self.update_status()
+    
+    async def load_conversation_messages(self, conversation_id: str) -> None:
+        """Load messages from a specific conversation"""
+        message_bus_file = Path('claude_logs/message_bus.jsonl')
+        if not message_bus_file.exists():
+            return
+        
+        try:
+            with open(message_bus_file, 'r') as f:
+                for line in f:
+                    try:
+                        msg = json.loads(line)
+                        if msg.get('conversation_id') == conversation_id:
+                            sender = msg.get('from', 'Unknown')
+                            content = msg.get('content', '')
+                            self.log_message(sender, content)
+                    except:
+                        continue
+        except Exception as e:
+            self.log_message("Error", f"Failed to load conversation: {e}")
+    
+    async def disconnect_from_conversation(self) -> None:
+        """Disconnect from multi-agent conversation"""
+        if self.agent_id and self.message_writer:
+            try:
+                disconnect_cmd = f"DISCONNECT_AGENT:{self.agent_id}\n"
+                self.message_writer.write(disconnect_cmd.encode())
+                await self.message_writer.drain()
+                self.message_writer.close()
+                await self.message_writer.wait_closed()
+            except:
+                pass
+        
+        self.agent_id = None
+        self.message_reader = None
+        self.message_writer = None
     
     def show_help_message(self) -> None:
         """Show help information"""
@@ -567,15 +785,21 @@ class ChatInterface(App):
   /help          - Show this help message
   /clear         - Clear the conversation display
   /new           - Start a new session
+  /join ID       - Join an active conversation
 
 [bold]Keyboard Shortcuts:[/]
   Ctrl+Q         - Quit
   Ctrl+N         - New session
-  Ctrl+B         - Browse/replay past sessions
+  Ctrl+B         - Browse past sessions (replay)
+  Ctrl+A         - Browse active conversations (join)
   Ctrl+L         - Clear conversation
   F1             - Show help
-  Escape         - Close browser (when open)
-  Up/Down        - Navigate input history"""
+  Up/Down        - Navigate input history
+
+[bold]Modes:[/]
+  chat           - Single-agent conversation
+  replay         - Viewing past conversation
+  multi          - Multi-agent conversation (partial support)"""
         
         self.log_message("Help", help_text)
     
@@ -584,6 +808,7 @@ class ChatInterface(App):
         status_bar = self.query_one("#status-bar", StatusBar)
         status_bar.session_id = self.session_id or "None"
         status_bar.mode = self.mode
+        status_bar.conversation_id = self.conversation_id
         status_bar.tokens = self.metrics['tokens']
         status_bar.cost = self.metrics['cost']
         status_bar.update_display()
@@ -614,14 +839,23 @@ class ChatInterface(App):
                 self.send_message(message)
     
     async def on_list_view_selected(self, event: ListView.Selected) -> None:
-        """Handle conversation selection from browser"""
-        if hasattr(event.item, 'session_id'):
-            await self.load_conversation(event.item.session_id)
+        """Handle conversation selection from browsers"""
+        # Check which list view sent the event
+        if event.list_view.id == "past-conversation-list":
+            if hasattr(event.item, 'session_id'):
+                await self.load_past_conversation(event.item.session_id)
+        elif event.list_view.id == "active-conversation-list":
+            if hasattr(event.item, 'conversation_id'):
+                await self.join_conversation(event.item.conversation_id)
+            elif hasattr(event.item, 'agent_id'):
+                # TODO: Join as observer of specific agent
+                self.log_message("System", f"Agent observation not yet implemented: {event.item.agent_id}")
     
-    async def load_conversation(self, session_id: str) -> None:
+    async def load_past_conversation(self, session_id: str) -> None:
         """Load and display a past conversation"""
         self.mode = "replay"
         self.session_id = session_id
+        self.conversation_id = None
         
         # Clear current conversation
         conv_log = self.query_one("#conversation_log", RichLog)
@@ -636,31 +870,69 @@ class ChatInterface(App):
         
         self.log_message("System", f"Loading conversation: {session_id}")
         
-        try:
-            with open(log_file, 'r') as f:
-                for line in f:
-                    entry = json.loads(line)
-                    
-                    if entry.get('type') == 'user':
-                        self.log_message("You", entry.get('content', ''))
-                    elif entry.get('type') == 'human':
-                        # Handle alternate format
-                        self.log_message("You", entry.get('content', ''))
-                    elif entry.get('type') == 'claude':
-                        content = entry.get('result', entry.get('content', ''))
-                        self.log_message("Claude", content)
-                    
-            self.log_message("System", "End of conversation replay. Press Ctrl+N to start new session.")
-            
-        except Exception as e:
-            self.log_message("Error", f"Failed to load conversation: {e}")
+        # Special handling for message_bus.jsonl
+        if session_id == "message_bus":
+            await self.load_message_bus_log()
+        else:
+            # Normal conversation log
+            try:
+                with open(log_file, 'r') as f:
+                    for line in f:
+                        entry = json.loads(line)
+                        
+                        # Handle different log formats
+                        if 'type' in entry:
+                            if entry['type'] in ['user', 'human']:
+                                self.log_message("You", entry.get('content', ''))
+                            elif entry['type'] == 'claude':
+                                content = entry.get('result', entry.get('content', ''))
+                                self.log_message("Claude", content)
+                            elif entry['type'] == 'DIRECT_MESSAGE':
+                                # Message bus format
+                                sender = entry.get('from', 'Unknown')
+                                content = entry.get('content', '')
+                                self.log_message(sender, content)
+                        
+            except Exception as e:
+                self.log_message("Error", f"Failed to load conversation: {e}")
         
-        # Hide browser after loading
-        self.show_browser = False
-        sidebar = self.query_one("#sidebar")
-        sidebar.remove_class("visible")
+        self.log_message("System", "End of conversation replay. Press Ctrl+N to start new session.")
         
+        # Don't auto-hide browser
         self.update_status()
+    
+    async def load_message_bus_log(self) -> None:
+        """Special handler for message_bus.jsonl"""
+        message_bus_file = Path('claude_logs/message_bus.jsonl')
+        if not message_bus_file.exists():
+            return
+        
+        self.log_message("System", "Loading inter-agent messages...")
+        
+        try:
+            with open(message_bus_file, 'r') as f:
+                for line in f:
+                    try:
+                        msg = json.loads(line)
+                        msg_type = msg.get('type', '')
+                        
+                        if msg_type == 'DIRECT_MESSAGE':
+                            sender = msg.get('from', 'Unknown')
+                            to = msg.get('to', 'Unknown')
+                            content = msg.get('content', '')
+                            conv_id = msg.get('conversation_id', '')
+                            
+                            # Show conversation context
+                            self.log_message(f"{sender} → {to}", content)
+                            
+                            if conv_id and conv_id != self.conversation_id:
+                                self.conversation_id = conv_id
+                                conv_log = self.query_one("#conversation_log", RichLog)
+                                conv_log.write(f"\n[dim cyan]--- Conversation: {conv_id} ---[/]\n")
+                    except:
+                        continue
+        except Exception as e:
+            self.log_message("Error", f"Failed to load message bus: {e}")
     
     async def on_key(self, event: events.Key) -> None:
         """Handle key events"""
@@ -685,27 +957,44 @@ class ChatInterface(App):
     
     def action_new_session(self) -> None:
         """Start a new session"""
-        self.session_id = None
-        self.mode = "chat"
-        self.log_message("System", "Started new session")
-        self.update_status()
-        
-        # Clear conversation
-        self.query_one("#conversation_log", RichLog).clear()
-        
-        # Hide browser if shown
-        if self.show_browser:
-            self.action_toggle_browser()
+        self.run_worker(self.start_new_session())
     
-    def action_toggle_browser(self) -> None:
-        """Toggle the conversation browser"""
-        self.show_browser = not self.show_browser
-        sidebar = self.query_one("#sidebar")
+    def action_toggle_past_browser(self) -> None:
+        """Toggle the past conversation browser"""
+        self.show_past_browser = not self.show_past_browser
+        sidebar = self.query_one("#past-sidebar")
         
-        if self.show_browser:
+        if self.show_past_browser:
+            # Hide active browser if open
+            if self.show_active_browser:
+                self.show_active_browser = False
+                active_sidebar = self.query_one("#active-sidebar")
+                active_sidebar.remove_class("visible")
+            
             sidebar.add_class("visible")
             # Reload sessions when showing browser
             self.run_worker(self.load_available_sessions())
+        else:
+            sidebar.remove_class("visible")
+        
+        # Refocus input
+        self.set_focus(self.query_one("#input-field"))
+    
+    def action_toggle_active_browser(self) -> None:
+        """Toggle the active conversation browser"""
+        self.show_active_browser = not self.show_active_browser
+        sidebar = self.query_one("#active-sidebar")
+        
+        if self.show_active_browser:
+            # Hide past browser if open
+            if self.show_past_browser:
+                self.show_past_browser = False
+                past_sidebar = self.query_one("#past-sidebar")
+                past_sidebar.remove_class("visible")
+            
+            sidebar.add_class("visible")
+            # Reload active conversations
+            self.run_worker(self.load_active_conversations())
         else:
             sidebar.remove_class("visible")
         
@@ -720,16 +1009,11 @@ class ChatInterface(App):
     def action_show_help(self) -> None:
         """Show help"""
         self.show_help_message()
-    
-    def action_escape(self) -> None:
-        """Handle escape key"""
-        if self.show_browser:
-            self.action_toggle_browser()
 
 
 def main():
     """Main entry point"""
-    parser = argparse.ArgumentParser(description='Claude Chat Interface (Textual)')
+    parser = argparse.ArgumentParser(description='Enhanced Claude Chat Interface (Textual)')
     parser.add_argument('--new', '-n', action='store_true', 
                        help='Start new session (default: resume last)')
     parser.add_argument('--resume', '-r', metavar='SESSION_ID',

@@ -13,11 +13,15 @@ pip3 install textual
 
 - **Rich TUI Interface**: Modern terminal interface with panels and styling
 - **Session Management**: Resume previous sessions or start new ones
-- **Conversation Browser**: Browse and replay past conversations (Ctrl+B)
+- **Two Conversation Browsers**: 
+  - Past Sessions (Ctrl+B): Browse and replay completed conversations
+  - Active Sessions (Ctrl+A): View and join ongoing multi-agent conversations
 - **Profile Support**: Automatically composes prompts using agent profiles
+- **Multi-Agent Support**: View and join active conversations with `/join`
 - **Command Support**: Built-in commands for common operations
 - **Input History**: Navigate previous messages with up/down arrows
 - **Interactive UI**: Send button, proper focus management
+- **Message Bus Integration**: Properly displays inter-agent messages
 
 ## Usage
 
@@ -53,23 +57,24 @@ Type these in the input field:
 - `/help` - Show help information
 - `/clear` - Clear the conversation display
 - `/new` - Start a new session
+- `/join <conversation_id>` - Join an active multi-agent conversation
 
 ## Interface Layout
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│ 🤖 Claude Chat (Textual) - Press F1 for help            │
-├──────────────────┬──────────────────────────────────────┤
-│  Past Sessions   │                                      │
-│  (Ctrl+B)        │      Conversation Area               │
-│                  │                                      │
-│  [Hidden by      │                                      │
-│   default]       │                                      │
-│                  ├──────────────────────────────────────┤
-│                  │ [Input field................] [Send] │
-├──────────────────┴──────────────────────────────────────┤
-│ Session: xxx | Mode: chat/replay | Tokens: x | Cost: $x │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│ 🤖 Claude Chat - F1: Help | Ctrl+B: Past | Ctrl+A: Active      │
+├──────────────────┬──────────────────┬──────────────────────────┤
+│ 📚 Past Sessions │ 🔴 Active Convos │                          │
+│   (Ctrl+B)       │   (Ctrl+A)       │   Conversation Area      │
+│                  │                  │                          │
+│ [Hidden by       │ [Hidden by       │                          │
+│  default]        │  default]        │                          │
+│                  │                  ├──────────────────────────┤
+│                  │                  │ [Input.........] [Send]  │
+├──────────────────┴──────────────────┴──────────────────────────┤
+│ Session: xxx | Mode: chat/replay/multi | Conv: xxx | Tokens: x │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ## Differences from chat.py
