@@ -13,6 +13,11 @@ from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime
 import time
+import os
+
+# Add path for daemon client utilities
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from daemon.client import CommandBuilder, ResponseHandler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -73,14 +78,24 @@ class MultiClaudeOrchestrator:
         """Check if daemon is running and accessible"""
         try:
             reader, writer = await asyncio.open_unix_connection(str(self.daemon_socket))
-            writer.write(b"HEALTH_CHECK\n")
+            # Use JSON protocol for health check
+            health_cmd = CommandBuilder.build_command("HEALTH_CHECK")
+            command_str = json.dumps(health_cmd) + '\n'
+            writer.write(command_str.encode())
             await writer.drain()
             
             response = await reader.readline()
             writer.close()
             await writer.wait_closed()
             
-            return response.strip() == b"HEALTHY"
+            if response:
+                try:
+                    result = json.loads(response.decode().strip())
+                    return ResponseHandler.check_success(result) and \
+                           ResponseHandler.get_result_data(result).get("status") == "healthy"
+                except:
+                    return False
+            return False
         except:
             logger.error("Daemon is not running. Start with: ./daemon_control.sh start")
             return False
@@ -201,9 +216,17 @@ class MultiClaudeOrchestrator:
                 'agent_role': role
             })
             
-            command = f"SPAWN_AGENT:{profile_name}:{initial_task}:{context}:{agent_id}"
+            # Build JSON SPAWN_AGENT command
+            spawn_params = {
+                "profile_name": profile_name,
+                "task": initial_task,
+                "context": context,
+                "agent_id": agent_id
+            }
+            spawn_cmd = CommandBuilder.build_command("SPAWN_AGENT", spawn_params)
+            command_str = json.dumps(spawn_cmd) + '\n'
             
-            result = await self._send_daemon_command(command)
+            result = await self._send_daemon_command(command_str)
             
             if result.get('error'):
                 logger.error(f"Failed to start agent {agent_id}: {result['error']}")
@@ -220,8 +243,14 @@ class MultiClaudeOrchestrator:
         starter_message = f"Let's begin our {mode} session about: {topic}"
         
         # Send initial broadcast to all agents
-        broadcast_command = f"PUBLISH:orchestrator:BROADCAST:{json.dumps({'content': starter_message, 'conversation_id': self.conversation_id})}"
-        await self._send_daemon_command(broadcast_command)
+        # Build JSON PUBLISH command for broadcast
+        broadcast_payload = {
+            'content': starter_message,
+            'conversation_id': self.conversation_id
+        }
+        broadcast_cmd = CommandBuilder.build_publish_command("orchestrator", "BROADCAST", broadcast_payload)
+        broadcast_command_str = json.dumps(broadcast_cmd) + '\n'
+        await self._send_daemon_command(broadcast_command_str)
         
         logger.info(f"Conversation started with ID: {self.conversation_id}")
         logger.info("Agents are now conversing autonomously...")
@@ -244,8 +273,14 @@ class MultiClaudeOrchestrator:
         logger.info("Sending shutdown signal to all agents...")
         
         # Broadcast END signal
-        end_command = f"PUBLISH:orchestrator:BROADCAST:{json.dumps({'content': '[END]', 'conversation_id': self.conversation_id})}"
-        await self._send_daemon_command(end_command)
+        # Build JSON PUBLISH command for END signal
+        end_payload = {
+            'content': '[END]',
+            'conversation_id': self.conversation_id
+        }
+        end_cmd = CommandBuilder.build_publish_command("orchestrator", "BROADCAST", end_payload)
+        end_command_str = json.dumps(end_cmd) + '\n'
+        await self._send_daemon_command(end_command_str)
         
         # Give agents time to shut down gracefully
         await asyncio.sleep(2)

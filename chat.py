@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
-Minimal chat interface for Claude via the daemon
+Minimal chat interface for Claude via the daemon - JSON Protocol v2.0
 """
 
+import asyncio
 import subprocess
-import socket
 import time
 import sys
 import os
-import json
 import argparse
 from pathlib import Path
+
+# Import the new JSON client library
+from daemon_client import DaemonClient, ConnectionError, CommandError, daemon_health_check
 
 SOCKET_PATH = os.environ.get('CLAUDE_DAEMON_SOCKET', 'sockets/claude_daemon.sock')
 
@@ -24,70 +26,54 @@ def start_daemon():
                     preexec_fn=os.setsid)  # Create new process group
     time.sleep(3)  # Give daemon time to start
 
-def send_to_daemon(message):
-    """Send message to daemon and get response"""
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+async def send_cleanup(cleanup_type: str) -> str:
+    """Send cleanup command to daemon using JSON protocol"""
     try:
-        sock.connect(SOCKET_PATH)
-        # Ensure message ends with newline for daemon's readline()
-        if not message.endswith('\n'):
-            message += '\n'
-        sock.sendall(message.encode())
-        sock.shutdown(socket.SHUT_WR)  # Signal end of writing
-        
-        # Read response until connection closes
-        response = b''
-        while True:
-            chunk = sock.recv(4096)
-            if not chunk:
-                break
-            response += chunk
-        
-        return response.decode().strip()
-    finally:
-        sock.close()
+        client = DaemonClient(SOCKET_PATH)
+        result = await client.cleanup(cleanup_type)
+        return result
+    except CommandError as e:
+        return f"Error: {e.message}"
+    except ConnectionError as e:
+        return f"Connection error: {e}"
 
-def send_cleanup(cleanup_type):
-    """Send cleanup command to daemon"""
-    command = f"CLEANUP:{cleanup_type}"
-    response = send_to_daemon(command)
-    return response
-
-def send_prompt(prompt, session_id=None):
-    """Send prompt to Claude via daemon"""
-    # Format unified spawn command: SPAWN:sync:claude:session_id:model:agent_id:prompt
-    if session_id:
-        command = f"SPAWN:sync:claude:{session_id}:sonnet::{prompt}"
-    else:
-        command = f"SPAWN:sync:claude::sonnet::{prompt}"
-    
-    # Send to daemon
-    response = send_to_daemon(command)
-    
+async def send_prompt(prompt: str, session_id: str = None) -> tuple:
+    """Send prompt to Claude via daemon using JSON protocol"""
     try:
-        output = json.loads(response)
+        client = DaemonClient(SOCKET_PATH)
         
-        # Extract session_id
-        new_session_id = output.get('sessionId') or output.get('session_id')
+        # Use the JSON API to spawn Claude
+        response = await client.spawn_claude(
+            prompt=prompt,
+            mode="sync",
+            session_id=session_id,
+            model="sonnet"
+        )
         
-        # Display only the result content
-        if 'error' in output:
-            print(f"\nError: {output['error']}\n")
-            return None, None
-        elif 'result' in output:
-            print(f"\n{output['result']}\n")
-        elif 'content' in output:
-            print(f"\n{output['content']}\n")
+        # Extract result data
+        result_data = response.get('result', {})
+        
+        # Get session ID from response
+        new_session_id = result_data.get('sessionId') or result_data.get('session_id')
+        
+        # Display the result
+        if 'result' in result_data:
+            print(f"\n{result_data['result']}\n")
+        elif 'content' in result_data:
+            print(f"\n{result_data['content']}\n")
         else:
-            print(f"\nNo result content found\n")
+            print(f"\nResponse: {result_data}\n")
         
-        return output, new_session_id
+        return response, new_session_id
         
-    except json.JSONDecodeError:
-        print(f"Non-JSON response: {response}")
+    except CommandError as e:
+        print(f"\nCommand Error: {e.message}\n")
+        return None, None
+    except ConnectionError as e:
+        print(f"\nConnection Error: {e}\n")
         return None, None
 
-def get_last_session_id():
+def get_last_session_id() -> str:
     """Try multiple methods to find last session ID"""
     # Method 1: Check persistent file
     session_file = Path('sockets/last_session_id')
@@ -99,124 +85,141 @@ def get_last_session_id():
         except:
             pass
     
-    # Method 2: Scan logs for most recent Claude response
+    # Method 2: Check latest log file  
     logs_dir = Path('claude_logs')
     if logs_dir.exists():
-        # Get all log files sorted by modification time (newest first)
-        log_files = sorted(logs_dir.glob('*.jsonl'), key=lambda p: p.stat().st_mtime, reverse=True)
-        
-        for log_file in log_files:
-            if log_file.name == 'latest.jsonl':
-                continue
-            
-            try:
-                # Read last line of file (should be Claude response if conversation happened)
-                with open(log_file, 'r') as f:
-                    lines = f.readlines()
-                    if lines:
-                        last_line = lines[-1]
-                        entry = json.loads(last_line)
-                        if entry.get('type') == 'claude' and 'session_id' in entry:
-                            return entry['session_id']
-            except:
-                continue
+        try:
+            log_files = list(logs_dir.glob('*.jsonl'))
+            if log_files:
+                # Get most recently modified log file
+                latest_log = max(log_files, key=lambda f: f.stat().st_mtime)
+                session_id = latest_log.stem
+                if session_id and session_id != 'latest':
+                    return session_id
+        except:
+            pass
     
     return None
 
-def main():
-    """Main chat loop"""
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(description='Claude Chat Interface')
-    parser.add_argument('--new', '-n', action='store_true', 
-                       help='Start new session (default: resume last)')
-    parser.add_argument('--resume', '-r', metavar='SESSION_ID',
-                       help='Resume specific session ID')
-    parser.add_argument('--prompt', '-p', metavar='FILENAME',
-                       help='Send initial prompt from file (implies --new)')
-    args = parser.parse_args()
+def save_session_id(session_id: str):
+    """Save session ID for next time"""
+    if session_id:
+        try:
+            session_file = Path('sockets/last_session_id')
+            session_file.parent.mkdir(exist_ok=True)
+            session_file.write_text(session_id)
+        except:
+            pass
+
+async def ensure_daemon_running():
+    """Ensure daemon is running, start if needed"""
+    # Check if daemon is healthy
+    if await daemon_health_check(SOCKET_PATH):
+        return True
     
-    print("Claude Chat Interface")
-    print("Type 'exit' to quit, '/cleanup <type>' to cleanup (logs, sessions, sockets, all)")
-    print("-" * 50)
-    
-    # Ensure sockets directory exists
-    os.makedirs('sockets', exist_ok=True)
-    
+    # Try to start daemon
     start_daemon()
     
-    # Handle initial prompt from file
-    initial_prompt = None
-    if args.prompt:
-        try:
-            prompt_path = Path(args.prompt)
-            if not prompt_path.exists():
-                print(f"Error: Prompt file not found: {args.prompt}")
-                return
-            initial_prompt = prompt_path.read_text().strip()
-            print(f"Loaded prompt from {args.prompt} ({len(initial_prompt)} characters)")
-        except Exception as e:
-            print(f"Error reading prompt file: {e}")
-            return
+    # Wait a bit and check again
+    await asyncio.sleep(2)
+    if await daemon_health_check(SOCKET_PATH):
+        return True
     
-    # Determine session ID based on arguments
-    session_id = None
-    if args.new:
-        print("Starting new session...")
-        session_id = None
-    elif args.resume:
-        session_id = args.resume
+    print("❌ Failed to start daemon")
+    return False
+
+async def interactive_chat():
+    """Interactive chat mode"""
+    print("Claude Chat Interface (JSON Protocol v2.0)")
+    print("Type 'quit' or 'exit' to end, 'new' for new conversation")
+    print("-" * 50)
+    
+    # Ensure daemon is running
+    if not await ensure_daemon_running():
+        return
+    
+    # Try to resume last session
+    session_id = get_last_session_id()
+    if session_id:
         print(f"Resuming session: {session_id}")
     else:
-        # Default: try to resume last session
-        session_id = get_last_session_id()
-        if session_id:
-            print(f"Resuming last session: {session_id}")
-        else:
-            print("No previous session found, starting new session...")
-    
-    # Send initial prompt if provided
-    if initial_prompt:
-        print("\nSending initial prompt...")
-        print("-" * 50)
-        output, new_session_id = send_prompt(initial_prompt, session_id)
-        if new_session_id:
-            session_id = new_session_id
-            print(f"Session started: {session_id}")
-        print("-" * 50)
+        print("Starting new conversation")
     
     while True:
         try:
-            prompt = input("You: ").strip()
-            
-            if prompt.lower() == 'exit':
-                break
+            prompt = input("\n> ").strip()
             
             if not prompt:
                 continue
-            
-            # Handle cleanup commands
-            if prompt.startswith('/cleanup '):
-                cleanup_type = prompt[9:].strip()
-                if cleanup_type in ['logs', 'sessions', 'sockets', 'all']:
-                    result = send_cleanup(cleanup_type)
-                    print(f"\nCleanup result: {result}\n")
-                else:
-                    print("\nInvalid cleanup type. Use: logs, sessions, sockets, or all\n")
-                continue
                 
-            output, new_session_id = send_prompt(prompt, session_id)
+            if prompt.lower() in ['quit', 'exit', 'q']:
+                break
+            elif prompt.lower() == 'new':
+                session_id = None
+                print("Starting new conversation")
+                continue
+            elif prompt.lower() == 'session':
+                print(f"Current session: {session_id or 'None'}")
+                continue
+            
+            # Send prompt and get response
+            response, new_session_id = await send_prompt(prompt, session_id)
             
             if new_session_id:
                 session_id = new_session_id
+                save_session_id(session_id)
                 
-        except EOFError:
-            print("\nNo input available, exiting...")
-            break
         except KeyboardInterrupt:
-            print("\nGoodbye!")
+            print("\n\nGoodbye!")
             break
         except Exception as e:
             print(f"Error: {e}")
 
+async def main():
+    """Main entry point"""
+    parser = argparse.ArgumentParser(description='Chat with Claude via daemon')
+    parser.add_argument('prompt', nargs='?', help='Single prompt to send')
+    parser.add_argument('--session', '-s', help='Session ID to use')
+    parser.add_argument('--new', action='store_true', help='Start new conversation')
+    parser.add_argument('--cleanup', help='Run cleanup operation')
+    parser.add_argument('--health', action='store_true', help='Check daemon health')
+    
+    args = parser.parse_args()
+    
+    # Handle cleanup
+    if args.cleanup:
+        result = await send_cleanup(args.cleanup)
+        print(result)
+        return
+    
+    # Handle health check
+    if args.health:
+        healthy = await daemon_health_check(SOCKET_PATH)
+        if healthy:
+            print("✅ Daemon is healthy")
+        else:
+            print("❌ Daemon is not responding")
+        return
+    
+    # Ensure daemon is running
+    if not await ensure_daemon_running():
+        return
+    
+    # Handle single prompt
+    if args.prompt:
+        session_id = None if args.new else (args.session or get_last_session_id())
+        response, new_session_id = await send_prompt(args.prompt, session_id)
+        
+        if new_session_id:
+            save_session_id(new_session_id)
+        return
+    
+    # Interactive mode
+    await interactive_chat()
+
 if __name__ == '__main__':
-    main()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nGoodbye!")
+        sys.exit(0)

@@ -28,11 +28,15 @@ async def send_daemon_command(command: str) -> dict:
         
         if response:
             response_str = response.decode().strip()
-            # Handle plain text responses like HEALTH_CHECK
-            if response_str == 'HEALTHY':
-                return {'status': 'healthy'}
-            # Otherwise parse as JSON
-            return json.loads(response_str)
+            try:
+                # Try to parse as JSON first
+                return json.loads(response_str)
+            except json.JSONDecodeError:
+                # Handle legacy plain text responses like HEALTH_CHECK
+                if response_str == 'HEALTHY':
+                    return {'status': 'healthy'}
+                # Return as plain text for unknown responses
+                return {'result': response_str}
         return None
     except Exception as e:
         print(f"Error: {e}")

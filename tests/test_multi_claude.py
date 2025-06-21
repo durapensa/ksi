@@ -20,11 +20,20 @@ async def test_basic_conversation():
         await writer.drain()
         
         response = await reader.readline()
-        if response.strip() == b"HEALTHY":
-            print("✓ Daemon is running")
-        else:
-            print("✗ Daemon health check failed")
-            return
+        try:
+            response_data = json.loads(response.decode().strip())
+            if response_data.get("status") == "healthy":
+                print("✓ Daemon is running")
+            else:
+                print(f"✗ Daemon unhealthy: {response_data}")
+                return
+        except json.JSONDecodeError:
+            # Fallback for legacy text response
+            if response.strip() == b"HEALTHY":
+                print("✓ Daemon is running")
+            else:
+                print("✗ Daemon health check failed")
+                return
             
         writer.close()
         await writer.wait_closed()

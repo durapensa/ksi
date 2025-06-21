@@ -35,11 +35,21 @@ async def test_hot_reload():
     # 1. Check if daemon is running
     print("1. Checking if daemon is running...")
     health_response = await send_command(socket_path, "HEALTH_CHECK")
-    if "HEALTHY" not in health_response:
-        print(f"❌ Daemon not healthy: {health_response}")
-        print("Please start daemon first: python daemon.py")
-        return
-    print("✅ Daemon is healthy")
+    try:
+        health_data = json.loads(health_response)
+        if health_data.get("status") == "healthy":
+            print("✅ Daemon is healthy")
+        else:
+            print(f"❌ Daemon not healthy: {health_data}")
+            print("Please start daemon first: python daemon.py")
+            return
+    except json.JSONDecodeError:
+        # Fallback for legacy text response
+        if "HEALTHY" not in health_response:
+            print(f"❌ Daemon not healthy: {health_response}")
+            print("Please start daemon first: python daemon.py")
+            return
+        print("✅ Daemon is healthy")
     
     # 2. Add some test state
     print("\n2. Adding test state...")
@@ -74,10 +84,19 @@ async def test_hot_reload():
     # 6. Verify daemon is still healthy
     print("\n6. Checking daemon health after reload...")
     health_response = await send_command(socket_path, "HEALTH_CHECK")
-    if "HEALTHY" not in health_response:
-        print(f"❌ Daemon not healthy after reload: {health_response}")
-        return
-    print("✅ Daemon healthy after reload")
+    try:
+        health_data = json.loads(health_response)
+        if health_data.get("status") == "healthy":
+            print("✅ Daemon healthy after reload")
+        else:
+            print(f"❌ Daemon not healthy after reload: {health_data}")
+            return
+    except json.JSONDecodeError:
+        # Fallback for legacy text response
+        if "HEALTHY" not in health_response:
+            print(f"❌ Daemon not healthy after reload: {health_response}")
+            return
+        print("✅ Daemon healthy after reload")
     
     # 7. Verify state preservation
     print("\n7. Verifying state preservation...")

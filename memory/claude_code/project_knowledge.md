@@ -3,6 +3,17 @@
 ## Project Overview
 Minimal daemon system for managing Claude processes with conversation continuity.
 
+## Recent Changes (2025-06-21)
+- **JSON Prefix Removal**: Renamed classes to remove redundant "JSON" prefixes:
+  - `JSONCommandBuilder` → `CommandBuilder`
+  - `JSONResponseHandler` → `ResponseHandler`
+  - `JSONConnectionManager` → `ConnectionManager`
+  - `JSONCommandHandlers` → `CommandHandlers`
+  - `json_handlers` instance → `handlers`
+  - `command_json` variables → `command_str` (when it's the serialized string)
+  - `JSONSCHEMA_AVAILABLE` → `SCHEMA_VALIDATION_AVAILABLE`
+- These changes improve clarity by removing redundant naming since the entire protocol is JSON-based
+
 ## Architecture
 
 ### Core Components

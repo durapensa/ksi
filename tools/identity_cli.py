@@ -13,15 +13,19 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-async def send_daemon_command(command: str) -> dict:
-    """Send command to daemon and get response"""
+from daemon.client import CommandBuilder
+
+async def send_daemon_command(command_name: str, parameters: dict = None) -> dict:
+    """Send JSON command to daemon and get response"""
     try:
         reader, writer = await asyncio.open_unix_connection('sockets/claude_daemon.sock')
         
+        # Build JSON command
+        cmd_obj = CommandBuilder.build_command(command_name, parameters)
+        command_str = json.dumps(cmd_obj) + '\n'
+        
         # Send command
-        if not command.endswith('\n'):
-            command += '\n'
-        writer.write(command.encode())
+        writer.write(command_str.encode())
         await writer.drain()
         
         # Read response
@@ -75,13 +79,18 @@ async def list_identities():
 
 async def show_identity(agent_id: str):
     """Show detailed identity information for an agent"""
-    result = await send_daemon_command(f"GET_IDENTITY:{agent_id}")
+    result = await send_daemon_command("GET_IDENTITY", {"agent_id": agent_id})
     
-    if not result or result.get('status') != 'identity_found':
+    if not result or result.get('status') != 'success':
         print(f"❌ Identity not found for agent: {agent_id}")
         return
-    
-    identity = result['identity']
+        
+    result_data = result.get('result', {})
+    if result_data.get('status') != 'identity_found':
+        print(f"❌ Identity not found for agent: {agent_id}")
+        return
+        
+    identity = result_data.get('identity', {})
     
     print(f"\n🔍 Identity Details: {identity['display_name']}")
     print("=" * 50)
@@ -137,8 +146,13 @@ async def create_identity(agent_id: str, display_name: str = None, role: str = N
     
     traits = ["helpful", "professional", "reliable"]
     
-    command = f"CREATE_IDENTITY:{agent_id}:{display_name}:{role}:{json.dumps(traits)}"
-    result = await send_daemon_command(command)
+    params = {
+        "agent_id": agent_id,
+        "display_name": display_name,
+        "role": role,
+        "personality_traits": traits
+    }
+    result = await send_daemon_command("CREATE_IDENTITY", params)
     
     if result and result.get('status') == 'identity_created':
         print(f"✅ Created identity '{display_name}' for agent {agent_id}")
@@ -166,8 +180,11 @@ async def update_identity(agent_id: str, field: str, value: str):
         print(f"❌ Unknown field: {field}. Available: display_name, role, traits, style")
         return
     
-    command = f"UPDATE_IDENTITY:{agent_id}:{json.dumps(updates)}"
-    result = await send_daemon_command(command)
+    params = {
+        "agent_id": agent_id,
+        "updates": updates
+    }
+    result = await send_daemon_command("UPDATE_IDENTITY", params)
     
     if result and result.get('status') == 'identity_updated':
         print(f"✅ Updated {field} for agent {agent_id}")
@@ -183,7 +200,7 @@ async def remove_identity(agent_id: str):
         print("Cancelled.")
         return
     
-    result = await send_daemon_command(f"REMOVE_IDENTITY:{agent_id}")
+    result = await send_daemon_command("REMOVE_IDENTITY", {"agent_id": agent_id})
     
     if result and result.get('status') == 'identity_removed':
         print(f"✅ Removed identity for agent {agent_id}")

@@ -22,6 +22,23 @@ NC='\033[0m' # No Color
 # Change to script directory
 cd "$(dirname "$0")"
 
+# Helper function to send JSON commands
+send_json_command() {
+    local cmd="$1"
+    local params="${2:-null}"
+    
+    # Build JSON command
+    local json_cmd
+    if [ "$params" = "null" ]; then
+        json_cmd='{"version": "2.0", "command": "'"$cmd"'"}'
+    else
+        json_cmd='{"version": "2.0", "command": "'"$cmd"'", "parameters": '"$params"'}'
+    fi
+    
+    # Send command and get response
+    echo "$json_cmd" | nc -U "$SOCKET_FILE" 2>/dev/null
+}
+
 # Check virtual environment
 check_venv() {
     if [ ! -d "$VENV_DIR" ]; then
@@ -67,9 +84,12 @@ daemon_health() {
     fi
     
     # Send HEALTH_CHECK command
-    response=$(echo "HEALTH_CHECK" | nc -U "$SOCKET_FILE" 2>/dev/null || echo "FAILED")
+    response=$(send_json_command "HEALTH_CHECK" || echo '{"status":"error"}')
     
-    if [ "$response" = "HEALTHY" ]; then
+    # Parse JSON response
+    health_status=$(echo "$response" | python3 -c "import json,sys; d=json.load(sys.stdin); print('healthy' if d.get('status')=='success' and d.get('result',{}).get('status')=='healthy' else 'unhealthy')" 2>/dev/null || echo "error")
+    
+    if [ "$health_status" = "healthy" ]; then
         echo -e "${GREEN}✓ Daemon is healthy${NC}"
         
         # Get additional stats
@@ -77,23 +97,33 @@ daemon_health() {
         echo "Additional Information:"
         
         # Get agent count
-        agents=$(echo "GET_AGENTS" | nc -U "$SOCKET_FILE" 2>/dev/null | python3 -c "
+        agents=$(send_json_command "GET_AGENTS" | python3 -c "
 import json, sys
 try:
     data = json.load(sys.stdin)
-    print(f'  Active agents: {len(data.get(\"agents\", {}))}')
+    if data.get('status') == 'success':
+        result = data.get('result', {})
+        agents = result.get('agents', {})
+        print(f'  Active agents: {len(agents)}')
+    else:
+        print('  Active agents: 0')
 except:
-    pass
+    print('  Active agents: Unable to retrieve')
 " 2>/dev/null || echo "  Active agents: Unable to retrieve")
         
         # Get process count
-        processes=$(echo "GET_PROCESSES" | nc -U "$SOCKET_FILE" 2>/dev/null | python3 -c "
+        processes=$(send_json_command "GET_PROCESSES" | python3 -c "
 import json, sys
 try:
     data = json.load(sys.stdin)
-    print(f'  Running processes: {len(data.get(\"processes\", {}))}')
+    if data.get('status') == 'success':
+        result = data.get('result', {})
+        procs = result.get('processes', {})
+        print(f'  Running processes: {len(procs)}')
+    else:
+        print('  Running processes: 0')
 except:
-    pass
+    print('  Running processes: Unable to retrieve')
 " 2>/dev/null || echo "  Running processes: Unable to retrieve")
         
         echo "$agents"
@@ -158,7 +188,7 @@ stop_daemon() {
     # Try graceful shutdown via socket first
     if [ -S "$SOCKET_FILE" ]; then
         echo "Sending SHUTDOWN command..."
-        echo "SHUTDOWN" | nc -U "$SOCKET_FILE" 2>/dev/null || true
+        send_json_command "SHUTDOWN" >/dev/null 2>&1 || true
         
         # Wait for graceful shutdown
         echo -n "Waiting for graceful shutdown"

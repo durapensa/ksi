@@ -79,75 +79,64 @@ class ClaudeDaemonCore:
         logger.info(f"Loaded state: {len(state.get('sessions', {}))} sessions, {len(state.get('agents', {}))} agents")
     
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-        """Clean, simple client handler - Extended for persistent connections"""
-        agent_id = None
+        """JSON Protocol v2.0 client handler"""
         try:
-            # Set a timeout for client operations to prevent hanging
-            reader._transport.set_write_buffer_limits(high=16*1024, low=4*1024)
-            # Check if this is a persistent agent connection
+            # Read first JSON command
             first_data = await reader.readline()
             if not first_data:
                 return
             
             first_command = first_data.decode().strip()
             
-            # Check if this is an AGENT_CONNECTION:connect command for persistent connection
-            if first_command.startswith('AGENT_CONNECTION:connect:'):
-                # This is a persistent agent connection
-                agent_id = first_command[25:].strip()
-                logger.info(f"Persistent agent connection from {agent_id}")
+            # All commands must be JSON - no exceptions
+            try:
+                command_data = json.loads(first_command)
+                command_name = command_data.get("command")
                 
-                # Process the connection command
-                if self.command_handler:
-                    await self.command_handler.handle_command(first_command, writer, reader)
-                
-                # Keep connection open for persistent agent
-                while not self.shutdown_event.is_set():
-                    try:
-                        # Use wait_for with timeout to allow checking shutdown event
-                        data = await asyncio.wait_for(reader.readline(), timeout=1.0)
-                        if not data:
-                            break
-                    except asyncio.TimeoutError:
-                        # Check if we should shutdown
-                        if self.shutdown_event.is_set():
-                            logger.info(f"Shutting down connection for agent {agent_id}")
-                            break
-                        continue
-                    except asyncio.CancelledError:
-                        logger.info(f"Connection cancelled for agent {agent_id}")
-                        raise
-                    
-                    command = data.decode().strip()
-                    logger.debug(f"Agent {agent_id} command: {command[:50]}...")
-                    
-                    if self.command_handler:
-                        should_continue = await self.command_handler.handle_command(command, writer, reader)
-                        if not should_continue:
-                            break
-            else:
-                # Handle single command (original behavior)
-                try:
-                    # Try JSON first
-                    output = json.loads(first_command)
-                    # Handle JSON output (session tracking, etc.)
-                    session_id = output.get('sessionId') or output.get('session_id')
-                    if session_id and self.state_manager:
-                        self.state_manager.track_session(session_id, output)
-                        logger.info(f"Captured session: {session_id}")
+                # Process the command
+                if not self.command_handler:
+                    logger.error("No command handler available")
                     return
+                
+                # Handle the command
+                should_continue = await self.command_handler.handle_command(first_command, writer, reader)
+                
+                # If this is an AGENT_CONNECTION:connect, keep connection open
+                if (command_name == "AGENT_CONNECTION" and 
+                    command_data.get("parameters", {}).get("action") == "connect"):
                     
-                except json.JSONDecodeError:
-                    # Handle as command
-                    logger.info(f"Received command: {first_command[:50]}...")
+                    agent_id = command_data.get("parameters", {}).get("agent_id")
+                    logger.info(f"Maintaining persistent connection for agent {agent_id}")
                     
-                    # Route to command handler - clean and simple!
-                    if self.command_handler:
-                        should_continue = await self.command_handler.handle_command(first_command, writer, reader)
-                        if not should_continue:
-                            return  # Shutdown requested
-                    else:
-                        logger.error("No command handler available")
+                    # Keep connection open for more JSON commands
+                    while not self.shutdown_event.is_set() and should_continue:
+                        try:
+                            data = await asyncio.wait_for(reader.readline(), timeout=1.0)
+                            if not data:
+                                break
+                        except asyncio.TimeoutError:
+                            continue
+                        except asyncio.CancelledError:
+                            break
+                        
+                        command = data.decode().strip()
+                        if command:
+                            should_continue = await self.command_handler.handle_command(command, writer, reader)
+                        
+                    logger.info(f"Closed persistent connection for agent {agent_id}")
+                
+            except json.JSONDecodeError as e:
+                # Invalid JSON - send error and close
+                logger.warning(f"Invalid JSON received: {str(e)}")
+                error_response = {
+                    "status": "error",
+                    "error": {
+                        "code": "INVALID_JSON",
+                        "message": f"All commands must be valid JSON: {str(e)}"
+                    }
+                }
+                writer.write((json.dumps(error_response) + '\n').encode())
+                await writer.drain()
                 
         except Exception as e:
             logger.error(f"Error handling client: {e}")

@@ -9,6 +9,12 @@ from datetime import datetime
 from typing import Dict, List, Optional, Set
 from pathlib import Path
 import re
+import sys
+import os
+
+# Add path for daemon client utilities
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from daemon.client import CommandBuilder
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
@@ -263,8 +269,9 @@ class MultiClaudeMonitor(App):
             self.connected = True
             
             # First connect as an agent (this connection will be used for message bus)
-            connect_command = "AGENT_CONNECTION:connect:monitor\n"
-            self.writer.write(connect_command.encode())
+            connect_cmd = CommandBuilder.build_agent_connection_command("connect", "monitor")
+            command_str = json.dumps(connect_cmd) + '\n'
+            self.writer.write(command_str.encode())
             await self.writer.drain()
             
             # Read and verify connection response
@@ -274,7 +281,8 @@ class MultiClaudeMonitor(App):
             
             try:
                 resp_data = json.loads(response.decode().strip())
-                if resp_data.get('status') != 'connected':
+                # Check JSON protocol v2.0 response format
+                if resp_data.get('status') != 'success' or resp_data.get('result', {}).get('status') != 'connected':
                     raise Exception(f"Failed to connect: {resp_data}")
             except json.JSONDecodeError:
                 self.notify(f"Connect response: {response.decode().strip()}", severity="warning")
@@ -283,8 +291,10 @@ class MultiClaudeMonitor(App):
             cmd_reader, cmd_writer = await asyncio.open_unix_connection(self.daemon_socket)
             
             # Subscribe to all message bus events
-            subscribe_command = "SUBSCRIBE:monitor:DIRECT_MESSAGE,BROADCAST,TASK_ASSIGNMENT,TOOL_CALL,AGENT_STATUS,CONVERSATION_INVITE\n"
-            cmd_writer.write(subscribe_command.encode())
+            event_types = ["DIRECT_MESSAGE", "BROADCAST", "TASK_ASSIGNMENT", "TOOL_CALL", "AGENT_STATUS", "CONVERSATION_INVITE"]
+            subscribe_cmd = CommandBuilder.build_subscribe_command("monitor", event_types)
+            command_str = json.dumps(subscribe_cmd) + '\n'
+            cmd_writer.write(command_str.encode())
             await cmd_writer.drain()
             
             # Read subscription response
@@ -292,7 +302,8 @@ class MultiClaudeMonitor(App):
             if sub_response:
                 try:
                     sub_data = json.loads(sub_response.decode().strip())
-                    if sub_data.get('status') != 'subscribed':
+                    # Check JSON protocol v2.0 response format
+                    if sub_data.get('status') != 'success' or sub_data.get('result', {}).get('status') != 'subscribed':
                         self.notify(f"Subscription issue: {sub_data}", severity="warning")
                 except json.JSONDecodeError:
                     self.notify(f"Subscribe response: {sub_response.decode().strip()}", severity="warning")
@@ -533,7 +544,9 @@ class MultiClaudeMonitor(App):
         """Disconnect from daemon"""
         if self.writer:
             try:
-                self.writer.write(b"AGENT_CONNECTION:disconnect:monitor\n")
+                disconnect_cmd = CommandBuilder.build_agent_connection_command("disconnect", "monitor")
+                command_str = json.dumps(disconnect_cmd) + '\n'
+                self.writer.write(command_str.encode())
                 await self.writer.drain()
                 self.writer.close()
                 await self.writer.wait_closed()

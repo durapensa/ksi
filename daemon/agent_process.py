@@ -20,6 +20,7 @@ import re
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from prompts.composer import PromptComposer
 from daemon.timestamp_utils import TimestampManager
+from daemon.client import CommandBuilder, ResponseHandler, ConnectionManager
 
 # Set up logging
 logging.basicConfig(
@@ -73,16 +74,18 @@ class AgentProcess:
             self.reader, self.writer = await asyncio.open_unix_connection(self.daemon_socket)
             logger.info(f"Connected to daemon at {self.daemon_socket}")
             
-            # Register as persistent agent
-            command = f"AGENT_CONNECTION:connect:{self.agent_id}\n"
-            self.writer.write(command.encode())
+            # Register as persistent agent using JSON protocol
+            cmd_obj = CommandBuilder.build_agent_connection_command("connect", self.agent_id)
+            
+            command_str = json.dumps(cmd_obj) + '\n'
+            self.writer.write(command_str.encode())
             await self.writer.drain()
             
             # Read response
             response = await self.reader.readline()
             result = json.loads(response.decode().strip())
             
-            if result.get('status') == 'connected':
+            if result.get('status') == 'success' and result.get('result', {}).get('status') == 'connected':
                 logger.info(f"Successfully registered as agent {self.agent_id}")
                 
                 # Create or update identity for this agent
@@ -103,10 +106,11 @@ class AgentProcess:
         """Create or update identity for this agent"""
         try:
             # Try to get existing identity first
-            result = await self._send_daemon_command(f"GET_IDENTITY:{self.agent_id}")
+            result = await self._send_daemon_command("GET_IDENTITY", {"agent_id": self.agent_id})
             
-            if result and result.get('status') == 'identity_found':
-                logger.info(f"Found existing identity for {self.agent_id}: {result['identity']['display_name']}")
+            if result and result.get('status') == 'success' and result.get('result', {}).get('status') == 'identity_found':
+                identity = result.get('result', {}).get('identity', {})
+                logger.info(f"Found existing identity for {self.agent_id}: {identity.get('display_name')}")
                 return
             
             # Create new identity
@@ -117,10 +121,15 @@ class AgentProcess:
             capabilities = self.profile_config.get('capabilities', [])
             traits = self._capabilities_to_traits(capabilities)
             
-            create_command = f"CREATE_IDENTITY:{self.agent_id}:{display_name}:{role}:{json.dumps(traits)}"
-            result = await self._send_daemon_command(create_command)
+            create_params = {
+                "agent_id": self.agent_id,
+                "display_name": display_name,
+                "role": role,
+                "personality_traits": traits
+            }
+            result = await self._send_daemon_command("CREATE_IDENTITY", create_params)
             
-            if result and result.get('status') == 'identity_created':
+            if result and result.get('status') == 'success' and result.get('result', {}).get('status') == 'identity_created':
                 logger.info(f"Created identity '{display_name}' for agent {self.agent_id}")
             else:
                 logger.warning(f"Failed to create identity: {result}")
@@ -167,8 +176,11 @@ class AgentProcess:
         # Need separate connection for subscription
         sub_reader, sub_writer = await asyncio.open_unix_connection(self.daemon_socket)
         
-        command = f"SUBSCRIBE:{self.agent_id}:{','.join(event_types)}\n"
-        sub_writer.write(command.encode())
+        # Build JSON SUBSCRIBE command
+        cmd_obj = CommandBuilder.build_subscribe_command(self.agent_id, event_types)
+        
+        command_str = json.dumps(cmd_obj) + '\n'
+        sub_writer.write(command_str.encode())
         await sub_writer.drain()
         
         response = await sub_reader.readline()
@@ -177,7 +189,7 @@ class AgentProcess:
         
         result = json.loads(response.decode().strip())
         
-        if result.get('status') == 'subscribed':
+        if result.get('status') == 'success' and result.get('result', {}).get('status') == 'subscribed':
             logger.info(f"Subscribed to events: {event_types}")
         else:
             logger.error(f"Failed to subscribe: {result}")
@@ -298,15 +310,17 @@ class AgentProcess:
         if not process_id:
             logger.error("Failed to start Claude response generation")
     
-    async def _send_daemon_command(self, command: str) -> Optional[dict]:
-        """Send command to daemon and get response"""
+    async def _send_daemon_command(self, command_name: str, parameters: dict = None) -> Optional[dict]:
+        """Send JSON command to daemon and get response"""
         try:
             reader, writer = await asyncio.open_unix_connection(self.daemon_socket)
             
-            # Send command
-            if not command.endswith('\n'):
-                command += '\n'
-            writer.write(command.encode())
+            # Build JSON command
+            cmd_obj = CommandBuilder.build_command(command_name, parameters)
+            
+            # Send JSON command
+            command_str = json.dumps(cmd_obj) + '\n'
+            writer.write(command_str.encode())
             await writer.drain()
             
             # Read response
@@ -322,19 +336,24 @@ class AgentProcess:
             logger.error(f"Error communicating with daemon: {e}")
             return None
     
-    async def _send_spawn_command(self, command: str, prompt_bytes: bytes) -> dict:
-        """Send SPAWN command with length-prefixed prompt data"""
+    async def _send_spawn_command(self, mode: str, session_id: str, model: str, agent_id: str, prompt: str) -> dict:
+        """Send SPAWN command with JSON protocol"""
         try:
             reader, writer = await asyncio.open_unix_connection(self.daemon_socket)
             
-            # Send command line
-            if not command.endswith('\n'):
-                command += '\n'
-            writer.write(command.encode())
-            await writer.drain()
+            # Build JSON SPAWN command using shared utilities
+            cmd_obj = CommandBuilder.build_spawn_command(
+                prompt=prompt,
+                mode=mode,
+                session_id=session_id,
+                model=model,
+                agent_id=agent_id,
+                enable_tools=True
+            )
             
-            # Send prompt bytes immediately after
-            writer.write(prompt_bytes)
+            # Send JSON command
+            command_str = json.dumps(cmd_obj) + '\n'
+            writer.write(command_str.encode())
             await writer.drain()
             
             # Wait for response
@@ -404,31 +423,21 @@ class AgentProcess:
                 if self.profile_config.get('system_prompt'):
                     full_prompt = f"{self.profile_config['system_prompt']}\n\n{full_prompt}"
             
-            # Build unified daemon command for non-blocking operation
-            # Format: SPAWN:async:claude:session_id:model:agent_id:LENGTH + prompt_bytes
-            # Use length-prefixed protocol to handle multi-line prompts
-            prompt_bytes = full_prompt.encode('utf-8')
-            prompt_length = len(prompt_bytes)
-            
+            # Send async SPAWN command using JSON protocol
             model = self.profile_config.get('model', 'sonnet')
-            if self.session_id:
-                command = f"SPAWN:async:claude:{self.session_id}:{model}:{self.agent_id}:{prompt_length}"
-            else:
-                command = f"SPAWN:async:claude::{model}:{self.agent_id}:{prompt_length}"
-            
-            # Send to daemon using length-prefixed protocol
-            result = await self._send_spawn_command(command, prompt_bytes)
+            result = await self._send_spawn_command("async", self.session_id, model, self.agent_id, full_prompt)
             
             if not result:
                 logger.error("No response from daemon")
                 return None
             
-            if result.get('error'):
-                logger.error(f"Daemon error: {result['error']}")
+            if result.get('status') == 'error':
+                logger.error(f"Daemon error: {result.get('error', {}).get('message', 'Unknown error')}")
                 return None
             
             # SPAWN async returns process_id immediately
-            process_id = result.get('process_id')
+            result_data = result.get('result', {})
+            process_id = result_data.get('process_id')
             if not process_id:
                 logger.error(f"No process_id in daemon response: {result}")
                 return None
@@ -497,38 +506,36 @@ class AgentProcess:
                 if self.profile_config.get('system_prompt'):
                     full_prompt = f"{self.profile_config['system_prompt']}\n\n{full_prompt}"
             
-            # Use unified SPAWN for synchronous response
-            # Format: SPAWN:sync:claude:session_id:model:agent_id:LENGTH + prompt_bytes
-            prompt_bytes = full_prompt.encode('utf-8')
-            prompt_length = len(prompt_bytes)
-            
+            # Send sync SPAWN command using JSON protocol
             model = self.profile_config.get('model', 'sonnet')
-            if self.session_id:
-                command = f"SPAWN:sync:claude:{self.session_id}:{model}:{self.agent_id}:{prompt_length}"
-            else:
-                command = f"SPAWN:sync:claude::{model}:{self.agent_id}:{prompt_length}"
-            
-            result = await self._send_spawn_command(command, prompt_bytes)
+            result = await self._send_spawn_command("sync", self.session_id, model, self.agent_id, full_prompt)
             
             if not result:
                 return None
             
-            if result.get('error'):
-                logger.error(f"Daemon error: {result['error']}")
+            if result.get('status') == 'error':
+                logger.error(f"Daemon error: {result.get('error', {}).get('message', 'Unknown error')}")
                 return None
             
-            # Extract response and session_id from daemon result
-            if result.get('type') == 'result':
+            # Extract response and session_id from JSON daemon result
+            result_data = result.get('result', {})
+            if result_data:
                 # Store session_id for future use
-                if result.get('session_id'):
-                    self.session_id = result['session_id']
-                return result.get('result', '').strip()
-            elif result.get('sessionId'):
-                # Legacy format support
-                self.session_id = result['sessionId']
-                return result.get('result', '').strip()
+                if result_data.get('sessionId'):
+                    self.session_id = result_data['sessionId']
+                elif result_data.get('session_id'):
+                    self.session_id = result_data['session_id']
+                
+                # Extract the Claude response
+                if result_data.get('result'):
+                    return result_data['result'].strip()
+                elif result_data.get('content'):
+                    return result_data['content'].strip()
+                else:
+                    logger.error(f"No result content in daemon response: {result}")
+                    return None
             else:
-                logger.error(f"Unexpected daemon response format: {result}")
+                logger.error(f"No result data in daemon response: {result}")
                 return None
                 
         except Exception as e:
@@ -566,8 +573,11 @@ class AgentProcess:
             # Use a separate connection for sending commands
             cmd_reader, cmd_writer = await asyncio.open_unix_connection(self.daemon_socket)
             
-            command = f"PUBLISH:{self.agent_id}:DIRECT_MESSAGE:{json.dumps(message)}\n"
-            cmd_writer.write(command.encode())
+            # Build JSON PUBLISH command using shared utilities
+            cmd_obj = CommandBuilder.build_publish_command(self.agent_id, "DIRECT_MESSAGE", message)
+            
+            command_str = json.dumps(cmd_obj) + '\n'
+            cmd_writer.write(command_str.encode())
             await cmd_writer.drain()
             
             # Read response
@@ -614,8 +624,11 @@ class AgentProcess:
                 # Use separate connection for sending command
                 cmd_reader, cmd_writer = await asyncio.open_unix_connection(self.daemon_socket)
                 
-                command = f"PUBLISH:{self.agent_id}:CONVERSATION_INVITE:{json.dumps(invite)}\n"
-                cmd_writer.write(command.encode())
+                # Build JSON PUBLISH command using shared utilities
+                cmd_obj = CommandBuilder.build_publish_command(self.agent_id, "CONVERSATION_INVITE", invite)
+                
+                command_str = json.dumps(cmd_obj) + '\n'
+                cmd_writer.write(command_str.encode())
                 await cmd_writer.drain()
                 
                 # Read response
@@ -727,8 +740,11 @@ class AgentProcess:
         """Disconnect from daemon"""
         if self.writer:
             try:
-                command = f"AGENT_CONNECTION:disconnect:{self.agent_id}\n"
-                self.writer.write(command.encode())
+                # Build JSON AGENT_CONNECTION disconnect command using shared utilities
+                cmd_obj = CommandBuilder.build_agent_connection_command("disconnect", self.agent_id)
+                
+                command_str = json.dumps(cmd_obj) + '\n'
+                self.writer.write(command_str.encode())
                 await self.writer.drain()
                 
                 self.writer.close()
