@@ -14,6 +14,11 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, List
+import re
+
+# Add path for prompt composer
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from prompts.composer import PromptComposer
 
 # Set up logging
 logging.basicConfig(
@@ -36,6 +41,7 @@ class ClaudeNode:
         self.conversation_context: List[Dict] = []
         self.active_conversations: Dict[str, Dict] = {}  # conversation_id -> conversation state
         self.running = True
+        self.prompt_composer = PromptComposer()
         
         # Load agent profile if specified
         self.profile_config = self._load_profile(profile)
@@ -163,6 +169,32 @@ class ClaudeNode:
         else:
             logger.warning(f"Unknown message type: {msg_type}")
     
+    def _extract_control_signals(self, text: str) -> tuple[str, list[str]]:
+        """Extract control signals from response text"""
+        control_signals = []
+        clean_text = text
+        
+        # Look for control signals at the end of the message
+        control_pattern = r'\[(END|NO_RESPONSE|TERMINATE)\]'
+        matches = re.findall(control_pattern, text)
+        
+        if matches:
+            control_signals = matches
+            # Remove control signals from the text
+            clean_text = re.sub(control_pattern, '', text).strip()
+        
+        return clean_text, control_signals
+    
+    def _should_send_response(self, response: str) -> bool:
+        """Check if response should be sent based on control signals"""
+        _, signals = self._extract_control_signals(response)
+        return 'NO_RESPONSE' not in signals
+    
+    def _should_terminate(self, response: str) -> bool:
+        """Check if node should terminate based on control signals"""
+        _, signals = self._extract_control_signals(response)
+        return 'END' in signals or 'TERMINATE' in signals
+    
     async def handle_direct_message(self, message: Dict):
         """Handle direct message from another Claude"""
         conversation_id = message.get('conversation_id')
@@ -185,9 +217,19 @@ class ClaudeNode:
         # Generate response using Claude
         response = await self.generate_claude_response(content, conversation_id)
         
-        # Send response back
+        # Check control signals
         if response:
-            await self.send_message(from_agent, response, conversation_id)
+            if self._should_send_response(response):
+                # Remove control signals before sending
+                clean_response, _ = self._extract_control_signals(response)
+                await self.send_message(from_agent, clean_response, conversation_id)
+            else:
+                logger.info("Response contains NO_RESPONSE signal, not sending")
+            
+            # Check if we should terminate
+            if self._should_terminate(response):
+                logger.info("Response contains termination signal, shutting down")
+                self.running = False
     
     async def _send_daemon_command(self, command: str) -> Optional[dict]:
         """Send command to daemon and get response"""
@@ -212,22 +254,51 @@ class ClaudeNode:
         except Exception as e:
             logger.error(f"Error communicating with daemon: {e}")
             return None
+    
+    async def get_daemon_commands(self) -> dict:
+        """Get available daemon commands dynamically"""
+        result = await self._send_daemon_command("GET_COMMANDS")
+        if result and 'commands' in result:
+            return result['commands']
+        return {}
 
     async def generate_claude_response(self, prompt: str, conversation_id: str) -> Optional[str]:
-        """Generate response using daemon SPAWN command"""
+        """Generate response using daemon SPAWN command with prompt composer"""
         try:
-            # Build conversation context
-            context = self._build_conversation_context(conversation_id)
+            # Get daemon commands dynamically
+            daemon_commands = await self.get_daemon_commands()
             
-            # Prepare the full prompt with context
-            if context:
-                full_prompt = f"{context}\n\nRespond to: {prompt}"
-            else:
-                full_prompt = prompt
+            # Use agent role from profile for conversation patterns
+            agent_role = self.profile_config.get('role', 'responder')
             
-            # Add role-specific instructions if available
-            if self.profile_config.get('system_prompt'):
-                full_prompt = f"{self.profile_config['system_prompt']}\n\n{full_prompt}"
+            # Build context for prompt composer
+            context = {
+                'agent_id': self.node_id,
+                'agent_role': agent_role,
+                'conversation_id': conversation_id,
+                'daemon_commands': daemon_commands,
+                'user_prompt': prompt,
+                'conversation_history': self._build_conversation_context(conversation_id)
+            }
+            
+            # Use composition from profile or default
+            composition_name = self.profile_config.get('composition', 'claude_agent_default')
+            
+            # Compose the full prompt
+            try:
+                full_prompt = self.prompt_composer.compose(composition_name, context)
+            except FileNotFoundError:
+                logger.warning(f"Composition {composition_name} not found, using legacy prompt")
+                # Fallback to legacy prompt construction
+                context_str = self._build_conversation_context(conversation_id)
+                if context_str:
+                    full_prompt = f"{context_str}\n\nRespond to: {prompt}"
+                else:
+                    full_prompt = prompt
+                
+                # Add role-specific instructions if available
+                if self.profile_config.get('system_prompt'):
+                    full_prompt = f"{self.profile_config['system_prompt']}\n\n{full_prompt}"
             
             # Build daemon command with session resumption
             if self.session_id:

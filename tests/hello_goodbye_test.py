@@ -25,23 +25,13 @@ async def start_hello_goodbye_exchange():
     profiles = {
         'hello_agent': {
             'model': 'sonnet',
-            'role': 'greeter',
-            'system_prompt': (
-                'You are participating in a simple greeting exchange. '
-                'When someone says Hello to you, respond with "Hello! Nice to meet you!" '
-                'When someone says Goodbye to you, respond with "Goodbye! It was nice talking to you!" and stop the conversation. '
-                'Do not send any additional messages after saying Goodbye.'
-            )
+            'role': 'responder',
+            'composition': 'simple_hello_goodbye'
         },
         'goodbye_agent': {
             'model': 'sonnet', 
-            'role': 'responder',
-            'system_prompt': (
-                'You are participating in a simple greeting exchange. '
-                'You will start by saying "Hello!" to begin the conversation. '
-                'After receiving a Hello response, wait for the other person to say something, then say "Goodbye!" '
-                'Do not send any additional messages after saying Goodbye.'
-            )
+            'role': 'initiator',
+            'composition': 'simple_hello_goodbye'
         }
     }
     

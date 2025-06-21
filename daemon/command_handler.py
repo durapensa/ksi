@@ -48,7 +48,8 @@ class CommandHandler:
             'PUBLISH:': self.handle_publish,
             'CONNECT_AGENT:': self.handle_connect_agent,
             'DISCONNECT_AGENT:': self.handle_disconnect_agent,
-            'MESSAGE_BUS_STATS': self.handle_message_bus_stats
+            'MESSAGE_BUS_STATS': self.handle_message_bus_stats,
+            'GET_COMMANDS': self.handle_get_commands
         }
     
     async def handle_command(self, command_text: str, writer: asyncio.StreamWriter) -> bool:
@@ -411,3 +412,79 @@ class CommandHandler:
             return await self.send_response(writer, stats)
         else:
             return await self.send_response(writer, {'error': 'No message bus available'})
+    
+    async def handle_get_commands(self, command: str, writer: asyncio.StreamWriter) -> bool:
+        """Handle GET_COMMANDS - Returns available daemon commands with documentation"""
+        logger.info("Processing GET_COMMANDS")
+        
+        commands = {}
+        
+        # Extract command info from handlers and their docstrings
+        for cmd_prefix, handler_func in self.handlers.items():
+            # Parse docstring for description
+            docstring = handler_func.__doc__ or ""
+            description = docstring.split(' - ')[1].strip() if ' - ' in docstring else docstring.strip()
+            
+            # Determine format based on command prefix
+            if cmd_prefix.endswith(':'):
+                # Extract format from docstring if available
+                format_match = None
+                for line in docstring.split('\n'):
+                    if 'format:' in line.lower() or 'parse format:' in line.lower():
+                        format_match = line.split(':', 1)[1].strip().strip('"')
+                        break
+                
+                # If not found in docstring, use generic format
+                if not format_match:
+                    cmd_name = cmd_prefix[:-1]
+                    if cmd_name == 'SPAWN':
+                        format_match = "SPAWN:[session_id]:<prompt>"
+                    elif cmd_name == 'SPAWN_ASYNC':
+                        format_match = "SPAWN_ASYNC:[session_id]:[model]:[agent_id]:<prompt>"
+                    elif cmd_name == 'SUBSCRIBE':
+                        format_match = "SUBSCRIBE:agent_id:event_type1,event_type2,..."
+                    elif cmd_name == 'PUBLISH':
+                        format_match = "PUBLISH:from_agent:event_type:json_payload"
+                    elif cmd_name == 'REGISTER_AGENT':
+                        format_match = "REGISTER_AGENT:agent_id:role:capabilities"
+                    elif cmd_name == 'SPAWN_AGENT':
+                        format_match = "SPAWN_AGENT:profile_name:task:context:agent_id"
+                    elif cmd_name == 'SEND_MESSAGE':
+                        format_match = "SEND_MESSAGE:from_agent:to_agent:message"
+                    elif cmd_name == 'SET_SHARED':
+                        format_match = "SET_SHARED:key:value"
+                    elif cmd_name == 'GET_SHARED':
+                        format_match = "GET_SHARED:key"
+                    elif cmd_name == 'ROUTE_TASK':
+                        format_match = "ROUTE_TASK:task:capabilities:context"
+                    elif cmd_name == 'LOAD_STATE':
+                        format_match = "LOAD_STATE:<json_state>"
+                    elif cmd_name == 'CLEANUP':
+                        format_match = "CLEANUP:<cleanup_type>"
+                    elif cmd_name == 'RELOAD':
+                        format_match = "RELOAD:<module_name>"
+                    elif cmd_name == 'CONNECT_AGENT':
+                        format_match = "CONNECT_AGENT:agent_id"
+                    elif cmd_name == 'DISCONNECT_AGENT':
+                        format_match = "DISCONNECT_AGENT:agent_id"
+                    else:
+                        format_match = f"{cmd_name}:<parameters>"
+                
+                cmd_key = cmd_prefix[:-1]
+            else:
+                # Commands without colons (like HEALTH_CHECK, SHUTDOWN)
+                format_match = cmd_prefix
+                cmd_key = cmd_prefix
+            
+            commands[cmd_key] = {
+                "format": format_match,
+                "description": description
+            }
+        
+        result = {
+            "commands": commands,
+            "total_commands": len(commands)
+        }
+        
+        logger.info(f"Returning {len(commands)} command definitions")
+        return await self.send_response(writer, result)

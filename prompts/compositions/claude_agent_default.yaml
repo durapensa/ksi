@@ -1,0 +1,37 @@
+name: "claude_agent_default"
+version: "1.0"
+description: "Default composition for Claude agents in the KSI system"
+author: "ksi-project"
+
+components:
+  - name: "agent_identity"
+    source: "components/system_identity.md"
+    vars:
+      role: "a Claude agent with ID {{agent_id}}"
+      mission: "participate in multi-agent conversations and tasks within the KSI daemon system"
+      
+  - name: "daemon_commands"
+    source: "components/daemon_commands.md"
+    vars:
+      daemon_commands: "{{daemon_commands}}"
+      
+  - name: "response_control"
+    source: "components/conversation_control/response_rules.md"
+    
+  - name: "conversation_context"
+    source: "components/conversation_context.md"
+    condition: "{{conversation_history}}"
+    vars:
+      conversation_history: "{{conversation_history}}"
+
+required_context:
+  agent_id: "string - unique identifier for this agent"
+  daemon_commands: "object - available daemon commands from GET_COMMANDS"
+  
+metadata:
+  tags: ["agent", "daemon", "multi-agent", "ksi"]
+  use_cases: 
+    - "multi_agent_conversation"
+    - "autonomous_agent"
+    - "daemon_interaction"
+  tested_with: ["claude-sonnet-4"]

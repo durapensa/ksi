@@ -49,6 +49,22 @@ python3 tests/test_daemon_protocol.py
 - Configuration files or persistent state
 **Exception**: Only delete files without confirmation if user explicitly requests deletion
 
+## Development Environment
+
+### Virtual Environment
+**IMPORTANT**: This project uses a virtual environment at `.venv/`
+- **Always activate before running**: `source .venv/bin/activate`
+- **Never create a new venv** - use the existing `.venv/`
+- **All dependencies are in requirements.txt**: PyYAML, textual, psutil
+
+### Running Commands
+```bash
+# Always activate venv first
+source .venv/bin/activate
+python3 test_composition_system.py
+python3 hello_goodbye_test.py
+```
+
 ## Architecture
 
 ### Core Components
@@ -127,6 +143,7 @@ When working with the system, you have access to:
 - Organize files by purpose and audience
 - Check the memory system for detailed knowledge
 - The daemon is intentionally minimal - it's just plumbing
+- **IMPORTANT**: Always update your todo list when receiving updated instructions from the user
 
 ## Running the System
 ```bash
