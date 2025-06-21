@@ -357,3 +357,4 @@ class ClaudeProcessManager:
     def set_message_bus(self, message_bus):
         """Set message bus for process completion notifications"""
         self.message_bus = message_bus
+    

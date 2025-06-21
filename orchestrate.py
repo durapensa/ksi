@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime
-import subprocess
+# import subprocess  # No longer needed - daemon handles process spawning
 import time
 
 logging.basicConfig(
@@ -103,8 +103,8 @@ class MultiClaudeOrchestrator:
     
     def __init__(self, daemon_socket: str = 'sockets/claude_daemon.sock'):
         self.daemon_socket = daemon_socket
-        self.active_nodes: List[subprocess.Popen] = []
         self.conversation_id: Optional[str] = None
+        # Note: Process tracking now handled by daemon, not subprocess
         
     async def ensure_daemon_running(self) -> bool:
         """Check if daemon is running, start if needed"""
@@ -146,6 +146,28 @@ class MultiClaudeOrchestrator:
                 return False
                 
         return False
+    
+    async def _send_daemon_command(self, command: str) -> dict:
+        """Send command to daemon and get response"""
+        try:
+            reader, writer = await asyncio.open_unix_connection(self.daemon_socket)
+            
+            if not command.endswith('\n'):
+                command += '\n'
+            writer.write(command.encode())
+            await writer.drain()
+            
+            response = await reader.readline()
+            writer.close()
+            await writer.wait_closed()
+            
+            if response:
+                return json.loads(response.decode().strip())
+            return {}
+            
+        except Exception as e:
+            logger.error(f"Error communicating with daemon: {e}")
+            return {'error': str(e)}
     
     def create_agent_profile(self, mode_config: Dict, agent_index: int) -> Dict:
         """Create agent profile for a specific role"""
@@ -192,28 +214,31 @@ class MultiClaudeOrchestrator:
         
         logger.info(f"Starting {mode} conversation: '{topic}' with {num_agents} agents")
         
-        # Create agent profiles
+        # Create agent profiles and spawn agents via daemon SPAWN_AGENT command
         agent_ids = []
         for i in range(num_agents):
             profile = self.create_agent_profile(mode_config, i)
             agent_id = f"{mode}_{i+1}"
+            profile_name = f'temp_{mode_config["name"]}_{i}'
             agent_ids.append(agent_id)
             
-            # Start Claude node
-            cmd = [
-                'python3', 'claude_node.py',
-                '--id', agent_id,
-                '--profile', f'temp_{mode_config["name"]}_{i}'
-            ]
+            # Use daemon SPAWN_AGENT command instead of spawning separate processes
+            # Format: "SPAWN_AGENT:profile_name:task:context:agent_id"
+            initial_task = f"You are participating in a {mode} conversation about: {topic}"
+            context = f"conversation_mode={mode},topic={topic},participant_number={i+1}"
+            command = f"SPAWN_AGENT:{profile_name}:{initial_task}:{context}:{agent_id}"
             
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
+            result = await self._send_daemon_command(command)
             
-            self.active_nodes.append(process)
-            logger.info(f"Started agent {agent_id}")
+            if result.get('error'):
+                logger.error(f"Failed to start agent {agent_id}: {result['error']}")
+                return False
+            elif result.get('process_id'):
+                logger.info(f"Started agent {agent_id} (process_id: {result['process_id']})")
+            else:
+                logger.warning(f"Agent {agent_id} start status unclear: {result}")
+                
+        # No subprocess tracking needed - daemon manages agent lifecycle
         
         # Wait for agents to connect
         await asyncio.sleep(3)
@@ -261,31 +286,34 @@ class MultiClaudeOrchestrator:
     
     async def monitor_conversation(self):
         """Monitor the ongoing conversation"""
-        # This would connect to daemon and display real-time updates
-        # For now, we'll just keep the orchestrator running
+        # Monitor via daemon agent registry
         try:
             while True:
-                await asyncio.sleep(1)
+                await asyncio.sleep(5)
                 
-                # Check if nodes are still running
-                running = sum(1 for p in self.active_nodes if p.poll() is None)
-                if running == 0:
-                    logger.info("All agents have stopped")
+                # Query daemon for agent status
+                result = await self._send_daemon_command("GET_AGENTS")
+                if result.get('error'):
+                    logger.error(f"Error getting agent status: {result['error']}")
                     break
+                
+                agents = result.get('agents', {})
+                # Count active agents in our conversation
+                active_agents = [a for a in agents.values() if a.get('status') == 'active']
+                
+                if not active_agents:
+                    logger.info("All conversation agents have stopped")
+                    break
+                else:
+                    logger.info(f"Monitoring {len(active_agents)} active conversation agents...")
                     
         except KeyboardInterrupt:
             logger.info("Stopping conversation...")
     
     def cleanup(self):
         """Clean up resources"""
-        # Stop all nodes
-        for process in self.active_nodes:
-            if process.poll() is None:
-                process.terminate()
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
+        # Note: Process cleanup now handled by daemon process manager
+        # Nodes will be cleaned up when daemon shuts down or processes complete
         
         # Clean up temporary profiles
         for profile in Path('agent_profiles').glob('temp_*.json'):

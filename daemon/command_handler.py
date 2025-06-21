@@ -26,10 +26,10 @@ class CommandHandler:
         self.hot_reload_manager = hot_reload_manager
         self.message_bus = message_bus
         
-        # Command registry - maps command prefixes to handler methods - EXACT copy from daemon_clean.py
+        # Command registry - maps command prefixes to handler methods
         self.handlers = {
-            'SPAWN:': self.handle_spawn,
-            'SPAWN_ASYNC:': self.handle_spawn_async,
+            'SPAWN:': self.handle_spawn_unified,  # Unified handler with sync/async mode
+            'SPAWN_LEGACY_SYNC:': self.handle_spawn_legacy_sync,  # Backup for transition
             'RELOAD:': self.handle_reload_module,
             'REGISTER_AGENT:': self.handle_register_agent,
             'SPAWN_AGENT:': self.handle_spawn_agent,
@@ -102,8 +102,8 @@ class CommandHandler:
     
     # Individual command handlers - clean, focused, testable - EXACT copies from daemon_clean.py
     
-    async def handle_spawn(self, command: str, writer: asyncio.StreamWriter) -> bool:
-        """Handle SPAWN command - EXACT copy from daemon_clean.py"""
+    async def handle_spawn_legacy_sync(self, command: str, writer: asyncio.StreamWriter) -> bool:
+        """Handle legacy SPAWN command for backward compatibility"""
         logger.info("Processing SPAWN command")
         
         # Parse command format: "SPAWN:[session_id]:<prompt>"
@@ -122,20 +122,67 @@ class CommandHandler:
         
         return await self.send_response(writer, result)
     
-    async def handle_spawn_async(self, command: str, writer: asyncio.StreamWriter) -> bool:
-        """Handle SPAWN_ASYNC command - EXACT copy from daemon_clean.py"""
-        logger.info("Processing SPAWN_ASYNC command")
+    async def handle_spawn_unified(self, command: str, writer: asyncio.StreamWriter) -> bool:
+        """Handle unified SPAWN command with mode parameter"""
+        logger.info("Processing unified SPAWN command")
         
-        # Parse format: "SPAWN_ASYNC:[session_id]:[model]:[agent_id]:<prompt>"
-        parts = command[12:].split(':', 3)
-        if len(parts) == 4:
-            session_id = parts[0] if parts[0] else None
-            model = parts[1] if parts[1] else 'sonnet'
-            agent_id = parts[2] if parts[2] else None
-            prompt = parts[3]
+        # Parse unified format: "SPAWN:[mode]:[type]:[session_id]:[model]:[agent_id]:<prompt>"
+        # Examples:
+        # SPAWN:sync:claude::sonnet::Hello world
+        # SPAWN:async:claude:session123:sonnet:agent1:Complex task
+        
+        command_body = command[6:]  # Remove "SPAWN:"
+        
+        # Check if this is the new unified format or legacy format
+        parts = command_body.split(':', 5)
+        
+        if len(parts) >= 3 and parts[0] in ['sync', 'async'] and parts[1] == 'claude':
+            # New unified format: mode:type:session_id:model:agent_id:prompt
+            mode = parts[0]  # sync or async
+            process_type = parts[1]  # claude
+            session_id = parts[2] if len(parts) > 2 and parts[2] else None
+            model = parts[3] if len(parts) > 3 and parts[3] else 'sonnet'
+            agent_id = parts[4] if len(parts) > 4 and parts[4] else None
+            prompt = parts[5] if len(parts) > 5 else ''
+            
+            if mode == 'sync':
+                return await self._handle_spawn_sync(writer, session_id, model, agent_id, prompt)
+            elif mode == 'async':
+                return await self._handle_spawn_async(writer, session_id, model, agent_id, prompt)
+            else:
+                return await self.send_error_response(writer, f'Invalid mode: {mode}. Use sync or async.')
+                
         else:
-            session_id, model, agent_id = None, 'sonnet', None
-            prompt = command[12:].strip()
+            # Legacy format detection and backward compatibility
+            if ':' in command_body and len(command_body.split(':', 3)) == 4:
+                # Looks like legacy SPAWN_ASYNC format: session_id:model:agent_id:prompt
+                logger.warning("Using legacy SPAWN_ASYNC format - please migrate to unified SPAWN:async format")
+                parts = command_body.split(':', 3)
+                session_id = parts[0] if parts[0] else None
+                model = parts[1] if parts[1] else 'sonnet'
+                agent_id = parts[2] if parts[2] else None
+                prompt = parts[3]
+                return await self._handle_spawn_async(writer, session_id, model, agent_id, prompt)
+            else:
+                # Looks like legacy SPAWN format: session_id:prompt or just prompt
+                logger.warning("Using legacy SPAWN format - please migrate to unified SPAWN:sync format")
+                return await self.handle_spawn_legacy_sync(f"SPAWN:{command_body}", writer)
+    
+    async def _handle_spawn_sync(self, writer: asyncio.StreamWriter, session_id: str, model: str, agent_id: str, prompt: str) -> bool:
+        """Handle synchronous Claude spawning"""
+        logger.info(f"Synchronous Claude spawn: {prompt[:50]}...")
+        
+        if self.process_manager:
+            result = await self.process_manager.spawn_claude(prompt, session_id, model, agent_id)
+        else:
+            result = {'error': 'No process manager available'}
+            
+        logger.info("Synchronous Claude spawn completed")
+        return await self.send_response(writer, result)
+    
+    async def _handle_spawn_async(self, writer: asyncio.StreamWriter, session_id: str, model: str, agent_id: str, prompt: str) -> bool:
+        """Handle asynchronous Claude spawning"""
+        logger.info(f"Asynchronous Claude spawn: {prompt[:50]}...")
         
         # Check if agent has a profile with enable_tools setting
         enable_tools = True  # Default to True for backward compatibility
@@ -156,9 +203,10 @@ class CommandHandler:
             process_id = None
         
         if process_id:
-            return await self.send_response(writer, {'process_id': process_id, 'status': 'started'})
+            return await self.send_response(writer, {'process_id': process_id, 'status': 'started', 'type': 'claude'})
         else:
-            return await self.send_error_response(writer, 'Failed to start process')
+            return await self.send_error_response(writer, 'Failed to start Claude process')
+    
     
     async def handle_reload_module(self, command: str, writer: asyncio.StreamWriter) -> bool:
         """Handle RELOAD command - EXACT copy from daemon_clean.py"""
@@ -452,9 +500,7 @@ class CommandHandler:
                 if not format_match:
                     cmd_name = cmd_prefix[:-1]
                     if cmd_name == 'SPAWN':
-                        format_match = "SPAWN:[session_id]:<prompt>"
-                    elif cmd_name == 'SPAWN_ASYNC':
-                        format_match = "SPAWN_ASYNC:[session_id]:[model]:[agent_id]:<prompt>"
+                        format_match = "SPAWN:[sync|async]:claude:[session_id]:[model]:[agent_id]:<prompt>"
                     elif cmd_name == 'SUBSCRIBE':
                         format_match = "SUBSCRIBE:agent_id:event_type1,event_type2,..."
                     elif cmd_name == 'PUBLISH':

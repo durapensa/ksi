@@ -59,7 +59,7 @@
 
 ### Agent Management
 - `SPAWN_AGENT:profile:task:context:agent_id` - Spawn using profile
-- `SPAWN_ASYNC:session:model:agent_id:prompt` - Raw async spawn
+- `SPAWN:async:claude:session:model:agent_id:prompt` - Raw async spawn
 - `REGISTER_AGENT:id:role:capabilities` - Manual registration
 - `GET_AGENTS` - List all agents
 

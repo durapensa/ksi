@@ -293,13 +293,13 @@ class ClaudeNode:
                 if self.profile_config.get('system_prompt'):
                     full_prompt = f"{self.profile_config['system_prompt']}\n\n{full_prompt}"
             
-            # Build daemon command with SPAWN_ASYNC for non-blocking operation
-            # Format: SPAWN_ASYNC:[session_id]:[model]:[agent_id]:<prompt>
+            # Build unified daemon command for non-blocking operation
+            # Format: SPAWN:async:claude:session_id:model:agent_id:prompt
             model = self.profile_config.get('model', 'sonnet')
             if self.session_id:
-                command = f"SPAWN_ASYNC:{self.session_id}:{model}:{self.node_id}:{full_prompt}"
+                command = f"SPAWN:async:claude:{self.session_id}:{model}:{self.node_id}:{full_prompt}"
             else:
-                command = f"SPAWN_ASYNC::{model}:{self.node_id}:{full_prompt}"
+                command = f"SPAWN:async:claude::{model}:{self.node_id}:{full_prompt}"
             
             # Send to daemon
             result = await self._send_daemon_command(command)
@@ -312,7 +312,7 @@ class ClaudeNode:
                 logger.error(f"Daemon error: {result['error']}")
                 return None
             
-            # SPAWN_ASYNC returns process_id immediately
+            # SPAWN async returns process_id immediately
             process_id = result.get('process_id')
             if not process_id:
                 logger.error(f"No process_id in daemon response: {result}")
@@ -372,11 +372,13 @@ class ClaudeNode:
                 if self.profile_config.get('system_prompt'):
                     full_prompt = f"{self.profile_config['system_prompt']}\n\n{full_prompt}"
             
-            # Use blocking SPAWN for synchronous response
+            # Use unified SPAWN for synchronous response
+            # Format: SPAWN:sync:claude:session_id:model:agent_id:prompt
+            model = self.profile_config.get('model', 'sonnet')
             if self.session_id:
-                command = f"SPAWN:{self.session_id}:{full_prompt}"
+                command = f"SPAWN:sync:claude:{self.session_id}:{model}:{self.node_id}:{full_prompt}"
             else:
-                command = f"SPAWN:{full_prompt}"
+                command = f"SPAWN:sync:claude::{model}:{self.node_id}:{full_prompt}"
             
             result = await self._send_daemon_command(command)
             

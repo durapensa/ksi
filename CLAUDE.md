@@ -100,7 +100,7 @@ python3 hello_goodbye_test.py
 - **No wait loops**: Don't spin waiting for conditions. Subscribe to events
 - **Blocking is OK when necessary**: Acceptable only for unavoidable operations (e.g., waiting for Claude CLI responses)
 - **Push, don't pull**: All communication via events pushed through the message bus
-- **Async by default**: Use SPAWN_ASYNC for non-blocking Claude invocations
+- **Async by default**: Use SPAWN:async:claude for non-blocking Claude invocations
 
 Examples of what NOT to do:
 ```python

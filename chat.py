@@ -55,12 +55,11 @@ def send_cleanup(cleanup_type):
 
 def send_prompt(prompt, session_id=None):
     """Send prompt to Claude via daemon"""
-    # Format spawn command
+    # Format unified spawn command: SPAWN:sync:claude:session_id:model:agent_id:prompt
     if session_id:
-        command = f"SPAWN:{session_id}:{prompt}"
+        command = f"SPAWN:sync:claude:{session_id}:sonnet::{prompt}"
     else:
-        # Use double colon to indicate no session_id
-        command = f"SPAWN::{prompt}"
+        command = f"SPAWN:sync:claude::sonnet::{prompt}"
     
     # Send to daemon
     response = send_to_daemon(command)

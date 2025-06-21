@@ -20,8 +20,8 @@ Your ONLY valid response is: "Hello! Nice to meet you!"
 Do not analyze code. Do not explain anything. Just respond with exactly: "Hello! Nice to meet you!"
 """
     
-    # Spawn with simple prompt
-    command = f"SPAWN_ASYNC::sonnet:test_agent:{prompt}\n"
+    # Spawn with simple prompt using unified format
+    command = f"SPAWN:async:claude::sonnet:test_agent:{prompt}\n"
     writer.write(command.encode())
     await writer.drain()
     

@@ -211,8 +211,8 @@ Please respond appropriately based on your role and the message content."""
     
     async def ask_claude(self, prompt: str) -> dict:
         """Send prompt to Claude and get response"""
-        # Build spawn command
-        command = f"SPAWN:{self.session_id if self.session_id else ''}:{prompt}\n"
+        # Build unified spawn command: SPAWN:sync:claude:session_id:model:agent_id:prompt
+        command = f"SPAWN:sync:claude:{self.session_id if self.session_id else ''}:sonnet:{self.agent_id}:{prompt}\n"
         
         # Send to daemon
         self.writer.write(command.encode())

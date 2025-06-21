@@ -31,7 +31,7 @@ async def test_async_completion():
     
     # Spawn async process
     cmd_reader, cmd_writer = await asyncio.open_unix_connection('sockets/claude_daemon.sock')
-    cmd_writer.write(b"SPAWN_ASYNC::sonnet:test_agent:Say hello\n")
+    cmd_writer.write(b"SPAWN:async:claude::sonnet:test_agent:Say hello\n")
     await cmd_writer.drain()
     response = await cmd_reader.readline()
     result = json.loads(response.decode().strip())
