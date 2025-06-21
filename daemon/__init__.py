@@ -21,6 +21,7 @@ from .utils import UtilsManager
 from .hot_reload import HotReloadManager
 from .command_handler import CommandHandler
 from .message_bus import MessageBus
+from .temporal_debugger import TemporalDebugger
 
 def parse_args():
     """Parse command line arguments - EXACT copy from daemon_clean.py"""
@@ -45,29 +46,38 @@ def setup_logging():
     )
     return logging.getLogger('daemon')
 
-def setup_signal_handlers(core_daemon):
-    """Setup simple signal handlers for graceful shutdown"""
+def setup_signal_handlers(core_daemon, loop):
+    """Setup asyncio-compatible signal handlers for graceful shutdown"""
     logger = logging.getLogger('daemon')
     
-    def signal_handler(signum, frame):
-        logger.info(f"Received signal {signum}, initiating shutdown...")
+    def signal_handler(signame):
+        logger.info(f"Received signal {signame}, initiating shutdown...")
         
-        # Simply set shutdown event - let the main shutdown sequence handle cleanup
+        # Set shutdown event
         if hasattr(core_daemon, 'shutdown_event') and core_daemon.shutdown_event:
             core_daemon.shutdown_event.set()
             logger.info("Shutdown event set")
         else:
             logger.error("No shutdown event available")
         
-    # Set up signal handlers for both SIGTERM and SIGINT
+        # Cancel all running tasks to ensure clean shutdown
+        tasks = [task for task in asyncio.all_tasks(loop) if not task.done()]
+        logger.info(f"Cancelling {len(tasks)} running tasks...")
+        for task in tasks:
+            task.cancel()
+    
+    # Use asyncio's add_signal_handler for proper integration
     for sig in (signal.SIGTERM, signal.SIGINT):
         try:
-            signal.signal(sig, signal_handler)
-            logger.info(f"Signal handler registered for {sig}")
-        except ValueError as e:
-            # Can't set signal handler in some contexts (like threads)
-            logger.warning(f"Could not register signal handler for {sig}: {e}")
-            pass
+            loop.add_signal_handler(
+                sig,
+                lambda s=sig: signal_handler(signal.Signals(s).name)
+            )
+            logger.info(f"Asyncio signal handler registered for {signal.Signals(sig).name}")
+        except (ValueError, NotImplementedError) as e:
+            # Fallback to traditional signal handling if asyncio method not available
+            logger.warning(f"Could not register asyncio signal handler for {sig}: {e}")
+            signal.signal(sig, lambda signum, frame: signal_handler(signal.Signals(signum).name))
 
 async def create_daemon(socket_path: str, hot_reload_from: str = None):
     """Create and wire together all daemon modules with dependency injection"""
@@ -82,6 +92,7 @@ async def create_daemon(socket_path: str, hot_reload_from: str = None):
     utils_manager = UtilsManager(state_manager=state_manager)
     hot_reload_manager = HotReloadManager(core_daemon, state_manager, agent_manager)
     message_bus = MessageBus()
+    temporal_debugger = TemporalDebugger(state_manager=state_manager, message_bus=message_bus)
     
     # Create command handler with all dependencies
     command_handler = CommandHandler(
@@ -91,7 +102,8 @@ async def create_daemon(socket_path: str, hot_reload_from: str = None):
         agent_manager=agent_manager,
         utils_manager=utils_manager,
         hot_reload_manager=hot_reload_manager,
-        message_bus=message_bus
+        message_bus=message_bus,
+        temporal_debugger=temporal_debugger
     )
     
     # Wire everything together via dependency injection
@@ -102,11 +114,13 @@ async def create_daemon(socket_path: str, hot_reload_from: str = None):
         utils_manager=utils_manager,
         hot_reload_manager=hot_reload_manager,
         command_handler=command_handler,
-        message_bus=message_bus
+        message_bus=message_bus,
+        temporal_debugger=temporal_debugger
     )
     
     # Set up cross-manager dependencies
     process_manager.utils_manager = utils_manager
+    process_manager.set_temporal_debugger(temporal_debugger)
     
     return core_daemon
 
@@ -118,12 +132,22 @@ async def main():
     # Create modular daemon with dependency injection
     daemon = await create_daemon(args.socket, args.hot_reload_from)
     
-    # Setup signal handlers
-    setup_signal_handlers(daemon)
+    # Get the current event loop
+    loop = asyncio.get_running_loop()
+    
+    # Setup signal handlers with asyncio integration
+    setup_signal_handlers(daemon, loop)
     
     # Start the daemon
     logger.info("Starting modular Claude daemon")
-    await daemon.start()
+    try:
+        await daemon.start()
+    except asyncio.CancelledError:
+        logger.info("Daemon cancelled, shutting down gracefully")
+    finally:
+        # Ensure cleanup happens
+        logger.info("Final cleanup...")
+        await asyncio.sleep(0.1)  # Allow final logs to flush
 
 # Make this package executable as a module
 if __name__ == '__main__':

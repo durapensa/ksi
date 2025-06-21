@@ -9,6 +9,8 @@ import asyncio
 import json
 import os
 import logging
+import signal
+import psutil
 from pathlib import Path
 
 logger = logging.getLogger('daemon')
@@ -22,6 +24,9 @@ class ClaudeDaemonCore:
         self.is_hot_reload = hot_reload_from is not None
         self.shutdown_event = asyncio.Event()
         
+        # PID file for collision detection
+        self.pid_file = Path("sockets/claude_daemon.pid")
+        
         # Manager instances - will be injected by main entry point
         self.state_manager = None
         self.process_manager = None
@@ -30,8 +35,9 @@ class ClaudeDaemonCore:
         self.hot_reload_manager = None
         self.command_handler = None
         self.message_bus = None
+        self.temporal_debugger = None
     
-    def set_managers(self, state_manager, process_manager, agent_manager, utils_manager, hot_reload_manager, command_handler, message_bus=None):
+    def set_managers(self, state_manager, process_manager, agent_manager, utils_manager, hot_reload_manager, command_handler, message_bus=None, temporal_debugger=None):
         """Dependency injection - wire all managers together"""
         self.state_manager = state_manager
         self.process_manager = process_manager
@@ -40,6 +46,7 @@ class ClaudeDaemonCore:
         self.hot_reload_manager = hot_reload_manager
         self.command_handler = command_handler
         self.message_bus = message_bus
+        self.temporal_debugger = temporal_debugger
         
         # Set up cross-manager dependencies
         if self.process_manager and self.agent_manager:
@@ -73,6 +80,8 @@ class ClaudeDaemonCore:
         """Clean, simple client handler - Extended for persistent connections"""
         agent_id = None
         try:
+            # Set a timeout for client operations to prevent hanging
+            reader._transport.set_write_buffer_limits(high=16*1024, low=4*1024)
             # Check if this is a persistent agent connection
             first_data = await reader.readline()
             if not first_data:
@@ -91,10 +100,21 @@ class ClaudeDaemonCore:
                     await self.command_handler.handle_command(first_command, writer)
                 
                 # Keep connection open for persistent agent
-                while True:
-                    data = await reader.readline()
-                    if not data:
-                        break
+                while not self.shutdown_event.is_set():
+                    try:
+                        # Use wait_for with timeout to allow checking shutdown event
+                        data = await asyncio.wait_for(reader.readline(), timeout=1.0)
+                        if not data:
+                            break
+                    except asyncio.TimeoutError:
+                        # Check if we should shutdown
+                        if self.shutdown_event.is_set():
+                            logger.info(f"Shutting down connection for agent {agent_id}")
+                            break
+                        continue
+                    except asyncio.CancelledError:
+                        logger.info(f"Connection cancelled for agent {agent_id}")
+                        raise
                     
                     command = data.decode().strip()
                     logger.debug(f"Agent {agent_id} command: {command[:50]}...")
@@ -141,14 +161,118 @@ class ClaudeDaemonCore:
             except:
                 pass
     
+    def _check_daemon_running(self) -> tuple[bool, int]:
+        """Check if daemon is already running - returns (is_running, pid)"""
+        if not self.pid_file.exists():
+            return False, 0
+        
+        try:
+            pid = int(self.pid_file.read_text().strip())
+            
+            # Check if process with this PID exists and is our daemon
+            if psutil.pid_exists(pid):
+                try:
+                    proc = psutil.Process(pid)
+                    cmdline = ' '.join(proc.cmdline())
+                    
+                    # Check if it's actually our daemon process
+                    if 'daemon.py' in cmdline or 'claude_daemon' in cmdline:
+                        return True, pid
+                    else:
+                        # PID exists but it's a different process - clean up stale PID file
+                        logger.warning(f"PID {pid} exists but is not our daemon (cmdline: {cmdline}), cleaning up")
+                        self.pid_file.unlink()
+                        return False, 0
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    # Process doesn't exist or we can't access it - clean up stale PID file
+                    logger.info(f"PID {pid} no longer accessible, cleaning up stale PID file")
+                    self.pid_file.unlink()
+                    return False, 0
+            else:
+                # PID doesn't exist - clean up stale PID file
+                logger.info(f"PID {pid} no longer exists, cleaning up stale PID file")
+                self.pid_file.unlink()
+                return False, 0
+                
+        except (ValueError, FileNotFoundError):
+            # Invalid PID file content - clean it up
+            logger.warning("Invalid PID file content, cleaning up")
+            if self.pid_file.exists():
+                self.pid_file.unlink()
+            return False, 0
+    
+    async def _test_daemon_health(self, pid: int) -> bool:
+        """Test if the existing daemon is healthy by connecting to its socket"""
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_unix_connection(self.socket_path),
+                timeout=2.0
+            )
+            
+            # Send health check command
+            writer.write(b'HEALTH_CHECK\n')
+            await writer.drain()
+            
+            # Read response
+            response = await asyncio.wait_for(reader.readline(), timeout=2.0)
+            
+            writer.close()
+            await writer.wait_closed()
+            
+            # Check if we got a valid response
+            return response.strip() == b'HEALTHY'
+            
+        except (ConnectionRefusedError, FileNotFoundError, asyncio.TimeoutError, OSError):
+            # Daemon socket is not responding - it's probably dead
+            logger.warning(f"Daemon PID {pid} exists but socket not responding")
+            return False
+    
+    def _write_pid_file(self):
+        """Write current process PID to PID file"""
+        self.pid_file.parent.mkdir(exist_ok=True)
+        self.pid_file.write_text(str(os.getpid()))
+        logger.info(f"PID file written: {self.pid_file} (PID {os.getpid()})")
+    
+    def _cleanup_pid_file(self):
+        """Clean up PID file on shutdown"""
+        try:
+            if self.pid_file.exists():
+                self.pid_file.unlink()
+                logger.info("PID file cleaned up")
+        except Exception as e:
+            logger.warning(f"Could not clean up PID file: {e}")
+    
     async def start(self):
-        """Start the daemon server with improved graceful shutdown"""
+        """Start the daemon server with collision detection and improved graceful shutdown"""
+        # Skip collision detection for hot reload
+        if not self.is_hot_reload:
+            # Check for existing daemon
+            is_running, existing_pid = self._check_daemon_running()
+            
+            if is_running:
+                # Test if the existing daemon is healthy
+                is_healthy = await self._test_daemon_health(existing_pid)
+                
+                if is_healthy:
+                    logger.info(f"Daemon already running (PID {existing_pid}), exiting")
+                    return  # Exit gracefully - don't start another instance
+                else:
+                    logger.warning(f"Found stale daemon (PID {existing_pid}), cleaning up and starting new instance")
+                    # Clean up stale resources
+                    self._cleanup_pid_file()
+                    if os.path.exists(self.socket_path):
+                        os.unlink(self.socket_path)
+        
         # Create directories
         for dir_name in ['shared_state', 'sockets', 'claude_logs', 'agent_profiles']:
             os.makedirs(dir_name, exist_ok=True)
         
+        # Clean up socket file if it exists
         if os.path.exists(self.socket_path):
             os.unlink(self.socket_path)
+        
+        # Write PID file for collision detection
+        self._write_pid_file()
         
         server = await asyncio.start_unix_server(
             self.handle_client,
@@ -157,11 +281,29 @@ class ClaudeDaemonCore:
         
         logger.info(f"Modular daemon listening on {self.socket_path}")
         
+        # Keep track of server task for cleanup
+        server_task = None
+        
         try:
             async with server:
-                # Wait for shutdown signal
-                await self.shutdown_event.wait()
-                logger.info("Shutdown event received, stopping server...")
+                # Create server task
+                server_task = asyncio.create_task(server.serve_forever())
+                
+                # Wait for shutdown signal or cancellation
+                try:
+                    await self.shutdown_event.wait()
+                    logger.info("Shutdown event received, stopping server...")
+                except asyncio.CancelledError:
+                    logger.info("Server cancelled, initiating shutdown...")
+                    self.shutdown_event.set()
+                
+                # Cancel server task
+                if server_task and not server_task.done():
+                    server_task.cancel()
+                    try:
+                        await server_task
+                    except asyncio.CancelledError:
+                        pass
                 
                 # Close server to stop accepting new connections
                 server.close()
@@ -213,10 +355,25 @@ class ClaudeDaemonCore:
         except Exception as e:
             logger.error(f"Error during daemon operation: {e}")
             raise
+        except asyncio.CancelledError:
+            logger.info("Daemon operation cancelled")
+            raise
         finally:
-            # Ensure socket cleanup even if there was an error
+            # Cancel all remaining tasks
+            tasks = [t for t in asyncio.all_tasks() if t != asyncio.current_task()]
+            if tasks:
+                logger.info(f"Cancelling {len(tasks)} remaining tasks...")
+                for task in tasks:
+                    task.cancel()
+                # Wait briefly for tasks to cancel
+                await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Ensure cleanup even if there was an error
             try:
                 if os.path.exists(self.socket_path):
                     os.unlink(self.socket_path)
             except:
                 pass
+            
+            # Clean up PID file
+            self._cleanup_pid_file()
