@@ -54,7 +54,11 @@ class PromptComposer:
         composition_file = self.compositions_path / f"{composition_name}.yaml"
         
         if not composition_file.exists():
-            raise FileNotFoundError(f"Composition not found: {composition_file}")
+            available = self.list_compositions()
+            raise FileNotFoundError(
+                f"Composition not found: {composition_file}\n"
+                f"Available compositions: {', '.join(available)}"
+            )
         
         with open(composition_file, 'r') as f:
             data = yaml.safe_load(f)
@@ -85,9 +89,23 @@ class PromptComposer:
         full_path = self.base_path / component_path
         
         if not full_path.exists():
-            raise FileNotFoundError(f"Component not found: {full_path}")
+            # Try to provide helpful error message
+            parent_dir = full_path.parent
+            if parent_dir.exists():
+                available = [f.name for f in parent_dir.glob("*.md")]
+                raise FileNotFoundError(
+                    f"Component not found: {full_path}\n"
+                    f"Available in {parent_dir}: {', '.join(available)}"
+                )
+            else:
+                raise FileNotFoundError(
+                    f"Component not found: {full_path}\n"
+                    f"Directory does not exist: {parent_dir}"
+                )
         
-        return full_path.read_text()
+        content = full_path.read_text()
+        logger.debug(f"Loaded component {component_path} ({len(content)} chars)")
+        return content
     
     def evaluate_condition(self, condition: str, context: Dict[str, Any]) -> bool:
         """Evaluate a condition string against context"""
@@ -140,7 +158,12 @@ class PromptComposer:
                 missing_context.append(required_key)
         
         if missing_context:
-            raise ValueError(f"Missing required context: {missing_context}")
+            provided_keys = list(context.keys())
+            raise ValueError(
+                f"Missing required context: {missing_context}\n"
+                f"Required: {list(composition.required_context.keys())}\n"
+                f"Provided: {provided_keys}"
+            )
         
         # Compose prompt from components
         prompt_parts = []
@@ -148,17 +171,26 @@ class PromptComposer:
         for component in composition.components:
             # Check condition
             if not self.evaluate_condition(component.condition, context):
-                logger.info(f"Skipping component {component.name} due to condition")
+                logger.info(f"Skipping component {component.name} due to condition: {component.condition}")
                 continue
             
-            # Load component content
-            component_content = self.load_component(component.source)
-            
-            # Substitute variables
-            final_content = self.substitute_variables(component_content, component.vars, context)
-            
-            prompt_parts.append(final_content)
-            logger.info(f"Added component: {component.name}")
+            try:
+                # Load component content
+                component_content = self.load_component(component.source)
+                
+                # Log variable substitution details
+                all_vars = {**component.vars, **context}
+                logger.debug(f"Substituting variables for {component.name}: {list(all_vars.keys())}")
+                
+                # Substitute variables
+                final_content = self.substitute_variables(component_content, component.vars, context)
+                
+                prompt_parts.append(final_content)
+                logger.info(f"Added component: {component.name} ({len(final_content)} chars)")
+                
+            except Exception as e:
+                logger.error(f"Failed to process component {component.name}: {e}")
+                raise ValueError(f"Error processing component {component.name} from {component.source}: {e}")
         
         # Join all parts
         final_prompt = "\n\n".join(prompt_parts)

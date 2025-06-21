@@ -46,6 +46,7 @@ class AgentProcess:
         self.pending_processes: Dict[str, Dict] = {}  # process_id -> pending response info
         
         # Load agent profile if specified
+        logger.info(f"Loading profile '{profile}' for agent {agent_id}")
         self.profile_config = self._load_profile(profile)
         
     def _load_profile(self, profile_name: str) -> Dict:
@@ -288,10 +289,19 @@ class AgentProcess:
             
             # Compose the full prompt
             try:
+                logger.info(f"Composing prompt with {composition_name}, context keys: {list(context.keys())}")
                 full_prompt = self.prompt_composer.compose(composition_name, context)
-            except FileNotFoundError:
-                logger.warning(f"Composition {composition_name} not found, using legacy prompt")
+                logger.info(f"Successfully composed prompt ({len(full_prompt)} chars)")
+            except (FileNotFoundError, ValueError, Exception) as e:
+                if isinstance(e, FileNotFoundError):
+                    logger.warning(f"Composition error: {e}\nFalling back to legacy prompt")
+                elif isinstance(e, ValueError):
+                    logger.error(f"Context validation error: {e}\nFalling back to legacy prompt")
+                else:
+                    logger.error(f"Unexpected composition error: {e}\nFalling back to legacy prompt")
+                
                 # Fallback to legacy prompt construction
+                logger.info("Using legacy prompt construction as fallback")
                 context_str = self._build_conversation_context(conversation_id)
                 if context_str:
                     full_prompt = f"{context_str}\n\nRespond to: {prompt}"
@@ -339,7 +349,7 @@ class AgentProcess:
             return process_id
                 
         except Exception as e:
-            logger.error(f"Error starting Claude response: {e}")
+            logger.error(f"Error starting Claude response: {e}", exc_info=True)
             return None
     
     async def generate_claude_response(self, prompt: str, conversation_id: str) -> Optional[str]:
@@ -367,10 +377,19 @@ class AgentProcess:
             
             # Compose the full prompt
             try:
+                logger.info(f"Composing prompt with {composition_name}, context keys: {list(context.keys())}")
                 full_prompt = self.prompt_composer.compose(composition_name, context)
-            except FileNotFoundError:
-                logger.warning(f"Composition {composition_name} not found, using legacy prompt")
+                logger.info(f"Successfully composed prompt ({len(full_prompt)} chars)")
+            except (FileNotFoundError, ValueError, Exception) as e:
+                if isinstance(e, FileNotFoundError):
+                    logger.warning(f"Composition error: {e}\nFalling back to legacy prompt")
+                elif isinstance(e, ValueError):
+                    logger.error(f"Context validation error: {e}\nFalling back to legacy prompt")
+                else:
+                    logger.error(f"Unexpected composition error: {e}\nFalling back to legacy prompt")
+                
                 # Fallback to legacy prompt construction
+                logger.info("Using legacy prompt construction as fallback")
                 context_str = self._build_conversation_context(conversation_id)
                 if context_str:
                     full_prompt = f"{context_str}\n\nRespond to: {prompt}"
