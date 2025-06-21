@@ -156,5 +156,31 @@ This caused the daemon to close the connection when it received a command on a m
 - Enhanced error handling for broken connections (ConnectionResetError, BrokenPipeError)
 - Added detailed logging for Claude CLI failures
 
+### Session 2025-06-21: Major Architecture Improvements
+
+**Command System Unified**:
+- Implemented unified SPAWN command: `SPAWN:[mode]:[type]:[session_id]:[model]:[agent_id]:<prompt>`
+- Removed all SPAWN_ASYNC usage - replaced with SPAWN:async format
+- Consolidated CONNECT_AGENT/DISCONNECT_AGENT into AGENT_CONNECTION:connect|disconnect:agent_id
+- Added command aliases: S: → SPAWN:, R: → RELOAD:, SA: → SPAWN_AGENT:, etc.
+- Enhanced GET_COMMANDS with functional grouping and alias metadata
+
+**SPAWN_AGENT Fixed for Multi-Agent Support**:
+- Problem: Was spawning raw Claude CLI processes that couldn't use message bus
+- Solution: Now spawns claude_node.py processes via spawn_agent_process_async()
+- Agents can now receive DIRECT_MESSAGE events and participate in conversations
+- Cleaned up confusing node/agent terminology throughout
+
+**All Daemon Infrastructure Issues Resolved**:
+- GET_AGENTS, SET_SHARED, GET_SHARED all working properly
+- Directory creation on startup fixed
+- Command handlers executing correctly
+- Proper error responses for all commands
+
+**Remaining Work**:
+- Fix [END] signal handling (agents don't terminate properly)
+- Consider renaming claude_node.py to agent_process.py
+- Complete terminology cleanup across codebase
+
 ---
 *For Claude Code interactive development sessions*
