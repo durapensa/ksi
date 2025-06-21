@@ -115,8 +115,8 @@ class PromptComposer:
     
     def substitute_variables(self, text: str, variables: Dict[str, Any], context: Dict[str, Any]) -> str:
         """Substitute variables in text using {{variable}} syntax"""
-        # Combine component variables and context
-        all_vars = {**context, **variables}
+        # Combine component variables and context, with context taking precedence
+        all_vars = {**variables, **context}
         
         # Replace {{variable}} patterns
         for key, value in all_vars.items():

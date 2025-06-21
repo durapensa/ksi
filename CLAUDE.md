@@ -91,6 +91,39 @@ python3 hello_goodbye_test.py
 - **Real-time TUI monitor**: Observe conversations, tool calls, metrics
 - **Persistent Claude nodes**: Maintain context across messages
 
+## Design Principles
+
+### Event-Driven Architecture
+**CRITICAL**: This system follows strict event-driven design principles:
+- **No polling**: Never poll for state changes or results. Use message bus events instead
+- **No timers**: Avoid setTimeout, sleep loops, or periodic checks
+- **No wait loops**: Don't spin waiting for conditions. Subscribe to events
+- **Blocking is OK when necessary**: Acceptable only for unavoidable operations (e.g., waiting for Claude CLI responses)
+- **Push, don't pull**: All communication via events pushed through the message bus
+- **Async by default**: Use SPAWN_ASYNC for non-blocking Claude invocations
+
+Examples of what NOT to do:
+```python
+# BAD: Polling for result
+while not result_ready:
+    await asyncio.sleep(1)
+    result = check_if_ready()
+
+# BAD: Timer-based heartbeats
+async def heartbeat():
+    while True:
+        send_ping()
+        await asyncio.sleep(30)
+```
+
+Instead, use event subscriptions and callbacks:
+```python
+# GOOD: Event-driven completion
+await subscribe(['PROCESS_COMPLETE'])
+process_id = await spawn_async(prompt)
+# Handler will be called when ready
+```
+
 Quick start:
 ```bash
 # Test the system

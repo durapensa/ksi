@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime
+from pathlib import Path
 
 logger = logging.getLogger('daemon')
 
@@ -136,8 +137,21 @@ class CommandHandler:
             session_id, model, agent_id = None, 'sonnet', None
             prompt = command[12:].strip()
         
+        # Check if agent has a profile with enable_tools setting
+        enable_tools = True  # Default to True for backward compatibility
+        if agent_id:
+            profile_path = Path(f'agent_profiles/{agent_id}.json')
+            if profile_path.exists():
+                try:
+                    with open(profile_path) as f:
+                        profile = json.load(f)
+                        enable_tools = profile.get('enable_tools', True)
+                        logger.info(f"Agent {agent_id} has enable_tools={enable_tools}")
+                except Exception as e:
+                    logger.warning(f"Could not load profile for {agent_id}: {e}")
+        
         if self.process_manager:
-            process_id = await self.process_manager.spawn_claude_async(prompt, session_id, model, agent_id)
+            process_id = await self.process_manager.spawn_claude_async(prompt, session_id, model, agent_id, enable_tools)
         else:
             process_id = None
         

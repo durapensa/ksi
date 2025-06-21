@@ -19,6 +19,7 @@ import re
 # Add path for prompt composer
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from prompts.composer import PromptComposer
+from daemon.timestamp_utils import TimestampManager
 
 # Set up logging
 logging.basicConfig(
@@ -42,6 +43,7 @@ class ClaudeNode:
         self.active_conversations: Dict[str, Dict] = {}  # conversation_id -> conversation state
         self.running = True
         self.prompt_composer = PromptComposer()
+        self.pending_processes: Dict[str, Dict] = {}  # process_id -> pending response info
         
         # Load agent profile if specified
         self.profile_config = self._load_profile(profile)
@@ -95,7 +97,7 @@ class ClaudeNode:
     
     async def _subscribe_to_events(self):
         """Subscribe to message bus events"""
-        event_types = ['DIRECT_MESSAGE', 'BROADCAST', 'TASK_ASSIGNMENT', 'CONVERSATION_INVITE']
+        event_types = ['DIRECT_MESSAGE', 'BROADCAST', 'TASK_ASSIGNMENT', 'CONVERSATION_INVITE', 'PROCESS_COMPLETE']
         
         # Need separate connection for subscription
         sub_reader, sub_writer = await asyncio.open_unix_connection(self.daemon_socket)
@@ -166,6 +168,8 @@ class ClaudeNode:
             await self.handle_task_assignment(message)
         elif msg_type == 'BROADCAST':
             await self.handle_broadcast(message)
+        elif msg_type == 'PROCESS_COMPLETE':
+            await self.handle_process_complete(message)
         else:
             logger.warning(f"Unknown message type: {msg_type}")
     
@@ -214,22 +218,11 @@ class ClaudeNode:
             'timestamp': message.get('timestamp')
         })
         
-        # Generate response using Claude
-        response = await self.generate_claude_response(content, conversation_id)
+        # Start async Claude response generation
+        process_id = await self.start_claude_response(content, conversation_id, from_agent)
         
-        # Check control signals
-        if response:
-            if self._should_send_response(response):
-                # Remove control signals before sending
-                clean_response, _ = self._extract_control_signals(response)
-                await self.send_message(from_agent, clean_response, conversation_id)
-            else:
-                logger.info("Response contains NO_RESPONSE signal, not sending")
-            
-            # Check if we should terminate
-            if self._should_terminate(response):
-                logger.info("Response contains termination signal, shutting down")
-                self.running = False
+        if not process_id:
+            logger.error("Failed to start Claude response generation")
     
     async def _send_daemon_command(self, command: str) -> Optional[dict]:
         """Send command to daemon and get response"""
@@ -262,8 +255,8 @@ class ClaudeNode:
             return result['commands']
         return {}
 
-    async def generate_claude_response(self, prompt: str, conversation_id: str) -> Optional[str]:
-        """Generate response using daemon SPAWN command with prompt composer"""
+    async def start_claude_response(self, prompt: str, conversation_id: str, from_agent: str) -> Optional[str]:
+        """Start async Claude response generation and return process_id"""
         try:
             # Get daemon commands dynamically
             daemon_commands = await self.get_daemon_commands()
@@ -300,17 +293,94 @@ class ClaudeNode:
                 if self.profile_config.get('system_prompt'):
                     full_prompt = f"{self.profile_config['system_prompt']}\n\n{full_prompt}"
             
-            # Build daemon command with session resumption
+            # Build daemon command with SPAWN_ASYNC for non-blocking operation
+            # Format: SPAWN_ASYNC:[session_id]:[model]:[agent_id]:<prompt>
+            model = self.profile_config.get('model', 'sonnet')
             if self.session_id:
-                command = f"SPAWN:{self.session_id}:{full_prompt}"
+                command = f"SPAWN_ASYNC:{self.session_id}:{model}:{self.node_id}:{full_prompt}"
             else:
-                command = f"SPAWN:{full_prompt}"
+                command = f"SPAWN_ASYNC::{model}:{self.node_id}:{full_prompt}"
             
             # Send to daemon
             result = await self._send_daemon_command(command)
             
             if not result:
                 logger.error("No response from daemon")
+                return None
+            
+            if result.get('error'):
+                logger.error(f"Daemon error: {result['error']}")
+                return None
+            
+            # SPAWN_ASYNC returns process_id immediately
+            process_id = result.get('process_id')
+            if not process_id:
+                logger.error(f"No process_id in daemon response: {result}")
+                return None
+                
+            logger.info(f"Started async Claude process {process_id}")
+            
+            # Track pending process
+            self.pending_processes[process_id] = {
+                'conversation_id': conversation_id,
+                'from_agent': from_agent,
+                'started_at': TimestampManager.timestamp_utc()
+            }
+            
+            return process_id
+                
+        except Exception as e:
+            logger.error(f"Error starting Claude response: {e}")
+            return None
+    
+    async def generate_claude_response(self, prompt: str, conversation_id: str) -> Optional[str]:
+        """Generate response using daemon SPAWN command synchronously (for backward compatibility)"""
+        # This method is kept for task assignments that need synchronous responses
+        try:
+            # Get daemon commands dynamically
+            daemon_commands = await self.get_daemon_commands()
+            
+            # Use agent role from profile for conversation patterns
+            agent_role = self.profile_config.get('role', 'responder')
+            
+            # Build context for prompt composer
+            context = {
+                'agent_id': self.node_id,
+                'agent_role': agent_role,
+                'conversation_id': conversation_id,
+                'daemon_commands': daemon_commands,
+                'user_prompt': prompt,
+                'conversation_history': self._build_conversation_context(conversation_id)
+            }
+            
+            # Use composition from profile or default
+            composition_name = self.profile_config.get('composition', 'claude_agent_default')
+            
+            # Compose the full prompt
+            try:
+                full_prompt = self.prompt_composer.compose(composition_name, context)
+            except FileNotFoundError:
+                logger.warning(f"Composition {composition_name} not found, using legacy prompt")
+                # Fallback to legacy prompt construction
+                context_str = self._build_conversation_context(conversation_id)
+                if context_str:
+                    full_prompt = f"{context_str}\n\nRespond to: {prompt}"
+                else:
+                    full_prompt = prompt
+                
+                # Add role-specific instructions if available
+                if self.profile_config.get('system_prompt'):
+                    full_prompt = f"{self.profile_config['system_prompt']}\n\n{full_prompt}"
+            
+            # Use blocking SPAWN for synchronous response
+            if self.session_id:
+                command = f"SPAWN:{self.session_id}:{full_prompt}"
+            else:
+                command = f"SPAWN:{full_prompt}"
+            
+            result = await self._send_daemon_command(command)
+            
+            if not result:
                 return None
             
             if result.get('error'):
@@ -384,7 +454,7 @@ class ClaudeNode:
                 self.active_conversations[conversation_id]['history'].append({
                     'from': self.node_id,
                     'content': content,
-                    'timestamp': datetime.utcnow().isoformat() + 'Z'
+                    'timestamp': TimestampManager.timestamp_utc()
                 })
                 
         except Exception as e:
@@ -392,7 +462,7 @@ class ClaudeNode:
     
     async def start_conversation(self, with_agents: List[str], topic: str):
         """Start a new conversation with other agents"""
-        conversation_id = f"conv_{self.node_id}_{datetime.utcnow().timestamp()}"
+        conversation_id = f"conv_{self.node_id}_{TimestampManager.utc_now().timestamp()}"
         
         # Initialize conversation
         self.active_conversations[conversation_id] = {
@@ -468,6 +538,50 @@ class ClaudeNode:
         """Handle broadcast message"""
         logger.info(f"Broadcast from {message.get('from')}: {message.get('content', '')[:100]}...")
         # Could respond to broadcasts if needed
+    
+    async def handle_process_complete(self, message: Dict):
+        """Handle process completion notification"""
+        # Message bus spreads payload directly into message
+        process_id = message.get('process_id')
+        status = message.get('status')
+        
+        logger.info(f"Process {process_id} completed with status: {status}")
+        
+        # Find pending process
+        if process_id not in self.pending_processes:
+            logger.warning(f"Received completion for unknown process {process_id}")
+            return
+        
+        pending_info = self.pending_processes.pop(process_id)
+        conversation_id = pending_info['conversation_id']
+        from_agent = pending_info['from_agent']
+        
+        if status == 'success':
+            # Update session_id if provided
+            if message.get('session_id'):
+                self.session_id = message['session_id']
+            
+            # Get the result
+            response = message.get('result', '').strip()
+            
+            if response:
+                # Check control signals
+                if self._should_send_response(response):
+                    # Remove control signals before sending
+                    clean_response, _ = self._extract_control_signals(response)
+                    await self.send_message(from_agent, clean_response, conversation_id)
+                else:
+                    logger.info("Response contains NO_RESPONSE signal, not sending")
+                
+                # Check if we should terminate
+                if self._should_terminate(response):
+                    logger.info("Response contains termination signal, shutting down")
+                    self.running = False
+        else:
+            # Process failed
+            error = message.get('error', 'Unknown error')
+            logger.error(f"Process {process_id} failed: {error}")
+            # Could send error message to other agent
     
     async def disconnect(self):
         """Disconnect from daemon"""

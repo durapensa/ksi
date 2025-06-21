@@ -23,8 +23,9 @@ class ClaudeProcessManager:
         self.running_processes = {}  # process_id -> process_info
         self.state_manager = state_manager
         self.utils_manager = utils_manager
+        self.message_bus = None  # Will be set via set_message_bus()
     
-    async def spawn_claude(self, prompt: str, session_id: str = None, model: str = 'sonnet', agent_id: str = None) -> dict:
+    async def spawn_claude(self, prompt: str, session_id: str = None, model: str = 'sonnet', agent_id: str = None, enable_tools: bool = True) -> dict:
         """Spawn claude process and capture output - EXACT copy from daemon_clean.py"""
         # Ensure directories exist
         os.makedirs('claude_logs', exist_ok=True)
@@ -37,9 +38,12 @@ class ClaudeProcessManager:
             'claude',
             '--model', model,
             '--print',
-            '--output-format', 'json',
-            '--allowedTools', 'Task Bash Glob Grep LS Read Edit MultiEdit Write WebFetch WebSearch'
+            '--output-format', 'json'
         ]
+        
+        # Only add tools if explicitly enabled (for conversation patterns, we don't want tools)
+        if enable_tools:
+            cmd.extend(['--allowedTools', 'Task Bash Glob Grep LS Read Edit MultiEdit Write WebFetch WebSearch'])
         
         if session_id:
             cmd.extend(['--resume', session_id])
@@ -155,7 +159,7 @@ class ClaudeProcessManager:
             logger.error(f"Unexpected error in spawn_claude: {type(e).__name__}: {str(e)}")
             return {'error': f'{type(e).__name__}: {str(e)}', 'returncode': -1}
     
-    async def spawn_claude_async(self, prompt: str, session_id: str = None, model: str = 'sonnet', agent_id: str = None) -> str:
+    async def spawn_claude_async(self, prompt: str, session_id: str = None, model: str = 'sonnet', agent_id: str = None, enable_tools: bool = True) -> str:
         """Spawn claude process asynchronously and return process_id immediately - EXACT copy from daemon_clean.py"""
         import uuid
         process_id = str(uuid.uuid4())[:8]  # Short ID for tracking
@@ -171,9 +175,12 @@ class ClaudeProcessManager:
             'claude',
             '--model', model,
             '--print',
-            '--output-format', 'json',
-            '--allowedTools', 'Task Bash Glob Grep LS Read Edit MultiEdit Write WebFetch WebSearch'
+            '--output-format', 'json'
         ]
+        
+        # Only add tools if explicitly enabled (for conversation patterns, we don't want tools)
+        if enable_tools:
+            cmd.extend(['--allowedTools', 'Task Bash Glob Grep LS Read Edit MultiEdit Write WebFetch WebSearch'])
         
         if session_id:
             cmd.extend(['--resume', session_id])
@@ -279,12 +286,50 @@ class ClaudeProcessManager:
                             if hasattr(self.utils_manager.loaded_module, 'handle_output'):
                                 self.utils_manager.loaded_module.handle_output(output, self)
                     
+                    # Notify the agent via message bus if available
+                    if agent_id and hasattr(self, 'message_bus') and self.message_bus:
+                        await self.message_bus.publish(
+                            from_agent='daemon',
+                            event_type='PROCESS_COMPLETE',
+                            payload={
+                                'process_id': process_id,
+                                'agent_id': agent_id,
+                                'session_id': new_session_id,
+                                'result': output.get('result', ''),
+                                'status': 'success'
+                            }
+                        )
+                    
                     logger.info(f"Claude process {process_id} completed successfully")
                     
                 except json.JSONDecodeError as e:
                     logger.error(f"Process {process_id} JSON decode error: {e}")
+                    # Notify agent of error
+                    if agent_id and hasattr(self, 'message_bus') and self.message_bus:
+                        await self.message_bus.publish(
+                            from_agent='daemon',
+                            event_type='PROCESS_COMPLETE',
+                            payload={
+                                'process_id': process_id,
+                                'agent_id': agent_id,
+                                'status': 'error',
+                                'error': str(e)
+                            }
+                        )
             else:
                 logger.error(f"Process {process_id} produced no output")
+                # Notify agent of error
+                if agent_id and hasattr(self, 'message_bus') and self.message_bus:
+                    await self.message_bus.publish(
+                        from_agent='daemon',
+                        event_type='PROCESS_COMPLETE',
+                        payload={
+                            'process_id': process_id,
+                            'agent_id': agent_id,
+                            'status': 'error',
+                            'error': 'No output produced'
+                        }
+                    )
                 
         except Exception as e:
             logger.error(f"Error handling process {process_id} completion: {e}")
@@ -308,3 +353,7 @@ class ClaudeProcessManager:
     def set_agent_manager(self, agent_manager):
         """Set agent manager for cross-module communication"""
         self.agent_manager = agent_manager
+    
+    def set_message_bus(self, message_bus):
+        """Set message bus for process completion notifications"""
+        self.message_bus = message_bus

@@ -49,6 +49,8 @@ class ClaudeDaemonCore:
         # Set up cross-manager dependencies
         if self.process_manager and self.agent_manager:
             self.process_manager.set_agent_manager(self.agent_manager)
+        if self.process_manager and self.message_bus:
+            self.process_manager.set_message_bus(self.message_bus)
     
     def serialize_state(self) -> dict:
         """Serialize complete daemon state for hot reload - EXACT copy from daemon_clean.py"""
