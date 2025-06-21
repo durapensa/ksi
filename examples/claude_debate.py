@@ -15,7 +15,7 @@ def run_debate(topic: str, duration: int = 60):
     
     # Start the debate
     cmd = [
-        sys.executable, 'claude_chat.py',
+        sys.executable, 'interfaces/claude_chat.py',
         topic,
         '--mode', 'debate',
         '--agents', '2',

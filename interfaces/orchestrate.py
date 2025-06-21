@@ -225,7 +225,7 @@ class MultiClaudeOrchestrator:
         
         logger.info(f"Conversation started with ID: {self.conversation_id}")
         logger.info("Agents are now conversing autonomously...")
-        logger.info("Monitor with: python monitor_tui.py")
+        logger.info("Monitor with: python interfaces/monitor_tui.py")
         
         if human_observer:
             logger.info("Press Ctrl+C to end the conversation")

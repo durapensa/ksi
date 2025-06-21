@@ -71,9 +71,9 @@ async def test_basic_conversation():
     
     print("\nSystem appears ready for multi-Claude conversations!")
     print("\nTo start a conversation, run:")
-    print("  python orchestrate.py 'Your topic here' --mode debate --agents 2")
+    print("  python interfaces/orchestrate.py 'Your topic here' --mode debate --agents 2")
     print("\nTo monitor conversations, run:")
-    print("  python monitor_tui.py")
+    print("  python interfaces/monitor_tui.py")
 
 
 async def main():

@@ -12,7 +12,7 @@ from pathlib import Path
 
 # Import orchestrator functionality instead of duplicating
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from orchestrate_v2 import MultiClaudeOrchestrator
+from interfaces.orchestrate import MultiClaudeOrchestrator
 
 async def check_agent_count(orchestrator):
     """Check how many agents are currently active"""

@@ -53,7 +53,7 @@ mkdir -p claude_modules sockets claude_logs logs shared_state agent_profiles
 echo "✓ Created required directories"
 
 # Make scripts executable
-chmod +x daemon.py chat.py orchestrate.py monitor_tui.py agent_process.py test_multi_claude.py
+chmod +x daemon.py chat.py interfaces/orchestrate.py interfaces/monitor_tui.py daemon/agent_process.py tests/test_multi_claude.py
 echo "✓ Made scripts executable"
 
 echo ""
@@ -61,8 +61,8 @@ echo "Setup complete! You can now run:"
 echo "  python3 chat.py              # Start chatting with Claude"
 echo ""
 echo "For multi-Claude conversations:"
-echo "  python3 orchestrate.py 'Topic' --mode debate"
-echo "  python3 monitor_tui.py       # In another terminal"
+echo "  python3 interfaces/orchestrate.py 'Topic' --mode debate"
+echo "  python3 interfaces/monitor_tui.py       # In another terminal"
 echo ""
 echo "Note: Make sure to activate the virtual environment first:"
 echo "  source .venv/bin/activate"

@@ -89,7 +89,7 @@ This will:
 
 ```bash
 # Start a debate between two Claudes
-python3 orchestrate.py "Should AI have rights?" --mode debate --agents 2
+python3 interfaces/orchestrate.py "Should AI have rights?" --mode debate --agents 2
 
 # In another terminal, monitor the conversation
 python3 monitor_tui.py
@@ -117,7 +117,7 @@ python3 monitor_tui.py
 
 - **agent_process.py** - Persistent Claude process for multi-agent conversations
 
-- **orchestrate.py** - High-level orchestration for multi-Claude conversations
+- **interfaces/orchestrate.py** - High-level orchestration for multi-Claude conversations
 
 - **monitor_tui.py** - Real-time TUI for monitoring conversations
 
@@ -146,13 +146,13 @@ Enable multiple Claude instances to converse autonomously:
 
 ```bash
 # AI ethics debate
-python3 orchestrate.py "AI consciousness and rights" --mode debate --agents 3
+python3 interfaces/orchestrate.py "AI consciousness and rights" --mode debate --agents 3
 
 # Collaborative problem solving
-python3 orchestrate.py "Design a sustainable city" --mode collaboration --agents 4
+python3 interfaces/orchestrate.py "Design a sustainable city" --mode collaboration --agents 4
 
 # Teaching session
-python3 orchestrate.py "Explain quantum computing" --mode teaching --agents 2
+python3 interfaces/orchestrate.py "Explain quantum computing" --mode teaching --agents 2
 ```
 
 ### Features
@@ -219,7 +219,8 @@ ksi/
 ├── daemon.py              # Core daemon
 ├── chat.py               # Human chat interface
 ├── agent_process.py      # Persistent Claude process
-├── orchestrate.py        # Multi-Claude orchestrator
+├── interfaces/           # User interfaces
+│   ├── orchestrate.py    # Multi-Claude orchestrator
 ├── monitor_tui.py        # TUI monitor
 ├── daemon/               # Modular daemon components
 ├── claude_modules/       # Extension modules

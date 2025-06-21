@@ -22,7 +22,7 @@ This system transforms the ksi daemon from a hierarchical orchestrator→agent m
    - Spawns Claude CLI to generate responses
    - Manages conversation context
 
-2. **orchestrate.py** - Conversation orchestrator
+2. **interfaces/orchestrate.py** - Conversation orchestrator
    - Starts multi-Claude conversations
    - Manages different conversation modes
    - Creates temporary agent profiles
@@ -50,7 +50,7 @@ python test_multi_claude.py
 
 ### 2. Start a debate
 ```bash
-python orchestrate.py "Should AI have rights?" --mode debate --agents 2
+python interfaces/orchestrate.py "Should AI have rights?" --mode debate --agents 2
 ```
 
 ### 3. Monitor in another terminal
@@ -63,31 +63,31 @@ python monitor_tui.py
 ### Debate Mode
 Two or more Claudes take opposing positions and argue their points:
 ```bash
-python orchestrate.py "Universal basic income" --mode debate
+python interfaces/orchestrate.py "Universal basic income" --mode debate
 ```
 
 ### Collaboration Mode
 Claudes work together to solve problems:
 ```bash
-python orchestrate.py "Design a sustainable city" --mode collaboration --agents 3
+python interfaces/orchestrate.py "Design a sustainable city" --mode collaboration --agents 3
 ```
 
 ### Teaching Mode
 One Claude teaches, others learn and ask questions:
 ```bash
-python orchestrate.py "Quantum computing basics" --mode teaching
+python interfaces/orchestrate.py "Quantum computing basics" --mode teaching
 ```
 
 ### Brainstorm Mode
 Creative idea generation with critics for refinement:
 ```bash
-python orchestrate.py "New mobile app ideas" --mode brainstorm --agents 4
+python interfaces/orchestrate.py "New mobile app ideas" --mode brainstorm --agents 4
 ```
 
 ### Analysis Mode
 Systematic analysis of complex topics:
 ```bash
-python orchestrate.py "Climate change solutions" --mode analysis --agents 2
+python interfaces/orchestrate.py "Climate change solutions" --mode analysis --agents 2
 ```
 
 ## TUI Monitor Features
@@ -196,7 +196,7 @@ Profiles define Claude behavior and capabilities:
 
 ### Custom Conversation Modes
 
-Add new modes to `orchestrate.py`:
+Add new modes to `interfaces/orchestrate.py`:
 
 ```python
 CUSTOM_MODE = {
@@ -255,22 +255,22 @@ python daemon.py  # Start in separate terminal
 
 ### AI Ethics Debate
 ```bash
-python orchestrate.py "AI consciousness and rights" --mode debate --agents 3
+python interfaces/orchestrate.py "AI consciousness and rights" --mode debate --agents 3
 ```
 
 ### Collaborative Coding
 ```bash
-python orchestrate.py "Implement a distributed cache" --mode collaboration --agents 4
+python interfaces/orchestrate.py "Implement a distributed cache" --mode collaboration --agents 4
 ```
 
 ### Learning Session
 ```bash
-python orchestrate.py "Teach me about transformers" --mode teaching --agents 2
+python interfaces/orchestrate.py "Teach me about transformers" --mode teaching --agents 2
 ```
 
 ### Product Brainstorm
 ```bash
-python orchestrate.py "Revolutionary productivity app" --mode brainstorm --agents 5
+python interfaces/orchestrate.py "Revolutionary productivity app" --mode brainstorm --agents 5
 ```
 
 This system enables rich multi-Claude conversations while maintaining the minimalist, AI-first philosophy of ksi.

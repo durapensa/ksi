@@ -22,10 +22,10 @@ def start_monitor():
     try:
         # Try different terminal emulators
         terminals = [
-            ['osascript', '-e', 'tell app "Terminal" to do script "cd {} && python3 monitor_tui.py"'.format(os.getcwd())],
-            ['gnome-terminal', '--', 'python3', 'monitor_tui.py'],
-            ['xterm', '-e', 'python3', 'monitor_tui.py'],
-            ['konsole', '-e', 'python3', 'monitor_tui.py']
+            ['osascript', '-e', 'tell app "Terminal" to do script "cd {} && python3 interfaces/monitor_tui.py"'.format(os.getcwd())],
+            ['gnome-terminal', '--', 'python3', 'interfaces/monitor_tui.py'],
+            ['xterm', '-e', 'python3', 'interfaces/monitor_tui.py'],
+            ['konsole', '-e', 'python3', 'interfaces/monitor_tui.py']
         ]
         
         for term_cmd in terminals:
@@ -37,7 +37,7 @@ def start_monitor():
                 continue
                 
         print("! Could not auto-start monitor. Please run in another terminal:")
-        print("  python3 monitor_tui.py")
+        print("  python3 interfaces/monitor_tui.py")
         return False
         
     except Exception as e:

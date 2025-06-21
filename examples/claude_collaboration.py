@@ -16,7 +16,7 @@ def run_collaboration(problem: str, num_agents: int = 3, duration: int = 120):
     
     # Start the collaboration
     cmd = [
-        sys.executable, 'claude_chat.py',
+        sys.executable, 'interfaces/claude_chat.py',
         problem,
         '--mode', 'collaboration',
         '--agents', str(num_agents),
