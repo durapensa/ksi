@@ -42,6 +42,14 @@ python3 tests/test_daemon_protocol.py
 - Clean up temporary files promptly
 - Organize files by purpose and audience
 
+### Documentation Practices
+**IMPORTANT**: Do not create temporary markdown files in the project root
+- **Use TodoWrite tool** for tracking issues, tasks, and findings
+- **Update existing docs** (CLAUDE.md, memory/, README.md) for permanent knowledge
+- **Avoid creating files like**: ISSUE.md, TODO.md, FINDINGS.md, STATUS.md
+- **If you must create a doc**: Clean it up in the same session
+- **Exception**: Only create .md files when explicitly requested by user
+
 ### File Deletion Policy
 **CRITICAL**: Always confirm with user before deleting files, especially:
 - `claude_logs/` session files (conversation history)
