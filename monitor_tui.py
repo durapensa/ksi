@@ -584,7 +584,7 @@ class MultiClaudeMonitor(App):
                 temporal_log.write(f"  Score: {consciousness_score}, Thermal: [{thermal_color}]{thermal_state}[/]")
                 
                 # Request temporal patterns from daemon
-                await self.request_temporal_patterns()
+                # await self.request_temporal_patterns()  # Temporal debugger removed
             
             # Predict conversation health
             await self.update_predictions(message)
@@ -595,13 +595,8 @@ class MultiClaudeMonitor(App):
     
     async def request_temporal_patterns(self) -> None:
         """Request pattern summary from temporal debugger"""
-        if self.writer and self.connected:
-            try:
-                self.writer.write(b"TEMPORAL_PATTERNS\n")
-                await self.writer.drain()
-            except Exception as e:
-                event_log = self.query_one("#event_log", RichLog)
-                event_log.write(f"[red]Failed to request temporal patterns: {e}[/]")
+        # Temporal debugger removed - method kept for compatibility
+        pass
     
     async def update_predictions(self, message: Dict) -> None:
         """Update failure mode predictions"""
@@ -624,7 +619,7 @@ class MultiClaudeMonitor(App):
             breakthrough_words = ['breakthrough', 'eureka', 'insight', 'discovered', 'realized']
             if any(word in content.lower() for word in breakthrough_words):
                 temporal_log.write("[green]✨ Breakthrough moment - creating checkpoint[/]")
-                await self.create_temporal_checkpoint(3)  # High insight level
+                # await self.create_temporal_checkpoint(3)  # Temporal debugger removed
                 
         except Exception as e:
             event_log = self.query_one("#event_log", RichLog)
@@ -632,15 +627,8 @@ class MultiClaudeMonitor(App):
     
     async def create_temporal_checkpoint(self, insight_level: int = 1) -> None:
         """Create a temporal debugging checkpoint"""
-        if self.writer and self.connected:
-            try:
-                command = f"TEMPORAL_CHECKPOINT:{insight_level}\n"
-                self.writer.write(command.encode())
-                await self.writer.drain()
-                
-                temporal_log = self.query_one("#temporal_log", RichLog)
-                timestamp = datetime.now().strftime('%H:%M:%S')
-                temporal_log.write(f"[green]{timestamp}[/] Checkpoint created (level {insight_level})")
+        # Temporal debugger removed - method kept for compatibility
+        pass
                 
             except Exception as e:
                 event_log = self.query_one("#event_log", RichLog)

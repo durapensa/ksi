@@ -35,9 +35,8 @@ class ClaudeDaemonCore:
         self.hot_reload_manager = None
         self.command_handler = None
         self.message_bus = None
-        self.temporal_debugger = None
     
-    def set_managers(self, state_manager, process_manager, agent_manager, utils_manager, hot_reload_manager, command_handler, message_bus=None, temporal_debugger=None):
+    def set_managers(self, state_manager, process_manager, agent_manager, utils_manager, hot_reload_manager, command_handler, message_bus=None):
         """Dependency injection - wire all managers together"""
         self.state_manager = state_manager
         self.process_manager = process_manager
@@ -46,7 +45,6 @@ class ClaudeDaemonCore:
         self.hot_reload_manager = hot_reload_manager
         self.command_handler = command_handler
         self.message_bus = message_bus
-        self.temporal_debugger = temporal_debugger
         
         # Set up cross-manager dependencies
         if self.process_manager and self.agent_manager:

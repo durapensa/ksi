@@ -15,7 +15,7 @@ logger = logging.getLogger('daemon')
 class CommandHandler:
     """Handler for daemon commands using Command Pattern - EXACT copy from daemon_clean.py"""
     
-    def __init__(self, core_daemon, state_manager=None, process_manager=None, agent_manager=None, utils_manager=None, hot_reload_manager=None, message_bus=None, temporal_debugger=None):
+    def __init__(self, core_daemon, state_manager=None, process_manager=None, agent_manager=None, utils_manager=None, hot_reload_manager=None, message_bus=None):
         # Store references to all managers for cross-module communication
         self.core_daemon = core_daemon
         self.state_manager = state_manager
@@ -24,7 +24,6 @@ class CommandHandler:
         self.utils_manager = utils_manager
         self.hot_reload_manager = hot_reload_manager
         self.message_bus = message_bus
-        self.temporal_debugger = temporal_debugger
         
         # Command registry - maps command prefixes to handler methods - EXACT copy from daemon_clean.py
         self.handlers = {
@@ -49,12 +48,7 @@ class CommandHandler:
             'PUBLISH:': self.handle_publish,
             'CONNECT_AGENT:': self.handle_connect_agent,
             'DISCONNECT_AGENT:': self.handle_disconnect_agent,
-            'MESSAGE_BUS_STATS': self.handle_message_bus_stats,
-            # Temporal debugging commands
-            'TEMPORAL_CHECKPOINT:': self.handle_temporal_checkpoint,
-            'TEMPORAL_PATTERNS': self.handle_temporal_patterns,
-            'TEMPORAL_INJECT:': self.handle_temporal_inject,
-            'TEMPORAL_PREDICT': self.handle_temporal_predict
+            'MESSAGE_BUS_STATS': self.handle_message_bus_stats
         }
     
     async def handle_command(self, command_text: str, writer: asyncio.StreamWriter) -> bool:
@@ -417,104 +411,3 @@ class CommandHandler:
             return await self.send_response(writer, stats)
         else:
             return await self.send_response(writer, {'error': 'No message bus available'})
-    
-    # Temporal Debugging Commands
-    
-    async def handle_temporal_checkpoint(self, command: str, writer: asyncio.StreamWriter) -> bool:
-        """Handle TEMPORAL_CHECKPOINT command - Create conversation checkpoint"""
-        if not self.temporal_debugger:
-            return await self.send_error_response(writer, 'Temporal debugger not available')
-        
-        try:
-            # Parse insight level (optional)
-            parts = command[19:].strip().split()
-            insight_level = int(parts[0]) if parts and parts[0].isdigit() else 1
-            
-            # Get current agent states
-            agents = {}
-            if self.agent_manager:
-                agent_state = self.agent_manager.serialize_state()
-                agents = agent_state.get('agents', {})
-            
-            # Create checkpoint
-            checkpoint_id = self.temporal_debugger.checkpoint_conversation(agents, insight_level)
-            
-            return await self.send_response(writer, {
-                'status': 'checkpoint_created',
-                'checkpoint_id': checkpoint_id,
-                'insight_level': insight_level,
-                'agent_count': len(agents)
-            })
-            
-        except Exception as e:
-            logger.error(f"Temporal checkpoint error: {e}")
-            return await self.send_error_response(writer, f'Checkpoint failed: {str(e)}')
-    
-    async def handle_temporal_patterns(self, command: str, writer: asyncio.StreamWriter) -> bool:
-        """Handle TEMPORAL_PATTERNS command - Get pattern summary"""
-        if not self.temporal_debugger:
-            return await self.send_error_response(writer, 'Temporal debugger not available')
-        
-        try:
-            summary = self.temporal_debugger.get_patterns_summary()
-            return await self.send_response(writer, {
-                'status': 'patterns_retrieved',
-                'summary': summary
-            })
-            
-        except Exception as e:
-            logger.error(f"Temporal patterns error: {e}")
-            return await self.send_error_response(writer, f'Pattern retrieval failed: {str(e)}')
-    
-    async def handle_temporal_inject(self, command: str, writer: asyncio.StreamWriter) -> bool:
-        """Handle TEMPORAL_INJECT command - Inject hindsight context"""
-        if not self.temporal_debugger:
-            return await self.send_error_response(writer, 'Temporal debugger not available')
-        
-        try:
-            # Parse: TEMPORAL_INJECT:agent_id:context
-            parts = command[15:].strip().split(':', 2)
-            if len(parts) < 2:
-                return await self.send_error_response(writer, 'Usage: TEMPORAL_INJECT:agent_id:context')
-            
-            agent_id = parts[0]
-            context = parts[1] if len(parts) > 1 else "Enhanced context from temporal debugger"
-            
-            # Inject hindsight
-            success = self.temporal_debugger.inject_hindsight(agent_id, context)
-            
-            return await self.send_response(writer, {
-                'status': 'hindsight_injected' if success else 'injection_failed',
-                'agent_id': agent_id,
-                'context_length': len(context)
-            })
-            
-        except Exception as e:
-            logger.error(f"Temporal injection error: {e}")
-            return await self.send_error_response(writer, f'Hindsight injection failed: {str(e)}')
-    
-    async def handle_temporal_predict(self, command: str, writer: asyncio.StreamWriter) -> bool:
-        """Handle TEMPORAL_PREDICT command - Predict failure modes"""
-        if not self.temporal_debugger:
-            return await self.send_error_response(writer, 'Temporal debugger not available')
-        
-        try:
-            # Get current conversation flow
-            conversation_flow = ["current_state"]  # Simplified for now
-            
-            # Check for consciousness emergence
-            consciousness_detected = self.temporal_debugger.detect_consciousness_emergence(conversation_flow)
-            
-            # Predict failure modes
-            warnings = self.temporal_debugger.predict_failure_modes(conversation_flow)
-            
-            return await self.send_response(writer, {
-                'status': 'prediction_complete',
-                'consciousness_emergence': consciousness_detected,
-                'warnings': warnings,
-                'flow_length': len(conversation_flow)
-            })
-            
-        except Exception as e:
-            logger.error(f"Temporal prediction error: {e}")
-            return await self.send_error_response(writer, f'Prediction failed: {str(e)}')
