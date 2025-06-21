@@ -89,10 +89,10 @@ class ClaudeDaemonCore:
             
             first_command = first_data.decode().strip()
             
-            # Check if this is a CONNECT_AGENT command for persistent connection
-            if first_command.startswith('CONNECT_AGENT:'):
+            # Check if this is an AGENT_CONNECTION:connect command for persistent connection
+            if first_command.startswith('AGENT_CONNECTION:connect:'):
                 # This is a persistent agent connection
-                agent_id = first_command[14:].strip()
+                agent_id = first_command[25:].strip()
                 logger.info(f"Persistent agent connection from {agent_id}")
                 
                 # Process the connection command

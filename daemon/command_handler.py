@@ -37,8 +37,6 @@ class CommandHandler:
             'SA:': self.handle_spawn_agent,  # Alias for SPAWN_AGENT
             'GET_AGENTS': self.handle_get_agents,
             'GA': self.handle_get_agents,  # Alias for GET_AGENTS
-            'SEND_MESSAGE:': self.handle_send_message,
-            'MSG:': self.handle_send_message,  # Alias for SEND_MESSAGE
             'SET_SHARED:': self.handle_set_shared,
             'SET:': self.handle_set_shared,  # Alias for SET_SHARED
             'GET_SHARED:': self.handle_get_shared,
@@ -54,8 +52,6 @@ class CommandHandler:
             'SUBSCRIBE:': self.handle_subscribe,
             'PUBLISH:': self.handle_publish,
             'AGENT_CONNECTION:': self.handle_agent_connection,
-            'CONNECT_AGENT:': self.handle_connect_agent,  # Legacy - deprecated
-            'DISCONNECT_AGENT:': self.handle_disconnect_agent,  # Legacy - deprecated
             'MESSAGE_BUS_STATS': self.handle_message_bus_stats,
             'GET_COMMANDS': self.handle_get_commands
         }
@@ -144,20 +140,8 @@ class CommandHandler:
                 return await self.send_error_response(writer, f'Invalid mode: {mode}. Use sync or async.')
                 
         else:
-            # Legacy format detection and backward compatibility
-            if ':' in command_body and len(command_body.split(':', 3)) == 4:
-                # Looks like legacy SPAWN_ASYNC format: session_id:model:agent_id:prompt
-                logger.warning("Using legacy SPAWN_ASYNC format - please migrate to unified SPAWN:async format")
-                parts = command_body.split(':', 3)
-                session_id = parts[0] if parts[0] else None
-                model = parts[1] if parts[1] else 'sonnet'
-                agent_id = parts[2] if parts[2] else None
-                prompt = parts[3]
-                return await self._handle_spawn_async(writer, session_id, model, agent_id, prompt)
-            else:
-                # Looks like legacy SPAWN format: session_id:prompt or just prompt
-                logger.warning("Using legacy SPAWN format - please migrate to unified SPAWN:sync format")
-                return await self.handle_spawn_legacy_sync(f"SPAWN:{command_body}", writer)
+            # Invalid format
+            return await self.send_error_response(writer, 'Invalid SPAWN format. Use SPAWN:[sync|async]:claude:[session_id]:[model]:[agent_id]:<prompt>')
     
     async def _handle_spawn_sync(self, writer: asyncio.StreamWriter, session_id: str, model: str, agent_id: str, prompt: str) -> bool:
         """Handle synchronous Claude spawning"""
@@ -176,7 +160,7 @@ class CommandHandler:
         logger.info(f"Asynchronous Claude spawn: {prompt[:50]}...")
         
         # Check if agent has a profile with enable_tools setting
-        enable_tools = True  # Default to True for backward compatibility
+        enable_tools = True  # Default to True
         if agent_id:
             profile_path = Path(f'agent_profiles/{agent_id}.json')
             if profile_path.exists():
@@ -269,22 +253,6 @@ class CommandHandler:
         logger.info("Sent GET_AGENTS response")
         return result
     
-    async def handle_send_message(self, command: str, writer: asyncio.StreamWriter) -> bool:
-        """Handle SEND_MESSAGE command - Send direct message between agents (deprecated)
-        Format: SEND_MESSAGE:from_agent:to_agent:message
-        Note: Use PUBLISH for message bus communication instead"""
-        # Parse format: "SEND_MESSAGE:from_agent:to_agent:message"
-        parts = command[13:].split(':', 2)
-        if len(parts) != 3:
-            return await self.send_error_response(writer, 'Invalid SEND_MESSAGE format')
-        
-        from_agent, to_agent, message = parts
-        
-        if self.agent_manager:
-            result = self.agent_manager.log_inter_agent_message(from_agent, to_agent, message)
-            return await self.send_response(writer, result)
-        else:
-            return await self.send_error_response(writer, 'No agent manager available')
     
     async def handle_set_shared(self, command: str, writer: asyncio.StreamWriter) -> bool:
         """Handle SET_SHARED command - Store shared state accessible by all agents
@@ -485,33 +453,6 @@ class CommandHandler:
         else:
             return await self.send_error_response(writer, f'Invalid action: {action}. Use "connect" or "disconnect"')
     
-    async def handle_connect_agent(self, command: str, writer: asyncio.StreamWriter) -> bool:
-        """Handle CONNECT_AGENT command - DEPRECATED: Use AGENT_CONNECTION:connect:agent_id instead"""
-        logger.warning("CONNECT_AGENT is deprecated. Use AGENT_CONNECTION:connect:agent_id instead")
-        agent_id = command[14:].strip()
-        
-        if self.message_bus:
-            self.message_bus.connect_agent(agent_id, writer)
-            return await self.send_response(writer, {
-                'status': 'connected',
-                'agent_id': agent_id
-            })
-        else:
-            return await self.send_error_response(writer, 'No message bus available')
-    
-    async def handle_disconnect_agent(self, command: str, writer: asyncio.StreamWriter) -> bool:
-        """Handle DISCONNECT_AGENT command - DEPRECATED: Use AGENT_CONNECTION:disconnect:agent_id instead"""
-        logger.warning("DISCONNECT_AGENT is deprecated. Use AGENT_CONNECTION:disconnect:agent_id instead")
-        agent_id = command[17:].strip()
-        
-        if self.message_bus:
-            self.message_bus.disconnect_agent(agent_id)
-            return await self.send_response(writer, {
-                'status': 'disconnected',
-                'agent_id': agent_id
-            })
-        else:
-            return await self.send_error_response(writer, 'No message bus available')
     
     async def handle_message_bus_stats(self, command: str, writer: asyncio.StreamWriter) -> bool:
         """Handle MESSAGE_BUS_STATS command"""
@@ -533,7 +474,6 @@ class CommandHandler:
             'R:': 'RELOAD:',
             'SA:': 'SPAWN_AGENT:',
             'GA': 'GET_AGENTS',
-            'MSG:': 'SEND_MESSAGE:',
             'SET:': 'SET_SHARED:',
             'GET:': 'GET_SHARED:'
         }
@@ -570,8 +510,6 @@ class CommandHandler:
                         format_match = "REGISTER_AGENT:agent_id:role:capabilities"
                     elif cmd_name == 'SPAWN_AGENT':
                         format_match = "SPAWN_AGENT:profile_name:task:context:agent_id"
-                    elif cmd_name == 'SEND_MESSAGE':
-                        format_match = "SEND_MESSAGE:from_agent:to_agent:message"
                     elif cmd_name == 'SET_SHARED':
                         format_match = "SET_SHARED:key:value"
                     elif cmd_name == 'GET_SHARED':
@@ -586,10 +524,6 @@ class CommandHandler:
                         format_match = "RELOAD:<module_name>"
                     elif cmd_name == 'AGENT_CONNECTION':
                         format_match = "AGENT_CONNECTION:connect|disconnect:agent_id"
-                    elif cmd_name == 'CONNECT_AGENT':
-                        format_match = "CONNECT_AGENT:agent_id"
-                    elif cmd_name == 'DISCONNECT_AGENT':
-                        format_match = "DISCONNECT_AGENT:agent_id"
                     else:
                         format_match = f"{cmd_name}:<parameters>"
                 
@@ -623,7 +557,7 @@ class CommandHandler:
                 grouped_commands["Process Spawning"][cmd_name] = cmd_info
             elif cmd_name in ['REGISTER_AGENT', 'GET_AGENTS', 'ROUTE_TASK']:
                 grouped_commands["Agent Management"][cmd_name] = cmd_info
-            elif cmd_name in ['SEND_MESSAGE', 'SUBSCRIBE', 'PUBLISH', 'AGENT_CONNECTION', 'CONNECT_AGENT', 'DISCONNECT_AGENT', 'MESSAGE_BUS_STATS']:
+            elif cmd_name in ['SUBSCRIBE', 'PUBLISH', 'AGENT_CONNECTION', 'MESSAGE_BUS_STATS']:
                 grouped_commands["Communication & Events"][cmd_name] = cmd_info
             elif cmd_name in ['SET_SHARED', 'GET_SHARED', 'LOAD_STATE']:
                 grouped_commands["State Management"][cmd_name] = cmd_info

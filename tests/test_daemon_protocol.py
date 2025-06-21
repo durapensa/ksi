@@ -31,21 +31,18 @@ class DaemonProtocolTester:
             return False
     
     def test_json_spawn_format(self):
-        """Test documented JSON spawn format"""
-        print("Testing JSON spawn format...")
+        """Test unified SPAWN command format (sync mode)"""
+        print("Testing unified SPAWN sync format...")
         
-        command = {
-            'action': 'spawn',
-            'prompt': 'Test prompt - respond with exactly "PROTOCOL_TEST_OK"',
-            'allowedTools': ['Task', 'Bash']
-        }
+        # Use the new unified format
+        command = "SPAWN:sync:claude::sonnet::Test prompt - respond with exactly 'PROTOCOL_TEST_OK'"
         
         try:
             sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             sock.connect(self.socket_path)
             sock.settimeout(10.0)
             
-            sock.send(json.dumps(command).encode() + b'\n')
+            sock.send(command.encode() + b'\n')
             response = sock.recv(4096).decode()
             sock.close()
             
@@ -67,8 +64,8 @@ class DaemonProtocolTester:
         """Test AutonomousResearcher SPAWN format"""
         print("Testing SPAWN string format...")
         
-        # Test fresh spawn format
-        command = "SPAWN::Test prompt for string format"
+        # Test unified spawn format (async mode)
+        command = "SPAWN:async:claude::sonnet::Test prompt for string format"
         
         try:
             sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -92,18 +89,14 @@ class DaemonProtocolTester:
         print("Testing stderr capture...")
         
         # Try a command that might generate stderr
-        command = {
-            'action': 'spawn',
-            'prompt': 'Run a bash command that outputs to stderr: echo "test stderr" >&2',
-            'allowedTools': ['Bash']
-        }
+        command = "SPAWN:sync:claude::sonnet::Run a bash command that outputs to stderr: echo 'test stderr' >&2"
         
         try:
             sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             sock.connect(self.socket_path)
             sock.settimeout(15.0)
             
-            sock.send(json.dumps(command).encode() + b'\n')
+            sock.send(command.encode() + b'\n')
             response = sock.recv(4096).decode()
             sock.close()
             

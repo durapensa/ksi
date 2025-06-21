@@ -185,19 +185,5 @@ class TimestampManager:
         return timestamp_str
 
 
-# Convenience functions for backward compatibility
-def get_utc_timestamp() -> str:
-    """Get UTC timestamp with Z suffix - backward compatible function"""
-    return TimestampManager.timestamp_utc()
-
-def get_local_timestamp() -> str:
-    """Get local timestamp with timezone - backward compatible function"""
-    return TimestampManager.timestamp_local_iso()
-
-def get_filename_timestamp(utc: bool = False) -> str:
-    """Get filename-safe timestamp - backward compatible function"""
-    return TimestampManager.filename_timestamp(utc)
-
-
 # Global instance for easy access
 timestamp_manager = TimestampManager()

@@ -75,7 +75,7 @@ class ClaudeAgent:
     async def register_with_daemon(self):
         """Register this agent with the daemon"""
         # First, connect this agent to the message bus
-        command = f"CONNECT_AGENT:{self.agent_id}\n"
+        command = f"AGENT_CONNECTION:connect:{self.agent_id}\n"
         self.writer.write(command.encode())
         await self.writer.drain()
         

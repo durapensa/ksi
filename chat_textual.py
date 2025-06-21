@@ -774,7 +774,7 @@ class ChatInterface(App):
         """Disconnect from multi-agent conversation"""
         if self.agent_id and self.message_writer:
             try:
-                disconnect_cmd = f"DISCONNECT_AGENT:{self.agent_id}\n"
+                disconnect_cmd = f"AGENT_CONNECTION:disconnect:{self.agent_id}\n"
                 self.message_writer.write(disconnect_cmd.encode())
                 await self.message_writer.drain()
                 self.message_writer.close()

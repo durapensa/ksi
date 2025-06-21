@@ -24,7 +24,6 @@ Minimal daemon system for managing Claude processes with conversation continuity
 - Examples:
   - `SPAWN:sync:claude::sonnet::Hello world`
   - `SPAWN:async:claude:session123:sonnet:agent1:Complex task`
-- Legacy formats auto-detected for backward compatibility
 
 **Command Organization**:
 - Total: ~20 commands organized into functional groups
@@ -126,11 +125,11 @@ python3 tests/test_daemon_protocol.py
 ### Monitor TUI Connection Issue (FIXED 2025-06-21)
 **Problem**: Monitor would connect but display no data
 **Root Cause**: The message bus requires agents to:
-1. First call `CONNECT_AGENT:agent_id` to register the connection
+1. First call `AGENT_CONNECTION:connect:agent_id` to register the connection
 2. Then call `SUBSCRIBE:agent_id:event_types` to subscribe to events
 
 **Solution**: Modified monitor_tui.py to:
-- Send CONNECT_AGENT command first
+- Send AGENT_CONNECTION:connect command first
 - Use separate connection for SUBSCRIBE command  
 - Keep main connection exclusively for receiving messages
 - Enable debug mode by default for troubleshooting
@@ -160,10 +159,10 @@ This caused the daemon to close the connection when it received a command on a m
 
 **Command System Unified**:
 - Implemented unified SPAWN command: `SPAWN:[mode]:[type]:[session_id]:[model]:[agent_id]:<prompt>`
-- Removed all SPAWN_ASYNC usage - replaced with SPAWN:async format
-- Consolidated CONNECT_AGENT/DISCONNECT_AGENT into AGENT_CONNECTION:connect|disconnect:agent_id
+- Consolidated AGENT_CONNECTION:connect|disconnect:agent_id (removed legacy CONNECT_AGENT/DISCONNECT_AGENT)
 - Added command aliases: S: → SPAWN:, R: → RELOAD:, SA: → SPAWN_AGENT:, etc.
 - Enhanced GET_COMMANDS with functional grouping and alias metadata
+- Removed deprecated SEND_MESSAGE command (use PUBLISH instead)
 
 **SPAWN_AGENT Fixed for Multi-Agent Support**:
 - Problem: Was spawning raw Claude CLI processes that couldn't use message bus
@@ -189,6 +188,23 @@ This caused the daemon to close the connection when it received a command on a m
 - Created conversation mode compositions: debate, collaboration, teaching, brainstorm, analysis
 - Built orchestrate_v2.py using composition-based conversation modes
 - Enhanced error handling and logging in PromptComposer and agent_process.py
+
+### Session 2025-06-21: Legacy Code Cleanup
+**Backward Compatibility Removed**:
+- Removed legacy SPAWN format detection from command_handler.py
+- Removed deprecated CONNECT_AGENT/DISCONNECT_AGENT handlers
+- Removed deprecated SEND_MESSAGE command handler
+- Updated all code to use AGENT_CONNECTION:connect|disconnect instead of legacy commands
+- Removed backward compatibility timestamp functions from timestamp_utils.py
+- Removed tools/migrate_timestamps.py (no longer needed)
+- Removed test_async_spawn.py (functionality covered by test_async_completion.py)
+- Updated daemon/core.py to only recognize new AGENT_CONNECTION format
+
+**Files Updated**:
+- daemon/command_handler.py: Removed ~100 lines of legacy code
+- daemon/timestamp_utils.py: Removed convenience functions
+- monitor_tui.py, agent_process.py, claude_agent.py, chat_textual.py: Updated to new commands
+- All test files updated to use new command format
 
 ---
 *For Claude Code interactive development sessions*

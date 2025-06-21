@@ -15,7 +15,7 @@ async def test_async_completion():
     reader, writer = await asyncio.open_unix_connection('sockets/claude_daemon.sock')
     
     # Register as test agent
-    writer.write(b"CONNECT_AGENT:test_agent\n")
+    writer.write(b"AGENT_CONNECTION:connect:test_agent\n")
     await writer.drain()
     response = await reader.readline()
     logger.info(f"Connect response: {response.decode().strip()}")

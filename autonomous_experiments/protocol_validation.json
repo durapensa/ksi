@@ -1,31 +1,31 @@
 {
-  "timestamp": 1750395271.1852071,
-  "tests_passed": 1,
+  "timestamp": 1750530544.3212538,
+  "tests_passed": 3,
   "tests_total": 4,
   "results": [
     {
       "test": "socket_connection",
       "success": true,
       "message": "Successfully connected to daemon socket",
-      "timestamp": 1750395261.1828191
+      "timestamp": 1750530533.208765
     },
     {
       "test": "json_spawn_format",
-      "success": false,
-      "message": "No response received",
-      "timestamp": 1750395261.183342
+      "success": true,
+      "message": "Got response with session_id: True",
+      "timestamp": 1750530536.1406898
     },
     {
       "test": "spawn_string_format",
-      "success": false,
-      "message": "Error: timed out",
-      "timestamp": 1750395271.184268
+      "success": true,
+      "message": "Got response: 66 bytes",
+      "timestamp": 1750530536.14357
     },
     {
       "test": "stderr_capture",
       "success": false,
-      "message": "No response received",
-      "timestamp": 1750395271.1850822
+      "message": "stderr field present: False",
+      "timestamp": 1750530544.3211231
     }
   ]
 }

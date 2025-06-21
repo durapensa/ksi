@@ -263,14 +263,14 @@ class MultiClaudeMonitor(App):
             self.connected = True
             
             # First connect as an agent (this connection will be used for message bus)
-            connect_command = "CONNECT_AGENT:monitor\n"
+            connect_command = "AGENT_CONNECTION:connect:monitor\n"
             self.writer.write(connect_command.encode())
             await self.writer.drain()
             
             # Read and verify connection response
             response = await self.reader.readline()
             if not response:
-                raise Exception("No response from daemon for CONNECT_AGENT")
+                raise Exception("No response from daemon for AGENT_CONNECTION")
             
             try:
                 resp_data = json.loads(response.decode().strip())
@@ -533,7 +533,7 @@ class MultiClaudeMonitor(App):
         """Disconnect from daemon"""
         if self.writer:
             try:
-                self.writer.write(b"DISCONNECT_AGENT:monitor\n")
+                self.writer.write(b"AGENT_CONNECTION:disconnect:monitor\n")
                 await self.writer.drain()
                 self.writer.close()
                 await self.writer.wait_closed()

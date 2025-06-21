@@ -74,7 +74,7 @@ class AgentProcess:
             logger.info(f"Connected to daemon at {self.daemon_socket}")
             
             # Register as persistent agent
-            command = f"CONNECT_AGENT:{self.agent_id}\n"
+            command = f"AGENT_CONNECTION:connect:{self.agent_id}\n"
             self.writer.write(command.encode())
             await self.writer.drain()
             
@@ -627,7 +627,7 @@ class AgentProcess:
         """Disconnect from daemon"""
         if self.writer:
             try:
-                command = f"DISCONNECT_AGENT:{self.agent_id}\n"
+                command = f"AGENT_CONNECTION:disconnect:{self.agent_id}\n"
                 self.writer.write(command.encode())
                 await self.writer.drain()
                 
