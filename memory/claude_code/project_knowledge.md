@@ -108,6 +108,14 @@ Minimal daemon system for managing Claude processes with conversation continuity
 - Includes CLI interface for exploration
 - Enables dynamic composition selection by agents
 
+**Dynamic Composition Selection** (Completed 2025-06-21):
+- Created `prompts/composition_selector.py` with intelligent scoring algorithm
+- Multi-factor scoring: role match (30%), capabilities (25%), task relevance (25%), style (10%), quality (10%)
+- Integrated into `daemon/agent_process.py` - agents now dynamically select compositions
+- Performance-optimized with 5-minute TTL cache
+- Created `orchestrate_v3.py` with full dynamic discovery
+- Agents adapt their prompts based on role, capabilities, and current task
+
 ### Multi-Agent Infrastructure Status
 **Implementation**: Core components operational with recent architectural improvements
 - **Agent Registry**: `REGISTER_AGENT`, `GET_AGENTS` commands available
