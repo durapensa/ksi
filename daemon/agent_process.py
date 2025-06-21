@@ -19,6 +19,7 @@ import re
 # Add path for prompt composer
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from prompts.composer import PromptComposer
+from prompts.composition_selector import CompositionSelector, SelectionContext
 from daemon.timestamp_utils import TimestampManager
 from daemon.client import CommandBuilder, ResponseHandler, ConnectionManager
 
@@ -44,6 +45,7 @@ class AgentProcess:
         self.active_conversations: Dict[str, Dict] = {}  # conversation_id -> conversation state
         self.running = True
         self.prompt_composer = PromptComposer()
+        self.composition_selector = CompositionSelector(daemon_socket)
         self.pending_processes: Dict[str, Dict] = {}  # process_id -> pending response info
         
         # Load agent profile if specified
@@ -395,8 +397,25 @@ class AgentProcess:
                 'enable_tools': self.profile_config.get('enable_tools', True)
             }
             
-            # Use composition from profile or default
-            composition_name = self.profile_config.get('composition', 'claude_agent_default')
+            # Dynamic composition selection
+            # Build selection context from agent profile and current task
+            selection_context = SelectionContext(
+                agent_id=self.agent_id,
+                role=agent_role,
+                capabilities=self.profile_config.get('capabilities', []),
+                task_description=prompt[:200],  # Use first 200 chars of prompt as task description
+                context_variables=context
+            )
+            
+            # Select best composition dynamically
+            try:
+                selection_result = await self.composition_selector.select_composition(selection_context)
+                composition_name = selection_result.composition_name
+                logger.info(f"Selected composition '{composition_name}' (score: {selection_result.score:.1f})")
+                logger.info(f"Selection reasons: {', '.join(selection_result.reasons[:3])}")
+            except Exception as e:
+                logger.warning(f"Composition selection failed: {e}, using profile default")
+                composition_name = self.profile_config.get('composition', 'claude_agent_default')
             
             # Compose the full prompt
             try:
@@ -478,8 +497,25 @@ class AgentProcess:
                 'enable_tools': self.profile_config.get('enable_tools', True)
             }
             
-            # Use composition from profile or default
-            composition_name = self.profile_config.get('composition', 'claude_agent_default')
+            # Dynamic composition selection
+            # Build selection context from agent profile and current task
+            selection_context = SelectionContext(
+                agent_id=self.agent_id,
+                role=agent_role,
+                capabilities=self.profile_config.get('capabilities', []),
+                task_description=prompt[:200],  # Use first 200 chars of prompt as task description
+                context_variables=context
+            )
+            
+            # Select best composition dynamically
+            try:
+                selection_result = await self.composition_selector.select_composition(selection_context)
+                composition_name = selection_result.composition_name
+                logger.info(f"Selected composition '{composition_name}' (score: {selection_result.score:.1f})")
+                logger.info(f"Selection reasons: {', '.join(selection_result.reasons[:3])}")
+            except Exception as e:
+                logger.warning(f"Composition selection failed: {e}, using profile default")
+                composition_name = self.profile_config.get('composition', 'claude_agent_default')
             
             # Compose the full prompt
             try:
