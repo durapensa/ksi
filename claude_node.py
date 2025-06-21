@@ -91,11 +91,17 @@ class ClaudeNode:
         """Subscribe to message bus events"""
         event_types = ['DIRECT_MESSAGE', 'BROADCAST', 'TASK_ASSIGNMENT', 'CONVERSATION_INVITE']
         
-        command = f"SUBSCRIBE:{self.node_id}:{','.join(event_types)}\n"
-        self.writer.write(command.encode())
-        await self.writer.drain()
+        # Need separate connection for subscription
+        sub_reader, sub_writer = await asyncio.open_unix_connection(self.daemon_socket)
         
-        response = await self.reader.readline()
+        command = f"SUBSCRIBE:{self.node_id}:{','.join(event_types)}\n"
+        sub_writer.write(command.encode())
+        await sub_writer.drain()
+        
+        response = await sub_reader.readline()
+        sub_writer.close()
+        await sub_writer.wait_closed()
+        
         result = json.loads(response.decode().strip())
         
         if result.get('status') == 'subscribed':
@@ -108,22 +114,35 @@ class ClaudeNode:
         try:
             while self.running:
                 if not self.reader:
+                    logger.warning("Reader connection lost")
                     break
                     
-                data = await self.reader.readline()
-                if not data:
-                    logger.warning("Connection closed by daemon")
-                    break
-                
                 try:
-                    message = json.loads(data.decode().strip())
-                    await self.handle_message(message)
-                except json.JSONDecodeError:
-                    logger.error(f"Invalid message format: {data}")
+                    data = await self.reader.readline()
+                    if not data:
+                        logger.warning("Connection closed by daemon")
+                        break
+                    
+                    try:
+                        message = json.loads(data.decode().strip())
+                        await self.handle_message(message)
+                    except json.JSONDecodeError:
+                        logger.error(f"Invalid message format: {data}")
+                        
+                except asyncio.CancelledError:
+                    logger.info("Message listener cancelled")
+                    break
+                except ConnectionResetError:
+                    logger.error("Connection reset by daemon")
+                    break
+                except BrokenPipeError:
+                    logger.error("Broken pipe - daemon connection lost")
+                    break
                     
         except Exception as e:
             logger.error(f"Error in message listener: {e}")
         finally:
+            logger.info(f"Node {self.node_id} shutting down")
             await self.disconnect()
     
     async def handle_message(self, message: Dict):
@@ -191,7 +210,8 @@ class ClaudeNode:
                 'claude',
                 '--model', self.profile_config.get('model', 'sonnet'),
                 '--print',
-                '--output-format', 'json'
+                '--output-format', 'json',
+                '--allowedTools', 'Task,Bash,Glob,Grep,LS,Read,Edit,MultiEdit,Write,WebFetch,WebSearch'
             ]
             
             if self.session_id:
@@ -209,7 +229,10 @@ class ClaudeNode:
             stdout, stderr = process.communicate(input=full_prompt)
             
             if process.returncode != 0:
-                logger.error(f"Claude error: {stderr}")
+                logger.error(f"Claude CLI failed with code {process.returncode}")
+                logger.error(f"Command: {' '.join(cmd)}")
+                logger.error(f"Stderr: {stderr}")
+                logger.error(f"Stdout: {stdout}")
                 return None
             
             # Parse output
@@ -217,7 +240,14 @@ class ClaudeNode:
                 for line in stdout.strip().split('\n'):
                     if line.strip():
                         output = json.loads(line)
-                        if output.get('type') == 'text':
+                        # Handle new claude CLI output format
+                        if output.get('type') == 'result' and output.get('result'):
+                            # Store session_id for future use
+                            if output.get('session_id'):
+                                self.session_id = output['session_id']
+                            return output.get('result', '').strip()
+                        # Legacy format support
+                        elif output.get('type') == 'text':
                             return output.get('text', '').strip()
                         elif output.get('sessionId'):
                             self.session_id = output['sessionId']
@@ -249,23 +279,39 @@ class ClaudeNode:
     
     async def send_message(self, to_agent: str, content: str, conversation_id: str):
         """Send message to another agent"""
-        message = {
-            'to': to_agent,
-            'content': content,
-            'conversation_id': conversation_id
-        }
-        
-        command = f"PUBLISH:{self.node_id}:DIRECT_MESSAGE:{json.dumps(message)}\n"
-        self.writer.write(command.encode())
-        await self.writer.drain()
-        
-        # Add to our conversation history
-        if conversation_id in self.active_conversations:
-            self.active_conversations[conversation_id]['history'].append({
-                'from': self.node_id,
+        try:
+            message = {
+                'to': to_agent,
                 'content': content,
-                'timestamp': datetime.utcnow().isoformat() + 'Z'
-            })
+                'conversation_id': conversation_id
+            }
+            
+            # Use a separate connection for sending commands
+            cmd_reader, cmd_writer = await asyncio.open_unix_connection(self.daemon_socket)
+            
+            command = f"PUBLISH:{self.node_id}:DIRECT_MESSAGE:{json.dumps(message)}\n"
+            cmd_writer.write(command.encode())
+            await cmd_writer.drain()
+            
+            # Read response
+            response = await cmd_reader.readline()
+            if response:
+                result = json.loads(response.decode().strip())
+                logger.info(f"Message sent: {result}")
+            
+            cmd_writer.close()
+            await cmd_writer.wait_closed()
+            
+            # Add to our conversation history
+            if conversation_id in self.active_conversations:
+                self.active_conversations[conversation_id]['history'].append({
+                    'from': self.node_id,
+                    'content': content,
+                    'timestamp': datetime.utcnow().isoformat() + 'Z'
+                })
+                
+        except Exception as e:
+            logger.error(f"Failed to send message: {e}")
     
     async def start_conversation(self, with_agents: List[str], topic: str):
         """Start a new conversation with other agents"""
@@ -280,16 +326,32 @@ class ClaudeNode:
         
         # Invite other agents
         for agent in with_agents:
-            invite = {
-                'to': agent,
-                'conversation_id': conversation_id,
-                'topic': topic,
-                'initiator': self.node_id
-            }
-            
-            command = f"PUBLISH:{self.node_id}:CONVERSATION_INVITE:{json.dumps(invite)}\n"
-            self.writer.write(command.encode())
-            await self.writer.drain()
+            try:
+                invite = {
+                    'to': agent,
+                    'conversation_id': conversation_id,
+                    'topic': topic,
+                    'initiator': self.node_id
+                }
+                
+                # Use separate connection for sending command
+                cmd_reader, cmd_writer = await asyncio.open_unix_connection(self.daemon_socket)
+                
+                command = f"PUBLISH:{self.node_id}:CONVERSATION_INVITE:{json.dumps(invite)}\n"
+                cmd_writer.write(command.encode())
+                await cmd_writer.drain()
+                
+                # Read response
+                response = await cmd_reader.readline()
+                if response:
+                    result = json.loads(response.decode().strip())
+                    logger.info(f"Invite sent: {result}")
+                
+                cmd_writer.close()
+                await cmd_writer.wait_closed()
+                
+            except Exception as e:
+                logger.error(f"Failed to send invite to {agent}: {e}")
         
         # Send initial message
         await self.send_message(with_agents[0], topic, conversation_id)

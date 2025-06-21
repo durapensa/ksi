@@ -129,7 +129,7 @@ class MultiClaudeOrchestrator:
             
             # Start daemon
             daemon_process = subprocess.Popen(
-                ['python', 'daemon.py'],
+                ['python3', 'daemon.py'],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE
             )
@@ -201,7 +201,7 @@ class MultiClaudeOrchestrator:
             
             # Start Claude node
             cmd = [
-                'python', 'claude_node.py',
+                'python3', 'claude_node.py',
                 '--id', agent_id,
                 '--profile', f'temp_{mode_config["name"]}_{i}'
             ]

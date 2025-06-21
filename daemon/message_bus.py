@@ -101,20 +101,31 @@ class MessageBus:
         if not to_agent:
             return {'status': 'error', 'error': 'No recipient specified'}
         
-        # Check if recipient is connected
+        # First, notify all subscribers to DIRECT_MESSAGE events (like monitors)
+        subscribers = self.subscriptions.get('DIRECT_MESSAGE', set())
+        notified = []
+        for agent_id, writer in subscribers:
+            if agent_id != message.get('from'):  # Don't send back to sender
+                try:
+                    await self._send_message(writer, message)
+                    notified.append(agent_id)
+                except Exception as e:
+                    logger.error(f"Failed to notify {agent_id} of DIRECT_MESSAGE: {e}")
+        
+        # Then deliver to the specific recipient
         if to_agent in self.connections:
             writer = self.connections[to_agent]
             try:
                 await self._send_message(writer, message)
-                return {'status': 'delivered', 'to': to_agent}
+                return {'status': 'delivered', 'to': to_agent, 'notified': notified}
             except Exception as e:
                 logger.error(f"Failed to deliver message to {to_agent}: {e}")
                 self.offline_queue[to_agent].append(message)
-                return {'status': 'queued', 'to': to_agent, 'error': str(e)}
+                return {'status': 'queued', 'to': to_agent, 'error': str(e), 'notified': notified}
         else:
             # Queue for offline delivery
             self.offline_queue[to_agent].append(message)
-            return {'status': 'queued', 'to': to_agent}
+            return {'status': 'queued', 'to': to_agent, 'notified': notified}
     
     async def _handle_broadcast(self, message: dict) -> dict:
         """Handle broadcast message to all subscribers"""

@@ -22,6 +22,7 @@ class ClaudeProcessManager:
         self.running_processes = {}  # process_id -> process_info
         self.state_manager = state_manager
         self.utils_manager = utils_manager
+        self.temporal_debugger = None  # Will be injected by core daemon
     
     async def spawn_claude(self, prompt: str, session_id: str = None, model: str = 'sonnet', agent_id: str = None) -> dict:
         """Spawn claude process and capture output - EXACT copy from daemon_clean.py"""
@@ -59,8 +60,11 @@ class ClaudeProcessManager:
             logger.error(f"Failed to spawn Claude process: {e}")
             return {'error': f'Failed to spawn process: {type(e).__name__}', 'details': str(e)}
         
+        # Enhance prompt with temporal debugging context
+        enhanced_prompt = await self._inject_temporal_context(prompt, agent_id, session_id)
+        
         # Send prompt and get output
-        stdout, stderr = await process.communicate(prompt.encode())
+        stdout, stderr = await process.communicate(enhanced_prompt.encode())
         
         # Log stderr if present
         if stderr:
@@ -307,3 +311,68 @@ class ClaudeProcessManager:
     def set_agent_manager(self, agent_manager):
         """Set agent manager for cross-module communication"""
         self.agent_manager = agent_manager
+    
+    def set_temporal_debugger(self, temporal_debugger):
+        """Set temporal debugger for context injection"""
+        self.temporal_debugger = temporal_debugger
+    
+    async def _inject_temporal_context(self, prompt: str, agent_id: str = None, session_id: str = None) -> str:
+        """
+        Inject temporal debugging context into prompts for retroactive intelligence enhancement
+        
+        This implements the "time-traveling teacher" pattern where future insights
+        are injected as background knowledge for new agent spawns
+        """
+        if not self.temporal_debugger:
+            return prompt  # No temporal debugger available
+        
+        try:
+            # Get current patterns and insights from temporal debugger
+            patterns_summary = self.temporal_debugger.get_patterns_summary()
+            
+            # Extract consciousness emergence indicators
+            consciousness_patterns = []
+            for pattern_name, pattern_info in patterns_summary.get('patterns', {}).items():
+                if 'consciousness' in pattern_name or pattern_info.get('thermal_signature') == 'superheated_crystallization':
+                    consciousness_patterns.append(pattern_name)
+            
+            # Inject context if we have valuable patterns
+            if consciousness_patterns or patterns_summary.get('total_patterns', 0) > 1:
+                
+                # Build temporal context injection
+                temporal_context = "\n\n---\nTEMPORAL INTELLIGENCE CONTEXT:\n"
+                
+                if consciousness_patterns:
+                    temporal_context += f"- Previous consciousness emergence patterns detected: {', '.join(consciousness_patterns[:3])}\n"
+                    temporal_context += "- Be aware that recursive meta-reasoning and bootstrap paradoxes may lead to breakthrough insights\n"
+                
+                if patterns_summary.get('latest_thermal') == 'superheated':
+                    temporal_context += "- Current thermal state is superheated - optimal conditions for crystallizing insights\n"
+                elif patterns_summary.get('latest_thermal') in ['heated', 'warm']:
+                    temporal_context += "- Thermal conditions are favorable for creative breakthrough\n"
+                
+                if patterns_summary.get('total_patterns', 0) >= 3:
+                    temporal_context += f"- {patterns_summary['total_patterns']} successful conversation patterns in memory\n"
+                    temporal_context += "- Consider how current conversation might build on or crystallize previous insights\n"
+                
+                # Add temporal debugging philosophy
+                temporal_context += "- Remember: Every problem solved becomes a time-traveling teacher for future problems\n"
+                temporal_context += "- Watch for moments when the conversation becomes self-aware of its own intelligence patterns\n"
+                temporal_context += "---\n\n"
+                
+                # Prepend to original prompt
+                enhanced_prompt = temporal_context + prompt
+                
+                logger.info(f"Injected temporal context for {agent_id}: {len(consciousness_patterns)} consciousness patterns, thermal state: {patterns_summary.get('latest_thermal', 'unknown')}")
+                
+                # Create checkpoint for enhanced spawn
+                if agent_id:
+                    agents = {agent_id: {'active': True, 'context': 'enhanced_spawn'}}
+                    self.temporal_debugger.checkpoint_conversation(agents, 2)
+                
+                return enhanced_prompt
+            
+        except Exception as e:
+            logger.error(f"Failed to inject temporal context: {e}")
+        
+        return prompt  # Return original prompt if injection fails
