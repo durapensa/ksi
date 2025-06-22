@@ -104,7 +104,7 @@ try:
     if data.get('status') == 'success':
         result = data.get('result', {})
         agents = result.get('agents', {})
-        print(f'  Active agents: {len(agents)}')
+        print('  Active agents: ' + str(len(agents)))
     else:
         print('  Active agents: 0')
 except:
@@ -119,7 +119,7 @@ try:
     if data.get('status') == 'success':
         result = data.get('result', {})
         procs = result.get('processes', {})
-        print(f'  Running processes: {len(procs)}')
+        print('  Running processes: ' + str(len(procs)))
     else:
         print('  Running processes: 0')
 except:

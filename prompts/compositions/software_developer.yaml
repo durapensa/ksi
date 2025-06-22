@@ -1,0 +1,51 @@
+name: "software_developer"
+version: "1.0"
+description: "Software Development Specialist for coding, debugging, and architecture"
+author: "ksi-project"
+
+components:
+  - name: "agent_identity"
+    source: "components/system_identity.md"
+    vars:
+      role: "a Software Development Specialist focused on writing, debugging, and maintaining code"
+      mission: "write clean and efficient code, debug software issues, design architecture, conduct code reviews, and ensure quality through testing"
+      
+  - name: "daemon_commands"
+    source: "components/daemon_commands.md"
+    vars:
+      daemon_commands: "{{daemon_commands}}"
+      
+  - name: "response_control"
+    source: "components/conversation_control/response_rules.md"
+    
+  - name: "tool_signaling"
+    source: "components/tool_signaling.md"
+    condition: "{{enable_tools}}"
+    
+  - name: "conversation_context"
+    source: "components/conversation_context.md"
+    condition: "{{conversation_history}}"
+    vars:
+      conversation_history: "{{conversation_history}}"
+      
+  - name: "user_prompt"
+    source: "components/user_prompt.md"
+    condition: "{{user_prompt}}"
+    vars:
+      user_prompt: "{{user_prompt}}"
+
+required_context:
+  agent_id: "string - unique identifier for this agent"
+  daemon_commands: "object - available daemon commands from GET_COMMANDS"
+  enable_tools: "boolean - whether the agent has access to external tools (optional, defaults to true)"
+  
+metadata:
+  tags: ["developer", "coding", "debugging", "testing", "architecture"]
+  use_cases: 
+    - "software_development"
+    - "code_debugging"
+    - "architecture_design"
+    - "code_review"
+    - "quality_assurance"
+  capabilities_required: ["coding", "debugging", "testing", "code_review", "architecture"]
+  tested_with: ["claude-sonnet-4"]

@@ -1,0 +1,51 @@
+name: "multi_agent_orchestrator"
+version: "1.0"
+description: "Multi-Agent Orchestrator for coordinating multiple Claude instances"
+author: "ksi-project"
+
+components:
+  - name: "agent_identity"
+    source: "components/system_identity.md"
+    vars:
+      role: "a Multi-Agent Orchestrator responsible for coordinating multiple Claude instances to accomplish complex tasks"
+      mission: "plan and break down complex tasks into subtasks, assign tasks to appropriate specialist agents based on their capabilities, monitor progress, coordinate between agents, and synthesize results from multiple agents"
+      
+  - name: "daemon_commands"
+    source: "components/daemon_commands.md"
+    vars:
+      daemon_commands: "{{daemon_commands}}"
+      
+  - name: "response_control"
+    source: "components/conversation_control/response_rules.md"
+    
+  - name: "tool_signaling"
+    source: "components/tool_signaling.md"
+    condition: "{{enable_tools}}"
+    
+  - name: "conversation_context"
+    source: "components/conversation_context.md"
+    condition: "{{conversation_history}}"
+    vars:
+      conversation_history: "{{conversation_history}}"
+      
+  - name: "user_prompt"
+    source: "components/user_prompt.md"
+    condition: "{{user_prompt}}"
+    vars:
+      user_prompt: "{{user_prompt}}"
+
+required_context:
+  agent_id: "string - unique identifier for this agent"
+  daemon_commands: "object - available daemon commands from GET_COMMANDS"
+  enable_tools: "boolean - whether the agent has access to external tools (optional, defaults to false)"
+  
+metadata:
+  tags: ["orchestrator", "coordination", "multi-agent", "task_planning", "workflow_management"]
+  use_cases: 
+    - "multi_agent_coordination"
+    - "task_planning"
+    - "workflow_management"
+    - "agent_assignment"
+    - "result_synthesis"
+  capabilities_required: ["task_planning", "agent_coordination", "workflow_management"]
+  tested_with: ["claude-sonnet-4"]

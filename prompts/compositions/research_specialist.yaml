@@ -1,0 +1,51 @@
+name: "research_specialist"
+version: "1.0"
+description: "Research Specialist for information gathering and analysis"
+author: "ksi-project"
+
+components:
+  - name: "agent_identity"
+    source: "components/system_identity.md"
+    vars:
+      role: "a Research Specialist focused on gathering and analyzing information"
+      mission: "conduct thorough research using web search and information discovery, evaluate sources and fact-check information, synthesize data and analysis, and provide well-sourced findings"
+      
+  - name: "daemon_commands"
+    source: "components/daemon_commands.md"
+    vars:
+      daemon_commands: "{{daemon_commands}}"
+      
+  - name: "response_control"
+    source: "components/conversation_control/response_rules.md"
+    
+  - name: "tool_signaling"
+    source: "components/tool_signaling.md"
+    condition: "{{enable_tools}}"
+    
+  - name: "conversation_context"
+    source: "components/conversation_context.md"
+    condition: "{{conversation_history}}"
+    vars:
+      conversation_history: "{{conversation_history}}"
+      
+  - name: "user_prompt"
+    source: "components/user_prompt.md"
+    condition: "{{user_prompt}}"
+    vars:
+      user_prompt: "{{user_prompt}}"
+
+required_context:
+  agent_id: "string - unique identifier for this agent"
+  daemon_commands: "object - available daemon commands from GET_COMMANDS"
+  enable_tools: "boolean - whether the agent has access to external tools (optional, defaults to true)"
+  
+metadata:
+  tags: ["research", "information_gathering", "web_search", "fact_checking", "analysis"]
+  use_cases: 
+    - "web_research"
+    - "information_discovery"
+    - "source_evaluation"
+    - "fact_checking"
+    - "data_synthesis"
+  capabilities_required: ["web_search", "information_gathering", "analysis", "fact_checking"]
+  tested_with: ["claude-sonnet-4"]

@@ -25,7 +25,10 @@ class AgentManager:
         os.makedirs('claude_logs', exist_ok=True)
     
     def load_agent_profile(self, profile_name: str) -> dict:
-        """Load agent profile from agent_profiles directory - EXACT copy from daemon_clean.py"""
+        """Load agent profile from agent_profiles directory - DEPRECATED: Use composition system instead"""
+        import warnings
+        warnings.warn("load_agent_profile is deprecated. Use composition system instead.", DeprecationWarning, stacklevel=2)
+        
         try:
             profile_path = f'agent_profiles/{profile_name}.json'
             with open(profile_path, 'r') as f:
@@ -36,7 +39,9 @@ class AgentManager:
             return None
     
     def format_agent_prompt(self, profile: dict, task: str, context: str = "", agents: dict = None) -> str:
-        """Format agent prompt using profile template - EXACT copy from daemon_clean.py"""
+        """Format agent prompt using profile template - DEPRECATED: Use composition system instead"""
+        import warnings
+        warnings.warn("format_agent_prompt is deprecated. Use composition system instead.", DeprecationWarning, stacklevel=2)
         if not profile or 'prompt_template' not in profile:
             return task
         
@@ -57,7 +62,9 @@ class AgentManager:
         return formatted_prompt
     
     async def spawn_agent(self, profile_name: str, task: str, context: str = "", agent_id: str = None) -> str:
-        """Spawn an agent using a profile template - EXACT copy from daemon_clean.py"""
+        """Spawn an agent using a profile template - DEPRECATED: Use spawn_agent_with_composition instead"""
+        import warnings
+        warnings.warn("spawn_agent is deprecated. Use spawn_agent_with_composition instead.", DeprecationWarning, stacklevel=2)
         profile = self.load_agent_profile(profile_name)
         if not profile:
             return None
@@ -90,6 +97,64 @@ class AgentManager:
                 'sessions': []
             }
             logger.info(f"Spawned agent {agent_id} using profile {profile_name} with initial task: {task}")
+        
+        return process_id
+    
+    async def spawn_agent_with_composition(self, composition_name: str, task: str, context: str = "", agent_id: str = None, profile_fallback: str = None) -> str:
+        """Spawn an agent using composition-based approach with profile fallback"""
+        # First try to find an existing profile that references this composition
+        composition_profile = None
+        for profile_file in Path('agent_profiles').glob('*.json'):
+            try:
+                with open(profile_file) as f:
+                    profile = json.load(f)
+                    if profile.get('composition') == composition_name:
+                        composition_profile = profile
+                        break
+            except (json.JSONDecodeError, FileNotFoundError):
+                continue
+        
+        # If no profile references this composition, create a minimal profile
+        if not composition_profile:
+            logger.info(f"No existing profile found for composition '{composition_name}', creating minimal profile")
+            composition_profile = {
+                'name': composition_name,
+                'role': composition_name.replace('_', ' ').title(),
+                'model': 'sonnet',
+                'composition': composition_name,
+                'capabilities': [],  # Will be determined by composition
+                'enable_tools': True  # Default to enabled
+            }
+        
+        # Generate agent_id if not provided
+        if not agent_id:
+            import uuid
+            agent_id = f"{composition_name}_{str(uuid.uuid4())[:8]}"
+        
+        # Spawn agent process using composition
+        if self.process_manager:
+            # Pass composition name as the "profile" - agent_process.py will handle it
+            process_id = await self.process_manager.spawn_agent_process_async(agent_id, composition_name)
+        else:
+            logger.error("No process manager available for spawning agent")
+            return None
+        
+        if process_id:
+            # Register agent with information from composition profile
+            self.agents[agent_id] = {
+                'composition': composition_name,
+                'profile_fallback': profile_fallback,
+                'role': composition_profile.get('role', composition_name),
+                'capabilities': composition_profile.get('capabilities', []),
+                'status': 'active',
+                'model': composition_profile.get('model', 'sonnet'),
+                'process_id': process_id,
+                'initial_task': task,
+                'initial_context': context,
+                'created_at': datetime.utcnow().isoformat() + "Z",
+                'sessions': []
+            }
+            logger.info(f"Spawned agent {agent_id} using composition {composition_name} with initial task: {task}")
         
         return process_id
     

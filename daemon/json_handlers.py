@@ -6,8 +6,14 @@ JSON Command Handlers - Clean implementation for JSON protocol v2.0
 import asyncio
 import json
 import logging
+import sys
+import os
 from datetime import datetime
 from pathlib import Path
+
+# Add path for composition selector
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from prompts.composition_selector import CompositionSelector, SelectionContext
 
 logger = logging.getLogger('daemon')
 
@@ -149,14 +155,44 @@ class CommandHandlers:
             })
     
     async def _handle_spawn_agent(self, parameters: dict, writer: asyncio.StreamWriter, full_command: dict) -> bool:
-        """Handle SPAWN_AGENT command"""
+        """Handle SPAWN_AGENT command with intelligent composition selection"""
         profile_name = parameters.get("profile_name")
         task = parameters.get("task")
         context = parameters.get("context", "")
         agent_id = parameters.get("agent_id")
+        role = parameters.get("role")  # Optional role hint
+        capabilities = parameters.get("capabilities", [])  # Optional capabilities hint
+        
+        # Use CompositionSelector for intelligent composition selection
+        try:
+            socket_path = 'sockets/claude_daemon.sock'
+            selector = CompositionSelector(socket_path)
+            
+            # Create selection context from provided parameters
+            selection_context = SelectionContext(
+                agent_id=agent_id or f"agent_{profile_name}",
+                role=role or profile_name,  # Use profile_name as role fallback
+                capabilities=capabilities,
+                task_description=task,
+                context_variables={"context": context}
+            )
+            
+            # Select best composition
+            selection_result = await selector.select_composition(selection_context)
+            composition_name = selection_result.composition_name
+            
+            logger.info(f"Selected composition '{composition_name}' for agent {agent_id or profile_name} (score: {selection_result.score:.3f})")
+            logger.debug(f"Selection reasons: {selection_result.reasons}")
+            
+        except Exception as e:
+            logger.warning(f"Composition selection failed, falling back to profile: {e}")
+            # Fallback to original profile-based behavior
+            composition_name = profile_name
         
         if self.cmd_handler.agent_manager:
-            process_id = await self.cmd_handler.agent_manager.spawn_agent(profile_name, task, context, agent_id)
+            process_id = await self.cmd_handler.agent_manager.spawn_agent_with_composition(
+                composition_name, task, context, agent_id, profile_fallback=profile_name
+            )
         else:
             process_id = None
         
@@ -167,11 +203,13 @@ class CommandHandlers:
                 'result': {
                     'status': 'spawned',
                     'process_id': process_id,
-                    'agent_id': agent_id or f"{profile_name}_{process_id[:8]}"
+                    'agent_id': agent_id or f"{composition_name}_{process_id[:8]}",
+                    'composition_used': composition_name,
+                    'fallback_used': getattr(selection_result, 'fallback_used', False) if 'selection_result' in locals() else False
                 }
             })
         else:
-            return await self.cmd_handler.send_error_response(writer, "SPAWN_AGENT_FAILED", f"Failed to spawn agent with profile {profile_name}")
+            return await self.cmd_handler.send_error_response(writer, "SPAWN_AGENT_FAILED", f"Failed to spawn agent with composition {composition_name}")
     
     async def _handle_route_task(self, parameters: dict, writer: asyncio.StreamWriter, full_command: dict) -> bool:
         """Handle ROUTE_TASK command"""

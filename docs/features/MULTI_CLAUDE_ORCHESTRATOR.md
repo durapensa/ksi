@@ -131,10 +131,10 @@ Start individual Claude nodes for custom setups:
 
 ```bash
 # Start first node
-python agent_process.py --id researcher_1 --profile researcher
+python agent_process.py --id researcher_1 --profile research_specialist
 
 # Start second node
-python agent_process.py --id analyst_1 --profile analyst
+python agent_process.py --id analyst_1 --profile data_analyst
 
 # Start a conversation between them
 python agent_process.py --id orchestrator --start-conversation \

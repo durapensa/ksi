@@ -124,7 +124,7 @@ Minimal daemon system for managing Claude processes with conversation continuity
   - `SUBSCRIBE:agent_id:event_type1,event_type2` for receiving messages
   - `AGENT_CONNECTION:connect|disconnect:agent_id` (new unified command)
 - **Shared State Store**: `SET_SHARED`/`GET_SHARED` with file persistence in `shared_state/`
-- **Agent Templates**: 15+ profiles in `agent_profiles/` including orchestrator, researcher, coder, analyst, debater, teacher, etc.
+- **Agent Templates**: 15+ profiles in `agent_profiles/` including multi_agent_orchestrator, research_specialist, software_developer, data_analyst, debater, teacher, etc.
 - **Task Distribution**: `ROUTE_TASK` with capability-based routing
 - **Process Spawning**: `SPAWN_AGENT:profile:task:context:agent_id` for profile-based agent creation
 
