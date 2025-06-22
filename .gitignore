@@ -219,3 +219,24 @@ claude_logs/task_routing.jsonl
 
 # Exported conversations
 exports/
+
+# Runtime daemon state
+shared_state/identities.json
+shared_state/session_tracking.json
+
+# Autonomous experiment outputs and validation data
+autonomous_experiments/protocol_validation.json
+autonomous_experiments/outputs/
+
+# Temporary agent profiles
+agent_profiles/temp_*.json
+
+# Experimental/debug files
+experiments/
+test_spawn*.py
+*_debug.py
+*_test.py
+
+# Prompt evolution experiments
+prompts/composition_evolution.py
+prompts/fitness_evaluator.py
