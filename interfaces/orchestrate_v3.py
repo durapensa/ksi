@@ -21,10 +21,19 @@ from daemon.client import CommandBuilder, ResponseHandler
 from prompts.discovery import CompositionDiscovery
 from prompts.composition_selector import CompositionSelector, SelectionContext
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+# Set up logging only if not already configured
+def _setup_logging():
+    """Configure logging only if root logger has no handlers (i.e., not already configured)"""
+    root_logger = logging.getLogger()
+    if not root_logger.handlers:
+        # Only configure if no other logging setup exists
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s'
+        )
+
+# Configure logging conditionally
+_setup_logging()
 logger = logging.getLogger('orchestrator_v3')
 
 

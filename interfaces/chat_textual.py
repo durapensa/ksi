@@ -6,18 +6,21 @@ Rich TUI with support for single-agent chat, multi-agent participation, and conv
 
 import asyncio
 import json
+import logging
 import os
 import sys
 import argparse
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List, Tuple, Any
 import subprocess
 import time
 
 # Import timestamp utilities for consistent timezone handling
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from daemon.timestamp_utils import TimestampManager
+from daemon.client.utils import CommandBuilder, ResponseHandler, ConnectionManager
+# Import AgentProcess later to avoid early logging setup
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
@@ -30,6 +33,16 @@ from textual.worker import Worker, WorkerState
 
 
 SOCKET_PATH = os.environ.get('CLAUDE_DAEMON_SOCKET', 'sockets/claude_daemon.sock')
+
+
+class ChatInput(Input):
+    """Custom Input that allows app-level key bindings to work"""
+    
+    def on_key(self, event: events.Key) -> None:
+        """Handle key events, allowing app bindings for non-text keys"""
+        # Let app-level control keys bubble up naturally - don't intercept them
+        # Input widget doesn't handle these anyway, so they'll reach the app bindings
+        pass
 
 
 class PastConversationBrowser(Container):
@@ -75,6 +88,9 @@ class StatusBar(Static):
 class ChatInterface(App):
     """Enhanced Textual-based chat interface"""
     
+    # Standard Textual configuration
+    AUTO_FOCUS = ""  # Disable auto-focus to prevent Input consuming key events
+    
     CSS = """
     Screen {
         layout: vertical;
@@ -90,6 +106,7 @@ class ChatInterface(App):
     #main-container {
         layout: horizontal;
         height: 1fr;
+        margin-bottom: 2;
     }
     
     #past-sidebar {
@@ -155,12 +172,13 @@ class ChatInterface(App):
     }
     
     #status-bar {
-        height: 1;
+        height: 2;
         background: $surface;
         color: $text-muted;
         padding: 0 1;
         border-top: solid $primary;
         dock: bottom;
+        display: block;
     }
     
     .section-header {
@@ -174,7 +192,7 @@ class ChatInterface(App):
         Binding("ctrl+q", "quit", "Quit", priority=True),
         Binding("ctrl+n", "new_session", "New Session"),
         Binding("ctrl+b", "toggle_past_browser", "Past Sessions"),
-        Binding("ctrl+a", "toggle_active_browser", "Active Sessions"),
+        Binding("ctrl+r", "toggle_active_browser", "Active Sessions"),
         Binding("ctrl+l", "clear_conversation", "Clear"),
         Binding("ctrl+e", "export_conversation", "Export", show=False),
         Binding("f1", "show_help", "Help"),
@@ -208,12 +226,15 @@ class ChatInterface(App):
             'cost': 0.0,
             'messages': 0
         }
+        
+        # Agent process for composition-aware messaging
+        self.agent_process = None
     
     def compose(self) -> ComposeResult:
         """Create the UI layout"""
         # Header
         with Container(id="header-container"):
-            yield Label("🤖 Claude Chat (Textual) - F1: Help | Ctrl+B: Past | Ctrl+A: Active", classes="section-header")
+            yield Label("🤖 Claude Chat (Textual) - F1: Help | Ctrl+B: Past | Ctrl+R: Active", classes="section-header")
         
         # Main content area
         with Container(id="main-container"):
@@ -231,7 +252,7 @@ class ChatInterface(App):
                 
                 # Input area
                 with Container(id="input-container"):
-                    yield Input(
+                    yield ChatInput(
                         placeholder="Type your message... (Ctrl+Q to quit, F1 for help)",
                         id="input-field"
                     )
@@ -248,6 +269,7 @@ class ChatInterface(App):
         # Start initialization in background
         self.init_app()
     
+    
     @work(exclusive=True)
     async def init_app(self) -> None:
         """Initialize the application in background"""
@@ -261,6 +283,9 @@ class ChatInterface(App):
         self.daemon_connected = await self.connect_to_daemon()
         
         if self.daemon_connected:
+            # Initialize agent process for composition support
+            await self.initialize_agent_process()
+            
             # Load available sessions
             await self.load_available_sessions()
             
@@ -285,12 +310,14 @@ class ChatInterface(App):
         except:
             pass
         
-        # Start daemon
+        # Start daemon with all output suppressed
         self.log_message("System", "Starting daemon...")
-        subprocess.Popen(['python3', 'daemon.py'], 
-                        stdout=subprocess.DEVNULL, 
-                        stderr=subprocess.DEVNULL,
-                        preexec_fn=os.setsid)
+        with open(os.devnull, 'w') as devnull:
+            subprocess.Popen(['python3', 'daemon.py'], 
+                            stdout=devnull, 
+                            stderr=devnull,
+                            stdin=devnull,
+                            preexec_fn=os.setsid)
         
         # Wait for daemon to start
         for i in range(20):  # 10 seconds timeout
@@ -317,22 +344,30 @@ class ChatInterface(App):
         except Exception as e:
             return False
     
-    async def send_to_daemon(self, command: str) -> str:
+    async def send_to_daemon(self, command: str, parameters: Dict[str, Any] = None) -> str:
         """Send command to daemon and get response"""
         try:
+            # Build command using CommandBuilder
+            if command.startswith('{'):
+                # Already a JSON string, send as-is
+                command_str = command
+            else:
+                # Use CommandBuilder for proper JSON Protocol v2.0 format
+                command_dict = CommandBuilder.build_command(command, parameters)
+                command_str = json.dumps(command_dict)
+            
             # Create new connection for each command
             reader, writer = await asyncio.open_unix_connection(SOCKET_PATH)
             
-            # Ensure command ends with newline
-            if not command.endswith('\n'):
-                command += '\n'
+            # Send command
+            if not command_str.endswith('\n'):
+                command_str += '\n'
             
-            writer.write(command.encode())
+            writer.write(command_str.encode())
             await writer.drain()
-            writer.write_eof()
             
-            # Read full response
-            response = await reader.read()
+            # Read response line by line (daemon sends JSON + newline)
+            response = await reader.readline()
             
             writer.close()
             await writer.wait_closed()
@@ -340,35 +375,19 @@ class ChatInterface(App):
             return response.decode().strip()
             
         except Exception as e:
-            return json.dumps({"error": f"Command failed: {str(e)}"})
+            return json.dumps({"status": "error", "error": {"message": f"Command failed: {str(e)}"}})
     
-    async def send_spawn_command(self, command: str, prompt_bytes: bytes) -> str:
-        """Send SPAWN command with length-prefixed prompt data"""
+    async def send_spawn_command(self, command_dict: dict) -> str:
+        """Send SPAWN command using JSON Protocol v2.0"""
         try:
-            # Create new connection for each command
-            reader, writer = await asyncio.open_unix_connection(SOCKET_PATH)
+            # Use ConnectionManager with much longer timeout for Claude CLI (can take 5+ minutes for complex requests)
+            response = await ConnectionManager.send_command_once(SOCKET_PATH, command_dict, timeout=300.0)
             
-            # Send command line
-            if not command.endswith('\n'):
-                command += '\n'
-            writer.write(command.encode())
-            await writer.drain()
-            
-            # Send prompt bytes immediately after
-            writer.write(prompt_bytes)
-            await writer.drain()
-            writer.write_eof()
-            
-            # Read full response
-            response = await reader.read()
-            
-            writer.close()
-            await writer.wait_closed()
-            
-            return response.decode().strip()
+            # Return as JSON string for compatibility with existing code
+            return json.dumps(response)
             
         except Exception as e:
-            return json.dumps({"error": f"SPAWN command failed: {str(e)}"})
+            return json.dumps({"status": "error", "error": {"message": f"SPAWN command failed: {str(e)}"}})
     
     def load_profile(self) -> None:
         """Load the specified profile"""
@@ -387,37 +406,23 @@ class ChatInterface(App):
             self.log_message("Error", f"Failed to load profile: {e}")
             self.profile_data = None
     
-    def compose_prompt(self, user_message: str) -> str:
-        """Compose prompt using profile template if available"""
-        if not self.profile_data or 'prompt_template' not in self.profile_data:
-            return user_message
-        
-        # Get the template
-        template = self.profile_data['prompt_template']
-        
-        # Build context from conversation history
-        context = ""
-        if self.session_id and self.current_conversation:
-            # Include last few messages for context
-            recent_messages = self.current_conversation[-4:]  # Last 2 exchanges
-            context_parts = []
-            for msg in recent_messages:
-                if msg.get('type') == 'user':
-                    context_parts.append(f"User: {msg.get('content', '')}")
-                elif msg.get('type') == 'claude':
-                    context_parts.append(f"Claude: {msg.get('content', '')[:200]}...")
-            context = "\n".join(context_parts)
-        
-        # Format the template
+    async def initialize_agent_process(self) -> None:
+        """Initialize AgentProcess for composition-aware messaging"""
         try:
-            formatted_prompt = template.format(
-                task=user_message,
-                context=context if context else "No previous context"
+            # Import here to avoid early logging setup at module level
+            from daemon.agent_process import AgentProcess
+            
+            profile_name = self.args.profile
+            self.agent_process = AgentProcess(
+                agent_id=f"chat_interface_{profile_name}",
+                profile=profile_name,
+                daemon_socket=SOCKET_PATH
             )
-            return formatted_prompt
-        except KeyError as e:
-            self.log_message("Error", f"Profile template error: {e}")
-            return user_message
+            # Note: We don't call connect() as we only use it for message composition
+            self.log_message("System", f"Initialized agent process with profile: {profile_name}")
+        except Exception as e:
+            self.log_message("Error", f"Failed to initialize agent process: {e}")
+            self.agent_process = None
     
     async def load_available_sessions(self) -> None:
         """Load list of available sessions from logs"""
@@ -558,7 +563,20 @@ class ChatInterface(App):
             if len(conv_info['participants']) > 2:
                 participant_str += f" +{len(conv_info['participants']) - 2}"
             
-            label = f"💬 {participant_str} ({conv_info['message_count']} msgs)"
+            # Format last message timestamp
+            time_str = ""
+            if conv_info.get('last_message'):
+                try:
+                    dt = TimestampManager.parse_iso_timestamp(conv_info['last_message'])
+                    local_dt = TimestampManager.utc_to_local(dt)
+                    time_str = f" {local_dt.strftime('%m/%d %H:%M')}"
+                except:
+                    # Fallback for malformed timestamps
+                    timestamp = conv_info['last_message']
+                    if len(timestamp) >= 16:  # Basic ISO format check
+                        time_str = f" {timestamp[5:10]} {timestamp[11:16]}"
+            
+            label = f"💬 {participant_str} ({conv_info['message_count']} msgs){time_str}"
             item = ListItem(Label(label))
             item.conversation_id = conv_id
             list_view.append(item)
@@ -615,8 +633,8 @@ class ChatInterface(App):
         
         return None
     
-    def log_message(self, sender: str, content: str) -> None:
-        """Log a message to the conversation view"""
+    def log_message(self, sender: str, content: str, timestamp: str = None) -> None:
+        """Log a message to the conversation view with optional timestamp"""
         try:
             conv_log = self.query_one("#conversation_log", RichLog)
         except:
@@ -624,21 +642,34 @@ class ChatInterface(App):
             print(f"{sender}: {content}")
             return
         
-        # Format based on sender
+        # Format timestamp for display
+        time_str = ""
+        if timestamp:
+            try:
+                dt = TimestampManager.parse_iso_timestamp(timestamp)
+                local_dt = TimestampManager.utc_to_local(dt)
+                time_str = f" [dim]({local_dt.strftime('%H:%M:%S')})[/]"
+            except:
+                # Fallback if timestamp parsing fails
+                time_str = f" [dim]({timestamp[:8] if len(timestamp) >= 8 else timestamp})[/]"
+        
+        # Format based on sender with timestamp
         if sender == "You":
-            conv_log.write(f"\n[bold cyan]{sender}:[/]")
+            conv_log.write(f"\n[bold cyan]{sender}:{time_str}[/]")
         elif sender == "Claude":
-            conv_log.write(f"\n[bold green]{sender}:[/]")
+            conv_log.write(f"\n[bold green]{sender}:{time_str}[/]")
         elif sender == "System":
-            conv_log.write(f"\n[dim yellow]{sender}:[/]")
+            conv_log.write(f"\n[dim yellow]{sender}:{time_str}[/]")
         elif sender == "Error":
-            conv_log.write(f"\n[bold red]{sender}:[/]")
+            conv_log.write(f"\n[bold red]{sender}:{time_str}[/]")
         else:
             # Other agents in multi-agent mode
-            conv_log.write(f"\n[bold magenta]{sender}:[/]")
+            conv_log.write(f"\n[bold magenta]{sender}:{time_str}[/]")
         
         # Write content with proper formatting
-        for line in content.split('\n'):
+        # Ensure content is a string
+        content_str = str(content)
+        for line in content_str.split('\n'):
             conv_log.write(f"  {line}")
         
         # Track conversation for context
@@ -646,7 +677,7 @@ class ChatInterface(App):
             entry = {
                 "type": "user" if sender == "You" else "claude",
                 "content": content,
-                "timestamp": TimestampManager.format_for_logging(),
+                "timestamp": timestamp or TimestampManager.timestamp_utc(),
                 "sender": sender
             }
             self.current_conversation.append(entry)
@@ -674,51 +705,29 @@ class ChatInterface(App):
             # Send via message bus
             await self.send_multi_agent_message(message)
         else:
-            # Normal single-agent mode
-            # Compose prompt using profile if available
-            composed_prompt = self.compose_prompt(message)
-            
-            # Build spawn command using unified length-prefixed format
-            # Format: SPAWN:sync:claude:session_id:model:agent_id:LENGTH + prompt_bytes
-            prompt_bytes = composed_prompt.encode('utf-8')
-            prompt_length = len(prompt_bytes)
-            
+            # Normal single-agent mode - use AgentProcess for composition support
+            # Set session_id on agent process if we have one
             if self.session_id:
-                command = f"SPAWN:sync:claude:{self.session_id}:sonnet::{prompt_length}"
-            else:
-                command = f"SPAWN:sync:claude::sonnet::{prompt_length}"
+                self.agent_process.session_id = self.session_id
             
-            # Send command with length-prefixed protocol
-            response = await self.send_spawn_command(command, prompt_bytes)
+            # Use agent process to generate response (handles composition automatically)
+            response = await self.agent_process.generate_claude_response(message, "chat")
             
-            try:
-                output = json.loads(response)
-                
-                # Extract session_id
-                new_session_id = output.get('sessionId') or output.get('session_id')
-                if new_session_id:
-                    self.session_id = new_session_id
+            if response:
+                # Extract session_id for future messages
+                if self.agent_process.session_id:
+                    self.session_id = self.agent_process.session_id
                 
                 # Display response
-                if 'error' in output:
-                    self.log_message("Error", output['error'])
-                elif 'result' in output:
-                    self.log_message("Claude", output['result'])
-                elif 'content' in output:
-                    self.log_message("Claude", output['content'])
-                else:
-                    self.log_message("System", "No response content")
+                self.log_message("Claude", response)
                 
                 # Update metrics
                 self.metrics['messages'] += 2
-                if 'result' in output or 'content' in output:
-                    content = output.get('result', output.get('content', ''))
-                    tokens = len(content.split()) * 1.3
-                    self.metrics['tokens'] += int(tokens)
-                    self.metrics['cost'] += tokens * 0.00001
-                
-            except json.JSONDecodeError:
-                self.log_message("Error", f"Invalid response from daemon")
+                tokens = len(response.split()) * 1.3
+                self.metrics['tokens'] += int(tokens)
+                self.metrics['cost'] += tokens * 0.00001
+            else:
+                self.log_message("Error", "No response from Claude")
         
         # Update status and refresh sessions list
         self.update_status()
@@ -796,7 +805,8 @@ class ChatInterface(App):
                         if msg.get('conversation_id') == conversation_id:
                             sender = msg.get('from', 'Unknown')
                             content = msg.get('content', '')
-                            self.log_message(sender, content)
+                            timestamp = msg.get('timestamp')
+                            self.log_message(sender, content, timestamp)
                     except:
                         continue
         except Exception as e:
@@ -804,11 +814,20 @@ class ChatInterface(App):
     
     async def disconnect_from_conversation(self) -> None:
         """Disconnect from multi-agent conversation"""
-        if self.agent_id and self.message_writer:
+        if self.agent_id:
             try:
-                disconnect_cmd = f"AGENT_CONNECTION:disconnect:{self.agent_id}\n"
-                self.message_writer.write(disconnect_cmd.encode())
-                await self.message_writer.drain()
+                # Use CommandBuilder to create disconnect command
+                command_dict = CommandBuilder.build_agent_connection_command(
+                    action="disconnect",
+                    agent_id=self.agent_id
+                )
+                await ConnectionManager.send_command_once(SOCKET_PATH, command_dict)
+            except:
+                pass
+        
+        # Clean up message writer if it exists
+        if self.message_writer:
+            try:
                 self.message_writer.close()
                 await self.message_writer.wait_closed()
             except:
@@ -830,7 +849,7 @@ class ChatInterface(App):
   Ctrl+Q         - Quit
   Ctrl+N         - New session
   Ctrl+B         - Browse past sessions (replay)
-  Ctrl+A         - Browse active conversations (join)
+  Ctrl+R         - Browse active conversations (join)
   Ctrl+L         - Clear conversation
   Ctrl+E         - Export selected conversation (when browsing past)
   F1             - Show help
@@ -923,16 +942,19 @@ class ChatInterface(App):
                         
                         # Handle different log formats
                         if 'type' in entry:
+                            # Extract timestamp defensively - older convos may have timestamp bugs
+                            timestamp = entry.get('timestamp')
+                            
                             if entry['type'] in ['user', 'human']:
-                                self.log_message("You", entry.get('content', ''))
+                                self.log_message("You", entry.get('content', ''), timestamp)
                             elif entry['type'] == 'claude':
                                 content = entry.get('result', entry.get('content', ''))
-                                self.log_message("Claude", content)
+                                self.log_message("Claude", content, timestamp)
                             elif entry['type'] == 'DIRECT_MESSAGE':
                                 # Message bus format
                                 sender = entry.get('from', 'Unknown')
                                 content = entry.get('content', '')
-                                self.log_message(sender, content)
+                                self.log_message(sender, content, timestamp)
                         
             except Exception as e:
                 self.log_message("Error", f"Failed to load conversation: {e}")
@@ -962,9 +984,10 @@ class ChatInterface(App):
                             to = msg.get('to', 'Unknown')
                             content = msg.get('content', '')
                             conv_id = msg.get('conversation_id', '')
+                            timestamp = msg.get('timestamp')
                             
-                            # Show conversation context
-                            self.log_message(f"{sender} → {to}", content)
+                            # Show conversation context with timestamp
+                            self.log_message(f"{sender} → {to}", content, timestamp)
                             
                             if conv_id and conv_id != self.conversation_id:
                                 self.conversation_id = conv_id
@@ -976,21 +999,25 @@ class ChatInterface(App):
             self.log_message("Error", f"Failed to load message bus: {e}")
     
     async def on_key(self, event: events.Key) -> None:
-        """Handle key events"""
-        if event.key == "up":
-            if self.history_index > 0:
-                self.history_index -= 1
-                input_field = self.query_one("#input-field", Input)
-                input_field.value = self.input_history[self.history_index]
-        elif event.key == "down":
-            if self.history_index < len(self.input_history) - 1:
-                self.history_index += 1
-                input_field = self.query_one("#input-field", Input)
-                input_field.value = self.input_history[self.history_index]
-            elif self.history_index == len(self.input_history) - 1:
-                self.history_index = len(self.input_history)
-                input_field = self.query_one("#input-field", Input)
-                input_field.value = ""
+        """Handle key events for input history navigation"""
+        # Only handle arrow keys when input field has focus
+        input_field = self.query_one("#input-field", ChatInput)
+        if self.focused == input_field:
+            if event.key == "up":
+                if self.history_index > 0:
+                    self.history_index -= 1
+                    input_field.value = self.input_history[self.history_index]
+                    event.prevent_default()
+                    return
+            elif event.key == "down":
+                if self.history_index < len(self.input_history) - 1:
+                    self.history_index += 1
+                    input_field.value = self.input_history[self.history_index]
+                elif self.history_index == len(self.input_history) - 1:
+                    self.history_index = len(self.input_history)
+                    input_field.value = ""
+                event.prevent_default()
+                return
     
     def action_quit(self) -> None:
         """Quit the application"""
@@ -1148,6 +1175,21 @@ class ChatInterface(App):
 
 def main():
     """Main entry point"""
+    # Configure logging to file BEFORE any TUI operations to prevent screen corruption
+    os.makedirs('logs', exist_ok=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        filename='logs/chat_textual.log',
+        filemode='a'
+    )
+    
+    # Disable logging to console for all existing loggers
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers[:]:
+        if isinstance(handler, logging.StreamHandler) and handler.stream in (sys.stdout, sys.stderr):
+            root_logger.removeHandler(handler)
+    
     parser = argparse.ArgumentParser(description='Enhanced Claude Chat Interface (Textual)')
     parser.add_argument('--new', '-n', action='store_true', 
                        help='Start new session (default: resume last)')
@@ -1163,13 +1205,35 @@ def main():
     os.makedirs('sockets', exist_ok=True)
     os.makedirs('claude_logs', exist_ok=True)
     os.makedirs('agent_profiles', exist_ok=True)
+    os.makedirs('logs', exist_ok=True)
     
-    # Run the app
+    # Redirect stdout/stderr to prevent TUI corruption - keep logging normal
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+    devnull = open(os.devnull, 'w')
+    
     try:
+        # Redirect stdout/stderr before starting TUI
+        sys.stdout = devnull
+        sys.stderr = devnull
+        
+        # Reconfigure all loggers to use file output (handles modules that configured logging after main())
+        for logger_name in logging.Logger.manager.loggerDict:
+            logger = logging.getLogger(logger_name)
+            for handler in logger.handlers[:]:
+                if isinstance(handler, logging.StreamHandler) and handler.stream in (original_stdout, original_stderr):
+                    logger.removeHandler(handler)
+        
+        # Run the app
         app = ChatInterface(args)
         app.run()
     except KeyboardInterrupt:
         pass
+    finally:
+        # Always restore stdout/stderr
+        sys.stdout = original_stdout
+        sys.stderr = original_stderr
+        devnull.close()
 
 
 if __name__ == '__main__':

@@ -49,13 +49,16 @@ class ClaudeProcessManager:
             cmd.extend(['--resume', session_id])
         
         try:
-            # Execute claude with prompt as stdin - explicitly inherit environment
+            # Execute claude with prompt as stdin - explicitly inherit environment and set cwd
+            # Use the directory where daemon was started (project root)
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                env=os.environ
+                env=os.environ,
+                cwd=project_root  # Ensure Claude CLI runs from project root
             )
         except FileNotFoundError as e:
             logger.error(f"Claude executable not found: {e}")
@@ -187,12 +190,15 @@ class ClaudeProcessManager:
         
         try:
             # Execute claude with prompt as stdin
+            # Use the directory where daemon was started (project root) 
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                env=os.environ
+                env=os.environ,
+                cwd=project_root  # Ensure Claude CLI runs from project root
             )
             
             # Track the running process
@@ -371,7 +377,7 @@ class ClaudeProcessManager:
         
         cmd = [
             sys.executable,  # Use current Python interpreter
-            'agent_process.py',
+            'daemon/agent_process.py',
             '--id', agent_id,
             '--profile', profile_name,
             '--socket', 'sockets/claude_daemon.sock'

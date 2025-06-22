@@ -167,6 +167,9 @@ If nodes disconnect with "Broken pipe" errors:
 When working with the system, you have access to:
 - Task, Bash, Glob, Grep, LS, Read, Edit, MultiEdit, Write, WebFetch, WebSearch
 
+## CRITICAL TUI WARNING
+**NEVER RUN chat_textual.py**: This script corrupts Claude Code's TUI and forces session restart. Use `chat.py` instead for command-line interaction with the daemon.
+
 ## Extending the System
 
 ### Option 1: Using Your Tools

@@ -15,7 +15,16 @@ from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 import logging
 
-logging.basicConfig(level=logging.INFO)
+# Set up logging only if not already configured
+def _setup_logging():
+    """Configure logging only if root logger has no handlers (i.e., not already configured)"""
+    root_logger = logging.getLogger()
+    if not root_logger.handlers:
+        # Only configure if no other logging setup exists
+        logging.basicConfig(level=logging.INFO)
+
+# Configure logging conditionally
+_setup_logging()
 logger = logging.getLogger(__name__)
 
 @dataclass
