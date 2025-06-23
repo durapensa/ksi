@@ -12,7 +12,7 @@ from enum import Enum
 
 class CommandType(Enum):
     """Command categories based on functional purpose"""
-    PROCESS_CONTROL = "process_control"      # SPAWN, CLEANUP, RELOAD
+    PROCESS_CONTROL = "process_control"      # SPAWN, CLEANUP, RELOAD_MODULE
     AGENT_MANAGEMENT = "agent_management"    # REGISTER_AGENT, GET_AGENTS, SPAWN_AGENT, ROUTE_TASK
     MESSAGE_BUS = "message_bus"              # SUBSCRIBE, PUBLISH, AGENT_CONNECTION
     STATE_MANAGEMENT = "state_management"    # SET_SHARED, GET_SHARED, LOAD_STATE
@@ -120,10 +120,10 @@ PROCESS_CONTROL_SCHEMA = {
                         }
                     }
                 },
-                # RELOAD command
+                # RELOAD_MODULE command
                 {
                     "properties": {
-                        "command": {"const": "RELOAD"},
+                        "command": {"const": "RELOAD_MODULE"},
                         "parameters": {
                             "type": "object",
                             "required": ["module_name"],
@@ -738,7 +738,7 @@ COMMAND_MAPPINGS = {
     # Process Control
     "SPAWN": CommandType.PROCESS_CONTROL,
     "CLEANUP": CommandType.PROCESS_CONTROL,
-    "RELOAD": CommandType.PROCESS_CONTROL,
+    "RELOAD_MODULE": CommandType.PROCESS_CONTROL,
     
     # Agent Management
     "REGISTER_AGENT": CommandType.AGENT_MANAGEMENT,

@@ -197,7 +197,7 @@ When working with the system, you have access to:
 ### Option 2: Writing Python Modules
 - Create `claude_modules/handler.py` with a `handle_output(output, daemon)` function
 - The daemon will automatically load and call it
-- You can reload modules by sending "RELOAD:handler" to the daemon socket
+- You can reload modules by sending RELOAD_MODULE command with module_name parameter to the daemon socket
 
 ### Option 3: Analyze Logs
 - All sessions are in `claude_logs/<session-id>.jsonl`

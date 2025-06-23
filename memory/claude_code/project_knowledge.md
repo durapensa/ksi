@@ -59,7 +59,7 @@ Minimal daemon system for managing Claude processes with conversation continuity
 
 ### Next Session TODO
 1. **Continue Command Migration** - Priority 5: System Control (3 commands)
-   - RELOAD - Reload module
+   - RELOAD_MODULE - Reload module
    - RELOAD_DAEMON - Hot reload daemon
    - SHUTDOWN - Graceful shutdown
 
@@ -166,7 +166,7 @@ Minimal daemon system for managing Claude processes with conversation continuity
 **Command Organization**:
 - Total: ~20 commands organized into functional groups
 - Groups: Process Spawning, Agent Management, Communication & Events, State Management, System Management
-- Aliases available: `S:` → `SPAWN:`, `R:` → `RELOAD:`, `SA:` → `SPAWN_AGENT:`, etc.
+- Aliases available: `S:` → `SPAWN:`, `RM:` → `RELOAD_MODULE:`, `SA:` → `SPAWN_AGENT:`, etc.
 - Use `GET_COMMANDS` to discover all available commands dynamically
 
 **GET_COMMANDS Response** (enhanced 2025-06-21):
@@ -346,7 +346,7 @@ This caused the daemon to close the connection when it received a command on a m
 **Command System Unified**:
 - Implemented unified SPAWN command: `SPAWN:[mode]:[type]:[session_id]:[model]:[agent_id]:<prompt>`
 - Consolidated AGENT_CONNECTION:connect|disconnect:agent_id (removed legacy CONNECT_AGENT/DISCONNECT_AGENT)
-- Added command aliases: S: → SPAWN:, R: → RELOAD:, SA: → SPAWN_AGENT:, etc.
+- Added command aliases: S: → SPAWN:, RM: → RELOAD_MODULE:, SA: → SPAWN_AGENT:, etc.
 - Enhanced GET_COMMANDS with functional grouping and alias metadata
 - Removed deprecated SEND_MESSAGE command (use PUBLISH instead)
 

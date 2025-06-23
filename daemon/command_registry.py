@@ -12,6 +12,9 @@ import structlog
 from .models import BaseCommand, BaseResponse, ResponseFactory
 from .base_manager import with_error_handling
 
+# Import all command handlers to trigger registration
+from . import commands
+
 logger = structlog.get_logger('daemon.command_registry')
 
 
@@ -69,6 +72,10 @@ class CommandHandler(ABC):
     @property
     def identity_manager(self):
         return self.context.identity_manager
+    
+    @property
+    def hot_reload_manager(self):
+        return self.context.hot_reload_manager
 
 
 class CommandRegistry:
@@ -227,6 +234,110 @@ class HealthCheckHandler(CommandHandler):
             health_info['managers']['message_bus'] = stats
         
         return ResponseFactory.success("HEALTH_CHECK", health_info)
+
+
+@command_handler("RELOAD_MODULE")
+class ReloadModuleHandler(CommandHandler):
+    """Handler for RELOAD_MODULE command"""
+    
+    async def handle(self, parameters: Dict[str, Any], writer: asyncio.StreamWriter, 
+                    full_command: Dict[str, Any]) -> BaseResponse:
+        if not self.utils_manager:
+            return ResponseFactory.error("RELOAD_MODULE", "NO_UTILS_MANAGER", "Utils manager not available")
+        
+        module_name = parameters.get("module_name", "handler")
+        self.utils_manager.reload_module(module_name)
+        
+        return ResponseFactory.success("RELOAD_MODULE", {
+            'status': 'reloaded',
+            'module': module_name,
+            'message': 'Module reloaded successfully'
+        })
+
+
+@command_handler("AGENT_CONNECTION")
+class AgentConnectionHandler(CommandHandler):
+    """Handler for AGENT_CONNECTION command"""
+    
+    async def handle(self, parameters: Dict[str, Any], writer: asyncio.StreamWriter, 
+                    full_command: Dict[str, Any]) -> BaseResponse:
+        action = parameters.get("action")
+        agent_id = parameters.get("agent_id")
+        
+        if not action or not agent_id:
+            return ResponseFactory.error("AGENT_CONNECTION", "MISSING_PARAMETERS", "action and agent_id are required")
+        
+        if not self.message_bus:
+            return ResponseFactory.error("AGENT_CONNECTION", "NO_MESSAGE_BUS", "Message bus not available")
+        
+        if action == "connect":
+            self.message_bus.connect_agent(agent_id, writer)
+            return ResponseFactory.success("AGENT_CONNECTION", {
+                'status': 'connected',
+                'agent_id': agent_id,
+                'action': 'connect'
+            })
+        elif action == "disconnect":
+            self.message_bus.disconnect_agent(agent_id)
+            return ResponseFactory.success("AGENT_CONNECTION", {
+                'status': 'disconnected',
+                'agent_id': agent_id,
+                'action': 'disconnect'
+            })
+        else:
+            return ResponseFactory.error("AGENT_CONNECTION", "INVALID_ACTION", f"Invalid action: {action}")
+
+
+@command_handler("LOAD_STATE")
+class LoadStateHandler(CommandHandler):
+    """Handler for LOAD_STATE command"""
+    
+    async def handle(self, parameters: Dict[str, Any], writer: asyncio.StreamWriter, 
+                    full_command: Dict[str, Any]) -> BaseResponse:
+        state_data = parameters.get("state_data")
+        
+        if not state_data:
+            return ResponseFactory.error("LOAD_STATE", "MISSING_STATE_DATA", "state_data parameter is required")
+        
+        try:
+            if self.hot_reload_manager:
+                self.hot_reload_manager.deserialize_state(state_data)
+            
+            return ResponseFactory.success("LOAD_STATE", {
+                'status': 'loaded',
+                'message': 'State loaded successfully',
+                'state_keys': list(state_data.keys()) if isinstance(state_data, dict) else None
+            })
+        except Exception as e:
+            return ResponseFactory.error("LOAD_STATE", "LOAD_STATE_FAILED", str(e))
+
+
+@command_handler("MESSAGE_BUS_STATS")
+class MessageBusStatsHandler(CommandHandler):
+    """Handler for MESSAGE_BUS_STATS command"""
+    
+    async def handle(self, parameters: Dict[str, Any], writer: asyncio.StreamWriter, 
+                    full_command: Dict[str, Any]) -> BaseResponse:
+        if self.message_bus:
+            stats = self.message_bus.get_stats()
+            return ResponseFactory.success("MESSAGE_BUS_STATS", stats)
+        else:
+            return ResponseFactory.success("MESSAGE_BUS_STATS", {
+                'error': 'Message bus not available'
+            })
+
+
+@command_handler("RELOAD_DAEMON")
+class ReloadDaemonHandler(CommandHandler):
+    """Handler for RELOAD_DAEMON command"""
+    
+    async def handle(self, parameters: Dict[str, Any], writer: asyncio.StreamWriter, 
+                    full_command: Dict[str, Any]) -> BaseResponse:
+        if not self.hot_reload_manager:
+            return ResponseFactory.error("RELOAD_DAEMON", "NO_HOT_RELOAD_MANAGER", "Hot reload manager not available")
+        
+        result = await self.hot_reload_manager.hot_reload_daemon()
+        return ResponseFactory.success("RELOAD_DAEMON", result)
 
 
 @command_handler("SHUTDOWN")

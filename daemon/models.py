@@ -63,8 +63,8 @@ class CleanupParameters(BaseModel):
     cleanup_type: Literal["logs", "sessions", "sockets", "all"]
 
 
-class ReloadParameters(BaseModel):
-    """Parameters for RELOAD command"""
+class ReloadModuleParameters(BaseModel):
+    """Parameters for RELOAD_MODULE command"""
     module_name: str = "handler"
 
 
@@ -230,9 +230,9 @@ class CleanupCommand(BaseCommand):
     parameters: CleanupParameters
 
 
-class ReloadCommand(BaseCommand):
-    command: Literal["RELOAD"] = "RELOAD"
-    parameters: ReloadParameters
+class ReloadModuleCommand(BaseCommand):
+    command: Literal["RELOAD_MODULE"] = "RELOAD_MODULE"
+    parameters: ReloadModuleParameters
 
 
 # Response Models
@@ -284,7 +284,7 @@ class ErrorResponse(BaseResponse):
 COMMAND_PARAMETER_MAP = {
     "SPAWN": SpawnParameters,
     "CLEANUP": CleanupParameters,
-    "RELOAD": ReloadParameters,
+    "RELOAD_MODULE": ReloadModuleParameters,
     "REGISTER_AGENT": RegisterAgentParameters,
     "SPAWN_AGENT": SpawnAgentParameters,
     "ROUTE_TASK": RouteTaskParameters,

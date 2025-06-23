@@ -99,15 +99,15 @@ class CommandHandlers:
         else:
             return await self.cmd_handler.send_error_response(writer, "NO_UTILS_MANAGER", "Utils manager not available")
     
-    async def _handle_reload(self, parameters: dict, writer: asyncio.StreamWriter, full_command: dict) -> bool:
-        """Handle RELOAD command"""
+    async def _handle_reload_module(self, parameters: dict, writer: asyncio.StreamWriter, full_command: dict) -> bool:
+        """Handle RELOAD_MODULE command"""
         module_name = parameters.get("module_name")
         
         if self.cmd_handler.utils_manager:
             self.cmd_handler.utils_manager.reload_module(module_name)
             return await self.cmd_handler.send_response(writer, {
                 'status': 'success',
-                'command': 'RELOAD',
+                'command': 'RELOAD_MODULE',
                 'result': {
                     'status': 'reloaded',
                     'module': module_name,

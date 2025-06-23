@@ -74,48 +74,8 @@ class CommandHandler:
             else:
                 return await self.send_response(writer, response)
         
-        # Fall back to old handlers dictionary (remove migrated commands)
-        handlers = {
-            # These commands have been migrated to command registry:
-            # 'SPAWN': migrated
-            # 'CLEANUP': migrated
-            # 'REGISTER_AGENT': migrated
-            # 'GET_AGENTS': migrated
-            # 'SPAWN_AGENT': migrated
-            # 'ROUTE_TASK': migrated
-            # 'SET_SHARED': migrated
-            # 'GET_SHARED': migrated
-            # 'SUBSCRIBE': migrated
-            # 'PUBLISH': migrated
-            # 'HEALTH_CHECK': migrated
-            # 'GET_PROCESSES': migrated
-            
-            # Still using old handlers:
-            'RELOAD': self.handlers._handle_reload,
-            'AGENT_CONNECTION': self.handlers._handle_agent_connection,
-            'LOAD_STATE': self.handlers._handle_load_state,
-            'RELOAD_DAEMON': self.handlers._handle_reload_daemon,
-            'SHUTDOWN': self.handlers._handle_shutdown,
-            'MESSAGE_BUS_STATS': self.handlers._handle_message_bus_stats,
-            'GET_COMMANDS': self.handlers._handle_get_commands,
-            'GET_COMPOSITIONS': self.handlers._handle_get_compositions,
-            'GET_COMPOSITION': self.handlers._handle_get_composition,
-            'VALIDATE_COMPOSITION': self.handlers._handle_validate_composition,
-            'LIST_COMPONENTS': self.handlers._handle_list_components,
-            'COMPOSE_PROMPT': self.handlers._handle_compose_prompt,
-            'CREATE_IDENTITY': self.handlers._handle_create_identity,
-            'UPDATE_IDENTITY': self.handlers._handle_update_identity,
-            'GET_IDENTITY': self.handlers._handle_get_identity,
-            'LIST_IDENTITIES': self.handlers._handle_list_identities,
-            'REMOVE_IDENTITY': self.handlers._handle_remove_identity
-        }
-        
-        handler = handlers.get(command_name)
-        if handler:
-            logger.info(f"Using legacy handler for command: {command_name}")
-            return await handler(parameters, writer, full_command)
-        else:
-            return await self.send_error_response(writer, "UNKNOWN_COMMAND", f"Command '{command_name}' not recognized")
+        # No legacy handlers needed - all commands use registry pattern
+        return await self.send_error_response(writer, "UNKNOWN_COMMAND", f"Command '{command_name}' not recognized")
     
     async def send_response(self, writer: asyncio.StreamWriter, response: dict) -> bool:
         """Send JSON response to client"""

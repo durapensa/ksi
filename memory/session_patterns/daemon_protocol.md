@@ -7,7 +7,7 @@
 The daemon originally used these formats:
 - **Fresh spawn**: `SPAWN::prompt_text` (double colon for empty sessionId)
 - **Resume session**: `SPAWN:sessionId:prompt_text`
-- **Module reload**: `RELOAD:module_name`
+- **Module reload**: JSON command `{"command": "RELOAD_MODULE", "version": "2.0", "parameters": {"module_name": "handler"}}`
 - **Shutdown**: `SHUTDOWN`
 
 ## Current Protocol (as of 2025-06-21)
