@@ -172,19 +172,67 @@ class ClaudeCLIProvider(CustomLLM):
             max_turns=max_turns,
         )
 
-        proc = SupervisedProcess(cmd=cmd)
+        # Set working directory to project root (matching daemon behavior)
+        import os
+        project_root = os.path.dirname(os.path.abspath(__file__))
+        
+        proc = SupervisedProcess("claude-cli", *cmd, cwd=project_root, env=os.environ, stdout=True, stderr=True)
         await proc.start()
+        
+        # Collect both stdout and stderr
         stdout_buf: List[bytes] = []
+        stderr_buf: List[bytes] = []
+        
+        # Collect stdout
         async for chunk in proc.stdout:
             stdout_buf.append(chunk)
+            
+        # Collect stderr
+        async for chunk in proc.stderr:
+            stderr_buf.append(chunk)
+            
         await proc.terminate()
 
-        assistant_text = parse_json_output(b"".join(stdout_buf).decode())
-        return litellm.completion(  # type: ignore
-            model=f"claude-cli/{model_alias}",
-            mock_response=assistant_text,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        # Parse the full Claude CLI JSON response and capture all metadata
+        raw_response = b"".join(stdout_buf).decode()
+        stderr_output = b"".join(stderr_buf).decode()
+        
+        try:
+            full_claude_response = json.loads(raw_response)
+            assistant_text = parse_json_output(raw_response)
+            
+            # Create LiteLLM response but preserve Claude metadata
+            response = litellm.completion(  # type: ignore
+                model=f"claude-cli/{model_alias}",
+                mock_response=assistant_text,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            
+            # Attach Claude-specific metadata to the response for daemon compatibility
+            response._claude_metadata = full_claude_response
+            response._raw_stdout = raw_response
+            response._stderr = stderr_output
+            
+            if "sessionId" in full_claude_response:
+                response.sessionId = full_claude_response["sessionId"]
+            
+            return response
+            
+        except json.JSONDecodeError as e:
+            # Create response with error metadata for daemon compatibility
+            assistant_text = parse_json_output(raw_response)
+            response = litellm.completion(  # type: ignore
+                model=f"claude-cli/{model_alias}",
+                mock_response=assistant_text,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            
+            # Attach error metadata
+            response._raw_stdout = raw_response
+            response._stderr = stderr_output
+            response._json_decode_error = str(e)
+            
+            return response
 
     async def _astreaming(
         self, messages, *args, **kwargs
@@ -206,7 +254,10 @@ class ClaudeCLIProvider(CustomLLM):
             max_turns=max_turns,
         )
 
-        proc = SupervisedProcess(cmd=cmd)
+        # Set working directory to project root (matching daemon behavior)
+        project_root = os.path.dirname(os.path.abspath(__file__))
+        
+        proc = SupervisedProcess("claude-cli-stream", *cmd, cwd=project_root, env=os.environ)
         await proc.start()
 
         try:

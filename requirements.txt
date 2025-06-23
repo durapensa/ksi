@@ -6,3 +6,5 @@ structlog>=24.1.0
 tenacity>=8.2.0
 pytest>=8.4.0
 pytest-asyncio>=1.0.0
+litellm>=1.37.0
+simpervisor>=1.0.0

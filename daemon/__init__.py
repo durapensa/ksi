@@ -15,7 +15,7 @@ from pathlib import Path
 # Import all modules
 from .core import ClaudeDaemonCore
 from .state_manager import StateManager
-from .claude_process import ClaudeProcessManager
+from .claude_process_v2 import ClaudeProcessManagerV2
 from .agent_manager import AgentManager
 from .utils import UtilsManager
 from .hot_reload import HotReloadManager
@@ -90,7 +90,7 @@ async def create_daemon(socket_path: str, hot_reload_from: str = None):
     
     # Create all managers
     state_manager = StateManager()
-    process_manager = ClaudeProcessManager(state_manager=state_manager)
+    process_manager = ClaudeProcessManagerV2(state_manager=state_manager)
     agent_manager = AgentManager(process_manager=process_manager)
     utils_manager = UtilsManager(state_manager=state_manager)
     hot_reload_manager = HotReloadManager(core_daemon, state_manager, agent_manager)
