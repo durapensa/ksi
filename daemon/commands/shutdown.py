@@ -36,7 +36,8 @@ class ShutdownHandler(CommandHandler):
         if hasattr(self.context, 'core_daemon') and self.context.core_daemon:
             self.context.core_daemon.shutdown_event.set()
         
-        return response  # Won't actually be sent since we closed the writer
+        # Return the already-sent response as dict
+        return response.model_dump()
     
     @classmethod
     def get_help(cls) -> Dict[str, Any]:

@@ -25,11 +25,6 @@ from .utils import (
 
 # Import client classes when they exist
 try:
-    from .sync_client import SyncClient
-except ImportError:
-    SyncClient = None
-
-try:
     from .async_client import AsyncClient  
 except ImportError:
     AsyncClient = None
@@ -48,7 +43,6 @@ __all__ = [
     'send_daemon_command',
     
     # Client classes (if available)
-    'SyncClient',
     'AsyncClient'
 ]
 

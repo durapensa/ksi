@@ -13,8 +13,9 @@ import signal
 import psutil
 from pathlib import Path
 from .config import config
+from .logging_config import get_logger, bind_socket_context, clear_context, log_event
 
-logger = logging.getLogger('daemon')
+logger = get_logger(__name__)
 
 class KSIDaemonCore:
     """Core daemon server with dependency injection for all managers - EXACT functionality from daemon_clean.py"""
@@ -78,8 +79,9 @@ class KSIDaemonCore:
         logger.info(f"Loaded state: {len(state.get('sessions', {}))} sessions, {len(state.get('agents', {}))} agents")
     
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-        """JSON Protocol v2.0 client handler"""
+        """JSON Protocol v2.0 client handler with context binding"""
         agent_id = None  # Initialize to avoid UnboundLocalError
+        request_id = None
         try:
             # Read first JSON command
             first_data = await reader.readline()
@@ -92,10 +94,31 @@ class KSIDaemonCore:
             try:
                 command_data = json.loads(first_command)
                 command_name = command_data.get("command")
+                parameters = command_data.get("parameters", {})
+                
+                # Determine functional domain and bind context
+                functional_domain = self._determine_functional_domain(command_name, parameters)
+                
+                # Bind socket context with domain identification
+                extra_context = {}
+                if parameters.get("agent_id"):
+                    extra_context["agent_id"] = parameters["agent_id"]
+                if parameters.get("session_id"):
+                    extra_context["session_id"] = parameters["session_id"]
+                if command_name == "AGENT_CONNECTION":
+                    extra_context["connection_action"] = parameters.get("action", "unknown")
+                
+                request_id = bind_socket_context(functional_domain, **extra_context)
+                
+                # Log socket connection event
+                log_event(logger, "socket.connected", 
+                         command_name=command_name, 
+                         functional_domain=functional_domain,
+                         peer_info=self._get_peer_info(writer))
                 
                 # Process the command
                 if not self.command_handler:
-                    logger.error("No command handler available")
+                    log_event(logger, "command.error", error="No command handler available")
                     return
                 
                 # Handle the command
@@ -103,10 +126,11 @@ class KSIDaemonCore:
                 
                 # If this is an AGENT_CONNECTION:connect, keep connection open
                 if (command_name == "AGENT_CONNECTION" and 
-                    command_data.get("parameters", {}).get("action") == "connect"):
+                    parameters.get("action") == "connect"):
                     
-                    agent_id = command_data.get("parameters", {}).get("agent_id")
-                    logger.info(f"Maintaining persistent connection for agent {agent_id}")
+                    agent_id = parameters.get("agent_id")
+                    log_event(logger, "agent.connection_persistent", 
+                             agent_id=agent_id, functional_domain=functional_domain)
                     
                     # Keep connection open for more JSON commands
                     while not self.shutdown_event.is_set() and should_continue:
@@ -123,11 +147,13 @@ class KSIDaemonCore:
                         if command:
                             should_continue = await self.command_handler.handle_command(command, writer, reader)
                         
-                    logger.info(f"Closed persistent connection for agent {agent_id}")
+                    log_event(logger, "agent.connection_closed", agent_id=agent_id)
                 
             except json.JSONDecodeError as e:
-                # Invalid JSON - send error and close
-                logger.warning(f"Invalid JSON received: {str(e)}")
+                # Bind minimal context for invalid JSON
+                request_id = bind_socket_context("admin", error_type="invalid_json")
+                
+                log_event(logger, "socket.invalid_json", error=str(e))
                 error_response = {
                     "status": "error",
                     "error": {
@@ -139,18 +165,72 @@ class KSIDaemonCore:
                 await writer.drain()
                 
         except Exception as e:
-            logger.error(f"Error handling client: {e}")
+            log_event(logger, "socket.error", error=str(e), error_type=type(e).__name__)
         finally:
             # Clean up agent connection if needed
             if agent_id and self.message_bus:
                 self.message_bus.disconnect_agent(agent_id)
-                logger.info(f"Disconnected agent {agent_id}")
+                log_event(logger, "agent.disconnected", agent_id=agent_id)
             
+            # Log socket disconnection
+            if request_id:
+                log_event(logger, "socket.disconnected")
+            
+            # Clear context and close connection
+            clear_context()
             try:
                 writer.close()
                 await writer.wait_closed()
             except:
                 pass
+    
+    def _determine_functional_domain(self, command_name: str, parameters: dict) -> str:
+        """
+        Determine functional domain based on command type.
+        Maps commands to eventual socket domains for context binding.
+        """
+        # Admin domain - System operations
+        admin_commands = {"HEALTH_CHECK", "SHUTDOWN", "CLEANUP", "GET_PROCESSES", "RELOAD_DAEMON"}
+        
+        # Agents domain - Agent lifecycle & persona  
+        agents_commands = {"SPAWN_AGENT", "REGISTER_AGENT", "GET_AGENTS", "CREATE_IDENTITY", 
+                          "UPDATE_IDENTITY", "REMOVE_IDENTITY", "LIST_IDENTITIES", "GET_IDENTITY",
+                          "COMPOSE_PROMPT", "VALIDATE_COMPOSITION", "GET_COMPOSITION", "GET_COMPOSITIONS"}
+        
+        # Messaging domain - Ephemeral communication
+        messaging_commands = {"PUBLISH", "SUBSCRIBE", "SEND_MESSAGE", "AGENT_CONNECTION", 
+                             "MESSAGE_BUS_STATS"}
+        
+        # State domain - Persistent KV store  
+        state_commands = {"SET_AGENT_KV", "GET_AGENT_KV", "SET_SHARED", "GET_SHARED", "LOAD_STATE"}
+        
+        # Completion domain - LLM interactions
+        completion_commands = {"COMPLETION"}
+        
+        if command_name in admin_commands:
+            return "admin"
+        elif command_name in agents_commands:
+            return "agents"
+        elif command_name in messaging_commands:
+            return "messaging"
+        elif command_name in state_commands:
+            return "state" 
+        elif command_name in completion_commands:
+            return "completion"
+        else:
+            return "admin"  # Default unknown commands to admin
+    
+    def _get_peer_info(self, writer: asyncio.StreamWriter) -> dict:
+        """Get connection peer information for logging."""
+        try:
+            peername = writer.get_extra_info('peername')
+            sockname = writer.get_extra_info('sockname')
+            return {
+                "peer": str(peername) if peername else "unknown",
+                "local": str(sockname) if sockname else "unknown"
+            }
+        except Exception:
+            return {"peer": "unknown", "local": "unknown"}
     
     def _check_daemon_running(self) -> tuple[bool, int]:
         """Check if daemon is already running - returns (is_running, pid)"""

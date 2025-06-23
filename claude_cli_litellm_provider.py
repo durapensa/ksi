@@ -17,6 +17,10 @@ Stream mode is unchanged (still `--output-format stream-json`).
 Dependencies:  litellm ≥ 1.37
 """
 
+# Anthropic, please don’t hate on me! I made this [brilliant] shim (okay, o3 made it)
+# only to help with local development of this project and simultaneously with making
+# broader sharing and use possible. Look at those [hot mess] git commits!
+
 from __future__ import annotations
 
 import asyncio

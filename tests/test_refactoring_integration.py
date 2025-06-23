@@ -11,23 +11,23 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from daemon.client.sync_client import SyncClient
+from daemon_client import DaemonClient
 from daemon.protocols import CommandFactory, SocketResponse
 from daemon.file_operations import FileOperations, LogEntry
 
 
-def test_refactored_daemon():
+async def test_refactored_daemon():
     """Test all refactored components with real daemon"""
     
     print("=== Testing Refactored Daemon Components ===\n")
     
     # Connect to daemon
-    client = SyncClient()
+    client = DaemonClient()
     
     # 1. Test Health Check
     print("1. Testing Health Check:")
     print("-" * 40)
-    response = client.send_command("HEALTH_CHECK", {})
+    response = await client.send_command("HEALTH_CHECK", {})
     print(f"Response: {json.dumps(response, indent=2)}")
     assert response['status'] == 'success'
     print("✓ Health check passed\n")
@@ -37,13 +37,13 @@ def test_refactored_daemon():
     print("-" * 40)
     
     # Valid cleanup
-    response = client.send_command("CLEANUP", {"cleanup_type": "sessions"})
+    response = await client.send_command("CLEANUP", {"cleanup_type": "sessions"})
     print(f"Sessions cleanup: {response['result']['details']}")
     assert response['status'] == 'success'
     
     # Invalid cleanup (Pydantic validation)
     try:
-        response = client.send_command("CLEANUP", {"cleanup_type": "invalid"})
+        response = await client.send_command("CLEANUP", {"cleanup_type": "invalid"})
     except Exception as e:
         print(f"✓ Invalid cleanup correctly rejected: {e}")
     
@@ -54,7 +54,7 @@ def test_refactored_daemon():
     print("-" * 40)
     
     # Set state
-    response = client.send_command("SET_SHARED", {
+    response = await client.send_command("SET_SHARED", {
         "key": "refactor_test",
         "value": "working_great"
     })
@@ -62,7 +62,7 @@ def test_refactored_daemon():
     print(f"Set state: {response['result']}")
     
     # Get state
-    response = client.send_command("GET_SHARED", {
+    response = await client.send_command("GET_SHARED", {
         "key": "refactor_test"
     })
     assert response['result']['value'] == 'working_great'
@@ -127,14 +127,14 @@ def test_refactored_daemon():
     # 6. Test Process Info
     print("6. Testing Process Info:")
     print("-" * 40)
-    response = client.send_command("GET_PROCESSES", {})
+    response = await client.send_command("GET_PROCESSES", {})
     print(f"Running processes: {len(response['result']['processes'])}")
     print("✓ Process info working\n")
     
     # 7. Test Agent Registration (with Pydantic validation)
     print("7. Testing Agent Registration:")
     print("-" * 40)
-    response = client.send_command("REGISTER_AGENT", {
+    response = await client.send_command("REGISTER_AGENT", {
         "agent_id": "test_refactor_agent",
         "role": "tester",
         "capabilities": ["testing", "validation"]
@@ -143,7 +143,7 @@ def test_refactored_daemon():
     print(f"Registered agent: {response['result']}")
     
     # Get agents
-    response = client.send_command("GET_AGENTS", {})
+    response = await client.send_command("GET_AGENTS", {})
     agents = response['result']['agents']
     assert 'test_refactor_agent' in agents
     print(f"✓ Agent registered successfully\n")
@@ -197,7 +197,7 @@ def test_performance():
 
 if __name__ == "__main__":
     try:
-        test_refactored_daemon()
+        asyncio.run(test_refactored_daemon())
         test_performance()
     except Exception as e:
         print(f"\nError during testing: {e}")

@@ -39,16 +39,24 @@ def setup_logging():
     """Set up logging using configuration system"""
     # Ensure log directory exists
     config.log_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Configure structlog based on config (this handles everything)
+    config.configure_structlog()
+    
+    # Get log file path for stdlib logger
     log_file = config.get_log_file_path()
-
+    
+    # Configure stdlib logging to work with structlog
+    # Note: structlog will handle the formatting
     logging.basicConfig(
         level=config.get_log_level(),
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        format='%(message)s',  # Let structlog handle formatting
         handlers=[
             logging.FileHandler(log_file),
             logging.StreamHandler()
         ]
     )
+    
     return logging.getLogger('daemon')
 
 def ensure_var_directories():

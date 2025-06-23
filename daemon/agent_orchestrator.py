@@ -5,14 +5,15 @@ Replaces subprocess-based agent management with efficient in-process coordinatio
 """
 
 import asyncio
-import logging
 import uuid
 from typing import Dict, List, Optional, Any
 
 from .agent_conversation_runtime import AgentConversationRuntime
 from .timestamp_utils import TimestampManager
+from .logging_config import get_logger, log_event, agent_context
+from .event_taxonomy import AGENT_EVENTS, format_agent_event
 
-logger = logging.getLogger('daemon')
+logger = get_logger(__name__)
 
 class AgentOrchestrator:
     """Orchestrates multiple in-process agent controllers"""
@@ -76,60 +77,86 @@ class AgentOrchestrator:
     
     async def terminate_agent(self, agent_id: str) -> bool:
         """Terminate an agent and clean up resources"""
-        try:
-            if agent_id not in self.agents:
-                logger.warning(f"Agent {agent_id} not found for termination")
+        async with agent_context(agent_id) as _:
+            try:
+                if agent_id not in self.agents:
+                    log_event(logger, "agent.terminate_not_found",
+                             **format_agent_event("agent.terminate_not_found", agent_id))
+                    return False
+                
+                log_event(logger, "agent.terminate_initiated",
+                         **format_agent_event("agent.terminate_initiated", agent_id))
+                
+                # Stop the agent
+                agent = self.agents[agent_id]
+                await agent.stop()
+                
+                # Cancel the agent task
+                if agent_id in self.agent_tasks:
+                    task = self.agent_tasks[agent_id]
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+                    del self.agent_tasks[agent_id]
+                
+                # Remove from tracking
+                del self.agents[agent_id]
+                
+                # Clean up subscriptions
+                self._clean_agent_subscriptions(agent_id)
+                
+                log_event(logger, "agent.terminated",
+                         **format_agent_event("agent.terminated", agent_id,
+                                             remaining_agents=len(self.agents)))
+                
+                # Notify via message bus
+                await self._notify_agent_terminated(agent_id)
+                
+                return True
+                
+            except Exception as e:
+                log_event(logger, "agent.terminate_failed",
+                         **format_agent_event("agent.terminate_failed", agent_id,
+                                             error=str(e),
+                                             error_type=type(e).__name__))
                 return False
-            
-            # Stop the agent
-            agent = self.agents[agent_id]
-            await agent.stop()
-            
-            # Cancel the agent task
-            if agent_id in self.agent_tasks:
-                task = self.agent_tasks[agent_id]
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-                del self.agent_tasks[agent_id]
-            
-            # Remove from tracking
-            del self.agents[agent_id]
-            
-            # Clean up subscriptions
-            self._clean_agent_subscriptions(agent_id)
-            
-            logger.info(f"Terminated agent {agent_id}")
-            
-            # Notify via message bus
-            await self._notify_agent_terminated(agent_id)
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to terminate agent {agent_id}: {e}")
-            return False
     
     async def send_message_to_agent(self, agent_id: str, message: Dict[str, Any]) -> bool:
         """Send message directly to specific agent"""
-        try:
-            if agent_id not in self.agents:
-                logger.warning(f"Agent {agent_id} not found for message delivery")
+        async with agent_context(agent_id) as _:
+            try:
+                if agent_id not in self.agents:
+                    log_event(logger, "agent.message_delivery_failed",
+                             **format_agent_event("agent.message_delivery_failed", agent_id,
+                                                 reason="agent_not_found"))
+                    return False
+                
+                agent = self.agents[agent_id]
+                await agent.send_message(message)
+                
+                log_event(logger, "agent.message_delivered",
+                         **format_agent_event("agent.message_delivered", agent_id,
+                                             message_type=message.get("type", "unknown")))
+                return True
+                
+            except Exception as e:
+                log_event(logger, "agent.message_delivery_failed",
+                         **format_agent_event("agent.message_delivery_failed", agent_id,
+                                             error=str(e),
+                                             error_type=type(e).__name__))
                 return False
-            
-            agent = self.agents[agent_id]
-            await agent.send_message(message)
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to send message to agent {agent_id}: {e}")
-            return False
     
     async def broadcast_message(self, message: Dict[str, Any], exclude_agent: Optional[str] = None) -> int:
         """Broadcast message to all active agents"""
         delivered = 0
+        total_agents = len(self.agents) - (1 if exclude_agent else 0)
+        
+        log_event(logger, "agent.broadcast_initiated",
+                 message_type=message.get("type", "unknown"),
+                 target_agent_count=total_agents,
+                 exclude_agent=exclude_agent)
         
         for agent_id, agent in self.agents.items():
             if exclude_agent and agent_id == exclude_agent:
@@ -139,9 +166,16 @@ class AgentOrchestrator:
                 await agent.send_message(message)
                 delivered += 1
             except Exception as e:
-                logger.error(f"Failed to broadcast to agent {agent_id}: {e}")
+                log_event(logger, "agent.broadcast_delivery_failed",
+                         **format_agent_event("agent.broadcast_delivery_failed", agent_id,
+                                             error=str(e),
+                                             error_type=type(e).__name__))
         
-        logger.info(f"Broadcast message delivered to {delivered} agents")
+        log_event(logger, "agent.broadcast_completed",
+                 message_type=message.get("type", "unknown"),
+                 delivered_count=delivered,
+                 target_count=total_agents,
+                 success_rate=delivered/total_agents if total_agents > 0 else 1.0)
         return delivered
     
     async def subscribe_agent(self, agent_id: str, event_types: List[str]):

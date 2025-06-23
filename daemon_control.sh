@@ -9,8 +9,25 @@ set -e
 # Configuration - can be overridden with KSI_* environment variables
 DAEMON_SCRIPT="daemon.py"
 PID_FILE="${KSI_PID_FILE:-var/run/ksi_daemon.pid}"
-SOCKET_FILE="${KSI_SOCKET_PATH:-var/run/ksi_daemon.sock}"
-LOG_FILE="${KSI_LOG_DIR:-var/logs/daemon}/daemon.log"
+
+# Socket configuration for the 5-socket architecture
+# Currently using single socket, but prepared for multi-socket expansion
+ADMIN_SOCKET="${KSI_ADMIN_SOCKET:-var/run/ksi_daemon.sock}"  # System operations
+AGENTS_SOCKET="${KSI_AGENTS_SOCKET:-var/run/ksi_daemon.sock}"  # Agent lifecycle
+MESSAGING_SOCKET="${KSI_MESSAGING_SOCKET:-var/run/ksi_daemon.sock}"  # Pub/sub
+STATE_SOCKET="${KSI_STATE_SOCKET:-var/run/ksi_daemon.sock}"  # KV store
+COMPLETION_SOCKET="${KSI_COMPLETION_SOCKET:-var/run/ksi_daemon.sock}"  # LLM
+
+# Primary socket for backwards compatibility
+SOCKET_FILE="${KSI_SOCKET_PATH:-$ADMIN_SOCKET}"
+
+# Logging configuration
+LOG_DIR="${KSI_LOG_DIR:-var/logs/daemon}"
+LOG_FILE="$LOG_DIR/daemon.log"
+LOG_LEVEL="${KSI_LOG_LEVEL:-INFO}"
+LOG_FORMAT="${KSI_LOG_FORMAT:-console}"  # console or json
+LOG_STRUCTURED="${KSI_LOG_STRUCTURED:-true}"
+
 VENV_DIR=".venv"
 
 # Colors for output
@@ -128,8 +145,21 @@ except:
         
         echo "$agents"
         echo "$processes"
-        echo "  Socket: $SOCKET_FILE"
-        echo "  Log: $LOG_FILE"
+        echo ""
+        echo "Socket Configuration:"
+        echo "  Primary: $SOCKET_FILE"
+        if [ "$ADMIN_SOCKET" != "$SOCKET_FILE" ]; then
+            echo "  Admin: $ADMIN_SOCKET (system operations)"
+            echo "  Agents: $AGENTS_SOCKET (agent lifecycle)"
+            echo "  Messaging: $MESSAGING_SOCKET (pub/sub)"
+            echo "  State: $STATE_SOCKET (KV store)"
+            echo "  Completion: $COMPLETION_SOCKET (LLM)"
+        fi
+        echo ""
+        echo "Logging Configuration:"
+        echo "  Log File: $LOG_FILE"
+        echo "  Log Level: $LOG_LEVEL"
+        echo "  Log Format: $LOG_FORMAT"
         
         return 0
     else
@@ -151,7 +181,18 @@ start_daemon() {
     check_venv
     
     # Ensure directories exist
-    mkdir -p sockets logs
+    mkdir -p var/run var/logs/daemon var/logs/sessions var/db var/tmp sockets logs
+    
+    # Export logging environment variables
+    export KSI_LOG_LEVEL="$LOG_LEVEL"
+    export KSI_LOG_FORMAT="$LOG_FORMAT"
+    export KSI_LOG_STRUCTURED="$LOG_STRUCTURED"
+    
+    # Display configuration
+    echo "Configuration:"
+    echo "  Log Level: $LOG_LEVEL"
+    echo "  Log Format: $LOG_FORMAT"
+    echo "  Socket: $SOCKET_FILE"
     
     # Activate venv and start daemon
     source "$VENV_DIR/bin/activate"
@@ -281,6 +322,18 @@ case "$1" in
         echo "  status   - Check if daemon is running"
         echo "  health   - Check daemon health and show statistics"
         echo "  logs     - Show recent daemon logs"
+        echo ""
+        echo "Environment Variables:"
+        echo "  KSI_LOG_LEVEL    - Logging level (default: INFO)"
+        echo "  KSI_LOG_FORMAT   - Log format: console or json (default: console)"
+        echo "  KSI_SOCKET_PATH  - Primary socket path (default: var/run/ksi_daemon.sock)"
+        echo ""
+        echo "Future Multi-Socket Support:"
+        echo "  KSI_ADMIN_SOCKET      - System operations socket"
+        echo "  KSI_AGENTS_SOCKET     - Agent lifecycle socket"
+        echo "  KSI_MESSAGING_SOCKET  - Pub/sub messaging socket"
+        echo "  KSI_STATE_SOCKET      - KV store socket"
+        echo "  KSI_COMPLETION_SOCKET - LLM completion socket"
         exit 1
         ;;
 esac

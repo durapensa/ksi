@@ -23,11 +23,13 @@ import litellm
 from .timestamp_utils import TimestampManager
 from .agent_orchestrator import AgentOrchestrator
 from .config import config
+from .logging_config import get_logger, log_event, async_operation_context
+from .event_taxonomy import CLAUDE_EVENTS, format_claude_event
 
 # Import claude_cli_litellm_provider to ensure provider registration
 import claude_cli_litellm_provider
 
-logger = logging.getLogger('daemon')
+logger = get_logger(__name__)
 
 
 class CompletionManager:
@@ -96,10 +98,18 @@ class CompletionManager:
             response = await litellm.acompletion(**kwargs)
             
         except FileNotFoundError as e:
-            logger.error(f"Claude executable not found: {e}")
+            log_event(logger, "claude.completion_failed",
+                     **format_claude_event("claude.completion_failed", session_id,
+                                          error="executable_not_found",
+                                          error_details=str(e),
+                                          model=model))
             return {'error': 'claude executable not found in PATH', 'details': str(e)}
         except Exception as e:
-            logger.error(f"Failed to spawn Claude process: {e}")
+            log_event(logger, "claude.completion_failed",
+                     **format_claude_event("claude.completion_failed", session_id,
+                                          error=type(e).__name__,
+                                          error_details=str(e),
+                                          model=model))
             return {'error': f'Failed to spawn process: {type(e).__name__}', 'details': str(e)}
         
         # Extract Claude CLI response from LiteLLM response
@@ -121,7 +131,10 @@ class CompletionManager:
             # Check for stderr in response (if provider captured it)
             if hasattr(response, '_stderr') and response._stderr:
                 stderr_text = response._stderr
-                logger.warning(f"Claude stderr output: {stderr_text}")
+                log_event(logger, "claude.completion_stderr",
+                         **format_claude_event("claude.completion_stderr", session_id,
+                                              stderr_content=stderr_text,
+                                              model=model))
                 output['stderr'] = stderr_text
             
             # Save to file for debugging/reference (exact copy from original)
@@ -170,6 +183,14 @@ class CompletionManager:
             # TODO: Call cognitive observer if loaded
             # This functionality was in utils_manager which has been removed
             # Consider implementing through extension module system
+            
+            # Log successful completion
+            log_event(logger, "claude.completion_completed",
+                     **format_claude_event("claude.completion_completed", new_session_id,
+                                          model=model,
+                                          agent_id=agent_id,
+                                          response_length=len(str(output.get('result', ''))),
+                                          has_session_id=bool(new_session_id)))
             
             return output
             

@@ -17,25 +17,7 @@ from abc import ABC, abstractmethod
 from functools import wraps
 from pathlib import Path
 from typing import Any, Dict, Optional, TypeVar, Callable
-import structlog
-
-# Configure structured logging
-structlog.configure(
-    processors=[
-        structlog.stdlib.filter_by_level,
-        structlog.stdlib.add_logger_name,
-        structlog.stdlib.add_log_level,
-        structlog.stdlib.PositionalArgumentsFormatter(),
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.StackInfoRenderer(),
-        structlog.processors.format_exc_info,
-        structlog.processors.UnicodeDecoder(),
-        structlog.processors.JSONRenderer()
-    ],
-    context_class=dict,
-    logger_factory=structlog.stdlib.LoggerFactory(),
-    cache_logger_on_first_use=True,
-)
+from .logging_config import get_logger, log_event
 
 T = TypeVar('T', bound='BaseManager')
 
@@ -48,13 +30,15 @@ def with_error_handling(operation_name: str = None):
             op_name = operation_name or func.__name__
             try:
                 result = func(self, *args, **kwargs)
-                self.logger.debug(f"{op_name} completed successfully")
+                log_event(self.logger, "manager.operation_completed", 
+                         operation=op_name, manager=self.__class__.__name__)
                 return result
             except Exception as e:
-                self.logger.error(f"{op_name} failed", 
-                                error_type=type(e).__name__, 
-                                error_message=str(e),
-                                exc_info=True)
+                log_event(self.logger, "manager.operation_failed",
+                         operation=op_name, 
+                         manager=self.__class__.__name__,
+                         error_type=type(e).__name__, 
+                         error_message=str(e))
                 raise
         return wrapper
     return decorator
@@ -67,7 +51,10 @@ def require_manager(*manager_names: str):
         def wrapper(self, *args, **kwargs):
             for manager_name in manager_names:
                 if not hasattr(self, manager_name) or getattr(self, manager_name) is None:
-                    self.logger.warning(f"{func.__name__} requires {manager_name} but it's not available")
+                    log_event(self.logger, "manager.dependency_missing",
+                             function=func.__name__,
+                             required_manager=manager_name,
+                             manager=self.__class__.__name__)
                     return None
             return func(self, *args, **kwargs)
         return wrapper
@@ -79,18 +66,24 @@ def log_operation(level: str = "info"):
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         async def async_wrapper(self, *args, **kwargs):
-            log_func = getattr(self.logger, level)
-            log_func(f"Starting {func.__name__}", args=args, kwargs=kwargs)
+            log_event(self.logger, "manager.async_operation_started",
+                     operation=func.__name__, 
+                     manager=self.__class__.__name__)
             result = await func(self, *args, **kwargs)
-            log_func(f"Completed {func.__name__}", result=result)
+            log_event(self.logger, "manager.async_operation_completed",
+                     operation=func.__name__,
+                     manager=self.__class__.__name__)
             return result
         
         @wraps(func)
         def sync_wrapper(self, *args, **kwargs):
-            log_func = getattr(self.logger, level)
-            log_func(f"Starting {func.__name__}", args=args, kwargs=kwargs)
+            log_event(self.logger, "manager.operation_started",
+                     operation=func.__name__,
+                     manager=self.__class__.__name__)
             result = func(self, *args, **kwargs)
-            log_func(f"Completed {func.__name__}", result=result)
+            log_event(self.logger, "manager.operation_completed",
+                     operation=func.__name__,
+                     manager=self.__class__.__name__)
             return result
         
         # Return appropriate wrapper based on whether func is async
@@ -113,7 +106,7 @@ class BaseManager(ABC):
             required_dirs: List of directories this manager needs
         """
         self.manager_name = manager_name
-        self.logger = structlog.get_logger(manager_name)
+        self.logger = get_logger(manager_name)
         self.required_dirs = required_dirs or []
         
         # Ensure required directories exist

@@ -24,8 +24,9 @@ Example:
 
 from pydantic_settings import BaseSettings
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Literal
 import logging
+import structlog
 
 class KSIConfig(BaseSettings):
     """
@@ -47,6 +48,8 @@ class KSIConfig(BaseSettings):
     log_dir: Path = Path("var/logs/daemon")
     session_log_dir: Path = Path("var/logs/sessions")
     log_level: str = "INFO"
+    log_format: Literal["json", "console"] = "console"
+    log_structured: bool = True
     
     # Temporary files
     tmp_dir: Path = Path("var/tmp")
@@ -87,6 +90,43 @@ class KSIConfig(BaseSettings):
     def get_log_file_path(self) -> Path:
         """Get the daemon log file path."""
         return self.log_dir / "daemon.log"
+    
+    def configure_structlog(self) -> None:
+        """Configure structlog with contextvars support and format options."""
+        processors = [
+            structlog.contextvars.merge_contextvars,  # Auto-merge context vars
+            structlog.stdlib.filter_by_level,
+            structlog.stdlib.add_logger_name,
+            structlog.stdlib.add_log_level,
+            structlog.stdlib.PositionalArgumentsFormatter(),
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.StackInfoRenderer(),
+            structlog.processors.format_exc_info,
+        ]
+        
+        # Choose renderer based on format preference
+        if self.log_format == "json":
+            processors.append(structlog.processors.JSONRenderer())
+        else:
+            # Console format - human readable
+            processors.extend([
+                structlog.processors.UnicodeDecoder(),
+                structlog.dev.ConsoleRenderer(colors=True)
+            ])
+        
+        structlog.configure(
+            processors=processors,
+            context_class=dict,
+            logger_factory=structlog.stdlib.LoggerFactory(),
+            cache_logger_on_first_use=True,
+        )
+    
+    def get_structured_logger(self, name: str) -> structlog.stdlib.BoundLogger:
+        """Get a structured logger instance with automatic context support."""
+        if not hasattr(self, '_structlog_configured'):
+            self.configure_structlog()
+            self._structlog_configured = True
+        return structlog.get_logger(name)
     
     def __str__(self) -> str:
         """String representation showing key configuration values."""

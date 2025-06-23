@@ -11,7 +11,10 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-logger = logging.getLogger('daemon')
+from .logging_config import get_logger, command_context, log_event
+from .event_taxonomy import format_command_event
+
+logger = get_logger(__name__)
 
 class CommandHandler:
     """Handler for daemon commands using JSON Protocol v2.0"""
@@ -29,12 +32,10 @@ class CommandHandler:
         # All commands now use CommandRegistry pattern
     
     async def handle_command(self, command_text: str, writer: asyncio.StreamWriter, reader: asyncio.StreamReader = None) -> bool:
-        """Handle JSON protocol v2.0 commands only"""
+        """Handle JSON protocol v2.0 commands with structured logging"""
         try:
             # Store reader for potential future use
             self._current_reader = reader
-            
-            # Import validator
             from .command_validator import validate_command
             
             # Parse and validate JSON command
@@ -56,23 +57,30 @@ class CommandHandler:
     async def _route_command(self, command_name: str, parameters: dict, writer: asyncio.StreamWriter, full_command: dict) -> bool:
         """Route JSON command to appropriate handler method"""
         
-        # Check command registry first (new pattern)
-        from .command_registry import CommandRegistry
-        handler_class = CommandRegistry.get_handler(command_name)
-        if handler_class:
-            # Use new command handler pattern
-            handler = handler_class(self)  # Pass self as context
-            logger.info(f"Using registry handler for command: {command_name}")
-            response = await handler.handle(parameters, writer, full_command)
+        try:
+            # Check command registry first (new pattern)
+            from .command_registry import CommandRegistry
+            handler_class = CommandRegistry.get_handler(command_name)
+            if handler_class:
+                # Use new command handler pattern
+                handler = handler_class(self)  # Pass self as context
+                logger.info(f"Using registry handler for command: {command_name}")
+                response = await handler.handle(parameters, writer, full_command)
+                
+                # If response is a Pydantic model, convert to dict
+                if hasattr(response, 'model_dump'):
+                    return await self.send_response(writer, response.model_dump())
+                else:
+                    return await self.send_response(writer, response)
             
-            # If response is a Pydantic model, convert to dict
-            if hasattr(response, 'model_dump'):
-                return await self.send_response(writer, response.model_dump())
-            else:
-                return await self.send_response(writer, response)
-        
-        # All commands use registry pattern
-        return await self.send_error_response(writer, "UNKNOWN_COMMAND", f"Command '{command_name}' not recognized")
+            # If we get here, command wasn't found
+            return await self.send_error_response(writer, "UNKNOWN_COMMAND", f"Command '{command_name}' not recognized")
+                
+        except Exception as e:
+            log_event(logger, "command.error", 
+                     error=str(e), 
+                     error_type=type(e).__name__)
+            return await self.send_error_response(writer, "COMMAND_ERROR", f"Unexpected error: {str(e)}")
     
     async def send_response(self, writer: asyncio.StreamWriter, response: dict) -> bool:
         """Send JSON response to client"""
