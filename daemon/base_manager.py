@@ -9,6 +9,7 @@ Provides common patterns for:
 - Directory management
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -77,13 +78,26 @@ def log_operation(level: str = "info"):
     """Decorator for consistent operation logging"""
     def decorator(func: Callable) -> Callable:
         @wraps(func)
-        def wrapper(self, *args, **kwargs):
+        async def async_wrapper(self, *args, **kwargs):
+            log_func = getattr(self.logger, level)
+            log_func(f"Starting {func.__name__}", args=args, kwargs=kwargs)
+            result = await func(self, *args, **kwargs)
+            log_func(f"Completed {func.__name__}", result=result)
+            return result
+        
+        @wraps(func)
+        def sync_wrapper(self, *args, **kwargs):
             log_func = getattr(self.logger, level)
             log_func(f"Starting {func.__name__}", args=args, kwargs=kwargs)
             result = func(self, *args, **kwargs)
             log_func(f"Completed {func.__name__}", result=result)
             return result
-        return wrapper
+        
+        # Return appropriate wrapper based on whether func is async
+        if asyncio.iscoroutinefunction(func):
+            return async_wrapper
+        else:
+            return sync_wrapper
     return decorator
 
 

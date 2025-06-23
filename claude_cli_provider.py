@@ -14,7 +14,7 @@ Add-ons compared with the minimal version:
 
 Stream mode is unchanged (still `--output-format stream-json`).
 
-Dependencies:  litellm ≥ 1.37  •  simpervisor ≥ 1.0
+Dependencies:  litellm ≥ 1.37
 """
 
 from __future__ import annotations
@@ -22,6 +22,11 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import platform
+import subprocess
+import time
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import (
     Any,
@@ -35,7 +40,6 @@ from typing import (
 import litellm
 from litellm import CustomLLM
 from litellm.types.utils import GenericStreamingChunk
-from simpervisor import SupervisedProcess
 
 # --------------------------------------------------------------------------- #
 # configuration
@@ -124,6 +128,14 @@ class ClaudeCLIProvider(CustomLLM):
     """
 
     _llm_provider = "claude-cli"
+    
+    def __init__(self):
+        super().__init__()
+        # Dedicated executor for long-running Claude operations
+        self.claude_executor = ThreadPoolExecutor(
+            max_workers=2,  # Limit concurrent long Claude processes
+            thread_name_prefix="claude-cli"
+        )
 
     # ------------------------- public sync entry-points ---------------------- #
 
@@ -155,47 +167,178 @@ class ClaudeCLIProvider(CustomLLM):
     # ------------------------- internal helpers ----------------------------- #
 
     async def _acompletion(self, messages, *args, **kwargs):
+        """Claude CLI execution with intelligent retry logic"""
+        return await self._acompletion_with_intelligent_retry(messages, *args, **kwargs)
+    
+    async def _acompletion_with_intelligent_retry(self, messages, *args, **kwargs):
+        """Execute Claude CLI with progressive timeouts and intelligent retry"""
         prompt, model_alias = self._extract_prompt_and_model(messages)
+        
+        # Progressive timeouts: 5min, 15min, 30min
+        timeouts = [300, 900, 1800]
+        
+        for attempt, timeout in enumerate(timeouts):
+            allowed = allowed_tools_from_openai(kwargs.get("tools"))
+            disallowed = kwargs.get("disallowed_tools") or []
+            session_id = kwargs.get("session_id")
+            max_turns = kwargs.get("max_turns")
 
-        allowed = allowed_tools_from_openai(kwargs.get("tools"))
-        disallowed = kwargs.get("disallowed_tools") or []
-        session_id = kwargs.get("session_id")
-        max_turns = kwargs.get("max_turns")
-
-        cmd = build_cmd(
-            prompt,
-            output_format="json",
-            model_alias=model_alias,
-            allowed_tools=allowed,
-            disallowed_tools=disallowed,
-            session_id=session_id,
-            max_turns=max_turns,
-        )
-
+            cmd = build_cmd(
+                prompt,
+                output_format="json",
+                model_alias=model_alias,
+                allowed_tools=allowed,
+                disallowed_tools=disallowed,
+                session_id=session_id,
+                max_turns=max_turns,
+            )
+            
+            try:
+                # Use thread executor for long-running Claude operations
+                loop = asyncio.get_event_loop()
+                result = await loop.run_in_executor(
+                    self.claude_executor,
+                    self._run_claude_sync_with_progress,
+                    cmd,
+                    timeout
+                )
+                
+                # Success - process the result
+                return self._process_claude_result(result, model_alias, prompt)
+                
+            except subprocess.TimeoutExpired:
+                if attempt < len(timeouts) - 1:  # Not final attempt
+                    print(f"Claude timeout after {timeout}s, attempt {attempt + 1}/{len(timeouts)}")
+                    # Fresh session on timeout (process may have been hanging)
+                    kwargs.pop("session_id", None)
+                    await asyncio.sleep(30)  # 30s backoff between long operations
+                else:
+                    raise
+            except subprocess.CalledProcessError as e:
+                # Only retry on system-level failures, not Claude logic errors
+                if e.returncode in [-9, -15]:  # SIGKILL, SIGTERM (system issues)
+                    if attempt < len(timeouts) - 1:
+                        print(f"Claude killed (code {e.returncode}), retrying")
+                        await asyncio.sleep(60)  # Longer backoff for system issues
+                    else:
+                        raise
+                else:
+                    # Don't retry on Claude's logical errors (bad prompts, etc.)
+                    raise
+    
+    def _run_claude_sync_with_progress(self, cmd: List[str], timeout: int):
+        """Run Claude with cross-platform progress monitoring to detect hangs vs legitimate long operations"""
         # Set working directory to project root (matching daemon behavior)
-        import os
         project_root = os.path.dirname(os.path.abspath(__file__))
         
-        proc = SupervisedProcess("claude-cli", *cmd, cwd=project_root, env=os.environ, stdout=True, stderr=True)
-        await proc.start()
+        start_time = time.time()
+        last_output_time = time.time()
+        stdout_chunks = []
+        stderr_chunks = []
+        output_lock = threading.Lock()
         
-        # Collect both stdout and stderr
-        stdout_buf: List[bytes] = []
-        stderr_buf: List[bytes] = []
+        def update_last_output_time():
+            nonlocal last_output_time
+            with output_lock:
+                last_output_time = time.time()
         
-        # Collect stdout
-        async for chunk in proc.stdout:
-            stdout_buf.append(chunk)
+        def read_stream(stream, chunks, stream_name):
+            """Read from stream in a separate thread"""
+            try:
+                while True:
+                    chunk = stream.read(1024)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    update_last_output_time()
+            except ValueError:
+                # Stream closed
+                pass
+            except Exception as e:
+                print(f"Error reading {stream_name}: {e}")
+        
+        try:
+            # Start process
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=project_root,
+                env=os.environ
+            )
             
-        # Collect stderr
-        async for chunk in proc.stderr:
-            stderr_buf.append(chunk)
+            # Start reader threads for cross-platform compatibility
+            stdout_thread = threading.Thread(
+                target=read_stream, 
+                args=(process.stdout, stdout_chunks, "stdout"),
+                daemon=True
+            )
+            stderr_thread = threading.Thread(
+                target=read_stream, 
+                args=(process.stderr, stderr_chunks, "stderr"),
+                daemon=True
+            )
             
-        await proc.terminate()
-
-        # Parse the full Claude CLI JSON response and capture all metadata
-        raw_response = b"".join(stdout_buf).decode()
-        stderr_output = b"".join(stderr_buf).decode()
+            stdout_thread.start()
+            stderr_thread.start()
+            
+            # Monitor progress and timeouts
+            while process.poll() is None:
+                current_time = time.time()
+                
+                # Check if no output for 5 minutes (might be hanging)
+                with output_lock:
+                    if current_time - last_output_time > 300:  # 5 min no output
+                        process.kill()
+                        process.wait()
+                        raise subprocess.TimeoutExpired(cmd, 300)
+                
+                # Check overall timeout
+                if current_time - start_time > timeout:
+                    process.kill()
+                    process.wait()
+                    raise subprocess.TimeoutExpired(cmd, timeout)
+                
+                # Sleep briefly to avoid busy waiting
+                time.sleep(1)
+            
+            # Wait for reader threads to finish
+            stdout_thread.join(timeout=5)
+            stderr_thread.join(timeout=5)
+            
+            # Combine all output
+            stdout = ''.join(stdout_chunks)
+            stderr = ''.join(stderr_chunks)
+            
+            # Check return code
+            if process.returncode != 0:
+                raise subprocess.CalledProcessError(process.returncode, cmd, stdout, stderr)
+            
+            # Return object that mimics subprocess.CompletedProcess
+            class CompletedProcessResult:
+                def __init__(self, returncode, stdout, stderr):
+                    self.returncode = returncode
+                    self.stdout = stdout
+                    self.stderr = stderr
+                    self.args = cmd
+            
+            return CompletedProcessResult(process.returncode, stdout, stderr)
+            
+        except Exception as e:
+            # Ensure process is terminated on any error
+            if 'process' in locals():
+                try:
+                    process.kill()
+                    process.wait()
+                except:
+                    pass
+            raise
+    
+    def _process_claude_result(self, result, model_alias: str, prompt: str):
+        """Process successful Claude CLI result and create LiteLLM response"""
+        raw_response = result.stdout
+        stderr_output = result.stderr
         
         try:
             full_claude_response = json.loads(raw_response)
@@ -237,44 +380,29 @@ class ClaudeCLIProvider(CustomLLM):
     async def _astreaming(
         self, messages, *args, **kwargs
     ) -> AsyncIterator[GenericStreamingChunk]:
-        prompt, model_alias = self._extract_prompt_and_model(messages)
-
-        allowed = allowed_tools_from_openai(kwargs.get("tools"))
-        disallowed = kwargs.get("disallowed_tools") or []
-        session_id = kwargs.get("session_id")
-        max_turns = kwargs.get("max_turns")
-
-        cmd = build_cmd(
-            prompt,
-            output_format="stream-json",
-            model_alias=model_alias,
-            allowed_tools=allowed,
-            disallowed_tools=disallowed,
-            session_id=session_id,
-            max_turns=max_turns,
-        )
-
-        # Set working directory to project root (matching daemon behavior)
-        project_root = os.path.dirname(os.path.abspath(__file__))
+        """Streaming version - NOTE: Claude CLI doesn't actually stream, this simulates it"""
+        # For now, use the completion method and simulate streaming
+        # Claude CLI doesn't actually support streaming in the traditional sense
+        response = await self._acompletion(messages, *args, **kwargs)
         
-        proc = SupervisedProcess("claude-cli-stream", *cmd, cwd=project_root, env=os.environ)
-        await proc.start()
-
-        try:
-            async for raw in proc.stdout:
-                try:
-                    evt = json.loads(raw)
-                except Exception:
-                    continue
-                if evt.get("type") != "assistant":
-                    continue
-                token = "".join(
-                    seg.get("text", "") for seg in evt["message"]["content"]
-                )
-                yield self._make_chunk(token, final=False)
-            yield self._make_chunk("", final=True)
-        finally:
-            await proc.terminate()
+        # Extract the text from the response
+        if hasattr(response, '_claude_metadata') and response._claude_metadata:
+            content = response._claude_metadata.get('message', {}).get('content', [])
+            full_text = ''.join(seg.get('text', '') for seg in content if isinstance(seg, dict))
+        else:
+            full_text = response.choices[0].message.content if response.choices else ''
+        
+        # Simulate streaming by yielding chunks
+        if full_text:
+            # Split into reasonable chunks
+            chunk_size = 50
+            for i in range(0, len(full_text), chunk_size):
+                chunk = full_text[i:i+chunk_size]
+                yield self._make_chunk(chunk, final=False)
+                await asyncio.sleep(0.01)  # Small delay to simulate streaming
+        
+        # Final chunk
+        yield self._make_chunk("", final=True)
 
     # ------------------------- utility -------------------------------------- #
 

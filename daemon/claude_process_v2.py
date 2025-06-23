@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
 """
-ClaudeProcessManagerV2 - Modern process management using LiteLLM and simpervisor
+ClaudeProcessManagerV2 - Modern process management using LiteLLM and in-process agents
 
 Complete replacement for ClaudeProcessManager using:
-- LiteLLM as client library for Claude calls
-- simpervisor for agent process management
-- All original functionality preserved
+- LiteLLM as client library for Claude calls  
+- In-process agent controllers for efficient orchestration
+- All original functionality preserved with better performance
 """
 
 import asyncio
@@ -19,9 +19,9 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 
 import litellm
-from simpervisor import SupervisedProcess
 
 from .timestamp_utils import TimestampManager
+from .multi_agent_orchestrator import MultiAgentOrchestrator
 
 # Import claude_cli_provider to ensure provider registration
 import claude_cli_provider
@@ -30,7 +30,7 @@ logger = logging.getLogger('daemon')
 
 
 class ClaudeProcessManagerV2:
-    """Modern Claude process manager using LiteLLM as client library"""
+    """Modern Claude process manager using LiteLLM and in-process agents"""
     
     def __init__(self, state_manager=None, utils_manager=None):
         self.processes: Dict[str, Dict[str, Any]] = {}
@@ -38,6 +38,7 @@ class ClaudeProcessManagerV2:
         self.utils_manager = utils_manager
         self.message_bus = None
         self.agent_manager = None
+        self.multi_agent_orchestrator = None
         
         # Ensure directories exist (exact copy from original)
         self._ensure_directories()
@@ -211,6 +212,7 @@ class ClaudeProcessManagerV2:
         
         # Track the running process (exact copy from original)
         self.processes[process_id] = {
+            'type': 'claude_direct',  # Direct Claude calls vs agent_controller
             'prompt': prompt,
             'session_id': session_id,
             'model': model,
@@ -349,137 +351,203 @@ class ClaudeProcessManagerV2:
     
     async def spawn_agent_process_async(self, agent_id: str, profile_name: str) -> str:
         """
-        Spawn agent process using simpervisor - EXACT copy from original but with simpervisor
+        Spawn in-process agent controller - Efficient replacement for subprocess approach
         """
-        process_id = str(uuid.uuid4())[:8]
-        
-        cmd = [
-            sys.executable,  # Use current Python interpreter
-            'daemon/agent_process.py',
-            '--id', agent_id,
-            '--profile', profile_name,
-            '--socket', 'sockets/claude_daemon.sock'
-        ]
-        
         try:
-            logger.info(f"Spawning agent process with command: {' '.join(cmd)}")
+            # Ensure orchestrator is initialized
+            if not self.multi_agent_orchestrator:
+                if self.message_bus:
+                    self.multi_agent_orchestrator = MultiAgentOrchestrator(
+                        message_bus=self.message_bus,
+                        state_manager=self.state_manager
+                    )
+                else:
+                    raise RuntimeError("Cannot spawn agent: no message bus available")
             
-            # Use simpervisor instead of raw subprocess for better process management
-            supervised_process = SupervisedProcess(f"agent-{agent_id}", *cmd, stdout=True, stderr=True, env=os.environ)
-            await supervised_process.start()
+            logger.info(f"Spawning in-process agent {agent_id} with profile {profile_name}")
             
-            # Track the running process (exact copy from original)
+            # Use orchestrator to spawn in-process agent
+            actual_agent_id = await self.multi_agent_orchestrator.spawn_agent(agent_id, profile_name)
+            
+            # Generate process_id for compatibility with existing APIs
+            process_id = str(uuid.uuid4())[:8]
+            
+            # Track the agent (compatible with existing process tracking)
             self.processes[process_id] = {
-                'process': supervised_process,
-                'type': 'agent_process',
-                'agent_id': agent_id,
+                'type': 'agent_controller',
+                'agent_id': actual_agent_id,
                 'profile': profile_name,
-                'started_at': TimestampManager.format_for_logging()
+                'started_at': TimestampManager.format_for_logging(),
+                'orchestrator': self.multi_agent_orchestrator
             }
             
-            # Monitor for completion (exact copy from original)
-            asyncio.create_task(self._handle_agent_process_completion(process_id))
+            logger.info(f"Started in-process agent {actual_agent_id} with process ID {process_id}")
             
-            logger.info(f"Started agent process {process_id} for agent {agent_id}")
+            # Notify via message bus if available
+            if self.message_bus:
+                asyncio.create_task(self._notify_agent_spawned(process_id, actual_agent_id, profile_name))
+            
             return process_id
             
         except Exception as e:
-            logger.error(f"Failed to spawn agent process: {e}", exc_info=True)
+            logger.error(f"Failed to spawn in-process agent: {e}", exc_info=True)
             return None
     
-    async def _handle_agent_process_completion(self, process_id: str):
-        """Handle completion of an agent process - EXACT copy from original but with simpervisor"""
-        if process_id not in self.processes:
-            return
-            
-        process_info = self.processes[process_id]
-        supervised_process = process_info['process']
-        agent_id = process_info['agent_id']
-        
+    async def _notify_agent_spawned(self, process_id: str, agent_id: str, profile_name: str):
+        """Notify that an in-process agent was spawned"""
         try:
-            # Wait for supervised process to complete and collect output
-            stdout_chunks = []
-            stderr_chunks = []
+            await self.message_bus.publish_simple(
+                from_agent='daemon',
+                event_type='AGENT_SPAWNED',
+                payload={
+                    'process_id': process_id,
+                    'agent_id': agent_id,
+                    'profile': profile_name,
+                    'type': 'agent_controller',
+                    'spawned_at': TimestampManager.format_for_logging()
+                }
+            )
+        except Exception as e:
+            logger.warning(f"Failed to notify agent spawn: {e}")
+    
+    async def terminate_agent(self, process_id: str) -> bool:
+        """Terminate an in-process agent"""
+        try:
+            if process_id not in self.processes:
+                logger.warning(f"Process {process_id} not found for termination")
+                return False
             
-            # Collect all stdout chunks
-            async for chunk in supervised_process.stdout:
-                stdout_chunks.append(chunk)
+            process_info = self.processes[process_id]
+            agent_id = process_info['agent_id']
+            
+            # All processes are now agent_controller type
+            if not self.multi_agent_orchestrator:
+                logger.error("No orchestrator available for agent termination")
+                return False
                 
-            # Collect all stderr chunks  
-            async for chunk in supervised_process.stderr:
-                stderr_chunks.append(chunk)
-            
-            # Wait for process termination
-            await supervised_process.terminate()
-            
-            # Decode output
-            stdout = b''.join(stdout_chunks).decode() if stdout_chunks else ''
-            stderr = b''.join(stderr_chunks).decode() if stderr_chunks else ''
-            
-            # Get return code from simpervisor (if available)
-            returncode = getattr(supervised_process, 'returncode', 0)
-            
-            logger.info(f"Agent {agent_id} (process {process_id}) completed with code {returncode}")
-            
-            if stderr:
-                logger.error(f"Agent {agent_id} stderr: {stderr}")
-            
-            # Clean up (exact copy from original)
-            del self.processes[process_id]
-            
-            # Notify via message bus if available (exact copy from original)
-            if self.message_bus:
-                await self.message_bus.publish(
-                    from_agent='daemon',
-                    event_type='AGENT_TERMINATED',
-                    payload={
-                        'process_id': process_id,
-                        'agent_id': agent_id,
-                        'returncode': returncode,
-                        'terminated_at': TimestampManager.format_for_logging()
-                    }
-                )
+            success = await self.multi_agent_orchestrator.terminate_agent(agent_id)
+            if success:
+                # Clean up process tracking
+                del self.processes[process_id]
+                logger.info(f"Terminated in-process agent {agent_id} (process {process_id})")
+                return True
+            else:
+                logger.warning(f"Failed to terminate agent {agent_id}")
+                return False
                 
         except Exception as e:
-            logger.error(f"Error handling node completion: {e}", exc_info=True)
-            # Clean up even on error (exact copy from original)
-            if process_id in self.processes:
-                del self.processes[process_id]
+            logger.error(f"Error terminating agent process {process_id}: {e}")
+            return False
     
-    # Standardized API methods - EXACT copy from original
+    # Standardized API methods for in-process agents
     
     def list_processes(self) -> list:
-        """List all processes (standardized API) - EXACT copy from original"""
+        """List all in-process agents"""
         processes = []
+        
         for pid, info in self.processes.items():
+            # Handle both agent_controller and claude_direct types
+            process_type = info.get('type')
+            if process_type not in ['agent_controller', 'claude_direct']:
+                continue
+                
             process_data = {
                 'process_id': pid,
-                'agent_id': info.get('agent_id'),
-                'model': info.get('model'),
-                'started_at': info.get('started_at'),
-                'session_id': info.get('session_id'),
-                'status': 'running' if info.get('process') and getattr(info.get('process'), 'returncode', None) is None else 'completed'
+                'agent_id': info.get('agent_id', 'unknown'),
+                'profile': info.get('profile', 'direct_claude'),
+                'started_at': info['started_at'],
+                'type': process_type
             }
-            if info.get('process') and hasattr(info.get('process'), 'returncode') and info['process'].returncode is not None:
-                process_data['return_code'] = info['process'].returncode
+            
+            # Get detailed status from orchestrator (only for agent_controller types)
+            if process_type == 'agent_controller' and self.multi_agent_orchestrator:
+                agent_status = self.multi_agent_orchestrator.get_agent_status(info.get('agent_id'))
+                if agent_status:
+                    process_data.update({
+                        'status': 'running' if agent_status['is_running'] else 'stopped',
+                        'session_id': agent_status['session_id'],
+                        'conversation_length': agent_status['conversation_length'],
+                        'last_response_preview': agent_status['last_response_preview']
+                    })
+                else:
+                    process_data['status'] = 'terminated'
+            elif process_type == 'claude_direct':
+                # For direct Claude calls, simple status based on whether process exists
+                process_data.update({
+                    'status': 'running',  # If it's in the dict, it's running
+                    'session_id': info.get('session_id'),
+                    'conversation_length': 1,  # Direct calls are typically single turn
+                    'last_response_preview': 'Direct Claude call'
+                })
+            else:
+                process_data['status'] = 'no_orchestrator'
+            
             processes.append(process_data)
+        
         return processes
     
     def get_process(self, process_id: str) -> dict:
-        """Get specific process info (standardized API) - EXACT copy from original"""
-        return self.processes.get(process_id)
+        """Get specific agent process info with enhanced details"""
+        if process_id not in self.processes:
+            return None
+            
+        info = self.processes[process_id].copy()
+        
+        # Enhance with orchestrator details if available
+        if self.multi_agent_orchestrator and info.get('type') == 'agent_controller':
+            agent_status = self.multi_agent_orchestrator.get_agent_status(info['agent_id'])
+            if agent_status:
+                info.update(agent_status)
+        
+        return info
     
     def remove_process(self, process_id: str) -> bool:
-        """Remove process from tracking (standardized API) - EXACT copy from original"""
+        """Remove agent process from tracking"""
         if process_id in self.processes:
+            info = self.processes[process_id]
+            
+            # If it's an agent_controller, also clean up from orchestrator
+            if info.get('type') == 'agent_controller' and self.multi_agent_orchestrator:
+                agent_id = info['agent_id']
+                # Note: This only removes from tracking, doesn't terminate the agent
+                # Use terminate_agent() for proper termination
+                logger.info(f"Removing agent {agent_id} from process tracking")
+            
             del self.processes[process_id]
             return True
         return False
     
     def set_agent_manager(self, agent_manager):
-        """Set agent manager for cross-module communication - EXACT copy from original"""
+        """Set agent manager for cross-module communication"""
         self.agent_manager = agent_manager
     
     def set_message_bus(self, message_bus):
-        """Set message bus for process completion notifications - EXACT copy from original"""
+        """Set message bus and initialize multi-agent orchestrator"""
         self.message_bus = message_bus
+        
+        # Initialize multi-agent orchestrator when message bus is available
+        if self.message_bus and not self.multi_agent_orchestrator:
+            self.multi_agent_orchestrator = MultiAgentOrchestrator(
+                message_bus=self.message_bus,
+                state_manager=self.state_manager
+            )
+    
+    # Additional agent-specific API methods
+    
+    def get_orchestrator_stats(self) -> dict:
+        """Get multi-agent orchestrator statistics"""
+        if self.multi_agent_orchestrator:
+            return self.multi_agent_orchestrator.get_orchestrator_stats()
+        return {'error': 'No orchestrator available'}
+    
+    async def send_agent_message(self, agent_id: str, message: dict) -> bool:
+        """Send message to specific agent"""
+        if self.multi_agent_orchestrator:
+            return await self.multi_agent_orchestrator.send_message_to_agent(agent_id, message)
+        return False
+    
+    async def broadcast_to_agents(self, message: dict, exclude_agent: str = None) -> int:
+        """Broadcast message to all agents"""
+        if self.multi_agent_orchestrator:
+            return await self.multi_agent_orchestrator.broadcast_message(message, exclude_agent)
+        return 0

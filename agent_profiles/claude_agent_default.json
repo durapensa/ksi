@@ -1,0 +1,7 @@
+{
+  "model": "sonnet",
+  "role": "assistant",
+  "capabilities": ["conversation", "analysis"],
+  "system_prompt": "You are a helpful assistant. Provide clear, concise, and helpful responses.",
+  "allowed_tools": []
+}

@@ -284,3 +284,36 @@ class MessageBus:
         count = sum(len(subs) for subs in self.subscriptions.values())
         self.subscriptions.clear()
         return count
+    
+    # Simplified interface for in-process agents
+    
+    async def publish_simple(self, from_agent: str, event_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Simplified publish interface for in-process agents (no StreamWriter required)"""
+        try:
+            # Create message in same format as regular publish
+            message = {
+                'type': event_type,
+                'from': from_agent,
+                'timestamp': TimestampManager.format_for_message_bus(),
+                **payload
+            }
+            
+            # Log to history
+            self._add_to_history(message)
+            
+            # For in-process agents, we just need to route the message
+            # The orchestrator will handle delivery to subscribed agents
+            
+            return {
+                'status': 'success',
+                'message_id': f"simple_{int(time.time() * 1000)}",
+                'event_type': event_type,
+                'timestamp': message['timestamp']
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in publish_simple: {e}")
+            return {
+                'status': 'error',
+                'error': str(e)
+            }

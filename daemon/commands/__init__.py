@@ -8,7 +8,7 @@ Each command is a separate class using the command registry pattern
 # These will be added as we migrate commands from json_handlers.py
 
 from .cleanup import CleanupHandler
-from .spawn import SpawnHandler
+from .completion import CompletionHandler
 from .health_check import HealthCheckHandler
 from .get_commands import GetCommandsHandler
 from .get_processes import GetProcessesHandler
@@ -30,10 +30,11 @@ from .get_composition import GetCompositionHandler
 from .validate_composition import ValidateCompositionHandler
 from .list_components import ListComponentsHandler
 from .compose_prompt import ComposePromptHandler
+from .send_message import SendMessageHandler
 
 __all__ = [
     'CleanupHandler', 
-    'SpawnHandler',
+    'CompletionHandler',
     'HealthCheckHandler',
     'GetCommandsHandler',
     'GetProcessesHandler',
@@ -54,5 +55,6 @@ __all__ = [
     'GetCompositionHandler',
     'ValidateCompositionHandler',
     'ListComponentsHandler',
-    'ComposePromptHandler'
+    'ComposePromptHandler',
+    'SendMessageHandler'
 ]

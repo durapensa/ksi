@@ -155,7 +155,8 @@ start_daemon() {
     
     # Activate venv and start daemon
     source "$VENV_DIR/bin/activate"
-    nohup python3 "$DAEMON_SCRIPT" > /dev/null 2>&1 &
+    # Let daemon handle its own logging - don't redirect to /dev/null
+    nohup python3 "$DAEMON_SCRIPT" >> logs/daemon_startup.log 2>&1 &
     
     # Wait for daemon to start
     echo -n "Waiting for daemon to start"
