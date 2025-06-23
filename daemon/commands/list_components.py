@@ -9,8 +9,8 @@ import os
 from pathlib import Path
 from typing import Dict, Any, List
 from ..command_registry import command_handler, CommandHandler
-from ..models import ResponseFactory, ListComponentsParameters
-from ..base_manager import log_operation
+from ..socket_protocol_models import SocketResponse, ListComponentsParameters
+from ..manager_framework import log_operation
 
 @command_handler("LIST_COMPONENTS")
 class ListComponentsHandler(CommandHandler):
@@ -23,7 +23,7 @@ class ListComponentsHandler(CommandHandler):
         try:
             params = ListComponentsParameters(**parameters)
         except Exception as e:
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "LIST_COMPONENTS", 
                 "INVALID_PARAMETERS", 
                 f"Invalid parameters: {str(e)}"
@@ -58,7 +58,7 @@ class ListComponentsHandler(CommandHandler):
                         error_msg += f"Available directories: {', '.join(sorted(available_dirs))}. "
                     error_msg += "Use LIST_COMPONENTS without directory parameter to see all components."
                     
-                    return ResponseFactory.error(
+                    return SocketResponse.error(
                         "LIST_COMPONENTS",
                         "DIRECTORY_NOT_FOUND",
                         error_msg
@@ -144,7 +144,7 @@ class ListComponentsHandler(CommandHandler):
             }
             
             # Return standardized list response
-            return ResponseFactory.success("LIST_COMPONENTS", {
+            return SocketResponse.success("LIST_COMPONENTS", {
                 'items': items,
                 'total': len(items),
                 'by_directory': by_directory,
@@ -153,13 +153,13 @@ class ListComponentsHandler(CommandHandler):
             })
             
         except ImportError as e:
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "LIST_COMPONENTS",
                 "COMPOSER_UNAVAILABLE",
                 f"Prompt composer not available: {str(e)}. Ensure the prompts module is properly installed."
             )
         except Exception as e:
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "LIST_COMPONENTS",
                 "OPERATION_FAILED",
                 f"Failed to list components: {str(e)}"
@@ -189,7 +189,7 @@ class ListComponentsHandler(CommandHandler):
                                 "name": "system_identity",
                                 "directory": "",
                                 "filename": "system_identity.md",
-                                "exists": true,
+                                "exists": True,
                                 "size_bytes": 1250,
                                 "preview": "# System Identity\n\nYou are Claude, an AI assistant created by Anthropic..."
                             },
@@ -198,7 +198,7 @@ class ListComponentsHandler(CommandHandler):
                                 "name": "debate_for",
                                 "directory": "conversation_patterns",
                                 "filename": "debate_for.md",
-                                "exists": true,
+                                "exists": True,
                                 "size_bytes": 890,
                                 "preview": "# Debate Advocate Role\n\nYou will argue in favor of the given position..."
                             }
@@ -211,7 +211,7 @@ class ListComponentsHandler(CommandHandler):
                                     "name": "debate_for",
                                     "directory": "conversation_patterns",
                                     "filename": "debate_for.md",
-                                    "exists": true,
+                                    "exists": True,
                                     "size_bytes": 890,
                                     "preview": "# Debate Advocate Role..."
                                 }
@@ -223,13 +223,13 @@ class ListComponentsHandler(CommandHandler):
                                 "name": "system_identity",
                                 "directory": "",
                                 "filename": "system_identity.md",
-                                "exists": true,
+                                "exists": True,
                                 "size_bytes": 1250,
                                 "preview": "# System Identity..."
                             }
                         ],
                         "metadata": {
-                            "directory_filter": null,
+                            "directory_filter": None,
                             "total_directories": 2,
                             "total_size_bytes": 2140,
                             "directory_summary": {

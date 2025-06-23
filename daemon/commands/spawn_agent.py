@@ -6,25 +6,14 @@ SPAWN_AGENT command handler - Spawn an agent process with intelligent compositio
 import asyncio
 from typing import Dict, Any, List, Optional
 from ..command_registry import command_handler, CommandHandler
-from ..models import ResponseFactory
-from ..base_manager import log_operation
-from pydantic import BaseModel, Field
+from ..socket_protocol_models import SocketResponse, SpawnAgentParameters
+from ..manager_framework import log_operation
 import sys
 import os
 
 # Add path for composition selector
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from prompts.composition_selector import CompositionSelector, SelectionContext
-
-class SpawnAgentParameters(BaseModel):
-    """Parameters for SPAWN_AGENT command"""
-    task: str = Field(..., description="Initial task for the agent")
-    profile_name: Optional[str] = Field(None, description="Agent profile name (fallback if composition selection fails)")
-    agent_id: Optional[str] = Field(None, description="Unique agent identifier (auto-generated if not provided)")
-    context: Optional[str] = Field("", description="Additional context for the agent")
-    role: Optional[str] = Field(None, description="Role hint for composition selection")
-    capabilities: Optional[List[str]] = Field([], description="Required capabilities for composition selection")
-    model: Optional[str] = Field("sonnet", description="Claude model to use")
 
 @command_handler("SPAWN_AGENT")
 class SpawnAgentHandler(CommandHandler):
@@ -37,11 +26,11 @@ class SpawnAgentHandler(CommandHandler):
         try:
             params = SpawnAgentParameters(**parameters)
         except Exception as e:
-            return ResponseFactory.error("SPAWN_AGENT", "INVALID_PARAMETERS", str(e))
+            return SocketResponse.error("SPAWN_AGENT", "INVALID_PARAMETERS", str(e))
         
         # Check if agent manager is available
         if not self.context.agent_manager:
-            return ResponseFactory.error("SPAWN_AGENT", "NO_AGENT_MANAGER", "Agent manager not available")
+            return SocketResponse.error("SPAWN_AGENT", "NO_AGENT_MANAGER", "Agent manager not available")
         
         # Use CompositionSelector for intelligent composition selection
         try:
@@ -79,7 +68,7 @@ class SpawnAgentHandler(CommandHandler):
         )
         
         if not process_id:
-            return ResponseFactory.error("SPAWN_AGENT", "SPAWN_FAILED", 
+            return SocketResponse.error("SPAWN_AGENT", "SPAWN_FAILED", 
                                        f"Failed to spawn agent with composition {composition_name}")
         
         # Generate agent_id if it wasn't provided
@@ -89,7 +78,7 @@ class SpawnAgentHandler(CommandHandler):
         agent_info = self.context.agent_manager.get_agent(final_agent_id)
         
         # Return standardized response with full agent information
-        return ResponseFactory.success("SPAWN_AGENT", {
+        return SocketResponse.success("SPAWN_AGENT", {
             'agent': {
                 'id': final_agent_id,
                 'process_id': process_id,

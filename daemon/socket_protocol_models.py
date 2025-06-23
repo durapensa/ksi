@@ -72,9 +72,9 @@ class ReloadModuleParameters(BaseModel):
 
 class RegisterAgentParameters(BaseModel):
     """Parameters for REGISTER_AGENT command"""
-    agent_id: str
-    role: str
-    capabilities: Union[List[str], str] = Field(default_factory=list)
+    agent_id: str = Field(..., description="Unique identifier for the agent")
+    role: str = Field(..., description="Agent's primary role (e.g., assistant, researcher, analyst)")
+    capabilities: Union[List[str], str] = Field(default_factory=list, description="List of agent capabilities")
     
     @field_validator('capabilities')
     def normalize_capabilities(cls, v):
@@ -96,17 +96,18 @@ class SpawnAgentParameters(BaseModel):
 
 class RouteTaskParameters(BaseModel):
     """Parameters for ROUTE_TASK command"""
-    task: str
-    required_capabilities: List[str]
-    context: str = ""
+    task: str = Field(..., description="Task description to route")
+    required_capabilities: List[str] = Field(default_factory=list, description="Required capabilities for the task")
+    context: str = Field(default="", description="Additional context for the task")
+    prefer_agent_id: Optional[str] = Field(None, description="Preferred agent ID if available")
 
 
 # Message Bus Commands
 
 class SubscribeParameters(BaseModel):
     """Parameters for SUBSCRIBE command"""
-    agent_id: str
-    event_types: List[str]
+    agent_id: str = Field(..., description="Agent ID to subscribe")
+    event_types: List[str] = Field(..., description="List of event types to subscribe to")
     
     @field_validator('event_types')
     def validate_event_types(cls, v):
@@ -117,28 +118,55 @@ class SubscribeParameters(BaseModel):
 
 class PublishParameters(BaseModel):
     """Parameters for PUBLISH command"""
-    from_agent: str
-    event_type: str
-    payload: Dict[str, Any]
+    from_agent: str = Field(..., description="Agent ID publishing the event")
+    event_type: str = Field(..., description="Type of event to publish")
+    payload: Dict[str, Any] = Field(..., description="Event payload data")
+    
+    @field_validator('event_type')
+    def validate_event_type(cls, v):
+        """Validate event type"""
+        valid_types = [
+            'DIRECT_MESSAGE', 'BROADCAST', 'TASK_ASSIGNMENT', 
+            'CONVERSATION_INVITE', 'AGENT_STATUS', 'SYSTEM_EVENT'
+        ]
+        if v not in valid_types:
+            # Allow custom event types but log a warning
+            import logging
+            logging.getLogger('daemon').warning(f"Non-standard event type: {v}")
+        return v
+
+
+class SendMessageParameters(BaseModel):
+    """Parameters for SEND_MESSAGE command"""
+    from_agent: str = Field(..., description="ID of the agent sending the message")
+    to_agent: Optional[str] = Field(None, description="ID of specific target agent (None for broadcast)")
+    message_type: str = Field("MESSAGE", description="Type of message (MESSAGE, TASK_ASSIGNMENT, etc.)")
+    content: str = Field(..., description="Message content")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata for the message")
+    event_types: Optional[List[str]] = Field(None, description="Event types for pub/sub routing (alternative to to_agent)")
 
 
 class AgentConnectionParameters(BaseModel):
     """Parameters for AGENT_CONNECTION command"""
-    action: Literal["connect", "disconnect"]
-    agent_id: str
+    action: Literal["connect", "disconnect"] = Field(..., description="Action to perform: connect or disconnect")
+    agent_id: str = Field(..., description="ID of agent to connect/disconnect")
 
 
 # State Management Commands
 
-class SetSharedParameters(BaseModel):
-    """Parameters for SET_SHARED command"""
-    key: str
-    value: Any  # Allow any JSON-serializable value
+class SetAgentKVParameters(BaseModel):
+    """Parameters for SET_AGENT_KV command"""
+    key: str = Field(..., description="State key to set (suggest agent_id.purpose.detail format)")
+    value: Any = Field(..., description="State value to store (any JSON-serializable value)")
+    owner_agent_id: str = Field(default="system", description="Agent ID that owns this data")
+    scope: str = Field(default="shared", description="Data scope: private, shared, or coordination")
+    expires_at: Optional[str] = Field(default=None, description="ISO timestamp when this expires (optional)")
+    metadata: Optional[Dict[str, Any]] = Field(default=None, description="Additional metadata (optional)")
 
 
-class GetSharedParameters(BaseModel):
-    """Parameters for GET_SHARED command"""
-    key: str
+class GetAgentKVParameters(BaseModel):
+    """Parameters for GET_AGENT_KV command"""
+    key: str = Field(..., description="State key to retrieve")
 
 
 class LoadStateParameters(BaseModel):
@@ -218,6 +246,50 @@ class ComposePromptParameters(BaseModel):
     context: Dict[str, Any]
 
 
+# Additional Command Parameters
+
+class GetAgentsParameters(BaseModel):
+    """Parameters for GET_AGENTS command"""
+    # No parameters needed for this command
+    pass
+
+
+class GetProcessesParameters(BaseModel):
+    """Parameters for GET_PROCESSES command"""
+    # No parameters needed for this command  
+    pass
+
+
+class GetCommandsParameters(BaseModel):
+    """Parameters for GET_COMMANDS command"""
+    # No parameters needed for this command
+    pass
+
+
+class HealthCheckParameters(BaseModel):
+    """Parameters for HEALTH_CHECK command"""
+    # No parameters needed for this command
+    pass
+
+
+class MessageBusStatsParameters(BaseModel):
+    """Parameters for MESSAGE_BUS_STATS command"""  
+    # No parameters needed for this command
+    pass
+
+
+class ShutdownParameters(BaseModel):
+    """Parameters for SHUTDOWN command"""
+    # No parameters needed for this command
+    pass
+
+
+class ReloadDaemonParameters(BaseModel):
+    """Parameters for RELOAD_DAEMON command"""
+    # No parameters needed for this command
+    pass
+
+
 # Command Models with specific parameters
 
 class SpawnCommand(BaseCommand):
@@ -283,6 +355,7 @@ class ErrorResponse(BaseResponse):
 
 COMMAND_PARAMETER_MAP = {
     "SPAWN": SpawnParameters,
+    "COMPLETION": SpawnParameters,  # Alias for SPAWN
     "CLEANUP": CleanupParameters,
     "RELOAD_MODULE": ReloadModuleParameters,
     "REGISTER_AGENT": RegisterAgentParameters,
@@ -290,9 +363,10 @@ COMMAND_PARAMETER_MAP = {
     "ROUTE_TASK": RouteTaskParameters,
     "SUBSCRIBE": SubscribeParameters,
     "PUBLISH": PublishParameters,
+    "SEND_MESSAGE": SendMessageParameters,
     "AGENT_CONNECTION": AgentConnectionParameters,
-    "SET_SHARED": SetSharedParameters,
-    "GET_SHARED": GetSharedParameters,
+    "SET_AGENT_KV": SetAgentKVParameters,
+    "GET_AGENT_KV": GetAgentKVParameters,
     "LOAD_STATE": LoadStateParameters,
     "CREATE_IDENTITY": CreateIdentityParameters,
     "UPDATE_IDENTITY": UpdateIdentityParameters,
@@ -304,6 +378,13 @@ COMMAND_PARAMETER_MAP = {
     "VALIDATE_COMPOSITION": ValidateCompositionParameters,
     "LIST_COMPONENTS": ListComponentsParameters,
     "COMPOSE_PROMPT": ComposePromptParameters,
+    "GET_AGENTS": GetAgentsParameters,
+    "GET_PROCESSES": GetProcessesParameters,
+    "GET_COMMANDS": GetCommandsParameters,
+    "HEALTH_CHECK": HealthCheckParameters,
+    "MESSAGE_BUS_STATS": MessageBusStatsParameters,
+    "SHUTDOWN": ShutdownParameters,
+    "RELOAD_DAEMON": ReloadDaemonParameters,
 }
 
 
@@ -349,29 +430,107 @@ class CommandFactory:
         )
 
 
-class ResponseFactory:
-    """Factory for creating responses"""
+class SocketResponse:
+    """Factory for creating socket protocol responses"""
     
     @staticmethod
-    def success(command: str, result: Any, processing_time_ms: Optional[float] = None) -> SuccessResponse:
+    def success(command: str, result: Any, processing_time_ms: Optional[float] = None) -> Dict[str, Any]:
         """Create a success response"""
-        metadata = {}
+        metadata = {"timestamp": TimestampManager.timestamp_utc()}
         if processing_time_ms is not None:
             metadata['processing_time_ms'] = processing_time_ms
             
-        return SuccessResponse(
+        response = SuccessResponse(
             command=command,
-            result=result,
-            metadata=metadata if metadata else None
+            result=result if result is not None else {},
+            metadata=metadata
         )
+        return response.model_dump()
     
     @staticmethod
-    def error(command: str, error_code: str, message: str) -> ErrorResponse:
+    def error(command: str, error_code: str, message: str, details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Create an error response"""
-        return ErrorResponse(
+        response = ErrorResponse(
             command=command,
             error=ErrorInfo(code=error_code, message=message)
         )
+        return response.model_dump()
+    
+    @staticmethod
+    def help(commands: List[Dict[str, Any]], aliases: Dict[str, str]) -> Dict[str, Any]:
+        """Create a HELP/GET_COMMANDS response"""
+        from .command_response_models import HelpCommandItem, HelpResponse
+        # Convert dicts to HelpCommandItem models
+        command_items = [
+            HelpCommandItem(**cmd) for cmd in commands
+        ]
+        response = HelpResponse(
+            commands=command_items,
+            aliases=aliases,
+            command="GET_COMMANDS"
+        )
+        return response.model_dump()
+    
+    @staticmethod
+    def health_check(uptime: int = 0, managers: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Create a HEALTH_CHECK response"""
+        result = {
+            "status": "healthy",
+            "uptime": uptime,
+            "managers": managers or {}
+        }
+        return SocketResponse.success("HEALTH_CHECK", result)
+    
+    @staticmethod
+    def get_processes(processes: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Create a GET_PROCESSES response"""
+        result = {
+            "processes": processes,
+            "total": len(processes)
+        }
+        return SocketResponse.success("GET_PROCESSES", result)
+    
+    @staticmethod
+    def get_agents(agents: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+        """Create a GET_AGENTS response"""
+        return SocketResponse.success("GET_AGENTS", {"agents": agents})
+    
+    @staticmethod
+    def get_agent_kv(key: str, value: Any, found: bool) -> Dict[str, Any]:
+        """Create a GET_AGENT_KV response"""
+        return SocketResponse.success("GET_AGENT_KV", {
+            "key": key,
+            "value": value,
+            "found": found
+        })
+    
+    @staticmethod
+    def set_agent_kv(key: str) -> Dict[str, Any]:
+        """Create a SET_AGENT_KV response"""
+        return SocketResponse.success("SET_AGENT_KV", {
+            "key": key,
+            "status": "set"
+        })
+    
+    @staticmethod
+    def cleanup(cleanup_type: str, details: str) -> Dict[str, Any]:
+        """Create a CLEANUP response"""
+        return SocketResponse.success("CLEANUP", {
+            "status": "cleaned",
+            "cleanup_type": cleanup_type,
+            "details": details
+        })
+    
+    @staticmethod
+    def list_items(command: str, items: List[Dict[str, Any]], total: Optional[int] = None, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Create a list response for commands that return collections"""
+        result = {
+            "items": items,
+            "total": total if total is not None else len(items)
+        }
+        if metadata:
+            result["metadata"] = metadata
+        return SocketResponse.success(command, result)
 
 
 # State Models

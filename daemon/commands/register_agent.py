@@ -6,15 +6,8 @@ REGISTER_AGENT command handler - Register a new agent with role and capabilities
 import asyncio
 from typing import Dict, Any, List, Optional
 from ..command_registry import command_handler, CommandHandler
-from ..models import ResponseFactory
-from ..base_manager import log_operation
-from pydantic import BaseModel, Field
-
-class RegisterAgentParameters(BaseModel):
-    """Parameters for REGISTER_AGENT command"""
-    agent_id: str = Field(..., description="Unique identifier for the agent")
-    role: str = Field(..., description="Agent's primary role (e.g., assistant, researcher, analyst)")
-    capabilities: Optional[List[str]] = Field(default=[], description="List of agent capabilities")
+from ..socket_protocol_models import SocketResponse, RegisterAgentParameters
+from ..manager_framework import log_operation
 
 @command_handler("REGISTER_AGENT")
 class RegisterAgentHandler(CommandHandler):
@@ -27,11 +20,11 @@ class RegisterAgentHandler(CommandHandler):
         try:
             params = RegisterAgentParameters(**parameters)
         except Exception as e:
-            return ResponseFactory.error("REGISTER_AGENT", "INVALID_PARAMETERS", str(e))
+            return SocketResponse.error("REGISTER_AGENT", "INVALID_PARAMETERS", str(e))
         
         # Check if agent manager is available
         if not self.context.agent_manager:
-            return ResponseFactory.error("REGISTER_AGENT", "NO_AGENT_MANAGER", "Agent manager not available")
+            return SocketResponse.error("REGISTER_AGENT", "NO_AGENT_MANAGER", "Agent manager not available")
         
         # Create agent using standardized API
         agent_data = {
@@ -42,7 +35,7 @@ class RegisterAgentHandler(CommandHandler):
         
         agent_id = self.context.agent_manager.create_agent(agent_data)
         
-        return ResponseFactory.success("REGISTER_AGENT", {
+        return SocketResponse.success("REGISTER_AGENT", {
             'status': 'registered',
             'agent_id': agent_id,
             'role': params.role,

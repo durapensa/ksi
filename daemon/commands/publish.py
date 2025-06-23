@@ -6,38 +6,8 @@ PUBLISH command handler - Publish events to the message bus
 import asyncio
 from typing import Dict, Any, Optional
 from ..command_registry import command_handler, CommandHandler
-from ..models import ResponseFactory
-from ..base_manager import log_operation
-from pydantic import BaseModel, Field, validator
-
-class PublishParameters(BaseModel):
-    """Parameters for PUBLISH command"""
-    from_agent: str = Field(..., description="Agent ID publishing the event")
-    event_type: str = Field(..., description="Type of event to publish")
-    payload: Dict[str, Any] = Field(..., description="Event payload data")
-    
-    @validator('event_type')
-    def validate_event_type(cls, v):
-        """Validate event type"""
-        valid_types = [
-            'DIRECT_MESSAGE', 'BROADCAST', 'TASK_ASSIGNMENT', 
-            'CONVERSATION_INVITE', 'AGENT_STATUS', 'SYSTEM_EVENT'
-        ]
-        if v not in valid_types:
-            # Allow custom event types but log a warning
-            import logging
-            logging.getLogger('daemon').warning(f"Non-standard event type: {v}")
-        return v
-    
-    @validator('payload')
-    def validate_payload(cls, v, values):
-        """Validate payload based on event type"""
-        event_type = values.get('event_type')
-        if event_type == 'DIRECT_MESSAGE' and 'to' not in v:
-            raise ValueError("DIRECT_MESSAGE payload must include 'to' field")
-        if event_type == 'TASK_ASSIGNMENT' and 'task' not in v:
-            raise ValueError("TASK_ASSIGNMENT payload must include 'task' field")
-        return v
+from ..socket_protocol_models import SocketResponse, PublishParameters
+from ..manager_framework import log_operation
 
 @command_handler("PUBLISH")
 class PublishHandler(CommandHandler):
@@ -50,11 +20,11 @@ class PublishHandler(CommandHandler):
         try:
             params = PublishParameters(**parameters)
         except Exception as e:
-            return ResponseFactory.error("PUBLISH", "INVALID_PARAMETERS", str(e))
+            return SocketResponse.error("PUBLISH", "INVALID_PARAMETERS", str(e))
         
         # Check if message bus is available
         if not self.context.message_bus:
-            return ResponseFactory.error("PUBLISH", "NO_MESSAGE_BUS", "Message bus not available")
+            return SocketResponse.error("PUBLISH", "NO_MESSAGE_BUS", "Message bus not available")
         
         # Publish the event
         result = await self.context.message_bus.publish(
@@ -94,7 +64,7 @@ class PublishHandler(CommandHandler):
                 'event_types_active': len(self.context.message_bus.subscriptions)
             }
         
-        return ResponseFactory.success("PUBLISH", enhanced_result)
+        return SocketResponse.success("PUBLISH", enhanced_result)
     
     @classmethod
     def get_help(cls) -> Dict[str, Any]:

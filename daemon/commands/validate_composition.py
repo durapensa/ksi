@@ -8,8 +8,8 @@ import sys
 import os
 from typing import Dict, Any, List
 from ..command_registry import command_handler, CommandHandler
-from ..models import ResponseFactory, ValidateCompositionParameters
-from ..base_manager import log_operation
+from ..socket_protocol_models import SocketResponse, ValidateCompositionParameters
+from ..manager_framework import log_operation
 
 @command_handler("VALIDATE_COMPOSITION")
 class ValidateCompositionHandler(CommandHandler):
@@ -22,7 +22,7 @@ class ValidateCompositionHandler(CommandHandler):
         try:
             params = ValidateCompositionParameters(**parameters)
         except Exception as e:
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "VALIDATE_COMPOSITION", 
                 "INVALID_PARAMETERS", 
                 f"Invalid parameters: {str(e)}"
@@ -68,7 +68,7 @@ class ValidateCompositionHandler(CommandHandler):
                         error_msg += ". "
                 error_msg += "Use GET_COMPOSITIONS to see all available compositions."
                 
-                return ResponseFactory.error(
+                return SocketResponse.error(
                     "VALIDATE_COMPOSITION",
                     "COMPOSITION_NOT_FOUND",
                     error_msg
@@ -182,16 +182,16 @@ class ValidateCompositionHandler(CommandHandler):
             validation_result['suggestions'] = suggestions
             
             # Return comprehensive validation results
-            return ResponseFactory.success("VALIDATE_COMPOSITION", validation_result)
+            return SocketResponse.success("VALIDATE_COMPOSITION", validation_result)
             
         except ImportError as e:
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "VALIDATE_COMPOSITION",
                 "COMPOSER_UNAVAILABLE",
                 f"Prompt composer not available: {str(e)}. Ensure the prompts module is properly installed."
             )
         except Exception as e:
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "VALIDATE_COMPOSITION",
                 "VALIDATION_FAILED",
                 f"Failed to validate composition '{params.name}': {str(e)}"
@@ -227,7 +227,7 @@ class ValidateCompositionHandler(CommandHandler):
                     },
                     "response": {
                         "composition": "claude_agent_default",
-                        "valid": true,
+                        "valid": True,
                         "issues": [],
                         "warnings": ["Extra context provided (not required): daemon_commands"],
                         "context_validation": {
@@ -235,24 +235,24 @@ class ValidateCompositionHandler(CommandHandler):
                             "provided_context": ["user_prompt", "daemon_commands"],
                             "missing_context": [],
                             "extra_context": ["daemon_commands"],
-                            "context_complete": true
+                            "context_complete": True
                         },
                         "composition_validation": {
-                            "exists": true,
-                            "loaded": true,
-                            "structure_valid": true
+                            "exists": True,
+                            "loaded": True,
+                            "structure_valid": True
                         },
                         "test_composition": {
-                            "composition_successful": true,
+                            "composition_successful": True,
                             "prompt_length": 2847,
                             "component_count": 3
                         },
                         "summary": {
-                            "overall_valid": true,
-                            "composition_exists": true,
-                            "structure_valid": true,
-                            "context_complete": true,
-                            "test_passed": true,
+                            "overall_valid": True,
+                            "composition_exists": True,
+                            "structure_valid": True,
+                            "context_complete": True,
+                            "test_passed": True,
                             "issue_count": 0,
                             "warning_count": 1
                         },
@@ -267,14 +267,14 @@ class ValidateCompositionHandler(CommandHandler):
                     },
                     "response": {
                         "composition": "research_specialist",
-                        "valid": false,
+                        "valid": False,
                         "issues": ["Missing required context: research_topic, analysis_depth"],
                         "context_validation": {
                             "required_context": ["research_topic", "analysis_depth"],
                             "provided_context": [],
                             "missing_context": ["research_topic", "analysis_depth"],
                             "extra_context": [],
-                            "context_complete": false
+                            "context_complete": False
                         },
                         "suggestions": ["Provide missing context: research_topic, analysis_depth"]
                     }

@@ -6,19 +6,9 @@ SEND_MESSAGE command handler - Send messages between agents
 import asyncio
 from typing import Dict, Any, Optional
 from ..command_registry import command_handler, CommandHandler
-from ..models import ResponseFactory
-from ..base_manager import log_operation
-from pydantic import BaseModel, Field
+from ..socket_protocol_models import SocketResponse, SendMessageParameters
+from ..manager_framework import log_operation
 from ..timestamp_utils import TimestampManager
-
-class SendMessageParameters(BaseModel):
-    """Parameters for SEND_MESSAGE command"""
-    from_agent: str = Field(..., description="ID of the agent sending the message")
-    to_agent: Optional[str] = Field(None, description="ID of specific target agent (None for broadcast)")
-    message_type: str = Field("MESSAGE", description="Type of message (MESSAGE, TASK_ASSIGNMENT, etc.)")
-    content: str = Field(..., description="Message content")
-    metadata: Dict[str, Any] = Field({}, description="Additional metadata for the message")
-    event_types: Optional[list[str]] = Field(None, description="Event types for pub/sub routing (alternative to to_agent)")
 
 @command_handler("SEND_MESSAGE")
 class SendMessageHandler(CommandHandler):
@@ -31,19 +21,19 @@ class SendMessageHandler(CommandHandler):
         try:
             params = SendMessageParameters(**parameters)
         except Exception as e:
-            return ResponseFactory.error("SEND_MESSAGE", "INVALID_PARAMETERS", str(e))
+            return SocketResponse.error("SEND_MESSAGE", "INVALID_PARAMETERS", str(e))
         
         # Check if orchestrator is available
-        if not self.context.process_manager or not hasattr(self.context.process_manager, 'multi_agent_orchestrator'):
-            return ResponseFactory.error("SEND_MESSAGE", "NO_ORCHESTRATOR", "Multi-agent orchestrator not available")
+        if not self.context.completion_manager or not hasattr(self.context.completion_manager, 'agent_orchestrator'):
+            return SocketResponse.error("SEND_MESSAGE", "NO_ORCHESTRATOR", "Multi-agent orchestrator not available")
         
-        orchestrator = self.context.process_manager.multi_agent_orchestrator
+        orchestrator = self.context.completion_manager.agent_orchestrator
         if not orchestrator:
-            return ResponseFactory.error("SEND_MESSAGE", "NO_ORCHESTRATOR", "Multi-agent orchestrator not initialized")
+            return SocketResponse.error("SEND_MESSAGE", "NO_ORCHESTRATOR", "Multi-agent orchestrator not initialized")
         
         # Verify sender exists
         if params.from_agent not in orchestrator.agents:
-            return ResponseFactory.error("SEND_MESSAGE", "SENDER_NOT_FOUND", f"Sender agent '{params.from_agent}' not found")
+            return SocketResponse.error("SEND_MESSAGE", "SENDER_NOT_FOUND", f"Sender agent '{params.from_agent}' not found")
         
         # Build message payload
         message = {
@@ -69,13 +59,13 @@ class SendMessageHandler(CommandHandler):
         """Send message directly to specific agent"""
         # Verify recipient exists
         if to_agent not in orchestrator.agents:
-            return ResponseFactory.error("SEND_MESSAGE", "RECIPIENT_NOT_FOUND", f"Recipient agent '{to_agent}' not found")
+            return SocketResponse.error("SEND_MESSAGE", "RECIPIENT_NOT_FOUND", f"Recipient agent '{to_agent}' not found")
         
         # Send the message
         success = await orchestrator.send_message_to_agent(to_agent, message)
         
         if success:
-            return ResponseFactory.success("SEND_MESSAGE", {
+            return SocketResponse.success("SEND_MESSAGE", {
                 'delivery': 'direct',
                 'from': message['from'],
                 'to': to_agent,
@@ -84,7 +74,7 @@ class SendMessageHandler(CommandHandler):
                 'status': 'delivered'
             })
         else:
-            return ResponseFactory.error("SEND_MESSAGE", "DELIVERY_FAILED", f"Failed to deliver message to agent '{to_agent}'")
+            return SocketResponse.error("SEND_MESSAGE", "DELIVERY_FAILED", f"Failed to deliver message to agent '{to_agent}'")
     
     async def _publish_to_event_bus(self, orchestrator, from_agent: str, event_types: list[str], message: Dict[str, Any]) -> Any:
         """Publish message via event bus for subscribers"""
@@ -107,7 +97,7 @@ class SendMessageHandler(CommandHandler):
                 'count': len(active_subscribers)
             })
         
-        return ResponseFactory.success("SEND_MESSAGE", {
+        return SocketResponse.success("SEND_MESSAGE", {
             'delivery': 'event_bus',
             'from': from_agent,
             'event_types': event_types,
@@ -124,7 +114,7 @@ class SendMessageHandler(CommandHandler):
         all_agents = list(orchestrator.agents.keys())
         recipients = [a for a in all_agents if a != from_agent]
         
-        return ResponseFactory.success("SEND_MESSAGE", {
+        return SocketResponse.success("SEND_MESSAGE", {
             'delivery': 'broadcast',
             'from': from_agent,
             'recipients': recipients,

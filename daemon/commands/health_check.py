@@ -6,8 +6,8 @@ HEALTH_CHECK command handler - System health status
 import asyncio
 from typing import Dict, Any
 from ..command_registry import command_handler, CommandHandler
-from ..models import ResponseFactory
-from ..base_manager import log_operation
+from ..socket_protocol_models import SocketResponse, HealthCheckParameters
+from ..manager_framework import log_operation
 
 @command_handler("HEALTH_CHECK")
 class HealthCheckHandler(CommandHandler):
@@ -30,8 +30,8 @@ class HealthCheckHandler(CommandHandler):
                 'sessions': sessions
             }
         
-        if self.context.process_manager:
-            processes = len(self.context.process_manager.processes)
+        if self.context.completion_manager:
+            processes = len(self.context.completion_manager.processes)
             health_data['managers']['process'] = {
                 'status': 'active',
                 'processes': processes
@@ -54,4 +54,7 @@ class HealthCheckHandler(CommandHandler):
                 'connections': len(self.context.message_bus.connections)
             }
         
-        return ResponseFactory.success("HEALTH_CHECK", health_data)
+        return SocketResponse.health_check(
+            uptime=health_data['uptime'],
+            managers=health_data['managers']
+        )

@@ -9,8 +9,8 @@ import os
 from pathlib import Path
 from typing import Dict, Any, List
 from ..command_registry import command_handler, CommandHandler
-from ..models import ResponseFactory, GetCompositionsParameters
-from ..base_manager import log_operation
+from ..socket_protocol_models import SocketResponse, GetCompositionsParameters
+from ..manager_framework import log_operation
 
 @command_handler("GET_COMPOSITIONS")
 class GetCompositionsHandler(CommandHandler):
@@ -23,7 +23,7 @@ class GetCompositionsHandler(CommandHandler):
         try:
             params = GetCompositionsParameters(**parameters)
         except Exception as e:
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "GET_COMPOSITIONS", 
                 "INVALID_PARAMETERS", 
                 f"Invalid parameters: {str(e)}"
@@ -91,20 +91,20 @@ class GetCompositionsHandler(CommandHandler):
                 metadata['failed_compositions'] = failed_compositions
             
             # Return standardized list response
-            return ResponseFactory.success("GET_COMPOSITIONS", {
+            return SocketResponse.success("GET_COMPOSITIONS", {
                 'items': items,
                 'total': len(items),
                 'metadata': metadata
             })
             
         except ImportError as e:
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "GET_COMPOSITIONS",
                 "COMPOSER_UNAVAILABLE",
                 f"Prompt composer not available: {str(e)}. Ensure the prompts module is properly installed."
             )
         except Exception as e:
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "GET_COMPOSITIONS",
                 "OPERATION_FAILED",
                 f"Failed to get compositions: {str(e)}"
@@ -152,8 +152,8 @@ class GetCompositionsHandler(CommandHandler):
                         ],
                         "total": 1,
                         "metadata": {
-                            "include_metadata": true,
-                            "category_filter": null,
+                            "include_metadata": True,
+                            "category_filter": None,
                             "total_found": 1,
                             "filtered_count": 1,
                             "failed_to_load": 0
@@ -169,7 +169,7 @@ class GetCompositionsHandler(CommandHandler):
                 {
                     "description": "Get composition names only (fast)",
                     "parameters": {
-                        "include_metadata": false
+                        "include_metadata": False
                     }
                 }
             ],

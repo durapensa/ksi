@@ -7,16 +7,17 @@ Minimal daemon system for managing Claude processes with conversation continuity
 - **Architecture**: In-Process Agent Controllers (Option B) with LiteLLM integration - FULLY IMPLEMENTED
 - **Claude Execution**: claude_cli_provider.py is the single source of truth for all Claude calls
 - **Agent Management**: MultiAgentOrchestrator + AgentController for efficient coordination
-- **Commands**: 29/29 migrated to command registry pattern with Pydantic validation
+- **Commands**: 31/31 migrated to command registry pattern with fully centralized Pydantic validation
 - **Message Bus**: Event-driven architecture, no polling/timers
 
 ## Critical Patterns & Gotchas
 
 ### Command Development
-1. **Parameter Models**: Never duplicate models between `daemon/models.py` and command handlers
-2. **Response Factory**: Use `ResponseFactory.success()` and `ResponseFactory.error()` 
+1. **Parameter Models**: All models centralized in `daemon/socket_protocol_models.py` - import from there, never duplicate
+2. **Command Parameter Map**: All 31 commands have entries in COMMAND_PARAMETER_MAP for validation
+3. **Response Factory**: Use `SocketResponse.success()` and `SocketResponse.error()` 
    - Error responses don't support extra kwargs - put details in the error message string
-3. **Expected Errors**: SUBSCRIBE without connection should error (this is correct behavior)
+4. **Expected Errors**: SUBSCRIBE without connection should error (this is correct behavior)
 
 ### Architecture Principles
 - **Event-Driven Only**: No polling, timers, or wait loops - all communication via message bus
@@ -35,7 +36,7 @@ Minimal daemon system for managing Claude processes with conversation continuity
 ### Command System
 - `daemon/command_registry.py` - Self-registering command pattern
 - `daemon/commands/` - Individual command handlers with `@command_handler` decorator
-- `daemon/models.py` - Pydantic parameter models (check COMMAND_PARAMETER_MAP)
+- `daemon/socket_protocol_models.py` - Centralized Pydantic parameter models (COMMAND_PARAMETER_MAP)
 
 ### Development
 - `tests/test_migrated_commands.py` - Test pattern for command validation
@@ -57,7 +58,19 @@ Minimal daemon system for managing Claude processes with conversation continuity
 - **Agent Profiles**: 15+ profiles in `agent_profiles/`
 - **Dynamic Composition**: Agents select prompts via composition system
 
-## Recent Fixes (2025-06-23)
+## Recent Fixes & Updates (2025-06-23)
+
+### Pydantic Migration Complete (2025-06-23)
+**Achievement**: Complete consolidation of all parameter models to centralized location
+**Changes**:
+1. Moved all 13 duplicate local parameter models to `daemon/socket_protocol_models.py`
+2. Added parameter models for 7 commands that didn't have them (HEALTH_CHECK, GET_PROCESSES, etc.)
+3. Updated COMMAND_PARAMETER_MAP to include all 31 commands
+4. Updated all command handlers to import from centralized models
+5. Removed all duplicate parameter model definitions
+**Result**: Single source of truth for all Pydantic validation, eliminated duplication
+
+## Previous Fixes
 
 ### Process List Issue (FIXED)
 **Problem**: GET_PROCESSES returned 0 despite agents existing
@@ -83,10 +96,10 @@ python3 tests/test_daemon_protocol.py
 python3 debug_agent_disconnect.py
 ```
 
-### Command Migration Pattern
-1. Check `daemon/models.py` for existing parameter models
-2. Create handler in `daemon/commands/` with `@command_handler` decorator
-3. Use `ResponseFactory` for consistent responses
+### Command Development Pattern
+1. All parameter models are in `daemon/socket_protocol_models.py` - never duplicate
+2. Create handler in `daemon/commands/` with `@command_handler` decorator and import models
+3. Use `SocketResponse` factory methods for consistent responses
 4. Add test to `tests/test_migrated_commands.py`
 
 ## File Organization Standards

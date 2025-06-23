@@ -6,16 +6,8 @@ ROUTE_TASK command handler - Route tasks to the most suitable available agent
 import asyncio
 from typing import Dict, Any, List
 from ..command_registry import command_handler, CommandHandler
-from ..models import ResponseFactory
-from ..base_manager import log_operation
-from pydantic import BaseModel, Field
-
-class RouteTaskParameters(BaseModel):
-    """Parameters for ROUTE_TASK command"""
-    task: str = Field(..., description="Task description to route")
-    required_capabilities: List[str] = Field([], description="Required capabilities for the task")
-    context: str = Field("", description="Additional context for the task")
-    prefer_agent_id: str = Field(None, description="Preferred agent ID if available")
+from ..socket_protocol_models import SocketResponse, RouteTaskParameters
+from ..manager_framework import log_operation
 
 @command_handler("ROUTE_TASK")
 class RouteTaskHandler(CommandHandler):
@@ -28,11 +20,11 @@ class RouteTaskHandler(CommandHandler):
         try:
             params = RouteTaskParameters(**parameters)
         except Exception as e:
-            return ResponseFactory.error("ROUTE_TASK", "INVALID_PARAMETERS", str(e))
+            return SocketResponse.error("ROUTE_TASK", "INVALID_PARAMETERS", str(e))
         
         # Check if agent manager is available
         if not self.context.agent_manager:
-            return ResponseFactory.error("ROUTE_TASK", "NO_AGENT_MANAGER", "Agent manager not available")
+            return SocketResponse.error("ROUTE_TASK", "NO_AGENT_MANAGER", "Agent manager not available")
         
         # Use agent manager to find the best agent
         routing_result = await self.context.agent_manager.route_task(
@@ -43,7 +35,7 @@ class RouteTaskHandler(CommandHandler):
         
         # Check routing result status
         if routing_result['status'] == 'no_suitable_agent':
-            return ResponseFactory.success("ROUTE_TASK", {
+            return SocketResponse.success("ROUTE_TASK", {
                 'status': 'no_suitable_agent',
                 'reason': 'No agents have the required capabilities',
                 'required_capabilities': params.required_capabilities,
@@ -52,7 +44,7 @@ class RouteTaskHandler(CommandHandler):
             })
         
         if routing_result['status'] == 'no_available_agent':
-            return ResponseFactory.success("ROUTE_TASK", {
+            return SocketResponse.success("ROUTE_TASK", {
                 'status': 'no_available_agent', 
                 'reason': 'All suitable agents are busy',
                 'suitable_agents': routing_result.get('suitable_agents', []),
@@ -88,7 +80,7 @@ class RouteTaskHandler(CommandHandler):
         agent_details = self.context.agent_manager.get_agent(assigned_agent)
         
         # Return comprehensive routing information
-        return ResponseFactory.success("ROUTE_TASK", {
+        return SocketResponse.success("ROUTE_TASK", {
             'routing': {
                 'status': 'routed',
                 'assigned_agent': {

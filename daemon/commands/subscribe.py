@@ -6,14 +6,8 @@ SUBSCRIBE command handler - Subscribe agent to message bus events
 import asyncio
 from typing import Dict, Any, List
 from ..command_registry import command_handler, CommandHandler
-from ..models import ResponseFactory
-from ..base_manager import log_operation
-from pydantic import BaseModel, Field
-
-class SubscribeParameters(BaseModel):
-    """Parameters for SUBSCRIBE command"""
-    agent_id: str = Field(..., description="Agent ID to subscribe")
-    event_types: List[str] = Field(..., description="List of event types to subscribe to")
+from ..socket_protocol_models import SocketResponse, SubscribeParameters
+from ..manager_framework import log_operation
 
 @command_handler("SUBSCRIBE")
 class SubscribeHandler(CommandHandler):
@@ -26,11 +20,11 @@ class SubscribeHandler(CommandHandler):
         try:
             params = SubscribeParameters(**parameters)
         except Exception as e:
-            return ResponseFactory.error("SUBSCRIBE", "INVALID_PARAMETERS", str(e))
+            return SocketResponse.error("SUBSCRIBE", "INVALID_PARAMETERS", str(e))
         
         # Check if message bus is available
         if not self.context.message_bus:
-            return ResponseFactory.error("SUBSCRIBE", "NO_MESSAGE_BUS", "Message bus not available")
+            return SocketResponse.error("SUBSCRIBE", "NO_MESSAGE_BUS", "Message bus not available")
         
         # Check if agent is connected
         is_connected = params.agent_id in self.context.message_bus.connections
@@ -43,7 +37,7 @@ class SubscribeHandler(CommandHandler):
                 f"Connected agents: {', '.join(connected_agents) if connected_agents else 'none'}. "
                 f"Agent must connect via AGENT_CONNECTION:connect before subscribing."
             )
-            return ResponseFactory.error("SUBSCRIBE", "AGENT_NOT_CONNECTED", error_message)
+            return SocketResponse.error("SUBSCRIBE", "AGENT_NOT_CONNECTED", error_message)
         
         # Subscribe to events
         success = self.context.message_bus.subscribe(params.agent_id, params.event_types)
@@ -55,7 +49,7 @@ class SubscribeHandler(CommandHandler):
                 if any(sub[0] == params.agent_id for sub in subscribers):
                     agent_subscriptions.append(event_type)
             
-            return ResponseFactory.success("SUBSCRIBE", {
+            return SocketResponse.success("SUBSCRIBE", {
                 'subscription': {
                     'agent_id': params.agent_id,
                     'subscribed_to': params.event_types,
@@ -69,7 +63,7 @@ class SubscribeHandler(CommandHandler):
             })
         else:
             # This shouldn't happen given our earlier check, but just in case
-            return ResponseFactory.error("SUBSCRIBE", "SUBSCRIPTION_FAILED", 
+            return SocketResponse.error("SUBSCRIBE", "SUBSCRIPTION_FAILED", 
                 f"Failed to subscribe agent '{params.agent_id}' to events")
     
     @classmethod

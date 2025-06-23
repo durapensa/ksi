@@ -6,8 +6,8 @@ CREATE_IDENTITY command handler - Create a new system identity
 import asyncio
 from typing import Dict, Any
 from ..command_registry import command_handler, CommandHandler
-from ..models import ResponseFactory, CreateIdentityParameters
-from ..base_manager import log_operation
+from ..socket_protocol_models import SocketResponse, CreateIdentityParameters
+from ..manager_framework import log_operation
 
 @command_handler("CREATE_IDENTITY")
 class CreateIdentityHandler(CommandHandler):
@@ -20,7 +20,7 @@ class CreateIdentityHandler(CommandHandler):
         try:
             params = CreateIdentityParameters(**parameters)
         except Exception as e:
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "CREATE_IDENTITY", 
                 "INVALID_PARAMETERS", 
                 f"Invalid parameters: {str(e)}"
@@ -28,7 +28,7 @@ class CreateIdentityHandler(CommandHandler):
         
         # Check if identity manager is available
         if not self.context.identity_manager:
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "CREATE_IDENTITY", 
                 "NO_IDENTITY_MANAGER", 
                 "Identity manager not available"
@@ -37,7 +37,7 @@ class CreateIdentityHandler(CommandHandler):
         # Check if identity already exists
         existing_identity = self.context.identity_manager.get_identity(params.agent_id)
         if existing_identity:
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "CREATE_IDENTITY",
                 "IDENTITY_EXISTS",
                 f"Identity already exists for agent_id: {params.agent_id}. Use UPDATE_IDENTITY to modify existing identity."
@@ -53,7 +53,7 @@ class CreateIdentityHandler(CommandHandler):
         )
         
         # Return standardized creation response
-        return ResponseFactory.success("CREATE_IDENTITY", {
+        return SocketResponse.success("CREATE_IDENTITY", {
             'identity': identity,
             'created': True
         })
@@ -132,7 +132,7 @@ class CreateIdentityHandler(CommandHandler):
                                 "tools_used": []
                             }
                         },
-                        "created": true
+                        "created": True
                     }
                 },
                 {

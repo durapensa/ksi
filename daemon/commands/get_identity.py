@@ -6,8 +6,8 @@ GET_IDENTITY command handler - Get a specific identity by agent_id
 import asyncio
 from typing import Dict, Any
 from ..command_registry import command_handler, CommandHandler
-from ..models import ResponseFactory, GetIdentityParameters
-from ..base_manager import log_operation
+from ..socket_protocol_models import SocketResponse, GetIdentityParameters
+from ..manager_framework import log_operation
 
 @command_handler("GET_IDENTITY")
 class GetIdentityHandler(CommandHandler):
@@ -20,7 +20,7 @@ class GetIdentityHandler(CommandHandler):
         try:
             params = GetIdentityParameters(**parameters)
         except Exception as e:
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "GET_IDENTITY", 
                 "INVALID_PARAMETERS", 
                 f"Invalid parameters: {str(e)}"
@@ -28,7 +28,7 @@ class GetIdentityHandler(CommandHandler):
         
         # Check if identity manager is available
         if not self.context.identity_manager:
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "GET_IDENTITY", 
                 "NO_IDENTITY_MANAGER", 
                 "Identity manager not available"
@@ -55,14 +55,14 @@ class GetIdentityHandler(CommandHandler):
             
             error_msg += "Use LIST_IDENTITIES to see all identities or CREATE_IDENTITY to create a new one."
             
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "GET_IDENTITY",
                 "IDENTITY_NOT_FOUND",
                 error_msg
             )
         
         # Return the full identity object directly as the result
-        return ResponseFactory.success("GET_IDENTITY", identity)
+        return SocketResponse.success("GET_IDENTITY", identity)
     
     @classmethod
     def get_help(cls) -> Dict[str, Any]:

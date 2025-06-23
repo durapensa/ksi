@@ -8,8 +8,8 @@ import logging
 import uuid
 from typing import Dict, Any, Optional
 from ..command_registry import command_handler, CommandHandler
-from ..models import ResponseFactory, SpawnParameters
-from ..base_manager import log_operation
+from ..socket_protocol_models import SocketResponse, SpawnParameters
+from ..manager_framework import log_operation
 from pydantic import ValidationError
 
 logger = logging.getLogger('daemon')
@@ -29,21 +29,21 @@ class CompletionHandler(CommandHandler):
         try:
             params = SpawnParameters(**parameters)
         except ValidationError as e:
-            return ResponseFactory.error(command_name, "INVALID_PARAMETERS", str(e))
+            return SocketResponse.error(command_name, "INVALID_PARAMETERS", str(e))
         
         # Check if we should route through an agent
         if params.agent_id:
             # Route through agent for session management
-            if not self.context.process_manager or not hasattr(self.context.process_manager, 'multi_agent_orchestrator'):
-                return ResponseFactory.error(command_name, "NO_ORCHESTRATOR", "Multi-agent orchestrator not available")
+            if not self.context.completion_manager or not hasattr(self.context.completion_manager, 'agent_orchestrator'):
+                return SocketResponse.error(command_name, "NO_ORCHESTRATOR", "Multi-agent orchestrator not available")
             
-            orchestrator = self.context.process_manager.multi_agent_orchestrator
+            orchestrator = self.context.completion_manager.agent_orchestrator
             if not orchestrator:
-                return ResponseFactory.error(command_name, "NO_ORCHESTRATOR", "Multi-agent orchestrator not initialized")
+                return SocketResponse.error(command_name, "NO_ORCHESTRATOR", "Multi-agent orchestrator not initialized")
             
             # Check if agent exists
             if params.agent_id not in orchestrator.agents:
-                return ResponseFactory.error(command_name, "AGENT_NOT_FOUND", f"Agent '{params.agent_id}' not found")
+                return SocketResponse.error(command_name, "AGENT_NOT_FOUND", f"Agent '{params.agent_id}' not found")
             
             # Route based on mode
             if params.mode == "sync":
@@ -53,8 +53,8 @@ class CompletionHandler(CommandHandler):
         
         else:
             # Direct Claude call without agent
-            if not self.context.process_manager:
-                return ResponseFactory.error(command_name, "NO_PROCESS_MANAGER", "Process manager not available")
+            if not self.context.completion_manager:
+                return SocketResponse.error(command_name, "NO_PROCESS_MANAGER", "Process manager not available")
             
             # Route based on mode
             if params.mode == "sync":
@@ -72,10 +72,10 @@ class CompletionHandler(CommandHandler):
         # Send prompt to agent and get response
         try:
             response = await agent.send_prompt(params.prompt, params.session_id)
-            return ResponseFactory.success(command_name, response)
+            return SocketResponse.success(command_name, response)
         except Exception as e:
             logger.error(f"Agent completion failed: {e}")
-            return ResponseFactory.error(command_name, "AGENT_ERROR", str(e))
+            return SocketResponse.error(command_name, "AGENT_ERROR", str(e))
     
     async def _completion_via_agent_async(self, writer: asyncio.StreamWriter, params: SpawnParameters,
                                         orchestrator, command_name: str) -> Any:
@@ -89,7 +89,7 @@ class CompletionHandler(CommandHandler):
         # Queue message for async processing
         await agent.queue_prompt(params.prompt, params.session_id, message_id)
         
-        return ResponseFactory.success(command_name, {
+        return SocketResponse.success(command_name, {
             'message_id': message_id,
             'agent_id': params.agent_id,
             'status': 'queued',
@@ -101,7 +101,7 @@ class CompletionHandler(CommandHandler):
         """Handle synchronous completion without agent"""
         logger.info(f"Direct Claude completion: {params.prompt[:50]}...")
         
-        result = await self.context.process_manager.spawn_claude(
+        result = await self.context.completion_manager.create_completion(
             params.prompt, 
             params.session_id, 
             params.model, 
@@ -109,14 +109,14 @@ class CompletionHandler(CommandHandler):
             params.enable_tools
         )
         
-        return ResponseFactory.success(command_name, result)
+        return SocketResponse.success(command_name, result)
     
     async def _completion_direct_async(self, writer: asyncio.StreamWriter, params: SpawnParameters,
                                      command_name: str) -> Any:
         """Handle asynchronous completion without agent"""
         logger.info(f"Direct async Claude completion: {params.prompt[:50]}...")
         
-        process_id = await self.context.process_manager.spawn_claude_async(
+        process_id = await self.context.completion_manager.create_completion_async(
             params.prompt,
             params.session_id,
             params.model,
@@ -125,14 +125,14 @@ class CompletionHandler(CommandHandler):
         )
         
         if process_id:
-            return ResponseFactory.success(command_name, {
+            return SocketResponse.success(command_name, {
                 'process_id': process_id,
                 'status': 'started',
                 'type': 'claude',
                 'mode': 'async'
             })
         else:
-            return ResponseFactory.error(command_name, "COMPLETION_FAILED", "Failed to start Claude completion")
+            return SocketResponse.error(command_name, "COMPLETION_FAILED", "Failed to start Claude completion")
     
     @classmethod
     def get_help(cls) -> Dict[str, Any]:

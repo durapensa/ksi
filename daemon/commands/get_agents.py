@@ -6,14 +6,8 @@ GET_AGENTS command handler - List all registered agents
 import asyncio
 from typing import Dict, Any
 from ..command_registry import command_handler, CommandHandler
-from ..models import ResponseFactory
-from ..base_manager import log_operation
-from pydantic import BaseModel
-
-class GetAgentsParameters(BaseModel):
-    """Parameters for GET_AGENTS command"""
-    # No parameters needed for this command
-    pass
+from ..socket_protocol_models import SocketResponse, GetAgentsParameters
+from ..manager_framework import log_operation
 
 @command_handler("GET_AGENTS")
 class GetAgentsHandler(CommandHandler):
@@ -27,7 +21,7 @@ class GetAgentsHandler(CommandHandler):
         # Get agent manager
         if not self.context.agent_manager:
             # Return empty agents list if no manager available
-            return ResponseFactory.success("GET_AGENTS", {'agents': {}})
+            return SocketResponse.get_agents({})
         
         # Use standardized list_agents() API
         agents_list = self.context.agent_manager.list_agents()
@@ -42,7 +36,7 @@ class GetAgentsHandler(CommandHandler):
                 'capabilities': agent.get('capabilities', [])
             }
         
-        return ResponseFactory.success("GET_AGENTS", {'agents': agents_dict})
+        return SocketResponse.get_agents(agents_dict)
     
     @classmethod
     def get_help(cls) -> Dict[str, Any]:

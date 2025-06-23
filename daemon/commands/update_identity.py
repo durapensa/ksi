@@ -6,8 +6,8 @@ UPDATE_IDENTITY command handler - Update an existing identity
 import asyncio
 from typing import Dict, Any, List
 from ..command_registry import command_handler, CommandHandler
-from ..models import ResponseFactory, UpdateIdentityParameters
-from ..base_manager import log_operation
+from ..socket_protocol_models import SocketResponse, UpdateIdentityParameters
+from ..manager_framework import log_operation
 
 @command_handler("UPDATE_IDENTITY")
 class UpdateIdentityHandler(CommandHandler):
@@ -20,7 +20,7 @@ class UpdateIdentityHandler(CommandHandler):
         try:
             params = UpdateIdentityParameters(**parameters)
         except Exception as e:
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "UPDATE_IDENTITY", 
                 "INVALID_PARAMETERS", 
                 f"Invalid parameters: {str(e)}"
@@ -28,7 +28,7 @@ class UpdateIdentityHandler(CommandHandler):
         
         # Check if identity manager is available
         if not self.context.identity_manager:
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "UPDATE_IDENTITY", 
                 "NO_IDENTITY_MANAGER", 
                 "Identity manager not available"
@@ -51,7 +51,7 @@ class UpdateIdentityHandler(CommandHandler):
                 error_msg += "No identities exist yet. "
             error_msg += "Use LIST_IDENTITIES to see all identities or CREATE_IDENTITY to create a new one."
             
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "UPDATE_IDENTITY",
                 "IDENTITY_NOT_FOUND",
                 error_msg
@@ -72,14 +72,14 @@ class UpdateIdentityHandler(CommandHandler):
         updated_identity = self.context.identity_manager.update_identity(params.agent_id, params.updates)
         
         if not updated_identity:
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "UPDATE_IDENTITY",
                 "UPDATE_FAILED",
                 f"Failed to update identity for agent_id: {params.agent_id}"
             )
         
         # Return standardized update response
-        return ResponseFactory.success("UPDATE_IDENTITY", {
+        return SocketResponse.success("UPDATE_IDENTITY", {
             'identity': updated_identity,
             'updated': True,
             'changes': changes
@@ -147,7 +147,7 @@ class UpdateIdentityHandler(CommandHandler):
                                 "tools_used": ["web_search", "data_analysis"]
                             }
                         },
-                        "updated": true,
+                        "updated": True,
                         "changes": ["display_name", "role"]
                     }
                 },
@@ -182,7 +182,7 @@ class UpdateIdentityHandler(CommandHandler):
                             "role": "researcher",
                             "note": "agent_id was not changed (protected field)"
                         },
-                        "updated": true,
+                        "updated": True,
                         "changes": ["display_name"]
                     }
                 }

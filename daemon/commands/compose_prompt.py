@@ -8,8 +8,8 @@ import sys
 import os
 from typing import Dict, Any
 from ..command_registry import command_handler, CommandHandler
-from ..models import ResponseFactory, ComposePromptParameters
-from ..base_manager import log_operation
+from ..socket_protocol_models import SocketResponse, ComposePromptParameters
+from ..manager_framework import log_operation
 
 @command_handler("COMPOSE_PROMPT")
 class ComposePromptHandler(CommandHandler):
@@ -22,7 +22,7 @@ class ComposePromptHandler(CommandHandler):
         try:
             params = ComposePromptParameters(**parameters)
         except Exception as e:
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "COMPOSE_PROMPT", 
                 "INVALID_PARAMETERS", 
                 f"Invalid parameters: {str(e)}"
@@ -92,7 +92,7 @@ class ComposePromptHandler(CommandHandler):
                     'composed_successfully': True
                 }
                 
-                return ResponseFactory.success("COMPOSE_PROMPT", result)
+                return SocketResponse.success("COMPOSE_PROMPT", result)
                 
             except FileNotFoundError as e:
                 # Handle composition not found
@@ -116,7 +116,7 @@ class ComposePromptHandler(CommandHandler):
                 
                 error_msg += "Use GET_COMPOSITIONS to see all available compositions."
                 
-                return ResponseFactory.error(
+                return SocketResponse.error(
                     "COMPOSE_PROMPT",
                     "COMPOSITION_NOT_FOUND",
                     error_msg
@@ -142,20 +142,20 @@ class ComposePromptHandler(CommandHandler):
                 except Exception:
                     pass  # Use original error message
                 
-                return ResponseFactory.error(
+                return SocketResponse.error(
                     "COMPOSE_PROMPT",
                     "CONTEXT_VALIDATION_ERROR",
                     error_msg
                 )
                 
         except ImportError as e:
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "COMPOSE_PROMPT",
                 "COMPOSER_UNAVAILABLE",
                 f"Prompt composer not available: {str(e)}. Ensure the prompts module is properly installed."
             )
         except Exception as e:
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "COMPOSE_PROMPT",
                 "COMPOSITION_FAILED",
                 f"Failed to compose prompt from '{params.composition}': {str(e)}"
@@ -211,10 +211,10 @@ class ComposePromptHandler(CommandHandler):
                             "length_lines": 95,
                             "non_empty_lines": 78,
                             "estimated_tokens": 552.5,
-                            "has_variables": false
+                            "has_variables": False
                         },
                         "warnings": [],
-                        "composed_successfully": true
+                        "composed_successfully": True
                     }
                 },
                 {

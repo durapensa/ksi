@@ -8,8 +8,8 @@ import sys
 import os
 from typing import Dict, Any
 from ..command_registry import command_handler, CommandHandler
-from ..models import ResponseFactory, GetCompositionParameters
-from ..base_manager import log_operation
+from ..socket_protocol_models import SocketResponse, GetCompositionParameters
+from ..manager_framework import log_operation
 
 @command_handler("GET_COMPOSITION")
 class GetCompositionHandler(CommandHandler):
@@ -22,7 +22,7 @@ class GetCompositionHandler(CommandHandler):
         try:
             params = GetCompositionParameters(**parameters)
         except Exception as e:
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "GET_COMPOSITION", 
                 "INVALID_PARAMETERS", 
                 f"Invalid parameters: {str(e)}"
@@ -60,7 +60,7 @@ class GetCompositionHandler(CommandHandler):
                 
                 error_msg += "Use GET_COMPOSITIONS to see all available compositions."
                 
-                return ResponseFactory.error(
+                return SocketResponse.error(
                     "GET_COMPOSITION",
                     "COMPOSITION_NOT_FOUND",
                     error_msg
@@ -107,16 +107,16 @@ class GetCompositionHandler(CommandHandler):
                 }
             
             # Return the complete composition directly as the result
-            return ResponseFactory.success("GET_COMPOSITION", composition_data)
+            return SocketResponse.success("GET_COMPOSITION", composition_data)
             
         except ImportError as e:
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "GET_COMPOSITION",
                 "COMPOSER_UNAVAILABLE",
                 f"Prompt composer not available: {str(e)}. Ensure the prompts module is properly installed."
             )
         except Exception as e:
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "GET_COMPOSITION",
                 "OPERATION_FAILED",
                 f"Failed to get composition '{params.name}': {str(e)}"
@@ -151,15 +151,15 @@ class GetCompositionHandler(CommandHandler):
                                 "name": "system_identity",
                                 "source": "components/system_identity.md",
                                 "vars": {},
-                                "condition": null,
-                                "has_condition": false
+                                "condition": None,
+                                "has_condition": False
                             },
                             {
                                 "name": "user_prompt",
                                 "source": "components/user_prompt.md",
                                 "vars": {},
-                                "condition": null,
-                                "has_condition": false
+                                "condition": None,
+                                "has_condition": False
                             }
                         ],
                         "required_context": {
@@ -178,7 +178,7 @@ class GetCompositionHandler(CommandHandler):
                             "capabilities": ["general", "conversation"]
                         },
                         "validation": {
-                            "has_issues": false,
+                            "has_issues": False,
                             "message": "Composition is valid and all components are accessible"
                         }
                     }

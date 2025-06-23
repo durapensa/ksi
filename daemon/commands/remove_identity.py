@@ -6,8 +6,8 @@ REMOVE_IDENTITY command handler - Remove an identity from the system
 import asyncio
 from typing import Dict, Any
 from ..command_registry import command_handler, CommandHandler
-from ..models import ResponseFactory, RemoveIdentityParameters
-from ..base_manager import log_operation
+from ..socket_protocol_models import SocketResponse, RemoveIdentityParameters
+from ..manager_framework import log_operation
 
 @command_handler("REMOVE_IDENTITY")
 class RemoveIdentityHandler(CommandHandler):
@@ -20,7 +20,7 @@ class RemoveIdentityHandler(CommandHandler):
         try:
             params = RemoveIdentityParameters(**parameters)
         except Exception as e:
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "REMOVE_IDENTITY", 
                 "INVALID_PARAMETERS", 
                 f"Invalid parameters: {str(e)}"
@@ -28,7 +28,7 @@ class RemoveIdentityHandler(CommandHandler):
         
         # Check if identity manager is available
         if not self.context.identity_manager:
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "REMOVE_IDENTITY", 
                 "NO_IDENTITY_MANAGER", 
                 "Identity manager not available"
@@ -52,14 +52,14 @@ class RemoveIdentityHandler(CommandHandler):
                 error_msg += "No identities exist. "
             error_msg += "Use LIST_IDENTITIES to see all identities."
             
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "REMOVE_IDENTITY",
                 "IDENTITY_NOT_FOUND",
                 error_msg
             )
         
         # Return standardized deletion response with removed data for potential undo
-        return ResponseFactory.success("REMOVE_IDENTITY", {
+        return SocketResponse.success("REMOVE_IDENTITY", {
             'deleted': True,
             'identity': removed_identity
         })
@@ -84,7 +84,7 @@ class RemoveIdentityHandler(CommandHandler):
                         "agent_id": "research_001"
                     },
                     "response": {
-                        "deleted": true,
+                        "deleted": True,
                         "identity": {
                             "identity_uuid": "b4f3c8d1-2e4a-4b7c-9d3f-1a2b3c4d5e6f",
                             "agent_id": "research_001",

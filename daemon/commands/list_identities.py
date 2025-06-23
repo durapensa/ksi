@@ -7,8 +7,8 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional
 from ..command_registry import command_handler, CommandHandler
-from ..models import ResponseFactory, ListIdentitiesParameters
-from ..base_manager import log_operation
+from ..socket_protocol_models import SocketResponse, ListIdentitiesParameters
+from ..manager_framework import log_operation
 from ..timestamp_utils import TimestampManager
 
 @command_handler("LIST_IDENTITIES")
@@ -22,7 +22,7 @@ class ListIdentitiesHandler(CommandHandler):
         try:
             params = ListIdentitiesParameters(**parameters)
         except Exception as e:
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "LIST_IDENTITIES", 
                 "INVALID_PARAMETERS", 
                 f"Invalid parameters: {str(e)}"
@@ -30,7 +30,7 @@ class ListIdentitiesHandler(CommandHandler):
         
         # Check if identity manager is available
         if not self.context.identity_manager:
-            return ResponseFactory.error(
+            return SocketResponse.error(
                 "LIST_IDENTITIES", 
                 "NO_IDENTITY_MANAGER", 
                 "Identity manager not available"
@@ -79,22 +79,24 @@ class ListIdentitiesHandler(CommandHandler):
                 reverse=reverse
             )
         
-        # Return standardized list response with full objects
-        return ResponseFactory.success("LIST_IDENTITIES", {
-            'items': identities_list,
-            'total': len(identities_list),
-            'metadata': {
-                'filtered': bool(params.filter_role or params.filter_active is not None),
-                'sort': params.sort_by,
-                'order': params.order,
-                'filters_applied': {
-                    k: v for k, v in {
-                        'role': params.filter_role,
-                        'active': params.filter_active
-                    }.items() if v is not None
-                }
+        # Return standardized list response with full objects  
+        metadata = {
+            'filtered': bool(params.filter_role or params.filter_active is not None),
+            'sort': params.sort_by,
+            'order': params.order,
+            'filters_applied': {
+                k: v for k, v in {
+                    'role': params.filter_role,
+                    'active': params.filter_active
+                }.items() if v is not None
             }
-        })
+        }
+        
+        return SocketResponse.list_items(
+            command="LIST_IDENTITIES",
+            items=identities_list,
+            metadata=metadata
+        )
     
     @classmethod
     def get_help(cls) -> Dict[str, Any]:
@@ -167,7 +169,7 @@ class ListIdentitiesHandler(CommandHandler):
                         ],
                         "total": 1,
                         "metadata": {
-                            "filtered": false,
+                            "filtered": False,
                             "sort": "created_at",
                             "order": "desc",
                             "filters_applied": {}

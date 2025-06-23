@@ -4,22 +4,13 @@ CLEANUP command handler - Manages system cleanup operations
 """
 
 import asyncio
-from typing import Dict, Any, Optional
+import os
+from pathlib import Path
+from typing import Dict, Any, Optional, List
 from ..command_registry import command_handler, CommandHandler
-from ..models import ResponseFactory
-from ..base_manager import log_operation
-from pydantic import BaseModel, Field, field_validator
-
-class CleanupParameters(BaseModel):
-    """Parameters for CLEANUP command"""
-    cleanup_type: str = Field(..., description="Type of cleanup: logs, sessions, sockets, or all")
-    
-    @field_validator('cleanup_type')
-    def validate_cleanup_type(cls, v):
-        valid_types = ['logs', 'sessions', 'sockets', 'all']
-        if v not in valid_types:
-            raise ValueError(f"Invalid cleanup_type: {v}. Must be one of: {', '.join(valid_types)}")
-        return v
+from ..socket_protocol_models import SocketResponse, CleanupParameters
+from ..manager_framework import log_operation
+from ..config import config
 
 @command_handler("CLEANUP")
 class CleanupHandler(CommandHandler):
@@ -32,21 +23,69 @@ class CleanupHandler(CommandHandler):
         try:
             params = CleanupParameters(**parameters)
         except Exception as e:
-            return ResponseFactory.error("CLEANUP", "INVALID_PARAMETERS", str(e))
+            return SocketResponse.error("CLEANUP", "INVALID_PARAMETERS", str(e))
         
-        # Get utils manager
-        if not self.context.utils_manager:
-            return ResponseFactory.error("CLEANUP", "NO_UTILS_MANAGER", "Utils manager not available")
+        # Perform cleanup based on type
+        results = []
         
-        # Perform cleanup
-        result = self.context.utils_manager.cleanup(params.cleanup_type)
+        if params.cleanup_type in ['logs', 'all']:
+            result = self._cleanup_logs()
+            results.append(f"Logs: {result}")
+        
+        if params.cleanup_type in ['sessions', 'all']:
+            result = self._cleanup_sessions()
+            results.append(f"Sessions: {result}")
+        
+        if params.cleanup_type in ['sockets', 'all']:
+            result = self._cleanup_sockets()
+            results.append(f"Sockets: {result}")
         
         # Return success response
-        return ResponseFactory.success("CLEANUP", {
-            'status': 'cleaned',
-            'cleanup_type': params.cleanup_type,
-            'details': result
-        })
+        return SocketResponse.cleanup(
+            cleanup_type=params.cleanup_type,
+            details=' | '.join(results)
+        )
+    
+    def _cleanup_logs(self) -> str:
+        """Clean up log files in session logs directory"""
+        try:
+            log_dir = config.session_log_dir
+            if not log_dir.exists():
+                return "Session log directory does not exist"
+            
+            count = 0
+            for file in log_dir.glob('*.jsonl'):
+                if file.name != 'latest.jsonl':
+                    file.unlink()
+                    count += 1
+            
+            return f"Deleted {count} log files"
+        except Exception as e:
+            return f"Error cleaning logs: {e}"
+    
+    def _cleanup_sessions(self) -> str:
+        """Clean up tracked sessions"""
+        if self.context.state_manager:
+            sessions_cleared = self.context.state_manager.clear_sessions()
+            return f"Cleared {sessions_cleared} tracked sessions"
+        return "No state manager available"
+    
+    def _cleanup_sockets(self) -> str:
+        """Clean up socket files"""
+        try:
+            socket_dir = Path('sockets')
+            if not socket_dir.exists():
+                return "No sockets directory found"
+            
+            count = 0
+            for file in socket_dir.iterdir():
+                if file.name != 'claude_daemon.sock' and file.is_file():
+                    file.unlink()
+                    count += 1
+            
+            return f"Deleted {count} socket files"
+        except Exception as e:
+            return f"Error cleaning sockets: {e}"
     
     @classmethod
     def get_help(cls) -> Dict[str, Any]:
