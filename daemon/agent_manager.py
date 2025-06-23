@@ -2,29 +2,35 @@
 
 """
 Agent Manager - Agent lifecycle and task routing
-Extracted from daemon_clean.py with 100% functionality preservation
+Refactored to use BaseManager pattern
 """
 
 import json
-import os
-from datetime import datetime
+import uuid
+import warnings
+from typing import Dict, Any, Optional, List
 from pathlib import Path
-import logging
+from .base_manager import BaseManager, with_error_handling, log_operation
+from .file_operations import FileOperations, LogEntry
+from .timestamp_utils import TimestampManager
+from .models import AgentInfo
 
-logger = logging.getLogger('daemon')
-
-class AgentManager:
+class AgentManager(BaseManager):
     """Manages agent lifecycle, capabilities, and task routing"""
     
     def __init__(self, process_manager=None):
-        self.agents = {}  # agent_id -> agent_info
         self.process_manager = process_manager
-        
-        # Ensure directories exist
-        os.makedirs('agent_profiles', exist_ok=True)
-        os.makedirs('claude_logs', exist_ok=True)
+        super().__init__(
+            manager_name="agent",
+            required_dirs=["agent_profiles", "claude_logs"]
+        )
     
-    def load_agent_profile(self, profile_name: str) -> dict:
+    def _initialize(self):
+        """Initialize manager-specific state"""
+        self.agents = {}  # agent_id -> agent_info
+    
+    @log_operation()
+    def load_agent_profile(self, profile_name: str) -> Optional[Dict[str, Any]]:
         """Load agent profile from agent_profiles directory - DEPRECATED: Use composition system instead"""
         import warnings
         warnings.warn("load_agent_profile is deprecated. Use composition system instead.", DeprecationWarning, stacklevel=2)
@@ -35,7 +41,7 @@ class AgentManager:
                 profile = json.load(f)
             return profile
         except (FileNotFoundError, json.JSONDecodeError) as e:
-            logger.error(f"Failed to load agent profile {profile_name}: {e}")
+            self.logger.error(f"Failed to load agent profile {profile_name}: {e}")
             return None
     
     def format_agent_prompt(self, profile: dict, task: str, context: str = "", agents: dict = None) -> str:
@@ -61,7 +67,9 @@ class AgentManager:
         
         return formatted_prompt
     
-    async def spawn_agent(self, profile_name: str, task: str, context: str = "", agent_id: str = None) -> str:
+    @log_operation()
+    @with_error_handling("spawn_agent")
+    async def spawn_agent(self, profile_name: str, task: str, context: str = "", agent_id: str = None) -> Optional[str]:
         """Spawn an agent using a profile template - DEPRECATED: Use spawn_agent_with_composition instead"""
         import warnings
         warnings.warn("spawn_agent is deprecated. Use spawn_agent_with_composition instead.", DeprecationWarning, stacklevel=2)
@@ -79,7 +87,7 @@ class AgentManager:
         if self.process_manager:
             process_id = await self.process_manager.spawn_agent_process_async(agent_id, profile_name)
         else:
-            logger.error("No process manager available for spawning agent")
+            self.logger.error("No process manager available for spawning agent")
             return None
         
         if process_id:
@@ -93,14 +101,16 @@ class AgentManager:
                 'process_id': process_id,
                 'initial_task': task,  # Save for reference
                 'initial_context': context,  # Save for reference
-                'created_at': datetime.utcnow().isoformat() + "Z",
+                'created_at': TimestampManager.timestamp_utc(),
                 'sessions': []
             }
-            logger.info(f"Spawned agent {agent_id} using profile {profile_name} with initial task: {task}")
+            self.logger.info(f"Spawned agent {agent_id} using profile {profile_name} with initial task: {task}")
         
         return process_id
     
-    async def spawn_agent_with_composition(self, composition_name: str, task: str, context: str = "", agent_id: str = None, profile_fallback: str = None) -> str:
+    @log_operation()
+    @with_error_handling("spawn_agent_with_composition")
+    async def spawn_agent_with_composition(self, composition_name: str, task: str, context: str = "", agent_id: str = None, profile_fallback: str = None) -> Optional[str]:
         """Spawn an agent using composition-based approach with profile fallback"""
         # First try to find an existing profile that references this composition
         composition_profile = None
@@ -116,7 +126,7 @@ class AgentManager:
         
         # If no profile references this composition, create a minimal profile
         if not composition_profile:
-            logger.info(f"No existing profile found for composition '{composition_name}', creating minimal profile")
+            self.logger.info(f"No existing profile found for composition '{composition_name}', creating minimal profile")
             composition_profile = {
                 'name': composition_name,
                 'role': composition_name.replace('_', ' ').title(),
@@ -136,7 +146,7 @@ class AgentManager:
             # Pass composition name as the "profile" - agent_process.py will handle it
             process_id = await self.process_manager.spawn_agent_process_async(agent_id, composition_name)
         else:
-            logger.error("No process manager available for spawning agent")
+            self.logger.error("No process manager available for spawning agent")
             return None
         
         if process_id:
@@ -151,24 +161,25 @@ class AgentManager:
                 'process_id': process_id,
                 'initial_task': task,
                 'initial_context': context,
-                'created_at': datetime.utcnow().isoformat() + "Z",
+                'created_at': TimestampManager.timestamp_utc(),
                 'sessions': []
             }
-            logger.info(f"Spawned agent {agent_id} using composition {composition_name} with initial task: {task}")
+            self.logger.info(f"Spawned agent {agent_id} using composition {composition_name} with initial task: {task}")
         
         return process_id
     
-    def register_agent(self, agent_id: str, role: str, capabilities: str = "") -> dict:
+    @log_operation()
+    def register_agent(self, agent_id: str, role: str, capabilities: str = "") -> Dict[str, Any]:
         """Register an agent manually - EXACT logic from daemon_clean.py command handler"""
         self.agents[agent_id] = {
             'role': role,
             'capabilities': capabilities.split(',') if capabilities else [],
             'status': 'active',
-            'created_at': datetime.utcnow().isoformat() + "Z",
+            'created_at': TimestampManager.timestamp_utc(),
             'sessions': []
         }
         
-        logger.info(f"Registered agent {agent_id} with role {role}")
+        self.logger.info(f"Registered agent {agent_id} with role {role}")
         return {'status': 'registered', 'agent_id': agent_id}
     
     def get_agents(self) -> dict:
@@ -194,7 +205,9 @@ class AgentManager:
         suitable_agents.sort(key=lambda x: x['match_score'], reverse=True)
         return suitable_agents
     
-    async def route_task(self, task: str, required_capabilities: list, context: str = "") -> dict:
+    @log_operation()
+    @with_error_handling("route_task")
+    async def route_task(self, task: str, required_capabilities: List[str], context: str = "") -> Dict[str, Any]:
         """Route a task to the most suitable available agent - EXACT copy from daemon_clean.py"""
         suitable_agents = self.find_agents_by_capability(required_capabilities)
         
@@ -228,7 +241,7 @@ class AgentManager:
         
         # Log the task routing
         routing_entry = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": TimestampManager.timestamp_utc(),
             "type": "task_routing",
             "task": task,
             "required_capabilities": required_capabilities,
@@ -238,10 +251,9 @@ class AgentManager:
         }
         
         log_file = 'claude_logs/task_routing.jsonl'
-        with open(log_file, 'a') as f:
-            f.write(json.dumps(routing_entry) + '\n')
+        FileOperations.append_jsonl(log_file, routing_entry)
         
-        logger.info(f"Routed task to agent {agent_id} (score: {best_agent['match_score']})")
+        self.logger.info(f"Routed task to agent {agent_id} (score: {best_agent['match_score']})")
         
         return {
             'status': 'routed',
@@ -255,7 +267,7 @@ class AgentManager:
         """Log inter-agent message - EXACT logic from daemon_clean.py command handler"""
         # Log the inter-agent message
         message_entry = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": TimestampManager.timestamp_utc(),
             "type": "inter_agent_message",
             "from_agent": from_agent,
             "to_agent": to_agent,
@@ -264,10 +276,9 @@ class AgentManager:
         
         # Save to inter-agent log
         log_file = 'claude_logs/inter_agent_messages.jsonl'
-        with open(log_file, 'a') as f:
-            f.write(json.dumps(message_entry) + '\n')
+        FileOperations.append_jsonl(log_file, message_entry)
         
-        logger.info(f"Inter-agent message from {from_agent} to {to_agent}")
+        self.logger.info(f"Inter-agent message from {from_agent} to {to_agent}")
         return {'status': 'message_logged', 'from': from_agent, 'to': to_agent}
     
     def get_all_agents(self) -> dict:
@@ -279,11 +290,11 @@ class AgentManager:
         if agent_id in self.agents:
             if agent_id not in self.agents:
                 self.agents[agent_id] = {
-                    'created_at': datetime.utcnow().isoformat() + "Z",
+                    'created_at': TimestampManager.timestamp_utc(),
                     'sessions': []
                 }
             self.agents[agent_id]['sessions'].append(session_id)
-            self.agents[agent_id]['last_active'] = datetime.utcnow().isoformat() + "Z"
+            self.agents[agent_id]['last_active'] = TimestampManager.timestamp_utc()
     
     def serialize_state(self) -> dict:
         """Serialize agent state for hot reload"""
@@ -292,4 +303,4 @@ class AgentManager:
     def deserialize_state(self, state: dict):
         """Deserialize agent state from hot reload"""
         self.agents = state.get('agents', {})
-        logger.info(f"Loaded agents: {len(self.agents)} agents")
+        self.logger.info(f"Loaded agents: {len(self.agents)} agents")

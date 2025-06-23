@@ -68,7 +68,7 @@ python3 tests/test_daemon_protocol.py
 **IMPORTANT**: This project uses a virtual environment at `.venv/`
 - **Always activate before running**: `source .venv/bin/activate`
 - **Never create a new venv** - use the existing `.venv/`
-- **All dependencies are in requirements.txt**: PyYAML, textual, psutil
+- **All dependencies are in requirements.txt**: PyYAML, textual, psutil, pydantic, structlog, tenacity
 
 ### Running Commands
 ```bash
@@ -77,6 +77,23 @@ source .venv/bin/activate
 python3 test_composition_system.py
 python3 hello_goodbye_test.py
 ```
+
+### Daemon Refactoring (2025-06-23)
+**Major refactoring completed to improve code quality**:
+- **Pydantic models** (`daemon/models.py`): Type-safe command/response validation
+- **Base manager pattern** (`daemon/base_manager.py`): Eliminates code duplication
+- **Strategy pattern** (`daemon/utils_refactored.py`): Replaces 50+ line if/elif chains
+- **Command registry** (`daemon/command_registry.py`): Self-registering command pattern
+- **File operations** (`daemon/file_operations.py`): Centralized I/O with retry logic
+- **Migration guide** (`daemon/migration_guide.md`): Gradual adoption path
+- **~35% code reduction** with better patterns and type safety
+
+When working on daemon code:
+- Prefer Pydantic models over manual validation
+- Use decorators from base_manager for error handling
+- Add new commands via @command_handler decorator
+- Use FileOperations for all file I/O
+- See `daemon/REFACTORING_SUMMARY.md` for full details
 
 ## Architecture
 

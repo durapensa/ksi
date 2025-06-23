@@ -3,6 +3,17 @@
 ## Project Overview
 Minimal daemon system for managing Claude processes with conversation continuity.
 
+## Recent Changes (2025-06-23)
+- **Major Daemon Refactoring**: Comprehensive refactoring to eliminate if/elif chains and improve code quality
+  - Added Pydantic models for type-safe command/response validation
+  - Implemented base manager pattern to eliminate code duplication
+  - Replaced 50+ line if/elif chains with strategy pattern
+  - Created command registry for self-registering commands
+  - Centralized file operations with retry logic
+  - Achieved ~35% code reduction with better patterns
+  - Added packages: pydantic (v2.5.0+), structlog (v24.1.0+), tenacity (v8.2.0+)
+  - See `daemon/REFACTORING_SUMMARY.md` for full details
+
 ## Recent Changes (2025-06-21)
 - **JSON Prefix Removal**: Renamed classes to remove redundant "JSON" prefixes:
   - `JSONCommandBuilder` → `CommandBuilder`

@@ -56,5 +56,377 @@
       "tasks_completed": 0,
       "tools_used": []
     }
+  },
+  "collaboration_1": {
+    "identity_uuid": "316c79a9-b9f6-40bd-9312-aa0f68b4ee65",
+    "agent_id": "collaboration_1",
+    "display_name": "Collaborator-on_1",
+    "role": "collaborator",
+    "personality_traits": [
+      "helpful",
+      "professional",
+      "reliable"
+    ],
+    "appearance": {
+      "avatar_style": "approachable",
+      "color_theme": "teal",
+      "icon": "\ud83e\udd1d"
+    },
+    "created_at": "2025-06-22T00:43:05.705009Z",
+    "last_active": "2025-06-22T00:43:05.705011Z",
+    "conversation_count": 0,
+    "sessions": [],
+    "preferences": {
+      "communication_style": "professional",
+      "verbosity": "moderate",
+      "formality": "balanced"
+    },
+    "stats": {
+      "messages_sent": 0,
+      "conversations_participated": 0,
+      "tasks_completed": 0,
+      "tools_used": []
+    }
+  },
+  "collaboration_2": {
+    "identity_uuid": "aca96baa-f652-44b9-a14b-7ed832e1d9da",
+    "agent_id": "collaboration_2",
+    "display_name": "Collaborator-on_2",
+    "role": "collaborator",
+    "personality_traits": [
+      "helpful",
+      "professional",
+      "reliable"
+    ],
+    "appearance": {
+      "avatar_style": "approachable",
+      "color_theme": "teal",
+      "icon": "\ud83e\udd1d"
+    },
+    "created_at": "2025-06-22T00:43:05.706137Z",
+    "last_active": "2025-06-22T00:43:05.706140Z",
+    "conversation_count": 0,
+    "sessions": [],
+    "preferences": {
+      "communication_style": "professional",
+      "verbosity": "moderate",
+      "formality": "balanced"
+    },
+    "stats": {
+      "messages_sent": 0,
+      "conversations_participated": 0,
+      "tasks_completed": 0,
+      "tools_used": []
+    }
+  },
+  "test_analyst_123": {
+    "identity_uuid": "2d9ea175-2f33-4851-aba7-7856a883dd3e",
+    "agent_id": "test_analyst_123",
+    "display_name": "General-_123",
+    "role": "general",
+    "personality_traits": [
+      "communicative",
+      "analytical",
+      "logical"
+    ],
+    "appearance": {
+      "avatar_style": "neutral",
+      "color_theme": "gray",
+      "icon": "\ud83e\udd16"
+    },
+    "created_at": "2025-06-22T02:25:39.035503Z",
+    "last_active": "2025-06-22T02:25:39.035505Z",
+    "conversation_count": 0,
+    "sessions": [],
+    "preferences": {
+      "communication_style": "professional",
+      "verbosity": "moderate",
+      "formality": "balanced"
+    },
+    "stats": {
+      "messages_sent": 0,
+      "conversations_participated": 0,
+      "tasks_completed": 0,
+      "tools_used": []
+    }
+  },
+  "test_coder_1": {
+    "identity_uuid": "d6b3105b-2f95-4ff2-9a65-93c74db78b9a",
+    "agent_id": "test_coder_1",
+    "display_name": "General-er_1",
+    "role": "general",
+    "personality_traits": [
+      "communicative",
+      "analytical",
+      "logical"
+    ],
+    "appearance": {
+      "avatar_style": "neutral",
+      "color_theme": "gray",
+      "icon": "\ud83e\udd16"
+    },
+    "created_at": "2025-06-22T02:26:13.246552Z",
+    "last_active": "2025-06-22T02:26:13.246554Z",
+    "conversation_count": 0,
+    "sessions": [],
+    "preferences": {
+      "communication_style": "professional",
+      "verbosity": "moderate",
+      "formality": "balanced"
+    },
+    "stats": {
+      "messages_sent": 0,
+      "conversations_participated": 0,
+      "tasks_completed": 0,
+      "tools_used": []
+    }
+  },
+  "test_researcher_2": {
+    "identity_uuid": "5958b0d8-d075-4919-a700-c3545b87b52e",
+    "agent_id": "test_researcher_2",
+    "display_name": "General-er_2",
+    "role": "general",
+    "personality_traits": [
+      "communicative",
+      "analytical",
+      "logical"
+    ],
+    "appearance": {
+      "avatar_style": "neutral",
+      "color_theme": "gray",
+      "icon": "\ud83e\udd16"
+    },
+    "created_at": "2025-06-22T02:26:13.257737Z",
+    "last_active": "2025-06-22T02:26:13.257739Z",
+    "conversation_count": 0,
+    "sessions": [],
+    "preferences": {
+      "communication_style": "professional",
+      "verbosity": "moderate",
+      "formality": "balanced"
+    },
+    "stats": {
+      "messages_sent": 0,
+      "conversations_participated": 0,
+      "tasks_completed": 0,
+      "tools_used": []
+    }
+  },
+  "test_analyst_3": {
+    "identity_uuid": "a9e3b31f-d436-4d53-9d3d-79639e619016",
+    "agent_id": "test_analyst_3",
+    "display_name": "General-st_3",
+    "role": "general",
+    "personality_traits": [
+      "communicative",
+      "analytical",
+      "logical"
+    ],
+    "appearance": {
+      "avatar_style": "neutral",
+      "color_theme": "gray",
+      "icon": "\ud83e\udd16"
+    },
+    "created_at": "2025-06-22T02:26:13.280372Z",
+    "last_active": "2025-06-22T02:26:13.280375Z",
+    "conversation_count": 0,
+    "sessions": [],
+    "preferences": {
+      "communication_style": "professional",
+      "verbosity": "moderate",
+      "formality": "balanced"
+    },
+    "stats": {
+      "messages_sent": 0,
+      "conversations_participated": 0,
+      "tasks_completed": 0,
+      "tools_used": []
+    }
+  },
+  "test_orchestrator_4": {
+    "identity_uuid": "ccbceccc-3724-485a-98d9-b65eb656b67a",
+    "agent_id": "test_orchestrator_4",
+    "display_name": "General-or_4",
+    "role": "general",
+    "personality_traits": [
+      "communicative",
+      "analytical",
+      "logical"
+    ],
+    "appearance": {
+      "avatar_style": "neutral",
+      "color_theme": "gray",
+      "icon": "\ud83e\udd16"
+    },
+    "created_at": "2025-06-22T02:26:13.302969Z",
+    "last_active": "2025-06-22T02:26:13.302971Z",
+    "conversation_count": 0,
+    "sessions": [],
+    "preferences": {
+      "communication_style": "professional",
+      "verbosity": "moderate",
+      "formality": "balanced"
+    },
+    "stats": {
+      "messages_sent": 0,
+      "conversations_participated": 0,
+      "tasks_completed": 0,
+      "tools_used": []
+    }
+  },
+  "test_software_developer_1": {
+    "identity_uuid": "7108712e-dbd3-4b44-9896-b014964314e7",
+    "agent_id": "test_software_developer_1",
+    "display_name": "General-er_1",
+    "role": "general",
+    "personality_traits": [
+      "communicative",
+      "analytical",
+      "logical"
+    ],
+    "appearance": {
+      "avatar_style": "neutral",
+      "color_theme": "gray",
+      "icon": "\ud83e\udd16"
+    },
+    "created_at": "2025-06-22T02:29:41.581118Z",
+    "last_active": "2025-06-22T02:29:41.581119Z",
+    "conversation_count": 0,
+    "sessions": [],
+    "preferences": {
+      "communication_style": "professional",
+      "verbosity": "moderate",
+      "formality": "balanced"
+    },
+    "stats": {
+      "messages_sent": 0,
+      "conversations_participated": 0,
+      "tasks_completed": 0,
+      "tools_used": []
+    }
+  },
+  "test_research_specialist_2": {
+    "identity_uuid": "2e2024d4-eafa-48ac-9cec-3ef9d3156d2a",
+    "agent_id": "test_research_specialist_2",
+    "display_name": "General-st_2",
+    "role": "general",
+    "personality_traits": [
+      "communicative",
+      "analytical",
+      "logical"
+    ],
+    "appearance": {
+      "avatar_style": "neutral",
+      "color_theme": "gray",
+      "icon": "\ud83e\udd16"
+    },
+    "created_at": "2025-06-22T02:29:41.592268Z",
+    "last_active": "2025-06-22T02:29:41.592270Z",
+    "conversation_count": 0,
+    "sessions": [],
+    "preferences": {
+      "communication_style": "professional",
+      "verbosity": "moderate",
+      "formality": "balanced"
+    },
+    "stats": {
+      "messages_sent": 0,
+      "conversations_participated": 0,
+      "tasks_completed": 0,
+      "tools_used": []
+    }
+  },
+  "test_data_analyst_3": {
+    "identity_uuid": "ef21a86d-a819-4301-8e80-65d1594f397a",
+    "agent_id": "test_data_analyst_3",
+    "display_name": "General-st_3",
+    "role": "general",
+    "personality_traits": [
+      "communicative",
+      "analytical",
+      "logical"
+    ],
+    "appearance": {
+      "avatar_style": "neutral",
+      "color_theme": "gray",
+      "icon": "\ud83e\udd16"
+    },
+    "created_at": "2025-06-22T02:29:41.615739Z",
+    "last_active": "2025-06-22T02:29:41.615740Z",
+    "conversation_count": 0,
+    "sessions": [],
+    "preferences": {
+      "communication_style": "professional",
+      "verbosity": "moderate",
+      "formality": "balanced"
+    },
+    "stats": {
+      "messages_sent": 0,
+      "conversations_participated": 0,
+      "tasks_completed": 0,
+      "tools_used": []
+    }
+  },
+  "test_multi_agent_orchestrator_4": {
+    "identity_uuid": "3825c395-9118-4bec-bd71-035a6ebed2c4",
+    "agent_id": "test_multi_agent_orchestrator_4",
+    "display_name": "General-or_4",
+    "role": "general",
+    "personality_traits": [
+      "communicative",
+      "analytical",
+      "logical"
+    ],
+    "appearance": {
+      "avatar_style": "neutral",
+      "color_theme": "gray",
+      "icon": "\ud83e\udd16"
+    },
+    "created_at": "2025-06-22T02:29:41.639428Z",
+    "last_active": "2025-06-22T02:29:41.639431Z",
+    "conversation_count": 0,
+    "sessions": [],
+    "preferences": {
+      "communication_style": "professional",
+      "verbosity": "moderate",
+      "formality": "balanced"
+    },
+    "stats": {
+      "messages_sent": 0,
+      "conversations_participated": 0,
+      "tasks_completed": 0,
+      "tools_used": []
+    }
+  },
+  "test_tool_tester": {
+    "identity_uuid": "c7cff104-3c64-492e-a124-73373ece297b",
+    "agent_id": "test_tool_tester",
+    "display_name": "General-ster",
+    "role": "general",
+    "personality_traits": [
+      "communicative",
+      "analytical",
+      "logical"
+    ],
+    "appearance": {
+      "avatar_style": "neutral",
+      "color_theme": "gray",
+      "icon": "\ud83e\udd16"
+    },
+    "created_at": "2025-06-22T02:34:03.604161Z",
+    "last_active": "2025-06-22T02:34:03.604163Z",
+    "conversation_count": 0,
+    "sessions": [],
+    "preferences": {
+      "communication_style": "professional",
+      "verbosity": "moderate",
+      "formality": "balanced"
+    },
+    "stats": {
+      "messages_sent": 0,
+      "conversations_participated": 0,
+      "tasks_completed": 0,
+      "tools_used": []
+    }
   }
 }

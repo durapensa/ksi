@@ -2,56 +2,57 @@
 
 """
 Identity Manager - System identity management for Claude instances
-Provides identity persistence, display names, and distinguishing characteristics
+Refactored to use BaseManager pattern
 """
 
-import json
-import os
 import uuid
-from datetime import datetime
+from typing import Dict, Any, Optional, List
 from pathlib import Path
-import logging
+from .base_manager import BaseManager, with_error_handling, log_operation, atomic_operation
+from .file_operations import FileOperations
+from .timestamp_utils import TimestampManager
+from .models import IdentityInfo
 
-logger = logging.getLogger('daemon')
-
-class IdentityManager:
+class IdentityManager(BaseManager):
     """Manages system identities for Claude instances and agents"""
     
     def __init__(self):
+        super().__init__(
+            manager_name="identity",
+            required_dirs=["shared_state"]
+        )
+    
+    def _initialize(self):
+        """Initialize manager-specific state"""
         self.identities = {}  # agent_id -> identity_info
         self.identity_storage_path = Path('shared_state/identities.json')
-        self.ensure_directories()
         self.load_identities()
-    
-    def ensure_directories(self):
-        """Ensure identity storage directories exist"""
-        os.makedirs('shared_state', exist_ok=True)
     
     def load_identities(self):
         """Load existing identities from storage"""
         try:
             if self.identity_storage_path.exists():
-                with open(self.identity_storage_path, 'r') as f:
-                    self.identities = json.load(f)
-                logger.info(f"Loaded {len(self.identities)} existing identities")
+                self.identities = FileOperations.load_json(self.identity_storage_path, {})
+                self.logger.info(f"Loaded {len(self.identities)} existing identities")
             else:
                 self.identities = {}
-        except (json.JSONDecodeError, FileNotFoundError) as e:
-            logger.error(f"Failed to load identities: {e}")
+        except Exception as e:
+            self.logger.error(f"Failed to load identities: {e}")
             self.identities = {}
     
     def save_identities(self):
         """Persist identities to storage"""
-        try:
-            with open(self.identity_storage_path, 'w') as f:
-                json.dump(self.identities, f, indent=2)
-            logger.debug("Identities saved to storage")
-        except Exception as e:
-            logger.error(f"Failed to save identities: {e}")
+        success = FileOperations.save_json(self.identity_storage_path, self.identities)
+        if success:
+            self.logger.debug("Identities saved to storage")
+        else:
+            self.logger.error("Failed to save identities")
     
+    @log_operation()
+    @atomic_operation("create_identity")
     def create_identity(self, agent_id: str, display_name: str = None, 
-                       personality_traits: list = None, role: str = None,
-                       appearance: dict = None) -> dict:
+                       personality_traits: List[str] = None, role: str = None,
+                       appearance: Dict[str, Any] = None) -> Dict[str, Any]:
         """Create a new system identity"""
         
         # Generate unique identity UUID
@@ -79,8 +80,8 @@ class IdentityManager:
             'role': role or 'general',
             'personality_traits': personality_traits,
             'appearance': appearance,
-            'created_at': datetime.utcnow().isoformat() + "Z",
-            'last_active': datetime.utcnow().isoformat() + "Z",
+            'created_at': TimestampManager.timestamp_utc(),
+            'last_active': TimestampManager.timestamp_utc(),
             'conversation_count': 0,
             'sessions': [],
             'preferences': {
@@ -99,7 +100,7 @@ class IdentityManager:
         self.identities[agent_id] = identity
         self.save_identities()
         
-        logger.info(f"Created identity '{display_name}' for agent {agent_id}")
+        self.logger.info(f"Created identity '{display_name}' for agent {agent_id}")
         return identity
     
     def _generate_default_traits(self, role: str) -> list:
@@ -147,12 +148,12 @@ class IdentityManager:
             updates.pop(field, None)
         
         # Update last_active automatically
-        updates['last_active'] = datetime.utcnow().isoformat() + "Z"
+        updates['last_active'] = TimestampManager.timestamp_utc()
         
         self.identities[agent_id].update(updates)
         self.save_identities()
         
-        logger.info(f"Updated identity for agent {agent_id}")
+        self.logger.info(f"Updated identity for agent {agent_id}")
         return self.identities[agent_id]
     
     def record_activity(self, agent_id: str, activity_type: str, details: dict = None):
@@ -161,7 +162,7 @@ class IdentityManager:
             return
         
         identity = self.identities[agent_id]
-        identity['last_active'] = datetime.utcnow().isoformat() + "Z"
+        identity['last_active'] = TimestampManager.timestamp_utc()
         
         # Update stats based on activity type
         if activity_type == 'message_sent':
@@ -182,7 +183,7 @@ class IdentityManager:
         if agent_id in self.identities:
             self.identities[agent_id]['sessions'].append({
                 'session_id': session_id,
-                'started_at': datetime.utcnow().isoformat() + "Z"
+                'started_at': TimestampManager.timestamp_utc()
             })
             self.save_identities()
     
@@ -218,7 +219,7 @@ class IdentityManager:
         if agent_id in self.identities:
             del self.identities[agent_id]
             self.save_identities()
-            logger.info(f"Removed identity for agent {agent_id}")
+            self.logger.info(f"Removed identity for agent {agent_id}")
             return True
         return False
     
@@ -235,11 +236,11 @@ class IdentityManager:
                 f"{traits_str} | {identity['stats']['messages_sent']} messages, "
                 f"{identity['stats']['conversations_participated']} conversations")
     
-    def serialize_state(self) -> dict:
+    def serialize_state(self) -> Dict[str, Any]:
         """Serialize identity state for hot reload"""
         return {'identities': self.identities}
     
-    def deserialize_state(self, state: dict):
+    def deserialize_state(self, state: Dict[str, Any]):
         """Deserialize identity state from hot reload"""
         self.identities = state.get('identities', {})
-        logger.info(f"Loaded identities: {len(self.identities)} identities")
+        self.logger.info(f"Loaded identities: {len(self.identities)} identities")

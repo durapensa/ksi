@@ -1,5 +1,5 @@
 {
-  "timestamp": 1750530544.3212538,
+  "timestamp": 1750548247.249015,
   "tests_passed": 3,
   "tests_total": 4,
   "results": [
@@ -7,25 +7,25 @@
       "test": "socket_connection",
       "success": true,
       "message": "Successfully connected to daemon socket",
-      "timestamp": 1750530533.208765
+      "timestamp": 1750548247.248242
     },
     {
       "test": "json_spawn_format",
       "success": true,
-      "message": "Got response with session_id: True",
-      "timestamp": 1750530536.1406898
+      "message": "Got response with session_id: False",
+      "timestamp": 1750548247.24864
     },
     {
       "test": "spawn_string_format",
       "success": true,
-      "message": "Got response: 66 bytes",
-      "timestamp": 1750530536.14357
+      "message": "Got response: 144 bytes",
+      "timestamp": 1750548247.2488031
     },
     {
       "test": "stderr_capture",
       "success": false,
       "message": "stderr field present: False",
-      "timestamp": 1750530544.3211231
+      "timestamp": 1750548247.2489421
     }
   ]
 }
