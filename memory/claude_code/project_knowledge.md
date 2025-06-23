@@ -14,6 +14,15 @@ Minimal daemon system for managing Claude processes with conversation continuity
   - Added packages: pydantic (v2.5.0+), structlog (v24.1.0+), tenacity (v8.2.0+)
   - See `daemon/REFACTORING_SUMMARY.md` for full details
 
+- **Command Registry Integration Started** (2025-06-23 PM):
+  - Created `daemon/commands/` directory for individual command handlers
+  - Integrated command registry into `command_handler._route_command()`
+  - Migrated CLEANUP and SPAWN commands to new pattern
+  - Registry checks first, falls back to legacy handlers
+  - Commands use `@command_handler` decorator for auto-registration
+  - Each command is now a separate class with validation and help
+  - Progress: 2/30+ commands migrated, system fully operational
+
 ## Recent Changes (2025-06-21)
 - **JSON Prefix Removal**: Renamed classes to remove redundant "JSON" prefixes:
   - `JSONCommandBuilder` → `CommandBuilder`

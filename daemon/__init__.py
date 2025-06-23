@@ -23,6 +23,9 @@ from .command_handler import CommandHandler
 from .message_bus import MessageBus
 from .identity_manager import IdentityManager
 
+# Import commands to ensure registration
+import daemon.commands
+
 def parse_args():
     """Parse command line arguments - EXACT copy from daemon_clean.py"""
     parser = argparse.ArgumentParser()

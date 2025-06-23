@@ -23,9 +23,9 @@ from daemon.models import (
     SpawnParameters, AgentInfo, IdentityInfo,
     COMMAND_PARAMETER_MAP
 )
-from daemon.command_validator_refactored import CommandValidator
+from daemon.command_validator import CommandValidator
 from daemon.base_manager import BaseManager, with_error_handling, log_operation
-from daemon.utils_refactored import UtilsManager
+from daemon.utils import UtilsManager
 from daemon.file_operations import FileOperations, LogEntry
 from daemon.command_registry import CommandRegistry, command_handler, CommandHandler
 
@@ -229,8 +229,8 @@ class TestBaseManager:
         assert manager.call_count == 1
 
 
-class TestUtilsRefactored:
-    """Test the refactored utils manager"""
+class TestUtils:
+    """Test the utils manager with strategy pattern"""
     
     def test_cleanup_strategies(self, tmp_path):
         """Test cleanup with strategy pattern"""

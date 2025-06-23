@@ -58,7 +58,23 @@ class CommandHandler:
     
     async def _route_command(self, command_name: str, parameters: dict, writer: asyncio.StreamWriter, full_command: dict) -> bool:
         """Route JSON command to appropriate handler method"""
-        # Map commands to JSON handler methods
+        
+        # Check command registry first (new pattern)
+        from .command_registry import CommandRegistry
+        handler_class = CommandRegistry.get_handler(command_name)
+        if handler_class:
+            # Use new command handler pattern
+            handler = handler_class(self)  # Pass self as context
+            logger.info(f"Using registry handler for command: {command_name}")
+            response = await handler.handle(parameters, writer, full_command)
+            
+            # If response is a Pydantic model, convert to dict
+            if hasattr(response, 'model_dump'):
+                return await self.send_response(writer, response.model_dump())
+            else:
+                return await self.send_response(writer, response)
+        
+        # Fall back to old handlers dictionary
         handlers = {
             'SPAWN': self.handlers._handle_spawn,
             'CLEANUP': self.handlers._handle_cleanup,
@@ -93,6 +109,7 @@ class CommandHandler:
         
         handler = handlers.get(command_name)
         if handler:
+            logger.info(f"Using legacy handler for command: {command_name}")
             return await handler(parameters, writer, full_command)
         else:
             return await self.send_error_response(writer, "UNKNOWN_COMMAND", f"Command '{command_name}' not recognized")
