@@ -9,5 +9,14 @@ Each command is a separate class using the command registry pattern
 
 from .cleanup import CleanupHandler
 from .spawn import SpawnHandler
+from .health_check import HealthCheckHandler
+from .get_commands import GetCommandsHandler
+from .get_processes import GetProcessesHandler
 
-__all__ = ['CleanupHandler', 'SpawnHandler']
+__all__ = [
+    'CleanupHandler', 
+    'SpawnHandler',
+    'HealthCheckHandler',
+    'GetCommandsHandler',
+    'GetProcessesHandler'
+]
