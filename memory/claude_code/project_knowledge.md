@@ -3,6 +3,12 @@
 ## Project Overview
 Minimal daemon system for managing Claude processes with conversation continuity.
 
+## Active Development Tasks
+- **Daemon Refactoring**: See `daemon/REFACTORING_TODO.md` for detailed migration plan
+  - 7/29 commands migrated (24%) using command registry pattern
+  - Manager APIs standardized for simpervisor migration
+  - Next: Continue migrating remaining 22 commands in priority order
+
 ## Recent Changes (2025-06-23)
 - **Major Daemon Refactoring**: Comprehensive refactoring to eliminate if/elif chains and improve code quality
   - Added Pydantic models for type-safe command/response validation
