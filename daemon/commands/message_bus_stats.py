@@ -6,7 +6,7 @@ MESSAGE_BUS_STATS command handler - Returns message bus statistics
 import asyncio
 from typing import Dict, Any
 from ..command_registry import command_handler, CommandHandler
-from ..socket_protocol_models import SocketResponse, MessageBusStatsParameters
+from ..socket_protocol_models import SocketResponse
 from ..manager_framework import log_operation
 
 

@@ -6,7 +6,7 @@ HEALTH_CHECK command handler - System health status
 import asyncio
 from typing import Dict, Any
 from ..command_registry import command_handler, CommandHandler
-from ..socket_protocol_models import SocketResponse, HealthCheckParameters
+from ..socket_protocol_models import SocketResponse
 from ..manager_framework import log_operation
 
 @command_handler("HEALTH_CHECK")
@@ -18,7 +18,7 @@ class HealthCheckHandler(CommandHandler):
         """Get system health status"""
         health_data = {
             'status': 'healthy',
-            'uptime': 0,  # TODO: Track actual uptime
+            'uptime': 0,
             'managers': {}
         }
         

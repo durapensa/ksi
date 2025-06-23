@@ -16,20 +16,17 @@ logger = logging.getLogger('daemon')
 class CommandHandler:
     """Handler for daemon commands using JSON Protocol v2.0"""
     
-    def __init__(self, core_daemon, state_manager=None, process_manager=None, agent_manager=None, utils_manager=None, hot_reload_manager=None, message_bus=None, identity_manager=None):
+    def __init__(self, core_daemon, state_manager=None, completion_manager=None, agent_manager=None, hot_reload_manager=None, message_bus=None, identity_manager=None):
         # Store references to all managers for cross-module communication
         self.core_daemon = core_daemon
         self.state_manager = state_manager
-        self.process_manager = process_manager
+        self.completion_manager = completion_manager
         self.agent_manager = agent_manager
-        self.utils_manager = utils_manager
         self.hot_reload_manager = hot_reload_manager
         self.message_bus = message_bus
         self.identity_manager = identity_manager
         
-        # JSON Protocol v2.0 - Initialize JSON handlers
-        from .json_handlers import CommandHandlers
-        self.handlers = CommandHandlers(self)
+        # All commands now use CommandRegistry pattern
     
     async def handle_command(self, command_text: str, writer: asyncio.StreamWriter, reader: asyncio.StreamReader = None) -> bool:
         """Handle JSON protocol v2.0 commands only"""
@@ -74,7 +71,7 @@ class CommandHandler:
             else:
                 return await self.send_response(writer, response)
         
-        # No legacy handlers needed - all commands use registry pattern
+        # All commands use registry pattern
         return await self.send_error_response(writer, "UNKNOWN_COMMAND", f"Command '{command_name}' not recognized")
     
     async def send_response(self, writer: asyncio.StreamWriter, response: dict) -> bool:

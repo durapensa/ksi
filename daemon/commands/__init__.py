@@ -5,7 +5,7 @@ Each command is a separate class using the command registry pattern
 """
 
 # Import all command handlers to ensure registration
-# Migration from json_handlers.py completed - legacy files removed
+# Command handlers package - Individual command implementations
 
 from .cleanup import CleanupHandler
 from .completion import CompletionHandler

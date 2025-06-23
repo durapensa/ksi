@@ -8,14 +8,13 @@ import logging
 import uuid
 from typing import Dict, Any, Optional
 from ..command_registry import command_handler, CommandHandler
-from ..socket_protocol_models import SocketResponse, SpawnParameters
+from ..socket_protocol_models import SocketResponse, CompletionParameters
 from ..manager_framework import log_operation
 from pydantic import ValidationError
 
 logger = logging.getLogger('daemon')
 
 @command_handler("COMPLETION")
-@command_handler("SPAWN")  # Backward compatibility alias
 class CompletionHandler(CommandHandler):
     """Handles COMPLETION command for Claude interactions"""
     
@@ -27,7 +26,7 @@ class CompletionHandler(CommandHandler):
         
         # Validate parameters
         try:
-            params = SpawnParameters(**parameters)
+            params = CompletionParameters(**parameters)
         except ValidationError as e:
             return SocketResponse.error(command_name, "INVALID_PARAMETERS", str(e))
         
@@ -62,7 +61,7 @@ class CompletionHandler(CommandHandler):
             else:
                 return await self._completion_direct_async(writer, params, command_name)
     
-    async def _completion_via_agent_sync(self, writer: asyncio.StreamWriter, params: SpawnParameters, 
+    async def _completion_via_agent_sync(self, writer: asyncio.StreamWriter, params: CompletionParameters, 
                                        orchestrator, command_name: str) -> Any:
         """Handle synchronous completion through an agent"""
         logger.info(f"Routing completion through agent {params.agent_id}: {params.prompt[:50]}...")
@@ -77,7 +76,7 @@ class CompletionHandler(CommandHandler):
             logger.error(f"Agent completion failed: {e}")
             return SocketResponse.error(command_name, "AGENT_ERROR", str(e))
     
-    async def _completion_via_agent_async(self, writer: asyncio.StreamWriter, params: SpawnParameters,
+    async def _completion_via_agent_async(self, writer: asyncio.StreamWriter, params: CompletionParameters,
                                         orchestrator, command_name: str) -> Any:
         """Handle asynchronous completion through an agent"""
         logger.info(f"Async routing through agent {params.agent_id}: {params.prompt[:50]}...")
@@ -96,7 +95,7 @@ class CompletionHandler(CommandHandler):
             'mode': 'async'
         })
     
-    async def _completion_direct_sync(self, writer: asyncio.StreamWriter, params: SpawnParameters,
+    async def _completion_direct_sync(self, writer: asyncio.StreamWriter, params: CompletionParameters,
                                     command_name: str) -> Any:
         """Handle synchronous completion without agent"""
         logger.info(f"Direct Claude completion: {params.prompt[:50]}...")
@@ -111,7 +110,7 @@ class CompletionHandler(CommandHandler):
         
         return SocketResponse.success(command_name, result)
     
-    async def _completion_direct_async(self, writer: asyncio.StreamWriter, params: SpawnParameters,
+    async def _completion_direct_async(self, writer: asyncio.StreamWriter, params: CompletionParameters,
                                      command_name: str) -> Any:
         """Handle asynchronous completion without agent"""
         logger.info(f"Direct async Claude completion: {params.prompt[:50]}...")

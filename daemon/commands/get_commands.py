@@ -6,7 +6,7 @@ GET_COMMANDS handler - List all available commands
 import asyncio
 from typing import Dict, Any
 from ..command_registry import command_handler, CommandHandler, CommandRegistry
-from ..socket_protocol_models import SocketResponse, GetCommandsParameters
+from ..socket_protocol_models import SocketResponse
 from ..manager_framework import log_operation
 @command_handler("GET_COMMANDS", aliases=["HELP"])
 class GetCommandsHandler(CommandHandler):
@@ -38,7 +38,7 @@ class GetCommandsHandler(CommandHandler):
                         'parameters': {}
                     })
             
-            # No legacy commands - all commands are now in the registry
+            # All commands use the registry pattern
             
             # Sort by command name
             commands.sort(key=lambda x: x['command'])

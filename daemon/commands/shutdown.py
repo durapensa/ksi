@@ -6,7 +6,7 @@ SHUTDOWN command handler - Gracefully shuts down the daemon
 import asyncio
 from typing import Dict, Any
 from ..command_registry import command_handler, CommandHandler
-from ..socket_protocol_models import SocketResponse, ShutdownParameters
+from ..socket_protocol_models import SocketResponse
 from ..manager_framework import log_operation
 
 

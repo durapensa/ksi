@@ -47,8 +47,8 @@ class BaseCommand(BaseModel):
 
 # Process Control Commands
 
-class SpawnParameters(BaseModel):
-    """Parameters for SPAWN command"""
+class CompletionParameters(BaseModel):
+    """Parameters for COMPLETION command"""
     mode: Literal["sync", "async"]
     type: Literal["claude"] = "claude"
     prompt: str
@@ -246,56 +246,10 @@ class ComposePromptParameters(BaseModel):
     context: Dict[str, Any]
 
 
-# Additional Command Parameters
-
-class GetAgentsParameters(BaseModel):
-    """Parameters for GET_AGENTS command"""
-    # No parameters needed for this command
-    pass
-
-
-class GetProcessesParameters(BaseModel):
-    """Parameters for GET_PROCESSES command"""
-    # No parameters needed for this command  
-    pass
-
-
-class GetCommandsParameters(BaseModel):
-    """Parameters for GET_COMMANDS command"""
-    # No parameters needed for this command
-    pass
-
-
-class HealthCheckParameters(BaseModel):
-    """Parameters for HEALTH_CHECK command"""
-    # No parameters needed for this command
-    pass
-
-
-class MessageBusStatsParameters(BaseModel):
-    """Parameters for MESSAGE_BUS_STATS command"""  
-    # No parameters needed for this command
-    pass
-
-
-class ShutdownParameters(BaseModel):
-    """Parameters for SHUTDOWN command"""
-    # No parameters needed for this command
-    pass
-
-
-class ReloadDaemonParameters(BaseModel):
-    """Parameters for RELOAD_DAEMON command"""
-    # No parameters needed for this command
-    pass
+# Commands with no parameters don't need parameter classes
 
 
 # Command Models with specific parameters
-
-class SpawnCommand(BaseCommand):
-    command: Literal["SPAWN"] = "SPAWN"
-    parameters: SpawnParameters
-
 
 class CleanupCommand(BaseCommand):
     command: Literal["CLEANUP"] = "CLEANUP"
@@ -354,8 +308,7 @@ class ErrorResponse(BaseResponse):
 # Command Factory
 
 COMMAND_PARAMETER_MAP = {
-    "SPAWN": SpawnParameters,
-    "COMPLETION": SpawnParameters,  # Alias for SPAWN
+    "COMPLETION": CompletionParameters,
     "CLEANUP": CleanupParameters,
     "RELOAD_MODULE": ReloadModuleParameters,
     "REGISTER_AGENT": RegisterAgentParameters,
@@ -378,13 +331,7 @@ COMMAND_PARAMETER_MAP = {
     "VALIDATE_COMPOSITION": ValidateCompositionParameters,
     "LIST_COMPONENTS": ListComponentsParameters,
     "COMPOSE_PROMPT": ComposePromptParameters,
-    "GET_AGENTS": GetAgentsParameters,
-    "GET_PROCESSES": GetProcessesParameters,
-    "GET_COMMANDS": GetCommandsParameters,
-    "HEALTH_CHECK": HealthCheckParameters,
-    "MESSAGE_BUS_STATS": MessageBusStatsParameters,
-    "SHUTDOWN": ShutdownParameters,
-    "RELOAD_DAEMON": ReloadDaemonParameters,
+    # Commands without parameters don't need parameter classes
 }
 
 

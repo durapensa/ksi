@@ -18,13 +18,13 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from daemon.models import (
-    CommandFactory, ResponseFactory, BaseCommand,
-    SpawnParameters, AgentInfo, IdentityInfo,
+from daemon.socket_protocol_models import (
+    CommandFactory, SocketResponse, BaseCommand,
+    CompletionParameters, AgentInfo, IdentityInfo,
     COMMAND_PARAMETER_MAP
 )
 from daemon.command_validator import CommandValidator
-from daemon.base_manager import BaseManager, with_error_handling, log_operation
+from daemon.manager_framework import BaseManager, with_error_handling, log_operation
 from daemon.utils import UtilsManager
 from daemon.file_operations import FileOperations, LogEntry
 from daemon.command_registry import CommandRegistry, command_handler, CommandHandler
@@ -33,10 +33,10 @@ from daemon.command_registry import CommandRegistry, command_handler, CommandHan
 class TestPydanticModels:
     """Test Pydantic models for commands and responses"""
     
-    def test_spawn_parameters_validation(self):
-        """Test SPAWN command parameter validation"""
+    def test_completion_parameters_validation(self):
+        """Test COMPLETION command parameter validation"""
         # Valid parameters
-        params = SpawnParameters(
+        params = CompletionParameters(
             mode="async",
             type="claude",
             prompt="Test prompt"
@@ -47,7 +47,7 @@ class TestPydanticModels:
         
         # Invalid mode
         with pytest.raises(ValueError):
-            SpawnParameters(mode="invalid", type="claude", prompt="test")
+            CompletionParameters(mode="invalid", type="claude", prompt="test")
     
     def test_command_factory(self):
         """Test command creation with factory"""
@@ -64,13 +64,13 @@ class TestPydanticModels:
     def test_response_factory(self):
         """Test response creation"""
         # Success response
-        response = ResponseFactory.success("TEST", {"result": "data"}, processing_time_ms=10.5)
+        response = SocketResponse.success("TEST", {"result": "data"}, processing_time_ms=10.5)
         assert response.status == "success"
         assert response.result == {"result": "data"}
         assert response.metadata["processing_time_ms"] == 10.5
         
         # Error response
-        error = ResponseFactory.error("TEST", "ERROR_CODE", "Error message")
+        error = SocketResponse.error("TEST", "ERROR_CODE", "Error message")
         assert error.status == "error"
         assert error.error.code == "ERROR_CODE"
         assert error.error.message == "Error message"
@@ -376,7 +376,7 @@ class TestCommandRegistry:
         @command_handler("TEST_COMMAND")
         class TestHandler(CommandHandler):
             async def handle(self, parameters, writer, full_command):
-                return ResponseFactory.success("TEST_COMMAND", {"executed": True})
+                return SocketResponse.success("TEST_COMMAND", {"executed": True})
         
         # Check registration
         assert "TEST_COMMAND" in CommandRegistry.list_commands()
@@ -388,7 +388,7 @@ class TestCommandRegistry:
         class ContextTestHandler(CommandHandler):
             async def handle(self, parameters, writer, full_command):
                 # Should have access to managers
-                return ResponseFactory.success("CONTEXT_TEST", {
+                return SocketResponse.success("CONTEXT_TEST", {
                     "has_state_manager": self.state_manager is not None,
                     "has_process_manager": self.process_manager is not None
                 })
@@ -415,7 +415,7 @@ class TestAsyncComponents:
                 # Simulate async operation
                 import asyncio
                 await asyncio.sleep(0.01)
-                return ResponseFactory.success("ASYNC_TEST", {"async": True})
+                return SocketResponse.success("ASYNC_TEST", {"async": True})
         
         # Mock context and writer
         mock_context = Mock()
@@ -447,7 +447,7 @@ def test_migration_compatibility():
     assert is_valid is True
     
     # Test that new responses match old format
-    response = ResponseFactory.success("TEST", {"data": "value"})
+    response = SocketResponse.success("TEST", {"data": "value"})
     response_dict = response.model_dump()
     
     # Should have old format fields
