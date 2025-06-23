@@ -170,21 +170,73 @@ class AgentManager(BaseManager):
     
     @log_operation()
     def register_agent(self, agent_id: str, role: str, capabilities: str = "") -> Dict[str, Any]:
-        """Register an agent manually - EXACT logic from daemon_clean.py command handler"""
-        self.agents[agent_id] = {
+        """Register an agent (legacy method for compatibility)"""
+        agent_id = self.create_agent({
+            'agent_id': agent_id,
             'role': role,
-            'capabilities': capabilities.split(',') if capabilities else [],
-            'status': 'active',
+            'capabilities': capabilities
+        })
+        return {'status': 'registered', 'agent_id': agent_id}
+    
+    def create_agent(self, agent_data: Dict[str, Any]) -> str:
+        """Create agent (standardized API)"""
+        agent_id = agent_data.get('agent_id') or str(uuid.uuid4())[:8]
+        capabilities = agent_data.get('capabilities', '')
+        
+        self.agents[agent_id] = {
+            'role': agent_data.get('role', 'assistant'),
+            'capabilities': capabilities.split(',') if isinstance(capabilities, str) else capabilities,
+            'status': agent_data.get('status', 'active'),
             'created_at': TimestampManager.timestamp_utc(),
             'sessions': []
         }
         
-        self.logger.info(f"Registered agent {agent_id} with role {role}")
-        return {'status': 'registered', 'agent_id': agent_id}
+        self.logger.info(f"Created agent {agent_id}")
+        return agent_id
     
-    def get_agents(self) -> dict:
-        """Get all registered agents"""
-        return self.agents.copy()
+    def update_agent(self, agent_id: str, agent_data: Dict[str, Any]) -> bool:
+        """Update agent (standardized API)"""
+        if agent_id not in self.agents:
+            return False
+        
+        # Update only provided fields
+        agent = self.agents[agent_id]
+        for key, value in agent_data.items():
+            if key != 'agent_id':  # Don't allow changing ID
+                agent[key] = value
+        
+        return True
+    
+    def list_agents(self) -> List[Dict[str, Any]]:
+        """List all agents (standardized API)"""
+        from typing import List
+        return [
+            {
+                'agent_id': agent_id,
+                'role': info.get('role'),
+                'status': info.get('status'),
+                'capabilities': info.get('capabilities', [])
+            }
+            for agent_id, info in self.agents.items()
+        ]
+    
+    def get_agent(self, agent_id: str) -> Optional[Dict[str, Any]]:
+        """Get specific agent (standardized API)"""
+        from typing import Optional
+        return self.agents.get(agent_id)
+    
+    def remove_agent(self, agent_id: str) -> bool:
+        """Remove agent (standardized API)"""
+        if agent_id in self.agents:
+            del self.agents[agent_id]
+            return True
+        return False
+    
+    def clear_agents(self) -> int:
+        """Clear all agents (standardized API)"""
+        count = len(self.agents)
+        self.agents.clear()
+        return count
     
     def find_agents_by_capability(self, required_capabilities: list) -> list:
         """Find agents that have the required capabilities - EXACT copy from daemon_clean.py"""

@@ -201,10 +201,12 @@ class IdentityManager(BaseManager):
             return identity.get('appearance', {})
         return {}
     
-    def list_identities(self) -> dict:
-        """List all identities"""
-        return {
-            agent_id: {
+    def list_identities(self) -> List[Dict[str, Any]]:
+        """List all identities (standardized API)"""
+        from typing import List
+        return [
+            {
+                'agent_id': agent_id,
                 'display_name': info['display_name'],
                 'role': info['role'],
                 'personality_traits': info['personality_traits'],
@@ -212,7 +214,7 @@ class IdentityManager(BaseManager):
                 'stats': info['stats']
             }
             for agent_id, info in self.identities.items()
-        }
+        ]
     
     def remove_identity(self, agent_id: str) -> bool:
         """Remove an identity"""
@@ -222,6 +224,13 @@ class IdentityManager(BaseManager):
             self.logger.info(f"Removed identity for agent {agent_id}")
             return True
         return False
+    
+    def clear_identities(self) -> int:
+        """Clear all identities (standardized API)"""
+        count = len(self.identities)
+        self.identities.clear()
+        self.save_identities()
+        return count
     
     def generate_identity_summary(self, agent_id: str) -> str:
         """Generate a text summary of an agent's identity"""

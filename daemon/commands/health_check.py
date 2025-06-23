@@ -31,7 +31,7 @@ class HealthCheckHandler(CommandHandler):
             }
         
         if self.context.process_manager:
-            processes = len(self.context.process_manager.running_processes)
+            processes = len(self.context.process_manager.processes)
             health_data['managers']['process'] = {
                 'status': 'active',
                 'processes': processes

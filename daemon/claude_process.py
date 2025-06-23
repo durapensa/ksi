@@ -20,7 +20,7 @@ class ClaudeProcessManager:
     """Manages Claude process spawning and lifecycle"""
     
     def __init__(self, state_manager=None, utils_manager=None):
-        self.running_processes = {}  # process_id -> process_info
+        self.processes = {}  # process_id -> process_info (standardized name)
         self.state_manager = state_manager
         self.utils_manager = utils_manager
         self.message_bus = None  # Will be set via set_message_bus()
@@ -202,7 +202,7 @@ class ClaudeProcessManager:
             )
             
             # Track the running process
-            self.running_processes[process_id] = {
+            self.processes[process_id] = {
                 'process': process,
                 'prompt': prompt,
                 'session_id': session_id,
@@ -233,10 +233,10 @@ class ClaudeProcessManager:
     
     async def _handle_process_completion(self, process_id: str):
         """Handle async completion of a Claude process - EXACT copy from daemon_clean.py"""
-        if process_id not in self.running_processes:
+        if process_id not in self.processes:
             return
             
-        process_info = self.running_processes[process_id]
+        process_info = self.processes[process_id]
         process = process_info['process']
         prompt = process_info['prompt']
         session_id = process_info['session_id']
@@ -347,20 +347,36 @@ class ClaudeProcessManager:
             logger.error(f"Error handling process {process_id} completion: {e}")
         finally:
             # Clean up tracking
-            if process_id in self.running_processes:
-                del self.running_processes[process_id]
+            if process_id in self.processes:
+                del self.processes[process_id]
     
-    def get_running_processes(self) -> dict:
-        """Get running processes status - EXACT copy from daemon_clean.py"""
-        processes = {}
-        for pid, info in self.running_processes.items():
-            processes[pid] = {
-                'agent_id': info['agent_id'],
-                'model': info['model'],
-                'started_at': info['started_at'],
-                'session_id': info['session_id']
+    def list_processes(self) -> list:
+        """List all processes (standardized API)"""
+        processes = []
+        for pid, info in self.processes.items():
+            process_data = {
+                'process_id': pid,
+                'agent_id': info.get('agent_id'),
+                'model': info.get('model'),
+                'started_at': info.get('started_at'),
+                'session_id': info.get('session_id'),
+                'status': 'running' if info.get('process') and info['process'].returncode is None else 'completed'
             }
+            if info.get('process') and info['process'].returncode is not None:
+                process_data['return_code'] = info['process'].returncode
+            processes.append(process_data)
         return processes
+    
+    def get_process(self, process_id: str) -> dict:
+        """Get specific process info (standardized API)"""
+        return self.processes.get(process_id)
+    
+    def remove_process(self, process_id: str) -> bool:
+        """Remove process from tracking (standardized API)"""
+        if process_id in self.processes:
+            del self.processes[process_id]
+            return True
+        return False
     
     def set_agent_manager(self, agent_manager):
         """Set agent manager for cross-module communication"""
@@ -394,7 +410,7 @@ class ClaudeProcessManager:
             )
             
             # Track the running process
-            self.running_processes[process_id] = {
+            self.processes[process_id] = {
                 'process': process,
                 'type': 'agent_process',
                 'agent_id': agent_id,
@@ -414,10 +430,10 @@ class ClaudeProcessManager:
     
     async def _handle_agent_process_completion(self, process_id: str):
         """Handle completion of an agent process"""
-        if process_id not in self.running_processes:
+        if process_id not in self.processes:
             return
             
-        process_info = self.running_processes[process_id]
+        process_info = self.processes[process_id]
         process = process_info['process']
         agent_id = process_info['agent_id']
         
@@ -431,7 +447,7 @@ class ClaudeProcessManager:
                 logger.error(f"Agent {agent_id} stderr: {stderr.decode()}")
             
             # Clean up
-            del self.running_processes[process_id]
+            del self.processes[process_id]
             
             # Notify via message bus if available
             if self.message_bus:
@@ -449,6 +465,6 @@ class ClaudeProcessManager:
         except Exception as e:
             logger.error(f"Error handling node completion: {e}", exc_info=True)
             # Clean up even on error
-            if process_id in self.running_processes:
-                del self.running_processes[process_id]
+            if process_id in self.processes:
+                del self.processes[process_id]
     

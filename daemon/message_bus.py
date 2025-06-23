@@ -258,3 +258,29 @@ class MessageBus:
             },
             'history_size': len(self.message_history)
         }
+    
+    def list_connections(self) -> List[Dict[str, Any]]:
+        """List all active connections (standardized API)"""
+        from typing import List
+        return [
+            {'agent_id': agent_id, 'connected': True}
+            for agent_id in self.connections.keys()
+        ]
+    
+    def list_subscriptions(self) -> List[Dict[str, Any]]:
+        """List all subscriptions (standardized API)"""
+        from typing import List
+        result = []
+        for event_type, subscribers in self.subscriptions.items():
+            for agent_id, writer in subscribers:
+                result.append({
+                    'agent_id': agent_id,
+                    'event_type': event_type
+                })
+        return result
+    
+    def clear_subscriptions(self) -> int:
+        """Clear all subscriptions (standardized API)"""
+        count = sum(len(subs) for subs in self.subscriptions.values())
+        self.subscriptions.clear()
+        return count
