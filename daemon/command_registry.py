@@ -5,12 +5,13 @@ Eliminates large if/elif chains and manual command mapping
 """
 
 import asyncio
+import json
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Type, Optional, Callable
 from datetime import datetime
 import structlog
-from .models import BaseCommand, BaseResponse, ResponseFactory
-from .base_manager import with_error_handling
+from .protocols import BaseCommand, BaseResponse, SocketResponse
+from .manager_framework import with_error_handling
 
 # Import all command handlers to trigger registration
 from . import commands
@@ -54,16 +55,12 @@ class CommandHandler(ABC):
         return self.context.state_manager
     
     @property
-    def process_manager(self):
-        return self.context.process_manager
+    def completion_manager(self):
+        return self.context.completion_manager
     
     @property
     def agent_manager(self):
         return self.context.agent_manager
-    
-    @property
-    def utils_manager(self):
-        return self.context.utils_manager
     
     @property
     def message_bus(self):
@@ -79,10 +76,11 @@ class CommandHandler(ABC):
 
 
 class CommandRegistry:
-    """Registry for self-registering commands"""
+    """Registry for self-registering commands with alias support"""
     
     _instance = None
     _handlers: Dict[str, Type[CommandHandler]] = {}
+    _aliases: Dict[str, str] = {}  # alias -> primary command name
     
     def __new__(cls):
         if cls._instance is None:
@@ -90,295 +88,57 @@ class CommandRegistry:
         return cls._instance
     
     @classmethod
-    def register(cls, handler_class: Type[CommandHandler]):
-        """Register a command handler"""
+    def register(cls, handler_class: Type[CommandHandler], aliases: list = None):
+        """Register a command handler with optional aliases"""
         if not handler_class.command_name:
             raise ValueError(f"Handler {handler_class.__name__} must define command_name")
         
         cls._handlers[handler_class.command_name] = handler_class
         logger.info(f"Registered command handler: {handler_class.command_name}")
+        
+        # Register aliases
+        if aliases:
+            for alias in aliases:
+                cls._aliases[alias] = handler_class.command_name
+                logger.info(f"Registered alias: {alias} -> {handler_class.command_name}")
     
     @classmethod
     def get_handler(cls, command_name: str) -> Optional[Type[CommandHandler]]:
-        """Get handler class for a command"""
+        """Get handler class for a command (supports aliases)"""
+        # Check if it's an alias first
+        if command_name in cls._aliases:
+            command_name = cls._aliases[command_name]
         return cls._handlers.get(command_name)
     
     @classmethod
     def list_commands(cls) -> list:
-        """List all registered commands"""
+        """List all registered commands (primary names only)"""
         return list(cls._handlers.keys())
+    
+    @classmethod
+    def list_aliases(cls) -> Dict[str, str]:
+        """List all command aliases"""
+        return cls._aliases.copy()
 
 
-def command_handler(command_name: str):
-    """Decorator to register command handlers"""
+def command_handler(command_name: str, aliases: list = None):
+    """Decorator to register command handlers with optional aliases"""
     def decorator(cls: Type[CommandHandler]):
         cls.command_name = command_name
-        CommandRegistry.register(cls)
+        CommandRegistry.register(cls, aliases=aliases)
         return cls
     return decorator
 
 
-# Example command handlers using the new pattern
-
-@command_handler("SPAWN")
-class SpawnHandler(CommandHandler):
-    """Handler for SPAWN command"""
-    
-    async def handle(self, parameters: Dict[str, Any], writer: asyncio.StreamWriter, 
-                    full_command: Dict[str, Any]) -> BaseResponse:
-        mode = parameters.get("mode")
-        
-        if mode == "sync":
-            return await self._spawn_sync(parameters)
-        elif mode == "async":
-            return await self._spawn_async(parameters)
-        else:
-            return ResponseFactory.error("SPAWN", "INVALID_MODE", f"Invalid mode: {mode}")
-    
-    async def _spawn_sync(self, parameters: Dict[str, Any]) -> BaseResponse:
-        """Handle synchronous Claude spawning"""
-        if not self.process_manager:
-            return ResponseFactory.error("SPAWN", "NO_PROCESS_MANAGER", "Process manager not available")
-        
-        result = await self.process_manager.spawn_claude(
-            prompt=parameters.get("prompt"),
-            session_id=parameters.get("session_id"),
-            model=parameters.get("model", "sonnet"),
-            agent_id=parameters.get("agent_id"),
-            enable_tools=parameters.get("enable_tools", True)
-        )
-        
-        if 'error' in result:
-            return ResponseFactory.error("SPAWN", "SPAWN_FAILED", result['error'])
-        
-        return ResponseFactory.success("SPAWN", result)
-    
-    async def _spawn_async(self, parameters: Dict[str, Any]) -> BaseResponse:
-        """Handle asynchronous Claude spawning"""
-        if not self.process_manager:
-            return ResponseFactory.error("SPAWN", "NO_PROCESS_MANAGER", "Process manager not available")
-        
-        process_id = await self.process_manager.spawn_claude_async(
-            prompt=parameters.get("prompt"),
-            session_id=parameters.get("session_id"),
-            model=parameters.get("model", "sonnet"),
-            agent_id=parameters.get("agent_id"),
-            enable_tools=parameters.get("enable_tools", True)
-        )
-        
-        if not process_id:
-            return ResponseFactory.error("SPAWN", "SPAWN_FAILED", "Failed to start Claude process")
-        
-        return ResponseFactory.success("SPAWN", {
-            'process_id': process_id,
-            'status': 'started',
-            'type': 'claude',
-            'mode': 'async'
-        })
-
-
-@command_handler("CLEANUP")
-class CleanupHandler(CommandHandler):
-    """Handler for CLEANUP command"""
-    
-    async def handle(self, parameters: Dict[str, Any], writer: asyncio.StreamWriter, 
-                    full_command: Dict[str, Any]) -> BaseResponse:
-        if not self.utils_manager:
-            return ResponseFactory.error("CLEANUP", "NO_UTILS_MANAGER", "Utils manager not available")
-        
-        cleanup_type = parameters.get("cleanup_type")
-        result = self.utils_manager.cleanup(cleanup_type)
-        
-        return ResponseFactory.success("CLEANUP", {
-            'status': 'cleaned',
-            'cleanup_type': cleanup_type,
-            'details': result
-        })
-
-
-@command_handler("HEALTH_CHECK")
-class HealthCheckHandler(CommandHandler):
-    """Handler for HEALTH_CHECK command"""
-    
-    async def handle(self, parameters: Dict[str, Any], writer: asyncio.StreamWriter, 
-                    full_command: Dict[str, Any]) -> BaseResponse:
-        # Gather health information from all managers
-        health_info = {
-            'status': 'healthy',
-            'message': 'HEALTHY',
-            'uptime_info': 'Daemon is running normally',
-            'managers': {}
-        }
-        
-        # Check each manager
-        if self.state_manager:
-            health_info['managers']['state'] = {
-                'sessions': len(self.state_manager.sessions),
-                'shared_state_keys': len(self.state_manager.shared_state)
-            }
-        
-        if self.agent_manager:
-            health_info['managers']['agents'] = {
-                'registered': len(self.agent_manager.agents),
-                'active': sum(1 for a in self.agent_manager.agents.values() 
-                            if a.get('status') == 'active')
-            }
-        
-        if self.process_manager:
-            health_info['managers']['processes'] = {
-                'running': len(self.process_manager.running_processes)
-            }
-        
-        if self.message_bus:
-            stats = self.message_bus.get_stats()
-            health_info['managers']['message_bus'] = stats
-        
-        return ResponseFactory.success("HEALTH_CHECK", health_info)
-
-
-@command_handler("RELOAD_MODULE")
-class ReloadModuleHandler(CommandHandler):
-    """Handler for RELOAD_MODULE command"""
-    
-    async def handle(self, parameters: Dict[str, Any], writer: asyncio.StreamWriter, 
-                    full_command: Dict[str, Any]) -> BaseResponse:
-        if not self.utils_manager:
-            return ResponseFactory.error("RELOAD_MODULE", "NO_UTILS_MANAGER", "Utils manager not available")
-        
-        module_name = parameters.get("module_name", "handler")
-        self.utils_manager.reload_module(module_name)
-        
-        return ResponseFactory.success("RELOAD_MODULE", {
-            'status': 'reloaded',
-            'module': module_name,
-            'message': 'Module reloaded successfully'
-        })
-
-
-@command_handler("AGENT_CONNECTION")
-class AgentConnectionHandler(CommandHandler):
-    """Handler for AGENT_CONNECTION command"""
-    
-    async def handle(self, parameters: Dict[str, Any], writer: asyncio.StreamWriter, 
-                    full_command: Dict[str, Any]) -> BaseResponse:
-        action = parameters.get("action")
-        agent_id = parameters.get("agent_id")
-        
-        if not action or not agent_id:
-            return ResponseFactory.error("AGENT_CONNECTION", "MISSING_PARAMETERS", "action and agent_id are required")
-        
-        if not self.message_bus:
-            return ResponseFactory.error("AGENT_CONNECTION", "NO_MESSAGE_BUS", "Message bus not available")
-        
-        if action == "connect":
-            self.message_bus.connect_agent(agent_id, writer)
-            return ResponseFactory.success("AGENT_CONNECTION", {
-                'status': 'connected',
-                'agent_id': agent_id,
-                'action': 'connect'
-            })
-        elif action == "disconnect":
-            self.message_bus.disconnect_agent(agent_id)
-            return ResponseFactory.success("AGENT_CONNECTION", {
-                'status': 'disconnected',
-                'agent_id': agent_id,
-                'action': 'disconnect'
-            })
-        else:
-            return ResponseFactory.error("AGENT_CONNECTION", "INVALID_ACTION", f"Invalid action: {action}")
-
-
-@command_handler("LOAD_STATE")
-class LoadStateHandler(CommandHandler):
-    """Handler for LOAD_STATE command"""
-    
-    async def handle(self, parameters: Dict[str, Any], writer: asyncio.StreamWriter, 
-                    full_command: Dict[str, Any]) -> BaseResponse:
-        state_data = parameters.get("state_data")
-        
-        if not state_data:
-            return ResponseFactory.error("LOAD_STATE", "MISSING_STATE_DATA", "state_data parameter is required")
-        
-        try:
-            if self.hot_reload_manager:
-                self.hot_reload_manager.deserialize_state(state_data)
-            
-            return ResponseFactory.success("LOAD_STATE", {
-                'status': 'loaded',
-                'message': 'State loaded successfully',
-                'state_keys': list(state_data.keys()) if isinstance(state_data, dict) else None
-            })
-        except Exception as e:
-            return ResponseFactory.error("LOAD_STATE", "LOAD_STATE_FAILED", str(e))
-
-
-@command_handler("MESSAGE_BUS_STATS")
-class MessageBusStatsHandler(CommandHandler):
-    """Handler for MESSAGE_BUS_STATS command"""
-    
-    async def handle(self, parameters: Dict[str, Any], writer: asyncio.StreamWriter, 
-                    full_command: Dict[str, Any]) -> BaseResponse:
-        if self.message_bus:
-            stats = self.message_bus.get_stats()
-            return ResponseFactory.success("MESSAGE_BUS_STATS", stats)
-        else:
-            return ResponseFactory.success("MESSAGE_BUS_STATS", {
-                'error': 'Message bus not available'
-            })
-
-
-@command_handler("RELOAD_DAEMON")
-class ReloadDaemonHandler(CommandHandler):
-    """Handler for RELOAD_DAEMON command"""
-    
-    async def handle(self, parameters: Dict[str, Any], writer: asyncio.StreamWriter, 
-                    full_command: Dict[str, Any]) -> BaseResponse:
-        if not self.hot_reload_manager:
-            return ResponseFactory.error("RELOAD_DAEMON", "NO_HOT_RELOAD_MANAGER", "Hot reload manager not available")
-        
-        result = await self.hot_reload_manager.hot_reload_daemon()
-        return ResponseFactory.success("RELOAD_DAEMON", result)
-
-
-@command_handler("SHUTDOWN")
-class ShutdownHandler(CommandHandler):
-    """Handler for SHUTDOWN command"""
-    
-    async def handle(self, parameters: Dict[str, Any], writer: asyncio.StreamWriter, 
-                    full_command: Dict[str, Any]) -> BaseResponse:
-        self.logger.info("Received SHUTDOWN command")
-        
-        response = ResponseFactory.success("SHUTDOWN", {
-            'status': 'shutting_down',
-            'message': 'SHUTTING DOWN',
-            'details': 'Daemon shutdown initiated'
-        })
-        
-        # Send response before closing
-        await self.context.send_response(writer, response.model_dump())
-        
-        # Close connection
-        writer.close()
-        await writer.wait_closed()
-        
-        # Signal shutdown
-        if hasattr(self.context, 'core_daemon') and self.context.core_daemon:
-            self.context.core_daemon.shutdown_event.set()
-        
-        return response  # Won't actually be sent since we closed the writer
-
-
 # Simplified command handler that uses the registry
-
 class SimplifiedCommandHandler:
     """Simplified command handler using registry pattern"""
     
     def __init__(self, core_daemon, **managers):
         self.core_daemon = core_daemon
         self.state_manager = managers.get('state_manager')
-        self.process_manager = managers.get('process_manager')
+        self.completion_manager = managers.get('completion_manager')
         self.agent_manager = managers.get('agent_manager')
-        self.utils_manager = managers.get('utils_manager')
         self.hot_reload_manager = managers.get('hot_reload_manager')
         self.message_bus = managers.get('message_bus')
         self.identity_manager = managers.get('identity_manager')
@@ -415,20 +175,18 @@ class SimplifiedCommandHandler:
             if response:
                 await self.send_response(writer, response.model_dump())
             
-            # Check if we should continue (shutdown returns False)
-            return command_name != "SHUTDOWN"
+            return True
             
         except Exception as e:
-            self.logger.error(f"Error processing command: {e}", exc_info=True)
-            await self.send_error_response(writer, "COMMAND_PROCESSING_FAILED", str(e))
+            self.logger.error(f"Command handling error: {e}", exc_info=True)
+            await self.send_error_response(writer, "INTERNAL_ERROR", str(e))
             return True
     
-    async def send_response(self, writer: asyncio.StreamWriter, response: dict) -> bool:
-        """Send JSON response to client"""
+    async def send_response(self, writer: asyncio.StreamWriter, response_data: dict) -> bool:
+        """Send response to client"""
         try:
-            import json
-            response_str = json.dumps(response) + '\n'
-            writer.write(response_str.encode())
+            response_json = json.dumps(response_data) + '\n'
+            writer.write(response_json.encode())
             await writer.drain()
             return True
         except Exception as e:
@@ -438,6 +196,6 @@ class SimplifiedCommandHandler:
     async def send_error_response(self, writer: asyncio.StreamWriter, error_code: str, 
                                 details: str = "") -> bool:
         """Send standardized error response to client"""
-        from .models import ResponseFactory
-        response = ResponseFactory.error("", error_code, details)
+        from .protocols import SocketResponse
+        response = SocketResponse.error("", error_code, details)
         return await self.send_response(writer, response.model_dump())

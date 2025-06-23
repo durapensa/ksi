@@ -6,7 +6,7 @@ SUBSCRIBE command handler - Subscribe agent to message bus events
 import asyncio
 from typing import Dict, Any, List
 from ..command_registry import command_handler, CommandHandler
-from ..socket_protocol_models import SocketResponse, SubscribeParameters
+from ..protocols import SocketResponse, SubscribeParameters
 from ..manager_framework import log_operation
 
 @command_handler("SUBSCRIBE")

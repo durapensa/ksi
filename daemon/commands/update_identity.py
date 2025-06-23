@@ -6,7 +6,7 @@ UPDATE_IDENTITY command handler - Update an existing identity
 import asyncio
 from typing import Dict, Any, List
 from ..command_registry import command_handler, CommandHandler
-from ..socket_protocol_models import SocketResponse, UpdateIdentityParameters
+from ..protocols import SocketResponse, UpdateIdentityParameters
 from ..manager_framework import log_operation
 
 @command_handler("UPDATE_IDENTITY")

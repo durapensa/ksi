@@ -6,7 +6,7 @@ GET_AGENTS command handler - List all registered agents
 import asyncio
 from typing import Dict, Any
 from ..command_registry import command_handler, CommandHandler
-from ..socket_protocol_models import SocketResponse
+from ..protocols import SocketResponse
 from ..manager_framework import log_operation
 
 @command_handler("GET_AGENTS")

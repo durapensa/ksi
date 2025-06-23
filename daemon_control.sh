@@ -6,11 +6,11 @@
 
 set -e
 
-# Configuration
+# Configuration - can be overridden with KSI_* environment variables
 DAEMON_SCRIPT="daemon.py"
-PID_FILE="sockets/claude_daemon.pid"
-SOCKET_FILE="sockets/claude_daemon.sock"
-LOG_FILE="logs/daemon.log"
+PID_FILE="${KSI_PID_FILE:-var/run/ksi_daemon.pid}"
+SOCKET_FILE="${KSI_SOCKET_PATH:-var/run/ksi_daemon.sock}"
+LOG_FILE="${KSI_LOG_DIR:-var/logs/daemon}/daemon.log"
 VENV_DIR=".venv"
 
 # Colors for output

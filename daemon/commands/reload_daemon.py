@@ -6,7 +6,7 @@ RELOAD_DAEMON command handler - Hot reload daemon with zero downtime
 import asyncio
 from typing import Dict, Any
 from ..command_registry import command_handler, CommandHandler
-from ..socket_protocol_models import SocketResponse
+from ..protocols import SocketResponse
 from ..manager_framework import log_operation
 
 

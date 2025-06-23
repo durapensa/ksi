@@ -6,7 +6,7 @@ ROUTE_TASK command handler - Route tasks to the most suitable available agent
 import asyncio
 from typing import Dict, Any, List
 from ..command_registry import command_handler, CommandHandler
-from ..socket_protocol_models import SocketResponse, RouteTaskParameters
+from ..protocols import SocketResponse, RouteTaskParameters
 from ..manager_framework import log_operation
 
 @command_handler("ROUTE_TASK")

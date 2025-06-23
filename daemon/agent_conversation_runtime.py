@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-AgentController - In-process agent for efficient multi-agent orchestration
-Replaces subprocess-based agents with in-process async controllers
+AgentConversationRuntime - In-process runtime for agent conversations
+Manages conversation threads with LLMs for efficient multi-agent orchestration
 """
 
 import asyncio
@@ -12,6 +12,7 @@ import sys
 import uuid
 from pathlib import Path
 from typing import Optional, Dict, Any, List
+from .config import config
 
 import litellm
 from .timestamp_utils import TimestampManager
@@ -23,8 +24,8 @@ from prompts.composition_selector import CompositionSelector, SelectionContext
 
 logger = logging.getLogger('daemon')
 
-class AgentController:
-    """In-process agent controller that manages a Claude conversation thread"""
+class AgentConversationRuntime:
+    """In-process runtime that manages an LLM conversation thread"""
     
     def __init__(
         self,
@@ -307,7 +308,7 @@ class AgentController:
             return
             
         try:
-            log_file = f"claude_logs/{self.session_id}.jsonl"
+            log_file = str(config.session_log_dir / f"{self.session_id}.jsonl")
             
             # Log human input
             human_entry = {

@@ -8,6 +8,7 @@ Uses asyncio internally but exposes synchronous methods.
 
 import asyncio
 import logging
+from ..config import config
 from typing import Dict, Any, Optional, List
 from .utils import CommandBuilder, ConnectionManager, ResponseHandler
 
@@ -16,9 +17,9 @@ logger = logging.getLogger('daemon.sync_client')
 class SyncClient:
     """Synchronous client for daemon communication"""
     
-    def __init__(self, socket_path: str = "sockets/claude_daemon.sock", timeout: float = 5.0):
-        self.socket_path = socket_path
-        self.timeout = timeout
+    def __init__(self, socket_path: str = None, timeout: float = None):
+        self.socket_path = socket_path or str(config.socket_path)
+        self.timeout = timeout or config.socket_timeout
     
     def _run_async(self, coro):
         """Run async coroutine in sync context"""

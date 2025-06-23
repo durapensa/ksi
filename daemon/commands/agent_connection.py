@@ -6,7 +6,7 @@ AGENT_CONNECTION command handler - Manages agent connections to message bus
 import asyncio
 from typing import Dict, Any
 from ..command_registry import command_handler, CommandHandler
-from ..socket_protocol_models import SocketResponse, AgentConnectionParameters
+from ..protocols import SocketResponse, AgentConnectionParameters
 from ..manager_framework import log_operation
 
 

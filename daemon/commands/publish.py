@@ -6,7 +6,7 @@ PUBLISH command handler - Publish events to the message bus
 import asyncio
 from typing import Dict, Any, Optional
 from ..command_registry import command_handler, CommandHandler
-from ..socket_protocol_models import SocketResponse, PublishParameters
+from ..protocols import SocketResponse, PublishParameters
 from ..manager_framework import log_operation
 
 @command_handler("PUBLISH")

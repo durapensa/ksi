@@ -6,7 +6,7 @@ SET_AGENT_KV command handler - Write to agent key-value store
 import asyncio
 from typing import Dict, Any, Optional
 from ..command_registry import command_handler, CommandHandler
-from ..socket_protocol_models import SocketResponse, SetAgentKVParameters
+from ..protocols import SocketResponse, SetAgentKVParameters
 from ..manager_framework import log_operation
 
 @command_handler("SET_AGENT_KV")

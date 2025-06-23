@@ -12,10 +12,11 @@ import logging
 import signal
 import psutil
 from pathlib import Path
+from .config import config
 
 logger = logging.getLogger('daemon')
 
-class ClaudeDaemonCore:
+class KSIDaemonCore:
     """Core daemon server with dependency injection for all managers - EXACT functionality from daemon_clean.py"""
     
     def __init__(self, socket_path: str, hot_reload_from: str = None):
@@ -25,34 +26,32 @@ class ClaudeDaemonCore:
         self.shutdown_event = asyncio.Event()
         
         # PID file for collision detection
-        self.pid_file = Path("sockets/claude_daemon.pid")
+        self.pid_file = config.pid_file
         
         # Manager instances - will be injected by main entry point
         self.state_manager = None
-        self.process_manager = None
+        self.completion_manager = None
         self.agent_manager = None
-        self.utils_manager = None
         self.hot_reload_manager = None
         self.command_handler = None
         self.message_bus = None
         self.identity_manager = None
     
-    def set_managers(self, state_manager, process_manager, agent_manager, utils_manager, hot_reload_manager, command_handler, message_bus=None, identity_manager=None):
+    def set_managers(self, state_manager, completion_manager, agent_manager, hot_reload_manager, command_handler, message_bus=None, identity_manager=None):
         """Dependency injection - wire all managers together"""
         self.state_manager = state_manager
-        self.process_manager = process_manager
+        self.completion_manager = completion_manager
         self.agent_manager = agent_manager
-        self.utils_manager = utils_manager
         self.hot_reload_manager = hot_reload_manager
         self.command_handler = command_handler
         self.message_bus = message_bus
         self.identity_manager = identity_manager
         
         # Set up cross-manager dependencies
-        if self.process_manager and self.agent_manager:
-            self.process_manager.set_agent_manager(self.agent_manager)
-        if self.process_manager and self.message_bus:
-            self.process_manager.set_message_bus(self.message_bus)
+        if self.completion_manager and self.agent_manager:
+            self.completion_manager.set_agent_manager(self.agent_manager)
+        if self.completion_manager and self.message_bus:
+            self.completion_manager.set_message_bus(self.message_bus)
     
     def serialize_state(self) -> dict:
         """Serialize complete daemon state for hot reload - EXACT copy from daemon_clean.py"""
@@ -168,7 +167,7 @@ class ClaudeDaemonCore:
                     cmdline = ' '.join(proc.cmdline())
                     
                     # Check if it's actually our daemon process
-                    if 'daemon.py' in cmdline or 'claude_daemon' in cmdline:
+                    if 'daemon.py' in cmdline or 'ksi_daemon' in cmdline:
                         return True, pid
                     else:
                         # PID exists but it's a different process - clean up stale PID file
@@ -255,9 +254,7 @@ class ClaudeDaemonCore:
                     if os.path.exists(self.socket_path):
                         os.unlink(self.socket_path)
         
-        # Create directories
-        for dir_name in ['shared_state', 'sockets', 'claude_logs', 'agent_profiles']:
-            os.makedirs(dir_name, exist_ok=True)
+        # Ensure var/ directory structure exists (handled by ensure_var_directories in __init__.py)
         
         # Clean up socket file if it exists
         if os.path.exists(self.socket_path):
@@ -271,7 +268,7 @@ class ClaudeDaemonCore:
             path=self.socket_path
         )
         
-        logger.info(f"Modular daemon listening on {self.socket_path}")
+        logger.info(f"Modular KSI daemon listening on {self.socket_path}")
         
         # Keep track of server task for cleanup
         server_task = None
@@ -303,8 +300,8 @@ class ClaudeDaemonCore:
                 logger.info("Server closed")
                 
                 # Clean up any running processes
-                if self.process_manager and hasattr(self.process_manager, 'running_processes'):
-                    running_processes = self.process_manager.running_processes
+                if self.completion_manager and hasattr(self.completion_manager, 'running_processes'):
+                    running_processes = self.completion_manager.running_processes
                     if running_processes:
                         logger.info(f"Cleaning up {len(running_processes)} running processes...")
                         for process_id, process_info in list(running_processes.items()):

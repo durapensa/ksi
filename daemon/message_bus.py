@@ -11,6 +11,7 @@ from collections import defaultdict
 import time
 
 from .timestamp_utils import TimestampManager
+from .config import config
 
 logger = logging.getLogger('daemon')
 
@@ -238,7 +239,7 @@ class MessageBus:
         
         # Also log to file
         try:
-            log_file = 'claude_logs/message_bus.jsonl'
+            log_file = str(config.session_log_dir / 'message_bus.jsonl')
             with open(log_file, 'a') as f:
                 f.write(json.dumps(message) + '\n')
         except Exception as e:

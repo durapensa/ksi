@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import Dict, Any, Optional
 from ..command_registry import command_handler, CommandHandler
-from ..socket_protocol_models import SocketResponse, ReloadModuleParameters
+from ..protocols import SocketResponse, ReloadModuleParameters
 from ..manager_framework import log_operation
 
 

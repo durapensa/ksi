@@ -6,7 +6,7 @@ GET_AGENT_KV command handler - Read from agent key-value store
 import asyncio
 from typing import Dict, Any
 from ..command_registry import command_handler, CommandHandler
-from ..socket_protocol_models import SocketResponse, GetAgentKVParameters
+from ..protocols import SocketResponse, GetAgentKVParameters
 from ..manager_framework import log_operation
 
 @command_handler("GET_AGENT_KV")

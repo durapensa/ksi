@@ -13,34 +13,36 @@ import os
 from pathlib import Path
 
 # Import all modules
-from .core import ClaudeDaemonCore
-from .state_manager import StateManager
-from .claude_process_v2 import ClaudeProcessManagerV2
-from .agent_manager import AgentManager
-from .utils import UtilsManager
+from .config import config
+from .core import KSIDaemonCore
+from .session_and_shared_state_manager import SessionAndSharedStateManager
+from .completion_manager import CompletionManager
+from .agent_profile_registry import AgentProfileRegistry
+# Utils removed - functionality moved to commands/cleanup.py and commands/reload_module.py
 from .hot_reload import HotReloadManager
 from .command_handler import CommandHandler
 from .message_bus import MessageBus
-from .identity_manager import IdentityManager
+from .agent_identity_registry import AgentIdentityRegistry
 
 # Import commands to ensure registration
 import daemon.commands
 
 def parse_args():
-    """Parse command line arguments - EXACT copy from daemon_clean.py"""
+    """Parse command line arguments with config system defaults"""
     parser = argparse.ArgumentParser()
-    parser.add_argument('--socket', default='sockets/claude_daemon.sock')
+    parser.add_argument('--socket', default=str(config.socket_path), 
+                       help=f'Socket path (default: {config.socket_path})')
     parser.add_argument('--hot-reload-from', help='Socket path to reload from')
     return parser.parse_args()
 
 def setup_logging():
-    """Set up logging - EXACT copy from daemon_clean.py"""
-    log_dir = Path("logs")
-    log_dir.mkdir(exist_ok=True)
-    log_file = log_dir / "daemon.log"
+    """Set up logging using configuration system"""
+    # Ensure log directory exists
+    config.log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = config.get_log_file_path()
 
     logging.basicConfig(
-        level=logging.INFO,
+        level=config.get_log_level(),
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
             logging.FileHandler(log_file),
@@ -48,6 +50,10 @@ def setup_logging():
         ]
     )
     return logging.getLogger('daemon')
+
+def ensure_var_directories():
+    """Ensure all configured directories exist using config system"""
+    config.ensure_directories()
 
 def setup_signal_handlers(core_daemon, loop):
     """Setup asyncio-compatible signal handlers for graceful shutdown"""
@@ -86,24 +92,22 @@ async def create_daemon(socket_path: str, hot_reload_from: str = None):
     """Create and wire together all daemon modules with dependency injection"""
     
     # Create core daemon
-    core_daemon = ClaudeDaemonCore(socket_path, hot_reload_from)
+    core_daemon = KSIDaemonCore(socket_path, hot_reload_from)
     
     # Create all managers
-    state_manager = StateManager()
-    process_manager = ClaudeProcessManagerV2(state_manager=state_manager)
-    agent_manager = AgentManager(process_manager=process_manager)
-    utils_manager = UtilsManager(state_manager=state_manager)
+    state_manager = SessionAndSharedStateManager()
+    completion_manager = CompletionManager(state_manager=state_manager)
+    agent_manager = AgentProfileRegistry(completion_manager=completion_manager)
     hot_reload_manager = HotReloadManager(core_daemon, state_manager, agent_manager)
     message_bus = MessageBus()
-    identity_manager = IdentityManager()
+    identity_manager = AgentIdentityRegistry()
     
     # Create command handler with all dependencies
     command_handler = CommandHandler(
         core_daemon=core_daemon,
         state_manager=state_manager,
-        process_manager=process_manager,
+        completion_manager=completion_manager,
         agent_manager=agent_manager,
-        utils_manager=utils_manager,
         hot_reload_manager=hot_reload_manager,
         message_bus=message_bus,
         identity_manager=identity_manager
@@ -112,9 +116,8 @@ async def create_daemon(socket_path: str, hot_reload_from: str = None):
     # Wire everything together via dependency injection
     core_daemon.set_managers(
         state_manager=state_manager,
-        process_manager=process_manager,
+        completion_manager=completion_manager,
         agent_manager=agent_manager,
-        utils_manager=utils_manager,
         hot_reload_manager=hot_reload_manager,
         command_handler=command_handler,
         message_bus=message_bus,
@@ -122,7 +125,8 @@ async def create_daemon(socket_path: str, hot_reload_from: str = None):
     )
     
     # Set up cross-manager dependencies
-    process_manager.utils_manager = utils_manager
+    completion_manager.set_message_bus(message_bus)
+    completion_manager.set_agent_manager(agent_manager)
     
     return core_daemon
 
@@ -130,6 +134,9 @@ async def main():
     """Main entry point - EXACT logic from daemon_clean.py adapted for modular architecture"""
     args = parse_args()
     logger = setup_logging()
+    
+    # Ensure var/ directory structure exists
+    ensure_var_directories()
     
     # Create modular daemon with dependency injection
     daemon = await create_daemon(args.socket, args.hot_reload_from)
@@ -141,7 +148,7 @@ async def main():
     setup_signal_handlers(daemon, loop)
     
     # Start the daemon
-    logger.info("Starting modular Claude daemon")
+    logger.info("Starting modular KSI daemon")
     try:
         await daemon.start()
     except asyncio.CancelledError:

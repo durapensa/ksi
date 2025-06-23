@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from ..command_registry import command_handler, CommandHandler
-from ..socket_protocol_models import SocketResponse, CleanupParameters
+from ..protocols import SocketResponse, CleanupParameters
 from ..manager_framework import log_operation
 from ..config import config
 

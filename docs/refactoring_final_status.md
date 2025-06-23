@@ -96,7 +96,7 @@ import asyncio
 from typing import Dict, Any
 from ..command_registry import command_handler, CommandHandler
 from ..models import ResponseFactory
-from ..base_manager import log_operation
+from ..manager_utils import log_operation
 from pydantic import BaseModel, Field
 
 class {Command}Parameters(BaseModel):

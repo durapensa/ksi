@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 
 """
-ClaudeProcessManagerV2 - Modern process management using LiteLLM and in-process agents
+CompletionManager - Modern completion management using LiteLLM and in-process agents
 
-Complete replacement for ClaudeProcessManager using:
-- LiteLLM as client library for Claude calls  
+Manages LLM completion requests and agent spawning using:
+- LiteLLM as client library for LLM calls  
 - In-process agent controllers for efficient orchestration
 - All original functionality preserved with better performance
 """
@@ -21,36 +21,36 @@ from typing import Dict, List, Optional, Any
 import litellm
 
 from .timestamp_utils import TimestampManager
-from .multi_agent_orchestrator import MultiAgentOrchestrator
+from .agent_orchestrator import AgentOrchestrator
+from .config import config
 
-# Import claude_cli_provider to ensure provider registration
-import claude_cli_provider
+# Import claude_cli_litellm_provider to ensure provider registration
+import claude_cli_litellm_provider
 
 logger = logging.getLogger('daemon')
 
 
-class ClaudeProcessManagerV2:
-    """Modern Claude process manager using LiteLLM and in-process agents"""
+class CompletionManager:
+    """Modern completion manager using LiteLLM and in-process agents"""
     
-    def __init__(self, state_manager=None, utils_manager=None):
+    def __init__(self, state_manager=None):
         self.processes: Dict[str, Dict[str, Any]] = {}
         self.state_manager = state_manager
-        self.utils_manager = utils_manager
         self.message_bus = None
         self.agent_manager = None
-        self.multi_agent_orchestrator = None
+        self.agent_orchestrator = None
         
         # Ensure directories exist (exact copy from original)
         self._ensure_directories()
     
     def _ensure_directories(self):
-        """Ensure required directories exist - EXACT copy from original"""
-        os.makedirs('claude_logs', exist_ok=True)
-        os.makedirs('sockets', exist_ok=True)
-        os.makedirs('shared_state', exist_ok=True)
+        """Ensure required directories exist using config system"""
+        # Config system handles directory creation via ensure_directories()
+        config.ensure_directories()
+        # Legacy directories for agent profiles (could be migrated to config later)
         os.makedirs('agent_profiles', exist_ok=True)
     
-    async def spawn_claude(
+    async def create_completion(
         self, 
         prompt: str, 
         session_id: str = None, 
@@ -59,7 +59,7 @@ class ClaudeProcessManagerV2:
         enable_tools: bool = True
     ) -> Dict[str, Any]:
         """
-        Spawn Claude process and capture output using LiteLLM - preserves ALL original functionality
+        Create a completion request and wait for response using LiteLLM
         """
         # Ensure directories exist (exact copy from original)
         self._ensure_directories()
@@ -134,7 +134,7 @@ class ClaudeProcessManagerV2:
             
             # Log to JSONL (exact copy from original)
             if new_session_id:
-                log_file = f'claude_logs/{new_session_id}.jsonl'
+                log_file = str(config.session_log_dir / f'{new_session_id}.jsonl')
                 
                 # Log human input
                 human_entry = {
@@ -157,7 +157,7 @@ class ClaudeProcessManagerV2:
                     self.state_manager.track_session(new_session_id, output)
                 
                 # Update latest symlink (exact copy from original)
-                latest_link = 'claude_logs/latest.jsonl'
+                latest_link = str(config.session_log_dir / 'latest.jsonl')
                 if os.path.exists(latest_link):
                     os.unlink(latest_link)
                 os.symlink(f'{new_session_id}.jsonl', latest_link)
@@ -167,10 +167,9 @@ class ClaudeProcessManagerV2:
                 with open(session_file, 'w') as f:
                     f.write(new_session_id)
             
-            # Call cognitive observer if loaded (exact copy from original)
-            if self.utils_manager and hasattr(self.utils_manager, 'loaded_module') and self.utils_manager.loaded_module:
-                if hasattr(self.utils_manager.loaded_module, 'handle_output'):
-                    self.utils_manager.loaded_module.handle_output(output, self)
+            # TODO: Call cognitive observer if loaded
+            # This functionality was in utils_manager which has been removed
+            # Consider implementing through extension module system
             
             return output
             
@@ -191,10 +190,10 @@ class ClaudeProcessManagerV2:
             return error_response
             
         except Exception as e:
-            logger.error(f"Unexpected error in spawn_claude: {type(e).__name__}: {str(e)}")
+            logger.error(f"Unexpected error in create_completion: {type(e).__name__}: {str(e)}")
             return {'error': f'{type(e).__name__}: {str(e)}', 'returncode': -1}
     
-    async def spawn_claude_async(
+    async def create_completion_async(
         self, 
         prompt: str, 
         session_id: str = None, 
@@ -203,7 +202,7 @@ class ClaudeProcessManagerV2:
         enable_tools: bool = True
     ) -> str:
         """
-        Spawn Claude process asynchronously and return process_id immediately - EXACT copy from original
+        Create a completion request asynchronously and return process_id immediately
         """
         process_id = str(uuid.uuid4())[:8]  # Short ID for tracking
         
@@ -244,9 +243,9 @@ class ClaudeProcessManagerV2:
         agent_id = process_info['agent_id']
         
         try:
-            # Use our internal spawn_claude method (now using LiteLLM)
+            # Use our internal create_completion method (now using LiteLLM)
             # This preserves the exact same behavior as the original
-            output = await self.spawn_claude(
+            output = await self.create_completion(
                 prompt,
                 session_id,
                 model,
@@ -254,7 +253,7 @@ class ClaudeProcessManagerV2:
                 enable_tools=True  # Default from original
             )
             
-            # Only proceed with additional processing if spawn_claude succeeded
+            # Only proceed with additional processing if create_completion succeeded
             if 'error' not in output:
                 # Add process tracking info (exact copy from original)
                 output['process_id'] = process_id
@@ -263,10 +262,10 @@ class ClaudeProcessManagerV2:
                 # Extract session_id (exact copy from original)
                 new_session_id = output.get('sessionId') or output.get('session_id')
                 
-                # Log to JSONL with process info (this will be duplicate if spawn_claude already logged,
+                # Log to JSONL with process info (this will be duplicate if create_completion already logged,
                 # but we preserve original behavior exactly)
                 if new_session_id:
-                    log_file = f'claude_logs/{new_session_id}.jsonl'
+                    log_file = str(config.session_log_dir / f'{new_session_id}.jsonl')
                     
                     # Log human input with process info (exact copy from original)
                     human_entry = {
@@ -294,10 +293,9 @@ class ClaudeProcessManagerV2:
                     if agent_id and hasattr(self, 'agent_manager') and self.agent_manager:
                         self.agent_manager.update_agent_session(agent_id, new_session_id)
                     
-                    # Call cognitive observer if loaded (exact copy from original)
-                    if self.utils_manager and hasattr(self.utils_manager, 'loaded_module') and self.utils_manager.loaded_module:
-                        if hasattr(self.utils_manager.loaded_module, 'handle_output'):
-                            self.utils_manager.loaded_module.handle_output(output, self)
+                    # TODO: Call cognitive observer if loaded
+                    # This functionality was in utils_manager which has been removed
+                    # Consider implementing through extension module system
                 
                 # Notify the agent via message bus if available (exact copy from original)
                 if agent_id and hasattr(self, 'message_bus') and self.message_bus:
@@ -349,15 +347,15 @@ class ClaudeProcessManagerV2:
             if process_id in self.processes:
                 del self.processes[process_id]
     
-    async def spawn_agent_process_async(self, agent_id: str, profile_name: str) -> str:
+    async def spawn_agent(self, agent_id: str, profile_name: str) -> str:
         """
         Spawn in-process agent controller - Efficient replacement for subprocess approach
         """
         try:
             # Ensure orchestrator is initialized
-            if not self.multi_agent_orchestrator:
+            if not self.agent_orchestrator:
                 if self.message_bus:
-                    self.multi_agent_orchestrator = MultiAgentOrchestrator(
+                    self.agent_orchestrator = AgentOrchestrator(
                         message_bus=self.message_bus,
                         state_manager=self.state_manager
                     )
@@ -367,7 +365,7 @@ class ClaudeProcessManagerV2:
             logger.info(f"Spawning in-process agent {agent_id} with profile {profile_name}")
             
             # Use orchestrator to spawn in-process agent
-            actual_agent_id = await self.multi_agent_orchestrator.spawn_agent(agent_id, profile_name)
+            actual_agent_id = await self.agent_orchestrator.spawn_agent(agent_id, profile_name)
             
             # Generate process_id for compatibility with existing APIs
             process_id = str(uuid.uuid4())[:8]
@@ -378,7 +376,7 @@ class ClaudeProcessManagerV2:
                 'agent_id': actual_agent_id,
                 'profile': profile_name,
                 'started_at': TimestampManager.format_for_logging(),
-                'orchestrator': self.multi_agent_orchestrator
+                'orchestrator': self.agent_orchestrator
             }
             
             logger.info(f"Started in-process agent {actual_agent_id} with process ID {process_id}")
@@ -421,11 +419,11 @@ class ClaudeProcessManagerV2:
             agent_id = process_info['agent_id']
             
             # All processes are now agent_controller type
-            if not self.multi_agent_orchestrator:
+            if not self.agent_orchestrator:
                 logger.error("No orchestrator available for agent termination")
                 return False
                 
-            success = await self.multi_agent_orchestrator.terminate_agent(agent_id)
+            success = await self.agent_orchestrator.terminate_agent(agent_id)
             if success:
                 # Clean up process tracking
                 del self.processes[process_id]
@@ -460,8 +458,8 @@ class ClaudeProcessManagerV2:
             }
             
             # Get detailed status from orchestrator (only for agent_controller types)
-            if process_type == 'agent_controller' and self.multi_agent_orchestrator:
-                agent_status = self.multi_agent_orchestrator.get_agent_status(info.get('agent_id'))
+            if process_type == 'agent_controller' and self.agent_orchestrator:
+                agent_status = self.agent_orchestrator.get_agent_status(info.get('agent_id'))
                 if agent_status:
                     process_data.update({
                         'status': 'running' if agent_status['is_running'] else 'stopped',
@@ -494,8 +492,8 @@ class ClaudeProcessManagerV2:
         info = self.processes[process_id].copy()
         
         # Enhance with orchestrator details if available
-        if self.multi_agent_orchestrator and info.get('type') == 'agent_controller':
-            agent_status = self.multi_agent_orchestrator.get_agent_status(info['agent_id'])
+        if self.agent_orchestrator and info.get('type') == 'agent_controller':
+            agent_status = self.agent_orchestrator.get_agent_status(info['agent_id'])
             if agent_status:
                 info.update(agent_status)
         
@@ -507,7 +505,7 @@ class ClaudeProcessManagerV2:
             info = self.processes[process_id]
             
             # If it's an agent_controller, also clean up from orchestrator
-            if info.get('type') == 'agent_controller' and self.multi_agent_orchestrator:
+            if info.get('type') == 'agent_controller' and self.agent_orchestrator:
                 agent_id = info['agent_id']
                 # Note: This only removes from tracking, doesn't terminate the agent
                 # Use terminate_agent() for proper termination
@@ -526,8 +524,8 @@ class ClaudeProcessManagerV2:
         self.message_bus = message_bus
         
         # Initialize multi-agent orchestrator when message bus is available
-        if self.message_bus and not self.multi_agent_orchestrator:
-            self.multi_agent_orchestrator = MultiAgentOrchestrator(
+        if self.message_bus and not self.agent_orchestrator:
+            self.agent_orchestrator = AgentOrchestrator(
                 message_bus=self.message_bus,
                 state_manager=self.state_manager
             )
@@ -536,18 +534,18 @@ class ClaudeProcessManagerV2:
     
     def get_orchestrator_stats(self) -> dict:
         """Get multi-agent orchestrator statistics"""
-        if self.multi_agent_orchestrator:
-            return self.multi_agent_orchestrator.get_orchestrator_stats()
+        if self.agent_orchestrator:
+            return self.agent_orchestrator.get_orchestrator_stats()
         return {'error': 'No orchestrator available'}
     
     async def send_agent_message(self, agent_id: str, message: dict) -> bool:
         """Send message to specific agent"""
-        if self.multi_agent_orchestrator:
-            return await self.multi_agent_orchestrator.send_message_to_agent(agent_id, message)
+        if self.agent_orchestrator:
+            return await self.agent_orchestrator.send_message_to_agent(agent_id, message)
         return False
     
     async def broadcast_to_agents(self, message: dict, exclude_agent: str = None) -> int:
         """Broadcast message to all agents"""
-        if self.multi_agent_orchestrator:
-            return await self.multi_agent_orchestrator.broadcast_message(message, exclude_agent)
+        if self.agent_orchestrator:
+            return await self.agent_orchestrator.broadcast_message(message, exclude_agent)
         return 0

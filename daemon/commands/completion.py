@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-COMPLETION command handler - Manages Claude completions via LiteLLM
+COMPLETION command handler - Async completion requests via LiteLLM
+
+All completions are now async - returns immediately with request_id,
+results delivered via messaging.sock as COMPLETION_RESULT events.
 """
 
 import asyncio
@@ -8,7 +11,7 @@ import logging
 import uuid
 from typing import Dict, Any, Optional
 from ..command_registry import command_handler, CommandHandler
-from ..socket_protocol_models import SocketResponse, CompletionParameters
+from ..protocols import SocketResponse, CompletionParameters, CompletionAcknowledgment
 from ..manager_framework import log_operation
 from pydantic import ValidationError
 
@@ -16,11 +19,31 @@ logger = logging.getLogger('daemon')
 
 @command_handler("COMPLETION")
 class CompletionHandler(CommandHandler):
-    """Handles COMPLETION command for Claude interactions"""
+    """Handles COMPLETION command for async Claude interactions"""
+    
+    def __init__(self):
+        super().__init__()
+        self.completion_queue = asyncio.Queue()
+        self.worker_task = None
+    
+    async def initialize(self, context):
+        """Initialize handler with context and start worker"""
+        await super().initialize(context)
+        # Start background worker for processing completions
+        self.worker_task = asyncio.create_task(self._completion_worker())
+    
+    async def cleanup(self):
+        """Clean up worker task"""
+        if self.worker_task:
+            self.worker_task.cancel()
+            try:
+                await self.worker_task
+            except asyncio.CancelledError:
+                pass
     
     @log_operation()
     async def handle(self, parameters: Dict[str, Any], writer: asyncio.StreamWriter, full_command: Dict[str, Any]) -> Any:
-        """Execute completion request"""
+        """Queue completion request and return immediately"""
         # Get the actual command name used
         command_name = full_command.get('command', 'COMPLETION')
         
@@ -30,180 +53,139 @@ class CompletionHandler(CommandHandler):
         except ValidationError as e:
             return SocketResponse.error(command_name, "INVALID_PARAMETERS", str(e))
         
-        # Check if we should route through an agent
-        if params.agent_id:
-            # Route through agent for session management
-            if not self.context.completion_manager or not hasattr(self.context.completion_manager, 'agent_orchestrator'):
-                return SocketResponse.error(command_name, "NO_ORCHESTRATOR", "Multi-agent orchestrator not available")
-            
-            orchestrator = self.context.completion_manager.agent_orchestrator
-            if not orchestrator:
-                return SocketResponse.error(command_name, "NO_ORCHESTRATOR", "Multi-agent orchestrator not initialized")
-            
-            # Check if agent exists
-            if params.agent_id not in orchestrator.agents:
-                return SocketResponse.error(command_name, "AGENT_NOT_FOUND", f"Agent '{params.agent_id}' not found")
-            
-            # Route based on mode
-            if params.mode == "sync":
-                return await self._completion_via_agent_sync(writer, params, orchestrator, command_name)
-            else:
-                return await self._completion_via_agent_async(writer, params, orchestrator, command_name)
+        # Generate request ID
+        request_id = f"req_{uuid.uuid4().hex[:8]}"
         
-        else:
-            # Direct Claude call without agent
-            if not self.context.completion_manager:
-                return SocketResponse.error(command_name, "NO_PROCESS_MANAGER", "Process manager not available")
-            
-            # Route based on mode
-            if params.mode == "sync":
-                return await self._completion_direct_sync(writer, params, command_name)
-            else:
-                return await self._completion_direct_async(writer, params, command_name)
+        # Queue the completion work
+        await self.completion_queue.put({
+            'request_id': request_id,
+            'params': params,
+            'queued_at': self.context.timestamp_manager.timestamp_utc() if hasattr(self.context, 'timestamp_manager') else None
+        })
+        
+        # Return immediate acknowledgment
+        ack = CompletionAcknowledgment(
+            request_id=request_id,
+            status='queued',
+            queue_position=self.completion_queue.qsize()
+        )
+        
+        logger.info(f"Queued completion request {request_id} for client {params.client_id}")
+        
+        return SocketResponse.success(command_name, ack.model_dump())
     
-    async def _completion_via_agent_sync(self, writer: asyncio.StreamWriter, params: CompletionParameters, 
-                                       orchestrator, command_name: str) -> Any:
-        """Handle synchronous completion through an agent"""
-        logger.info(f"Routing completion through agent {params.agent_id}: {params.prompt[:50]}...")
+    async def _completion_worker(self):
+        """Background worker that processes completion requests"""
+        logger.info("Completion worker started")
+        
+        while True:
+            try:
+                # Get next completion request
+                work = await self.completion_queue.get()
+                
+                # Process the completion
+                await self._process_completion(work)
+                
+            except asyncio.CancelledError:
+                logger.info("Completion worker shutting down")
+                break
+            except Exception as e:
+                logger.error(f"Error in completion worker: {e}", exc_info=True)
+                # Continue processing other requests
+    
+    async def _process_completion(self, work: Dict[str, Any]):
+        """Process a single completion request"""
+        request_id = work['request_id']
+        params = work['params']
+        
+        logger.info(f"Processing completion {request_id} for client {params.client_id}")
+        
+        try:
+            # Check if we should route through an agent
+            if params.agent_id:
+                result = await self._completion_via_agent(params)
+            else:
+                result = await self._completion_direct(params)
+            
+            # Publish success result to message bus
+            await self._publish_result(request_id, params.client_id, result)
+            
+        except Exception as e:
+            logger.error(f"Completion {request_id} failed: {e}")
+            # Publish error result to message bus
+            await self._publish_error(request_id, params.client_id, str(e))
+    
+    async def _completion_via_agent(self, params: CompletionParameters) -> Dict[str, Any]:
+        """Handle completion through an agent"""
+        if not self.context.completion_manager or not hasattr(self.context.completion_manager, 'agent_orchestrator'):
+            raise ValueError("Multi-agent orchestrator not available")
+        
+        orchestrator = self.context.completion_manager.agent_orchestrator
+        if not orchestrator:
+            raise ValueError("Multi-agent orchestrator not initialized")
+        
+        # Check if agent exists
+        if params.agent_id not in orchestrator.agents:
+            raise ValueError(f"Agent '{params.agent_id}' not found")
         
         agent = orchestrator.agents[params.agent_id]
         
         # Send prompt to agent and get response
-        try:
-            response = await agent.send_prompt(params.prompt, params.session_id)
-            return SocketResponse.success(command_name, response)
-        except Exception as e:
-            logger.error(f"Agent completion failed: {e}")
-            return SocketResponse.error(command_name, "AGENT_ERROR", str(e))
+        response = await agent.send_prompt(params.prompt, params.session_id)
+        return response
     
-    async def _completion_via_agent_async(self, writer: asyncio.StreamWriter, params: CompletionParameters,
-                                        orchestrator, command_name: str) -> Any:
-        """Handle asynchronous completion through an agent"""
-        logger.info(f"Async routing through agent {params.agent_id}: {params.prompt[:50]}...")
+    async def _completion_direct(self, params: CompletionParameters) -> Dict[str, Any]:
+        """Handle direct completion without agent"""
+        if not self.context.completion_manager:
+            raise ValueError("Completion manager not available")
         
-        # For async, we queue the message and return immediately
-        agent = orchestrator.agents[params.agent_id]
-        message_id = str(uuid.uuid4())[:8]
-        
-        # Queue message for async processing
-        await agent.queue_prompt(params.prompt, params.session_id, message_id)
-        
-        return SocketResponse.success(command_name, {
-            'message_id': message_id,
-            'agent_id': params.agent_id,
-            'status': 'queued',
-            'mode': 'async'
-        })
-    
-    async def _completion_direct_sync(self, writer: asyncio.StreamWriter, params: CompletionParameters,
-                                    command_name: str) -> Any:
-        """Handle synchronous completion without agent"""
-        logger.info(f"Direct Claude completion: {params.prompt[:50]}...")
-        
+        # Use completion manager to handle LiteLLM call
         result = await self.context.completion_manager.create_completion(
-            params.prompt, 
-            params.session_id, 
-            params.model, 
-            params.agent_id,  # Still pass for logging, but not used for routing
-            params.enable_tools
+            prompt=params.prompt,
+            model=params.model,
+            session_id=params.session_id,
+            timeout=params.timeout
         )
         
-        return SocketResponse.success(command_name, result)
+        return result
     
-    async def _completion_direct_async(self, writer: asyncio.StreamWriter, params: CompletionParameters,
-                                     command_name: str) -> Any:
-        """Handle asynchronous completion without agent"""
-        logger.info(f"Direct async Claude completion: {params.prompt[:50]}...")
+    async def _publish_result(self, request_id: str, client_id: str, result: Dict[str, Any]):
+        """Publish completion result to message bus"""
+        if not self.context.message_bus:
+            logger.error("Message bus not available for completion result")
+            return
         
-        process_id = await self.context.completion_manager.create_completion_async(
-            params.prompt,
-            params.session_id,
-            params.model,
-            params.agent_id,  # Still pass for logging
-            params.enable_tools
-        )
+        await self.context.message_bus.publish({
+            'type': 'COMPLETION_RESULT',
+            'request_id': request_id,
+            'client_id': client_id,
+            'timestamp': self.context.timestamp_manager.timestamp_utc() if hasattr(self.context, 'timestamp_manager') else None,
+            'result': {
+                'response': result.get('response', ''),
+                'session_id': result.get('session_id'),
+                'model': result.get('model', 'sonnet'),
+                'usage': result.get('usage'),
+                'duration_ms': result.get('duration_ms', 0)
+            }
+        })
         
-        if process_id:
-            return SocketResponse.success(command_name, {
-                'process_id': process_id,
-                'status': 'started',
-                'type': 'claude',
-                'mode': 'async'
-            })
-        else:
-            return SocketResponse.error(command_name, "COMPLETION_FAILED", "Failed to start Claude completion")
+        logger.info(f"Published completion result for {request_id} to client {client_id}")
     
-    @classmethod
-    def get_help(cls) -> Dict[str, Any]:
-        """Get command help information"""
-        return {
-            "command": "COMPLETION",
-            "aliases": ["SPAWN"],  # For backward compatibility
-            "description": "Send a completion request to Claude, either directly or through an agent",
-            "parameters": {
-                "mode": {
-                    "type": "string",
-                    "enum": ["sync", "async"],
-                    "description": "Execution mode - sync waits for response, async returns immediately"
-                },
-                "type": {
-                    "type": "string", 
-                    "enum": ["claude"],
-                    "description": "Completion type (only 'claude' supported)",
-                    "default": "claude"
-                },
-                "prompt": {
-                    "type": "string",
-                    "description": "The prompt/message to send"
-                },
-                "agent_id": {
-                    "type": "string",
-                    "description": "Route through specific agent for session continuity (optional)",
-                    "optional": True
-                },
-                "session_id": {
-                    "type": "string",
-                    "description": "Session ID for conversation continuity (optional)",
-                    "optional": True
-                },
-                "model": {
-                    "type": "string",
-                    "default": "sonnet",
-                    "description": "Claude model to use",
-                    "optional": True
-                },
-                "enable_tools": {
-                    "type": "boolean",
-                    "default": True,
-                    "description": "Whether to enable Claude tools",
-                    "optional": True
-                }
-            },
-            "routing": {
-                "with_agent_id": "Routes through the specified agent, maintaining conversation state",
-                "without_agent_id": "Direct Claude call, stateless unless session_id provided"
-            },
-            "examples": [
-                {
-                    "mode": "sync",
-                    "type": "claude",
-                    "prompt": "Hello, Claude!",
-                    "description": "Simple direct completion"
-                },
-                {
-                    "mode": "sync",
-                    "type": "claude",
-                    "prompt": "What number did I ask you to remember?",
-                    "agent_id": "conversation_agent_1",
-                    "description": "Route through agent for session continuity"
-                },
-                {
-                    "mode": "async",
-                    "type": "claude", 
-                    "prompt": "Analyze this code",
-                    "session_id": "session-123",
-                    "model": "opus",
-                    "description": "Async with explicit session"
-                }
-            ]
-        }
+    async def _publish_error(self, request_id: str, client_id: str, error: str):
+        """Publish completion error to message bus"""
+        if not self.context.message_bus:
+            logger.error("Message bus not available for completion error")
+            return
+        
+        await self.context.message_bus.publish({
+            'type': 'COMPLETION_RESULT',
+            'request_id': request_id,
+            'client_id': client_id,
+            'timestamp': self.context.timestamp_manager.timestamp_utc() if hasattr(self.context, 'timestamp_manager') else None,
+            'result': {
+                'error': error,
+                'code': 'COMPLETION_FAILED'
+            }
+        })
+        
+        logger.info(f"Published completion error for {request_id} to client {client_id}")

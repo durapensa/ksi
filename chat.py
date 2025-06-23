@@ -13,8 +13,9 @@ from pathlib import Path
 
 # Import the new JSON client library
 from daemon_client import DaemonClient, ConnectionError, CommandError, daemon_health_check
+from daemon.config import config
 
-SOCKET_PATH = os.environ.get('CLAUDE_DAEMON_SOCKET', 'sockets/claude_daemon.sock')
+SOCKET_PATH = os.environ.get('KSI_DAEMON_SOCKET', str(config.socket_path))
 
 def start_daemon():
     """Start daemon if not running"""

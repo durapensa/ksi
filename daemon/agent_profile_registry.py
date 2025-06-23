@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
 """
-Agent Manager - Agent lifecycle and task routing
-Refactored to use BaseManager pattern
+Agent Profile Registry - Agent profile management and task routing
+Manages agent profiles, capabilities, and routes tasks to appropriate agents
 """
 
 import json
@@ -10,19 +10,20 @@ import uuid
 import warnings
 from typing import Dict, Any, Optional, List
 from pathlib import Path
-from .base_manager import BaseManager, with_error_handling, log_operation
+from .manager_framework import BaseManager, with_error_handling, log_operation
 from .file_operations import FileOperations, LogEntry
 from .timestamp_utils import TimestampManager
-from .models import AgentInfo
+from .config import config
+from .protocols import AgentInfo
 
-class AgentManager(BaseManager):
-    """Manages agent lifecycle, capabilities, and task routing"""
+class AgentProfileRegistry(BaseManager):
+    """Registry for agent profiles, capabilities, and task routing"""
     
-    def __init__(self, process_manager=None):
-        self.process_manager = process_manager
+    def __init__(self, completion_manager=None):
+        self.completion_manager = completion_manager
         super().__init__(
             manager_name="agent",
-            required_dirs=["agent_profiles", "claude_logs"]
+            required_dirs=["agent_profiles"]  # session_logs handled by config system
         )
     
     def _initialize(self):
@@ -84,8 +85,8 @@ class AgentManager(BaseManager):
         
         # Spawn agent process (agent_process.py) instead of raw Claude
         # This allows agents to participate in the message bus system
-        if self.process_manager:
-            process_id = await self.process_manager.spawn_agent_process_async(agent_id, profile_name)
+        if self.completion_manager:
+            process_id = await self.completion_manager.spawn_agent(agent_id, profile_name)
         else:
             self.logger.error("No process manager available for spawning agent")
             return None
@@ -142,9 +143,9 @@ class AgentManager(BaseManager):
             agent_id = f"{composition_name}_{str(uuid.uuid4())[:8]}"
         
         # Spawn agent process using composition
-        if self.process_manager:
+        if self.completion_manager:
             # Pass composition name as the "profile" - agent_process.py will handle it
-            process_id = await self.process_manager.spawn_agent_process_async(agent_id, composition_name)
+            process_id = await self.completion_manager.spawn_agent(agent_id, composition_name)
         else:
             self.logger.error("No process manager available for spawning agent")
             return None
@@ -302,7 +303,7 @@ class AgentManager(BaseManager):
             "match_score": best_agent['match_score']
         }
         
-        log_file = 'claude_logs/task_routing.jsonl'
+        log_file = str(config.session_log_dir / 'task_routing.jsonl')
         FileOperations.append_jsonl(log_file, routing_entry)
         
         self.logger.info(f"Routed task to agent {agent_id} (score: {best_agent['match_score']})")
@@ -327,7 +328,7 @@ class AgentManager(BaseManager):
         }
         
         # Save to inter-agent log
-        log_file = 'claude_logs/inter_agent_messages.jsonl'
+        log_file = str(config.session_log_dir / 'inter_agent_messages.jsonl')
         FileOperations.append_jsonl(log_file, message_entry)
         
         self.logger.info(f"Inter-agent message from {from_agent} to {to_agent}")

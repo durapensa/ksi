@@ -9,6 +9,7 @@ persistent connections, event handling, and high-performance communication.
 import asyncio
 import json
 import logging
+from ..config import config
 from typing import Dict, Any, Optional, List, Callable
 from .utils import CommandBuilder, ConnectionManager, ResponseHandler
 
@@ -17,9 +18,9 @@ logger = logging.getLogger('daemon.async_client')
 class AsyncClient:
     """Asynchronous client for daemon communication"""
     
-    def __init__(self, socket_path: str = "sockets/claude_daemon.sock", timeout: float = 5.0):
-        self.socket_path = socket_path
-        self.timeout = timeout
+    def __init__(self, socket_path: str = None, timeout: float = None):
+        self.socket_path = socket_path or str(config.socket_path)
+        self.timeout = timeout or config.socket_timeout
     
     async def send_command(self, command: str, parameters: Dict[str, Any] = None) -> Dict[str, Any]:
         """
@@ -140,9 +141,9 @@ class PersistentAsyncClient:
     and sending commands without connection overhead.
     """
     
-    def __init__(self, agent_id: str, socket_path: str = "sockets/claude_daemon.sock"):
+    def __init__(self, agent_id: str, socket_path: str = None):
         self.agent_id = agent_id
-        self.socket_path = socket_path
+        self.socket_path = socket_path or str(config.socket_path)
         self.reader: Optional[asyncio.StreamReader] = None
         self.writer: Optional[asyncio.StreamWriter] = None
         self.connected = False

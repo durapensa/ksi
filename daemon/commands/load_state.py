@@ -6,7 +6,7 @@ LOAD_STATE command handler - Loads serialized state for hot reload
 import asyncio
 from typing import Dict, Any
 from ..command_registry import command_handler, CommandHandler
-from ..socket_protocol_models import SocketResponse, LoadStateParameters
+from ..protocols import SocketResponse, LoadStateParameters
 from ..manager_framework import log_operation
 
 

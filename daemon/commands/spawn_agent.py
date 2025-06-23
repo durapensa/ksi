@@ -6,7 +6,7 @@ SPAWN_AGENT command handler - Spawn an agent process with intelligent compositio
 import asyncio
 from typing import Dict, Any, List, Optional
 from ..command_registry import command_handler, CommandHandler
-from ..socket_protocol_models import SocketResponse, SpawnAgentParameters
+from ..protocols import SocketResponse, SpawnAgentParameters
 from ..manager_framework import log_operation
 import sys
 import os

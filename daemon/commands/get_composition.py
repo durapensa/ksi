@@ -8,7 +8,7 @@ import sys
 import os
 from typing import Dict, Any
 from ..command_registry import command_handler, CommandHandler
-from ..socket_protocol_models import SocketResponse, GetCompositionParameters
+from ..protocols import SocketResponse, GetCompositionParameters
 from ..manager_framework import log_operation
 
 @command_handler("GET_COMPOSITION")

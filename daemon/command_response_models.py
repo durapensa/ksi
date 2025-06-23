@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-[DEPRECATED] Legacy socket protocol models file
+[DEPRECATED] Legacy command response models file
 
 This file is maintained for backward compatibility only.
 All models have been migrated to the new protocols/ directory structure.
@@ -13,7 +13,7 @@ from .protocols import *
 # Legacy warning for developers
 import warnings
 warnings.warn(
-    "socket_protocol_models.py is deprecated. Import from daemon.protocols instead.",
+    "command_response_models.py is deprecated. Import from daemon.protocols instead.",
     DeprecationWarning,
     stacklevel=2
 )

@@ -6,7 +6,7 @@ REGISTER_AGENT command handler - Register a new agent with role and capabilities
 import asyncio
 from typing import Dict, Any, List, Optional
 from ..command_registry import command_handler, CommandHandler
-from ..socket_protocol_models import SocketResponse, RegisterAgentParameters
+from ..protocols import SocketResponse, RegisterAgentParameters
 from ..manager_framework import log_operation
 
 @command_handler("REGISTER_AGENT")

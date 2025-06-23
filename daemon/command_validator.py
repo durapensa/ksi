@@ -7,11 +7,11 @@ Provides fast, comprehensive validation using Pydantic's built-in validation
 import json
 from typing import Dict, Any, Tuple, Optional, Union
 from pydantic import ValidationError
-from .models import (
-    BaseCommand, CommandFactory, ResponseFactory,
+from .protocols import (
+    BaseCommand, CommandFactory, SocketResponse,
     COMMAND_PARAMETER_MAP, SuccessResponse, ErrorResponse
 )
-from .base_manager import with_error_handling
+from .manager_framework import with_error_handling
 import structlog
 
 logger = structlog.get_logger('daemon.validator')
@@ -23,7 +23,7 @@ class CommandValidator:
     def __init__(self):
         self.logger = structlog.get_logger(__name__)
         self.command_factory = CommandFactory()
-        self.response_factory = ResponseFactory()
+        self.response_factory = SocketResponse()
     
     @with_error_handling("validate_command")
     def validate_command(self, command_data: Union[str, Dict[str, Any]]) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:

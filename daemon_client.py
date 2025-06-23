@@ -13,6 +13,7 @@ import logging
 from typing import Dict, Any, Optional, Union, List
 from datetime import datetime
 from pathlib import Path
+from daemon.config import config
 
 # Import shared utilities from organized client package
 from daemon.client import (
@@ -41,9 +42,9 @@ class CommandError(DaemonClientError):
 class DaemonClient:
     """Client for interacting with Claude daemon using JSON protocol v2.0"""
     
-    def __init__(self, socket_path: str = "sockets/claude_daemon.sock"):
-        self.socket_path = socket_path
-        self.connection_timeout = 5.0
+    def __init__(self, socket_path: str = None):
+        self.socket_path = socket_path or str(config.socket_path)
+        self.connection_timeout = config.socket_timeout
         self.command_timeout = 30.0
     
     async def send_command(self, command: str, parameters: Dict[str, Any] = None, 
@@ -310,9 +311,9 @@ class PersistentDaemonClient:
     to the daemon (e.g., for receiving events via message bus)
     """
     
-    def __init__(self, agent_id: str, socket_path: str = "sockets/claude_daemon.sock"):
+    def __init__(self, agent_id: str, socket_path: str = None):
         self.agent_id = agent_id
-        self.socket_path = socket_path
+        self.socket_path = socket_path or str(config.socket_path)
         self.reader: Optional[asyncio.StreamReader] = None
         self.writer: Optional[asyncio.StreamWriter] = None
         self.connected = False
@@ -421,19 +422,19 @@ class PersistentDaemonClient:
 
 # Convenience functions for simple use cases
 
-async def daemon_health_check(socket_path: str = "sockets/claude_daemon.sock") -> bool:
+async def daemon_health_check(socket_path: str = None) -> bool:
     """Quick health check"""
     client = DaemonClient(socket_path)
     return await client.health_check()
 
 async def spawn_claude_sync(prompt: str, session_id: str = None, 
-                           socket_path: str = "sockets/claude_daemon.sock") -> str:
+                           socket_path: str = None) -> str:
     """Quick synchronous Claude spawn - returns just the result text"""
     client = DaemonClient(socket_path)
     response = await client.spawn_claude(prompt, mode="sync", session_id=session_id)
     return response.get("result", {}).get("result", "")
 
-async def get_daemon_commands(socket_path: str = "sockets/claude_daemon.sock") -> Dict[str, Any]:
+async def get_daemon_commands(socket_path: str = None) -> Dict[str, Any]:
     """Get available daemon commands"""
     client = DaemonClient(socket_path)
     return await client.get_commands()

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-MultiAgentOrchestrator - Manages multiple in-process AgentControllers
+AgentOrchestrator - Manages multiple in-process AgentConversationRuntimes
 Replaces subprocess-based agent management with efficient in-process coordination
 """
 
@@ -9,12 +9,12 @@ import logging
 import uuid
 from typing import Dict, List, Optional, Any
 
-from .agent_controller import AgentController
+from .agent_conversation_runtime import AgentConversationRuntime
 from .timestamp_utils import TimestampManager
 
 logger = logging.getLogger('daemon')
 
-class MultiAgentOrchestrator:
+class AgentOrchestrator:
     """Orchestrates multiple in-process agent controllers"""
     
     def __init__(self, message_bus, state_manager=None):
@@ -22,7 +22,7 @@ class MultiAgentOrchestrator:
         self.state_manager = state_manager
         
         # Agent management
-        self.agents: Dict[str, AgentController] = {}
+        self.agents: Dict[str, AgentConversationRuntime] = {}
         self.agent_tasks: Dict[str, asyncio.Task] = {}
         
         # Message routing
@@ -47,7 +47,7 @@ class MultiAgentOrchestrator:
                 return agent_id
             
             # Create agent controller
-            agent = AgentController(
+            agent = AgentConversationRuntime(
                 agent_id=agent_id,
                 profile_name=profile_name,
                 message_bus=self.message_bus,

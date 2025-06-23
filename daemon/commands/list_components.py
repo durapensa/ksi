@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from typing import Dict, Any, List
 from ..command_registry import command_handler, CommandHandler
-from ..socket_protocol_models import SocketResponse, ListComponentsParameters
+from ..protocols import SocketResponse, ListComponentsParameters
 from ..manager_framework import log_operation
 
 @command_handler("LIST_COMPONENTS")

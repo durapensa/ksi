@@ -1,31 +1,32 @@
 #!/usr/bin/env python3
 
 """
-Identity Manager - System identity management for Claude instances
-Refactored to use BaseManager pattern
+Agent Identity Registry - System identity management for agent instances
+Manages persistent identities for agents across sessions
 """
 
 import uuid
 from typing import Dict, Any, Optional, List
 from pathlib import Path
-from .base_manager import BaseManager, with_error_handling, log_operation, atomic_operation
+from .manager_framework import BaseManager, with_error_handling, log_operation, atomic_operation
 from .file_operations import FileOperations
 from .timestamp_utils import TimestampManager
-from .models import IdentityInfo
+from .protocols import IdentityInfo
+from .config import config
 
-class IdentityManager(BaseManager):
-    """Manages system identities for Claude instances and agents"""
+class AgentIdentityRegistry(BaseManager):
+    """Registry for agent identities with persistent storage"""
     
     def __init__(self):
         super().__init__(
             manager_name="identity",
-            required_dirs=["shared_state"]
+            required_dirs=[]  # Config system handles directory creation
         )
     
     def _initialize(self):
         """Initialize manager-specific state"""
         self.identities = {}  # agent_id -> identity_info
-        self.identity_storage_path = Path('shared_state/identities.json')
+        self.identity_storage_path = config.identity_storage_path
         self.load_identities()
     
     def load_identities(self):

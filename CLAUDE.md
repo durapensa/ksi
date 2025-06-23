@@ -81,7 +81,7 @@ python3 hello_goodbye_test.py
 ### Daemon Refactoring (2025-06-23)
 **Major refactoring completed to improve code quality**:
 - **Pydantic models** (`daemon/models.py`): Type-safe command/response validation
-- **Base manager pattern** (`daemon/base_manager.py`): Eliminates code duplication
+- **Base manager pattern** (`daemon/manager_utils.py`): Eliminates code duplication
 - **Strategy pattern** (`daemon/utils_refactored.py`): Replaces 50+ line if/elif chains
 - **Command registry** (`daemon/command_registry.py`): Self-registering command pattern
 - **File operations** (`daemon/file_operations.py`): Centralized I/O with retry logic
@@ -90,7 +90,7 @@ python3 hello_goodbye_test.py
 
 When working on daemon code:
 - Prefer Pydantic models over manual validation
-- Use decorators from base_manager for error handling
+- Use decorators from manager_utils for error handling
 - Add new commands via @command_handler decorator
 - Use FileOperations for all file I/O
 - See `daemon/REFACTORING_SUMMARY.md` for full details
@@ -211,6 +211,7 @@ When working with the system, you have access to:
 - Check the memory system for detailed knowledge
 - The daemon is intentionally minimal - it's just plumbing
 - **IMPORTANT**: Always update your todo list when receiving updated instructions from the user
+- **WORKFLOW**: Don't exit early with summaries - continue working systematically through tasks
 
 ## Running the System
 ```bash

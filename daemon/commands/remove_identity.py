@@ -6,7 +6,7 @@ REMOVE_IDENTITY command handler - Remove an identity from the system
 import asyncio
 from typing import Dict, Any
 from ..command_registry import command_handler, CommandHandler
-from ..socket_protocol_models import SocketResponse, RemoveIdentityParameters
+from ..protocols import SocketResponse, RemoveIdentityParameters
 from ..manager_framework import log_operation
 
 @command_handler("REMOVE_IDENTITY")

@@ -8,7 +8,7 @@ import sys
 import os
 from typing import Dict, Any, List
 from ..command_registry import command_handler, CommandHandler
-from ..socket_protocol_models import SocketResponse, ValidateCompositionParameters
+from ..protocols import SocketResponse, ValidateCompositionParameters
 from ..manager_framework import log_operation
 
 @command_handler("VALIDATE_COMPOSITION")

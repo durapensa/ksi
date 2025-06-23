@@ -6,7 +6,7 @@ SEND_MESSAGE command handler - Send messages between agents
 import asyncio
 from typing import Dict, Any, Optional
 from ..command_registry import command_handler, CommandHandler
-from ..socket_protocol_models import SocketResponse, SendMessageParameters
+from ..protocols import SocketResponse, SendMessageParameters
 from ..manager_framework import log_operation
 from ..timestamp_utils import TimestampManager
 

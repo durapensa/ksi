@@ -7,7 +7,7 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional
 from ..command_registry import command_handler, CommandHandler
-from ..socket_protocol_models import SocketResponse, ListIdentitiesParameters
+from ..protocols import SocketResponse, ListIdentitiesParameters
 from ..manager_framework import log_operation
 from ..timestamp_utils import TimestampManager
 

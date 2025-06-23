@@ -6,7 +6,7 @@ GET_COMMANDS handler - List all available commands
 import asyncio
 from typing import Dict, Any
 from ..command_registry import command_handler, CommandHandler, CommandRegistry
-from ..socket_protocol_models import SocketResponse
+from ..protocols import SocketResponse
 from ..manager_framework import log_operation
 @command_handler("GET_COMMANDS", aliases=["HELP"])
 class GetCommandsHandler(CommandHandler):
