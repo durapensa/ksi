@@ -18,7 +18,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from daemon.socket_protocol_models import (
+from daemon.protocols import (
     CommandFactory, SocketResponse, BaseCommand,
     CompletionParameters, AgentInfo, IdentityInfo,
     COMMAND_PARAMETER_MAP

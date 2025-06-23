@@ -12,7 +12,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from daemon.client.sync_client import SyncClient
-from daemon.socket_protocol_models import CommandFactory, SocketResponse
+from daemon.protocols import CommandFactory, SocketResponse
 from daemon.file_operations import FileOperations, LogEntry
 
 
