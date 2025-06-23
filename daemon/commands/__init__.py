@@ -12,11 +12,15 @@ from .spawn import SpawnHandler
 from .health_check import HealthCheckHandler
 from .get_commands import GetCommandsHandler
 from .get_processes import GetProcessesHandler
+from .set_shared import SetSharedHandler
+from .get_shared import GetSharedHandler
 
 __all__ = [
     'CleanupHandler', 
     'SpawnHandler',
     'HealthCheckHandler',
     'GetCommandsHandler',
-    'GetProcessesHandler'
+    'GetProcessesHandler',
+    'SetSharedHandler',
+    'GetSharedHandler'
 ]

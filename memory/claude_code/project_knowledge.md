@@ -14,14 +14,28 @@ Minimal daemon system for managing Claude processes with conversation continuity
   - Added packages: pydantic (v2.5.0+), structlog (v24.1.0+), tenacity (v8.2.0+)
   - See `daemon/REFACTORING_SUMMARY.md` for full details
 
-- **Command Registry Integration Started** (2025-06-23 PM):
+- **Command Registry Integration** (2025-06-23 PM):
   - Created `daemon/commands/` directory for individual command handlers
   - Integrated command registry into `command_handler._route_command()`
-  - Migrated CLEANUP and SPAWN commands to new pattern
   - Registry checks first, falls back to legacy handlers
   - Commands use `@command_handler` decorator for auto-registration
   - Each command is now a separate class with validation and help
-  - Progress: 2/30+ commands migrated, system fully operational
+  - Progress: 7/29 commands migrated (24%):
+    - Process Control: CLEANUP, SPAWN
+    - System Status: HEALTH_CHECK, GET_COMMANDS, GET_PROCESSES
+    - State Management: SET_SHARED, GET_SHARED
+
+- **Manager API Standardization** (2025-06-23 PM):
+  - Standardized all manager APIs for simpervisor migration:
+    - `list_x()` → List[Dict] for listing all
+    - `get_x(id)` → Optional[Dict] for getting one
+    - `create_x(data)` → str for creating (return ID)
+    - `update_x(id, data)` → bool for updating
+    - `remove_x(id)` → bool for deleting
+    - `clear_x()` → int for clearing all (return count)
+  - Fixed ClaudeProcessManager: `running_processes` → `processes`
+  - Updated all managers with standardized methods
+  - Ready for simpervisor migration in future session
 
 ## Recent Changes (2025-06-21)
 - **JSON Prefix Removal**: Renamed classes to remove redundant "JSON" prefixes:
