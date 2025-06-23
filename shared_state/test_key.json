@@ -1,4 +1,12 @@
 {
-  "value": "test_value",
-  "updated_at": "2025-06-23T13:03:05.904474Z"
+  "value": {
+    "test": true,
+    "timestamp": "2025-01-23",
+    "data": [
+      1,
+      2,
+      3
+    ]
+  },
+  "updated_at": "2025-06-23T14:17:02.429236Z"
 }

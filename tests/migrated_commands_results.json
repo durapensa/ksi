@@ -1,0 +1,275 @@
+{
+  "REGISTER_AGENT": {
+    "status": "success",
+    "command": "REGISTER_AGENT",
+    "metadata": {
+      "timestamp": "2025-06-23T14:17:01.393001Z"
+    },
+    "result": {
+      "status": "registered",
+      "agent_id": "test_agent_001",
+      "role": "test_agent",
+      "capabilities": [
+        "testing",
+        "validation",
+        "reporting"
+      ]
+    }
+  },
+  "GET_AGENTS": {
+    "status": "success",
+    "command": "GET_AGENTS",
+    "metadata": {
+      "timestamp": "2025-06-23T14:17:01.393368Z"
+    },
+    "result": {
+      "agents": {
+        "test_agent_001": {
+          "role": "test_agent",
+          "status": "active",
+          "capabilities": [
+            "testing",
+            "validation",
+            "reporting"
+          ]
+        },
+        "ksi_project_developer_1b1a7f29": {
+          "role": "KSI Project Developer",
+          "status": "active",
+          "capabilities": [
+            "coding",
+            "debugging",
+            "testing",
+            "architecture",
+            "daemon_management",
+            "memory_system"
+          ]
+        }
+      }
+    }
+  },
+  "SPAWN_AGENT": {
+    "status": "success",
+    "command": "SPAWN_AGENT",
+    "metadata": {
+      "timestamp": "2025-06-23T14:17:01.413132Z"
+    },
+    "result": {
+      "agent": {
+        "id": "ksi_project_developer_44bb6099",
+        "process_id": "44bb6099",
+        "composition": "ksi_project_developer",
+        "role": "tester",
+        "capabilities": [
+          "testing"
+        ],
+        "status": "active",
+        "task": "Test the new command system",
+        "model": "sonnet"
+      },
+      "selection": {
+        "composition_used": "ksi_project_developer",
+        "fallback_used": false,
+        "score": 18.0
+      }
+    }
+  },
+  "ROUTE_TASK": {
+    "status": "success",
+    "command": "ROUTE_TASK",
+    "metadata": {
+      "timestamp": "2025-06-23T14:17:01.413782Z"
+    },
+    "result": {
+      "routing": {
+        "status": "routed",
+        "assigned_agent": {
+          "id": "test_agent_001",
+          "role": "test_agent",
+          "capabilities": [
+            "testing",
+            "validation",
+            "reporting"
+          ],
+          "match_score": 2,
+          "status": "active"
+        }
+      },
+      "task": {
+        "description": "Validate all migrated commands",
+        "context": "Part of the daemon refactoring test suite",
+        "required_capabilities": [
+          "testing",
+          "validation"
+        ]
+      },
+      "delivery": {
+        "status": "queued",
+        "message": "TASK_ASSIGNMENT: Validate all migrated commands\nCONTEXT: Part of the daemon refactoring test suite"
+      }
+    }
+  },
+  "SUBSCRIBE": {
+    "status": "error",
+    "command": "SUBSCRIBE",
+    "metadata": null,
+    "error": {
+      "code": "AGENT_NOT_CONNECTED",
+      "message": "Agent 'test_agent_001' is not connected to the message bus. Connected agents: none. Agent must connect via AGENT_CONNECTION:connect before subscribing.",
+      "timestamp": null
+    }
+  },
+  "PUBLISH": {
+    "status": "success",
+    "command": "PUBLISH",
+    "metadata": {
+      "timestamp": "2025-06-23T14:17:01.920220Z"
+    },
+    "result": {
+      "event": {
+        "type": "BROADCAST",
+        "from": "test_system",
+        "payload_size": 97,
+        "recipients_count": 0
+      },
+      "delivery": {
+        "status": "broadcast",
+        "delivered": [],
+        "failed": [],
+        "total": 0
+      },
+      "message_bus_stats": {
+        "total_connections": 0,
+        "total_subscribers": 0,
+        "event_types_active": 0
+      }
+    }
+  },
+  "PUBLISH_DIRECT": {
+    "status": "success",
+    "command": "PUBLISH",
+    "metadata": {
+      "timestamp": "2025-06-23T14:17:01.922408Z"
+    },
+    "result": {
+      "event": {
+        "type": "DIRECT_MESSAGE",
+        "from": "test_system",
+        "payload_size": 105,
+        "to": "test_agent_001",
+        "message_preview": "Direct message test"
+      },
+      "delivery": {
+        "status": "queued",
+        "to": "test_agent_001",
+        "notified": []
+      },
+      "message_bus_stats": {
+        "total_connections": 0,
+        "total_subscribers": 0,
+        "event_types_active": 0
+      }
+    }
+  },
+  "HEALTH_CHECK": {
+    "status": "success",
+    "command": "HEALTH_CHECK",
+    "metadata": {
+      "timestamp": "2025-06-23T14:17:02.425678Z"
+    },
+    "result": {
+      "status": "healthy",
+      "uptime": 0,
+      "managers": {
+        "state": {
+          "status": "active",
+          "sessions": 0
+        },
+        "process": {
+          "status": "active",
+          "processes": 0
+        },
+        "agent": {
+          "status": "active",
+          "agents": 3
+        },
+        "message_bus": {
+          "status": "active",
+          "subscribers": 0,
+          "event_types": 0,
+          "connections": 0
+        }
+      }
+    }
+  },
+  "GET_PROCESSES": {
+    "status": "success",
+    "command": "GET_PROCESSES",
+    "metadata": {
+      "timestamp": "2025-06-23T14:17:02.427280Z"
+    },
+    "result": {
+      "processes": [],
+      "total": 0
+    }
+  },
+  "SET_SHARED": {
+    "status": "success",
+    "command": "SET_SHARED",
+    "metadata": {
+      "timestamp": "2025-06-23T14:17:02.430713Z"
+    },
+    "result": {
+      "key": "test_key",
+      "status": "set"
+    }
+  },
+  "GET_SHARED": {
+    "status": "success",
+    "command": "GET_SHARED",
+    "metadata": {
+      "timestamp": "2025-06-23T14:17:02.432013Z"
+    },
+    "result": {
+      "key": "test_key",
+      "value": {
+        "test": true,
+        "timestamp": "2025-01-23",
+        "data": [
+          1,
+          2,
+          3
+        ]
+      },
+      "found": true
+    }
+  },
+  "REGISTER_AGENT_ERROR": {
+    "status": "error",
+    "error": {
+      "code": "INVALID_COMMAND",
+      "message": "Validation failed: role: Field required",
+      "timestamp": "2025-06-23T14:17:02.935115Z"
+    }
+  },
+  "SUBSCRIBE_ERROR": {
+    "status": "error",
+    "command": "SUBSCRIBE",
+    "metadata": null,
+    "error": {
+      "code": "AGENT_NOT_CONNECTED",
+      "message": "Agent 'non_existent_agent' is not connected to the message bus. Connected agents: none. Agent must connect via AGENT_CONNECTION:connect before subscribing.",
+      "timestamp": null
+    }
+  },
+  "PUBLISH_ERROR": {
+    "status": "error",
+    "command": "PUBLISH",
+    "metadata": null,
+    "error": {
+      "code": "INVALID_PARAMETERS",
+      "message": "1 validation error for PublishParameters\npayload\n  Value error, DIRECT_MESSAGE payload must include 'to' field [type=value_error, input_value={'message': 'This should fail validation'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/value_error",
+      "timestamp": null
+    }
+  }
+}

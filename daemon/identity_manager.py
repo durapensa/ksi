@@ -203,27 +203,19 @@ class IdentityManager(BaseManager):
     
     def list_identities(self) -> List[Dict[str, Any]]:
         """List all identities (standardized API)"""
-        from typing import List
-        return [
-            {
-                'agent_id': agent_id,
-                'display_name': info['display_name'],
-                'role': info['role'],
-                'personality_traits': info['personality_traits'],
-                'last_active': info['last_active'],
-                'stats': info['stats']
-            }
-            for agent_id, info in self.identities.items()
-        ]
+        # Return complete identity objects, not partial data
+        return list(self.identities.values())
     
-    def remove_identity(self, agent_id: str) -> bool:
-        """Remove an identity"""
+    def remove_identity(self, agent_id: str) -> Optional[Dict[str, Any]]:
+        """Remove an identity and return the removed data"""
         if agent_id in self.identities:
+            # Store the identity before deletion for potential undo
+            removed_identity = self.identities[agent_id].copy()
             del self.identities[agent_id]
             self.save_identities()
             self.logger.info(f"Removed identity for agent {agent_id}")
-            return True
-        return False
+            return removed_identity
+        return None
     
     def clear_identities(self) -> int:
         """Clear all identities (standardized API)"""

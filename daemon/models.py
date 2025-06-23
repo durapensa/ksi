@@ -85,12 +85,13 @@ class RegisterAgentParameters(BaseModel):
 
 class SpawnAgentParameters(BaseModel):
     """Parameters for SPAWN_AGENT command"""
-    profile_name: str
-    task: str
-    context: str = ""
-    agent_id: Optional[str] = None
-    role: Optional[str] = None
-    capabilities: List[str] = Field(default_factory=list)
+    task: str  # Required - the initial task for the agent
+    profile_name: Optional[str] = None  # Optional - fallback if composition selection fails
+    agent_id: Optional[str] = None  # Optional - auto-generated if not provided
+    context: str = ""  # Optional - additional context
+    role: Optional[str] = None  # Optional - role hint for composition selection
+    capabilities: List[str] = Field(default_factory=list)  # Optional - capabilities for composition selection
+    model: str = "sonnet"  # Optional - Claude model to use
 
 
 class RouteTaskParameters(BaseModel):
@@ -132,7 +133,7 @@ class AgentConnectionParameters(BaseModel):
 class SetSharedParameters(BaseModel):
     """Parameters for SET_SHARED command"""
     key: str
-    value: str
+    value: Any  # Allow any JSON-serializable value
 
 
 class GetSharedParameters(BaseModel):
@@ -177,6 +178,14 @@ class GetIdentityParameters(BaseModel):
 class RemoveIdentityParameters(BaseModel):
     """Parameters for REMOVE_IDENTITY command"""
     agent_id: str
+
+
+class ListIdentitiesParameters(BaseModel):
+    """Parameters for LIST_IDENTITIES command"""
+    sort_by: Optional[str] = Field(default="created_at", description="Field to sort by")
+    order: Optional[str] = Field(default="desc", description="Sort order: asc or desc")
+    filter_role: Optional[str] = Field(default=None, description="Filter by role")
+    filter_active: Optional[bool] = Field(default=None, description="Filter by active status")
 
 
 # Composition Commands
@@ -288,6 +297,7 @@ COMMAND_PARAMETER_MAP = {
     "CREATE_IDENTITY": CreateIdentityParameters,
     "UPDATE_IDENTITY": UpdateIdentityParameters,
     "GET_IDENTITY": GetIdentityParameters,
+    "LIST_IDENTITIES": ListIdentitiesParameters,
     "REMOVE_IDENTITY": RemoveIdentityParameters,
     "GET_COMPOSITIONS": GetCompositionsParameters,
     "GET_COMPOSITION": GetCompositionParameters,

@@ -185,30 +185,45 @@ AGENT_MANAGEMENT_SCHEMA = {
                         }
                     }
                 },
-                # SPAWN_AGENT command
+                # SPAWN_AGENT command (updated for new API)
                 {
                     "properties": {
                         "command": {"const": "SPAWN_AGENT"},
                         "parameters": {
                             "type": "object",
-                            "required": ["profile_name", "task"],
+                            "required": ["task"],
                             "properties": {
-                                "profile_name": {
-                                    "type": "string",
-                                    "description": "Agent profile to use"
-                                },
                                 "task": {
                                     "type": "string",
-                                    "description": "Task description for the agent"
+                                    "description": "Initial task for the agent"
                                 },
-                                "context": {
-                                    "type": "string",
-                                    "description": "Additional context",
-                                    "default": ""
+                                "profile_name": {
+                                    "type": ["string", "null"],
+                                    "description": "Agent profile name (fallback if composition selection fails)"
                                 },
                                 "agent_id": {
                                     "type": ["string", "null"],
-                                    "description": "Optional specific agent ID"
+                                    "description": "Unique agent identifier (auto-generated if not provided)"
+                                },
+                                "context": {
+                                    "type": "string",
+                                    "description": "Additional context for the agent",
+                                    "default": ""
+                                },
+                                "role": {
+                                    "type": ["string", "null"],
+                                    "description": "Role hint for composition selection"
+                                },
+                                "capabilities": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "Required capabilities for composition selection",
+                                    "default": []
+                                },
+                                "model": {
+                                    "type": "string",
+                                    "description": "Claude model to use",
+                                    "default": "sonnet"
                                 }
                             },
                             "additionalProperties": False

@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 class SetSharedParameters(BaseModel):
     """Parameters for SET_SHARED command"""
     key: str = Field(..., description="State key to set")
-    value: str = Field(..., description="State value to store")
+    value: Any = Field(..., description="State value to store (any JSON-serializable value)")
 
 @command_handler("SET_SHARED")
 class SetSharedHandler(CommandHandler):
@@ -52,12 +52,15 @@ class SetSharedHandler(CommandHandler):
                     "description": "The key to set"
                 },
                 "value": {
-                    "type": "string", 
-                    "description": "The value to store"
+                    "type": "any", 
+                    "description": "The value to store (string, number, object, array, boolean, or null)"
                 }
             },
             "examples": [
                 {"key": "api_key", "value": "secret123"},
-                {"key": "config.timeout", "value": "30"}
+                {"key": "config", "value": {"timeout": 30, "retries": 3}},
+                {"key": "features", "value": ["auth", "logging", "metrics"]},
+                {"key": "enabled", "value": true},
+                {"key": "counter", "value": 42}
             ]
         }

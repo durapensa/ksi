@@ -5,7 +5,7 @@ State Manager - Session and shared state management
 Refactored to use BaseManager pattern
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from .base_manager import BaseManager, with_error_handling, log_operation
 from .file_operations import FileOperations
 from .timestamp_utils import TimestampManager

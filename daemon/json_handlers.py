@@ -410,7 +410,7 @@ class CommandHandlers:
     async def _handle_get_commands(self, parameters: dict, writer: asyncio.StreamWriter, full_command: dict) -> bool:
         """Handle GET_COMMANDS command"""
         # Import here to avoid circular dependency
-        from .command_schemas import COMMAND_MAPPINGS, CommandType
+        from .legacy_command_schemas import COMMAND_MAPPINGS, CommandType
         
         # Build command info from schemas
         commands = {}

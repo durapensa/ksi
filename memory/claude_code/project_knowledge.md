@@ -5,11 +5,98 @@ Minimal daemon system for managing Claude processes with conversation continuity
 
 ## Active Development Tasks
 - **Daemon Refactoring**: See `daemon/REFACTORING_TODO.md` for detailed migration plan
-  - 7/29 commands migrated (24%) using command registry pattern
+  - 23/29 commands migrated (79%) using command registry pattern
   - Manager APIs standardized for simpervisor migration
-  - Next: Continue migrating remaining 22 commands in priority order
+  - Completed Priority 1 (Agent Management), Priority 2 (Message Bus), Priority 3 (Identity Management), and Priority 4 (Composition System)
+  - Next: Priority 5 (System Control) - 3 commands remaining
+
+### Important Patterns & Gotchas Discovered
+1. **Parameter Model Conflicts**: Watch for duplicate parameter models between `models.py` and command handlers
+   - Command handlers should NOT redefine parameter models if they exist in models.py
+   - If a handler needs different validation, update the model in models.py
+2. **Legacy Schema Validation**: The old `command_schemas.py` (now `legacy_command_schemas.py`) can interfere
+   - It's only used by GET_COMMANDS for listing commands
+   - Don't rely on it for validation
+3. **Response Patterns**: Use `ResponseFactory.success()` and `ResponseFactory.error()`
+   - Error responses don't support extra kwargs like `details`
+   - Include rich information in the error message string instead
+4. **Testing Pattern**: Expected errors are successes!
+   - SUBSCRIBE without connection should error
+   - PUBLISH with invalid payload should error
+   - These are correct behaviors, not test failures
+
+### ✅ Recent Session COMPLETED (2025-06-23 PM)
+
+**Composition System Commands Migration** - All 5 commands successfully migrated:
+- ✅ GET_COMPOSITIONS - List compositions with metadata and filtering
+- ✅ GET_COMPOSITION - Get detailed composition info with validation status
+- ✅ VALIDATE_COMPOSITION - Comprehensive validation of composition and context
+- ✅ LIST_COMPONENTS - List components with directory structure and previews
+- ✅ COMPOSE_PROMPT - Generate prompts with analysis and warnings
+
+**Enhanced Features Implemented**:
+- Rich composition discovery with similarity matching
+- Comprehensive validation workflow (structure + context + test composition)
+- Component organization by directory with size and preview information
+- Prompt analysis (length, tokens, unresolved variables)
+- Detailed error messages with suggestions for all edge cases
+- 14 comprehensive test cases covering all operations and error conditions
+
+**Earlier Today - Identity Management Commands Migration** - All 5 commands successfully migrated:
+- ✅ CREATE_IDENTITY - Create identity with comprehensive validation
+- ✅ UPDATE_IDENTITY - Update identity with change tracking
+- ✅ GET_IDENTITY - Get identity with enhanced error messages
+- ✅ LIST_IDENTITIES - List all with filtering and sorting
+- ✅ REMOVE_IDENTITY - Remove identity with undo support
+
+**API Patterns Established**:
+- Standardized list responses: `{items: [...], total: N, metadata: {...}}`
+- Rich error messages with suggestions and available options
+- Full object returns (no partial data)
+- Change tracking for updates
+- Undo support for deletions
+- Comprehensive help documentation with examples
+
+### Next Session TODO
+1. **Continue Command Migration** - Priority 5: System Control (3 commands)
+   - RELOAD - Reload module
+   - RELOAD_DAEMON - Hot reload daemon
+   - SHUTDOWN - Graceful shutdown
+
+3. **Test Pattern**: Use `tests/test_migrated_commands.py` as template
+4. **Migration Pattern**: See template in `daemon/REFACTORING_TODO.md`
+5. **Key Files**:
+   - `daemon/command_registry.py` - Command registration system
+   - `daemon/models.py` - Parameter models (check COMMAND_PARAMETER_MAP)
+   - `daemon/commands/` - Individual command handlers
+   - `daemon/base_manager.py` - Base manager with decorators
 
 ## Recent Changes (2025-06-23)
+
+### Command Migration Progress - Phase 2 (PM Session)
+- **Migrated 6 additional commands** bringing total to 13/29 (45%)
+- **Agent Management Commands**:
+  - REGISTER_AGENT: Now uses standardized `create_agent()` API
+  - GET_AGENTS: Uses `list_agents()` API with consistent response format
+  - SPAWN_AGENT: Enhanced with full agent object returns and selection metadata
+  - ROUTE_TASK: Comprehensive routing with actual message delivery via message bus
+- **Message Bus Commands**:
+  - SUBSCRIBE: Rich error messages and subscription status reporting
+  - PUBLISH: Enhanced validation and event-specific response structures
+- **API Improvements**:
+  - Standardized response structures (full objects, not just IDs)
+  - Rich error messages with suggestions and context
+  - Comprehensive help text with examples
+  - Pydantic validation for all parameters
+- **Created test suite**: `tests/test_migrated_commands.py` for validation
+- **Removed Fallbacks**:
+  - Renamed `command_schemas.py` to `legacy_command_schemas.py` to prevent confusion
+  - Fixed parameter model conflicts (SpawnAgentParameters, SetSharedParameters)
+  - Removed old handler mappings from command_handler.py
+  - SET_SHARED now properly accepts any JSON value, not just strings
+- **Test Results**: 100% success rate (10/10 functional tests pass, 4/4 error tests correctly fail)
+
+### Earlier Today - Major Daemon Refactoring
 - **Major Daemon Refactoring**: Comprehensive refactoring to eliminate if/elif chains and improve code quality
   - Added Pydantic models for type-safe command/response validation
   - Implemented base manager pattern to eliminate code duplication

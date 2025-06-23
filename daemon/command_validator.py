@@ -71,13 +71,8 @@ class CommandValidator:
     
     def _validate_command_semantics(self, command: BaseCommand) -> Optional[str]:
         """Perform additional semantic validation beyond schema"""
-        # Most semantic validation is now handled by Pydantic validators
-        # This is for cross-field or business logic validation
-        
-        if command.command == "SPAWN" and command.parameters.get("mode") == "async":
-            if not command.parameters.get("agent_id"):
-                self.logger.warning("Async SPAWN without agent_id may be hard to track")
-        
+        # All validation is now handled by Pydantic validators
+        # This method is kept for future cross-field validation if needed
         return None
     
     def validate_response(self, response_data: Union[str, Dict[str, Any]]) -> Tuple[bool, Optional[str]]:

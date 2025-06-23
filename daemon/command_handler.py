@@ -74,22 +74,25 @@ class CommandHandler:
             else:
                 return await self.send_response(writer, response)
         
-        # Fall back to old handlers dictionary
+        # Fall back to old handlers dictionary (remove migrated commands)
         handlers = {
-            'SPAWN': self.handlers._handle_spawn,
-            'CLEANUP': self.handlers._handle_cleanup,
+            # These commands have been migrated to command registry:
+            # 'SPAWN': migrated
+            # 'CLEANUP': migrated
+            # 'REGISTER_AGENT': migrated
+            # 'GET_AGENTS': migrated
+            # 'SPAWN_AGENT': migrated
+            # 'ROUTE_TASK': migrated
+            # 'SET_SHARED': migrated
+            # 'GET_SHARED': migrated
+            # 'SUBSCRIBE': migrated
+            # 'PUBLISH': migrated
+            # 'HEALTH_CHECK': migrated
+            # 'GET_PROCESSES': migrated
+            
+            # Still using old handlers:
             'RELOAD': self.handlers._handle_reload,
-            'REGISTER_AGENT': self.handlers._handle_register_agent,
-            'GET_AGENTS': self.handlers._handle_get_agents,
-            'SPAWN_AGENT': self.handlers._handle_spawn_agent,
-            'ROUTE_TASK': self.handlers._handle_route_task,
-            'SET_SHARED': self.handlers._handle_set_shared,
-            'GET_SHARED': self.handlers._handle_get_shared,
-            'SUBSCRIBE': self.handlers._handle_subscribe,
-            'PUBLISH': self.handlers._handle_publish,
             'AGENT_CONNECTION': self.handlers._handle_agent_connection,
-            'HEALTH_CHECK': self.handlers._handle_health_check,
-            'GET_PROCESSES': self.handlers._handle_get_processes,
             'LOAD_STATE': self.handlers._handle_load_state,
             'RELOAD_DAEMON': self.handlers._handle_reload_daemon,
             'SHUTDOWN': self.handlers._handle_shutdown,
