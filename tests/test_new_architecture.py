@@ -1,21 +1,27 @@
 #!/usr/bin/env python3
 """
-Test script for the new multi-socket architecture and completion flow.
+Enhanced integration tests for the new multi-socket architecture and completion flow.
 
 Tests:
 1. Multi-socket client connectivity
-2. COMPLETION command flow
-3. Targeted pub/sub for COMPLETION_RESULT
+2. COMPLETION command flow with session continuity
+3. Targeted pub/sub for COMPLETION_RESULT events
 4. Multiple concurrent completions
+5. Performance and stress testing
+6. Real Claude CLI integration
+7. Error recovery and resilience
+8. Agent lifecycle and state management
 """
 
 import asyncio
 import json
 import sys
+import time
+import uuid
 from pathlib import Path
 
 # Add project root to path
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from ksi_client import AsyncClient, SimpleChatClient
 
