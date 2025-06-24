@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Minimal chat interface for Claude via the daemon - JSON Protocol v2.0
+Minimal chat interface for Claude via the daemon - Event-Based Protocol
 """
 
 import asyncio
@@ -11,11 +11,11 @@ import os
 import argparse
 from pathlib import Path
 
-# Import the new JSON client library
-from daemon_client import DaemonClient, ConnectionError, CommandError, daemon_health_check
+# Import the new event-based client
+from ksi_client import EventChatClient
 from ksi_daemon.config import config
 
-SOCKET_PATH = os.environ.get('KSI_DAEMON_SOCKET', str(config.socket_path))
+SOCKET_PATH = os.environ.get('KSI_DAEMON_SOCKET', str(config.admin_socket))
 
 def start_daemon():
     """Start daemon if not running"""
@@ -27,51 +27,42 @@ def start_daemon():
                     preexec_fn=os.setsid)  # Create new process group
     time.sleep(3)  # Give daemon time to start
 
-async def send_cleanup(cleanup_type: str) -> str:
-    """Send cleanup command to daemon using JSON protocol"""
+async def check_daemon_health() -> bool:
+    """Check if daemon is healthy using event-based protocol"""
     try:
-        client = DaemonClient(SOCKET_PATH)
-        result = await client.cleanup(cleanup_type)
-        return result
-    except CommandError as e:
-        return f"Error: {e.message}"
-    except ConnectionError as e:
-        return f"Connection error: {e}"
+        async with EventChatClient() as client:
+            health = await client.health_check()
+            return health.get("status") == "healthy"
+    except:
+        return False
+
+async def send_cleanup(cleanup_type: str) -> str:
+    """Send cleanup command to daemon using event protocol"""
+    try:
+        async with EventChatClient() as client:
+            await client.emit_event("system:cleanup", {"type": cleanup_type})
+            return f"Cleanup {cleanup_type} initiated"
+    except Exception as e:
+        return f"Error: {e}"
 
 async def send_prompt(prompt: str, session_id: str = None) -> tuple:
-    """Send prompt to Claude via daemon using JSON protocol"""
+    """Send prompt to Claude via daemon using event protocol"""
     try:
-        client = DaemonClient(SOCKET_PATH)
+        async with EventChatClient() as client:
+            # Send prompt and get response
+            response_text, new_session_id = await client.send_prompt(
+                prompt=prompt,
+                session_id=session_id,
+                model="sonnet"
+            )
+            
+            # Display the result
+            print(f"\n{response_text}\n")
+            
+            return response_text, new_session_id
         
-        # Use the JSON API to spawn Claude
-        response = await client.spawn_claude(
-            prompt=prompt,
-            mode="sync",
-            session_id=session_id,
-            model="sonnet"
-        )
-        
-        # Extract result data
-        result_data = response.get('result', {})
-        
-        # Get session ID from response
-        new_session_id = result_data.get('sessionId') or result_data.get('session_id')
-        
-        # Display the result
-        if 'result' in result_data:
-            print(f"\n{result_data['result']}\n")
-        elif 'content' in result_data:
-            print(f"\n{result_data['content']}\n")
-        else:
-            print(f"\nResponse: {result_data}\n")
-        
-        return response, new_session_id
-        
-    except CommandError as e:
-        print(f"\nCommand Error: {e.message}\n")
-        return None, None
-    except ConnectionError as e:
-        print(f"\nConnection Error: {e}\n")
+    except Exception as e:
+        print(f"\nError: {e}\n")
         return None, None
 
 def get_last_session_id() -> str:
@@ -115,7 +106,7 @@ def save_session_id(session_id: str):
 async def ensure_daemon_running():
     """Ensure daemon is running, start if needed"""
     # Check if daemon is healthy
-    if await daemon_health_check(SOCKET_PATH):
+    if await check_daemon_health():
         return True
     
     # Try to start daemon
@@ -123,7 +114,7 @@ async def ensure_daemon_running():
     
     # Wait a bit and check again
     await asyncio.sleep(2)
-    if await daemon_health_check(SOCKET_PATH):
+    if await check_daemon_health():
         return True
     
     print("❌ Failed to start daemon")
@@ -131,7 +122,7 @@ async def ensure_daemon_running():
 
 async def interactive_chat():
     """Interactive chat mode"""
-    print("Claude Chat Interface (JSON Protocol v2.0)")
+    print("Claude Chat Interface (Event-Based Protocol)")
     print("Type 'quit' or 'exit' to end, 'new' for new conversation")
     print("-" * 50)
     
@@ -195,7 +186,7 @@ async def main():
     
     # Handle health check
     if args.health:
-        healthy = await daemon_health_check(SOCKET_PATH)
+        healthy = await check_daemon_health()
         if healthy:
             print("✅ Daemon is healthy")
         else:

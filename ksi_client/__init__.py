@@ -41,6 +41,12 @@ from .async_client import (
     PendingCompletion
 )
 
+# Import event-based clients for new architecture
+from .event_client import (
+    EventBasedClient,
+    EventChatClient
+)
+
 # Import and re-export utilities
 from .utils import (
     CommandBuilder,
@@ -51,11 +57,15 @@ from .utils import (
 # Version info
 __version__ = "1.0.0"
 __all__ = [
-    # Main client classes
+    # Legacy multi-socket clients
     "AsyncClient",           # Primary full-featured client
     "SimpleChatClient",      # Simplified chat interface
     "SocketConnection",      # Connection management
     "PendingCompletion",     # Completion tracking
+    
+    # Event-based clients (new architecture)
+    "EventBasedClient",      # Event-driven client
+    "EventChatClient",       # Simplified event chat client
     
     # Utilities
     "CommandBuilder",        # JSON command construction

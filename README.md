@@ -1,260 +1,194 @@
-# KSI - Minimal Claude Process Daemon
+# KSI - Knowledge System Interface
 
-A lightweight daemon system for managing Claude AI processes with conversation continuity and multi-agent orchestration capabilities.
+A plugin-based daemon system for managing Claude AI processes with conversation continuity and multi-agent orchestration.
 
 ## Features
 
-- 🚀 **Minimal daemon architecture** - Simple Unix socket-based process management
-- 💬 **Conversation continuity** - Maintains context across Claude interactions using sessionId
-- 🤖 **Multi-agent orchestration** - Enable multiple Claude instances to converse autonomously
-- 📊 **Real-time monitoring** - Beautiful TUI for observing multi-Claude conversations
-- 🔧 **Extensible** - Claude can write Python modules to extend functionality
-- 📝 **Complete logging** - All sessions logged in JSONL format for analysis
+- 🔌 **Plugin Architecture** - Event-driven system built on pluggy (pytest's plugin framework)
+- 🚀 **Multi-Socket Design** - Separate Unix sockets for admin, agents, messaging, state, and completions
+- 💬 **Conversation Continuity** - Maintains context across Claude interactions using sessionId
+- 🤖 **Multi-Agent Orchestration** - Multiple Claude instances conversing autonomously
+- 📊 **Real-time Monitoring** - Beautiful TUI for observing conversations and metrics
+- 📝 **Complete Logging** - All sessions logged in JSONL format for analysis
+- ⚡ **Pure Async** - No polling, everything event-driven for maximum efficiency
 
-## Table of Contents
-
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Architecture](#architecture)
-- [Multi-Claude Orchestrator](#multi-claude-orchestrator)
-- [API Reference](#api-reference)
-- [Development](#development)
-- [Contributing](#contributing)
-- [License](#license)
-
-## Installation
+## Quick Start
 
 ### Prerequisites
 
 - Python 3.8 or higher
 - [Claude CLI](https://claude.ai/download) installed and configured
 - Unix-like operating system (macOS, Linux)
-- socat (for socket communication)
 
-### Setup
-
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/yourusername/ksi.git
-   cd ksi
-   ```
-
-2. **Run the setup script**:
-   ```bash
-   ./setup.sh
-   ```
-   
-   This will:
-   - Create a Python virtual environment
-   - Install required dependencies (PyYAML, textual)
-   - Check for Claude CLI availability
-   - Create necessary directories
-
-3. **Manual setup** (if preferred):
-   ```bash
-   # Create virtual environment
-   python3 -m venv .venv
-   
-   # Activate virtual environment
-   source .venv/bin/activate  # On macOS/Linux
-   # or
-   .venv\Scripts\activate     # On Windows
-   
-   # Install dependencies
-   pip install -r requirements.txt
-   ```
-
-### Important Note on Process Isolation
-
-**Do not use `uv run`** - it creates process isolation that breaks Unix socket communication between the daemon and client processes. Always use `python3` directly after activating the virtual environment.
-
-## Quick Start
-
-### Basic Chat Interface
+### Installation
 
 ```bash
+# Clone the repository
+git clone https://github.com/yourusername/ksi.git
+cd ksi
+
+# Run setup script
+./setup.sh
+
 # Activate virtual environment
 source .venv/bin/activate
-
-# Start chatting (daemon starts automatically)
-python3 chat.py
 ```
 
-This will:
-- Start the daemon if not running
-- Let you chat with Claude
-- Maintain conversation context via sessionId
+### Basic Usage
+
+```bash
+# Start the daemon
+./daemon_control.sh start
+
+# Chat with Claude
+python3 chat.py
+
+# Check daemon health
+./daemon_control.sh health
+
+# Stop daemon gracefully
+./daemon_control.sh stop
+```
 
 ### Multi-Claude Conversations
 
 ```bash
-# Start a debate between two Claudes
-python3 interfaces/orchestrate.py "Should AI have rights?" --mode debate --agents 2
+# Start a debate between Claudes
+python3 interfaces/orchestrate.py "Should AI have rights?" --mode debate
 
-# In another terminal, monitor the conversation
-python3 monitor_tui.py
+# Monitor in another terminal
+python3 interfaces/monitor_tui.py
 ```
 
-### Available Conversation Modes
+## Architecture Overview
 
-- **debate** - Claudes take opposing positions
-- **collaboration** - Work together on problems  
-- **teaching** - One Claude teaches, others learn
-- **brainstorm** - Creative idea generation
-- **analysis** - Systematic problem analysis
+KSI uses a plugin-based architecture where the core daemon is a minimal event router (<500 lines) and all functionality is provided by plugins.
 
-## Architecture
+### Core Design Principles
 
-### Core Components
+- **Event-Driven**: Everything is an event - no polling or timers
+- **Plugin-First**: Core only routes events, all logic in plugins
+- **Multi-Socket**: Clean separation of concerns via dedicated sockets
+- **Async Native**: Built on asyncio for maximum performance
 
-- **daemon.py** - Minimal async daemon that:
-  - Spawns Claude processes with prompts
-  - Tracks sessionId for conversation continuity
-  - Manages inter-agent communication via message bus
-  - Supports hot-reloading of Python modules
+### Key Components
 
-- **chat.py** - Simple interface for human-Claude interaction
+| Component | Description |
+|-----------|-------------|
+| `daemon_control.sh` | Start/stop/restart daemon operations |
+| `ksi-daemon.py` | Main daemon wrapper using python-daemon |
+| `ksi_client/` | Client libraries (AsyncClient, EventBasedClient) |
+| `ksi_daemon/plugins/` | Plugin implementations |
 
-- **agent_process.py** - Persistent Claude process for multi-agent conversations
+For detailed technical information, see [memory/claude_code/project_knowledge.md](memory/claude_code/project_knowledge.md).
 
-- **interfaces/orchestrate.py** - High-level orchestration for multi-Claude conversations
+## Client Libraries
 
-- **monitor_tui.py** - Real-time TUI for monitoring conversations
-
-### How It Works
-
-1. Daemon receives commands via Unix socket
-2. Spawns: `claude --model sonnet --print --output-format json --resume sessionId`
-3. Logs all sessions to `claude_logs/<session-id>.jsonl`
-4. Uses `--resume sessionId` for conversation continuity
-
-### Multi-Agent Infrastructure
-
-The daemon includes built-in multi-agent coordination:
-
-- **Agent registration** (`REGISTER_AGENT`, `GET_AGENTS`)
-- **Inter-agent messaging** (`SEND_MESSAGE`, `PUBLISH`)
-- **Shared state** (`SET_SHARED`, `GET_SHARED`)
-- **Task routing** (`ROUTE_TASK`)
-- **Event-driven message bus** with persistent connections
-
-## Multi-Claude Orchestrator
-
-Enable multiple Claude instances to converse autonomously:
-
-### Quick Examples
-
-```bash
-# AI ethics debate
-python3 interfaces/orchestrate.py "AI consciousness and rights" --mode debate --agents 3
-
-# Collaborative problem solving
-python3 interfaces/orchestrate.py "Design a sustainable city" --mode collaboration --agents 4
-
-# Teaching session
-python3 interfaces/orchestrate.py "Explain quantum computing" --mode teaching --agents 2
-```
-
-### Features
-
-- **Peer-to-peer conversations** - No human intervention required
-- **Rich conversation modes** - Debate, collaborate, teach, brainstorm, analyze
-- **Real-time monitoring** - Watch conversations, tool usage, and metrics
-- **Event-driven** - Efficient async architecture with no polling
-- **Persistent context** - Each Claude maintains conversation history
-
-See [MULTI_CLAUDE_ORCHESTRATOR.md](MULTI_CLAUDE_ORCHESTRATOR.md) for detailed documentation.
-
-## API Reference
-
-### Daemon Commands
-
-The daemon supports ~20 commands organized into functional groups. Use `GET_COMMANDS` to discover all available commands dynamically.
-
-#### Key Commands
-
-| Command | Format | Description | Alias |
-|---------|--------|-------------|-------|
-| SPAWN | `SPAWN:[mode]:[type]:[session_id]:[model]:[agent_id]:<prompt>` | Unified Claude spawning | S: |
-| SPAWN_AGENT | `SPAWN_AGENT:profile:task:context:agent_id` | Profile-based agent spawning | SA: |
-| GET_COMMANDS | `GET_COMMANDS` | Get all commands with grouping | - |
-| REGISTER_AGENT | `REGISTER_AGENT:id:role:capabilities` | Register an agent | - |
-| PUBLISH | `PUBLISH:from:event_type:json_payload` | Publish message to bus | - |
-| SUBSCRIBE | `SUBSCRIBE:agent_id:event_type1,event_type2` | Subscribe to events | - |
-| SET_SHARED | `SET_SHARED:key:value` | Set shared state | SET: |
-| GET_SHARED | `GET_SHARED:key` | Get shared state | GET: |
-
-**Command Groups**: Process Spawning, Agent Management, Communication & Events, State Management, System Management
-
-**Note**: Legacy command formats are auto-detected for backward compatibility.
-
-### Session Logs
-
-All conversations are logged in JSONL format to `claude_logs/<session-id>.jsonl`:
-
-```jsonl
-{"timestamp": "2024-06-19T13:52:24Z", "type": "human", "content": "Hi Claude!"}
-{"timestamp": "2024-06-19T13:52:28Z", "type": "claude", "session_id": "...", "result": "Hello!"}
-```
-
-## Development
-
-### Extending the System
-
-Claude can extend functionality by writing Python modules:
+### Python Clients
 
 ```python
-# claude_modules/handler.py
-def handle_output(output, daemon):
-    # Custom output handling logic
-    pass
+# Async client for full control
+from ksi_client import AsyncClient
+
+async with AsyncClient() as client:
+    health = await client.health_check()
+    response = await client.create_completion("Hello!")
+
+# Simple chat interface
+from ksi_client import SimpleChatClient
+
+async with SimpleChatClient() as chat:
+    response, session_id = await chat.send_prompt("What is 2+2?")
 ```
 
-The daemon automatically loads and calls modules in `claude_modules/`.
+### Event-Based Client (New)
 
-### Project Structure
+```python
+from ksi_client import EventBasedClient
 
-```
-ksi/
-├── daemon.py              # Core daemon
-├── chat.py               # Human chat interface
-├── agent_process.py      # Persistent Claude process
-├── interfaces/           # User interfaces
-│   ├── orchestrate.py    # Multi-Claude orchestrator
-├── monitor_tui.py        # TUI monitor
-├── daemon/               # Modular daemon components
-├── claude_modules/       # Extension modules
-├── agent_profiles/       # Agent personality profiles
-├── claude_logs/          # Session logs
-└── tests/               # Test suite
+async with EventBasedClient() as client:
+    # Subscribe to events
+    client.subscribe("completion:*", handler)
+    
+    # Send events
+    await client.emit_event("completion:request", {
+        "prompt": "Hello!",
+        "model": "sonnet"
+    })
 ```
 
-### Running Tests
+## Plugin Development
+
+KSI is extensible through plugins. Create your own:
+
+```python
+from ksi_daemon.plugin_base import BasePlugin, hookimpl
+
+class MyPlugin(BasePlugin):
+    @hookimpl
+    def ksi_handle_event(self, event_name, data, context):
+        if event_name == "my:event":
+            return {"handled": True}
+
+plugin = MyPlugin()
+```
+
+See [ksi_daemon/PLUGIN_DEVELOPMENT_GUIDE.md](ksi_daemon/PLUGIN_DEVELOPMENT_GUIDE.md) for complete documentation.
+
+## Available Interfaces
+
+- `chat.py` - Simple CLI chat
+- `interfaces/orchestrate.py` - Multi-Claude orchestration
+- `interfaces/monitor_tui.py` - Real-time monitoring
+- ~~`interfaces/chat_textual.py`~~ - (Avoid - corrupts Claude Code TUI)
+
+## Testing
 
 ```bash
+# Run plugin system tests
+python3 tests/test_plugin_system.py
+
+# Test event client
+python3 tests/test_event_client.py
+
+# Full protocol tests
 python3 tests/test_daemon_protocol.py
 ```
 
-### Environment Variables
+## Documentation
 
-- `CLAUDE_DAEMON_SOCKET` - Unix socket path (default: `sockets/claude_daemon.sock`)
+- [Plugin Architecture](ksi_daemon/PLUGIN_ARCHITECTURE.md) - System design and status
+- [Plugin Development Guide](ksi_daemon/PLUGIN_DEVELOPMENT_GUIDE.md) - How to create plugins
+- [Event Catalog](ksi_daemon/EVENT_CATALOG.md) - All system events
+- [Project Knowledge](memory/claude_code/project_knowledge.md) - Detailed technical reference
+
+## Project Status
+
+The plugin architecture refactor is **90% complete**:
+- ✅ Core infrastructure (event bus, plugin system)
+- ✅ Transport plugins (Unix sockets)
+- ✅ Service plugins (completion, state)
+- ✅ Client libraries with event support
+- ✅ Comprehensive documentation
+- 🚧 Agent manager plugin (in progress)
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions welcome! Please:
 
 1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT License - see LICENSE file for details.
 
 ## Acknowledgments
 
-- Built for use with [Claude AI](https://claude.ai)
+- Built for [Claude AI](https://claude.ai)
+- Plugin system powered by [pluggy](https://pluggy.readthedocs.io/)
 - TUI powered by [Textual](https://textual.textualize.io/)
 - Inspired by Unix philosophy of simple, composable tools
