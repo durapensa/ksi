@@ -1,5 +1,5 @@
 {
-  "timestamp": 1750723584.1397939,
+  "timestamp": 1750724402.332412,
   "tests_passed": 4,
   "tests_total": 4,
   "results": [
@@ -7,25 +7,25 @@
       "test": "socket_connection",
       "success": true,
       "message": "Successfully connected to daemon socket",
-      "timestamp": 1750723584.138582
+      "timestamp": 1750724402.331149
     },
     {
       "test": "json_spawn_format",
       "success": true,
       "message": "Got JSON response, request_id present: True",
-      "timestamp": 1750723584.139211
+      "timestamp": 1750724402.33181
     },
     {
       "test": "health_check",
       "success": true,
       "message": "Daemon health status: healthy",
-      "timestamp": 1750723584.1395252
+      "timestamp": 1750724402.332118
     },
     {
       "test": "invalid_command",
       "success": true,
       "message": "Got error response with code: UNKNOWN_COMMAND",
-      "timestamp": 1750723584.1397278
+      "timestamp": 1750724402.332327
     }
   ]
 }
