@@ -51,6 +51,8 @@ class KSIConfig(BaseSettings):
     # Database and storage
     db_path: Path = Path("var/db/agent_shared_state.db")
     identity_storage_path: Path = Path("var/db/identities.json")
+    agent_profiles_dir: Path = Path("var/agent_profiles")
+    state_dir: Path = Path("var/state")
     
     # Logging configuration
     log_dir: Path = Path("var/logs/daemon")
@@ -97,7 +99,9 @@ class KSIConfig(BaseSettings):
             self.identity_storage_path.parent,  # var/db
             self.log_dir,                # var/logs/daemon
             self.session_log_dir,        # var/logs/sessions
-            self.tmp_dir                 # var/tmp
+            self.tmp_dir,                # var/tmp
+            self.agent_profiles_dir,     # var/agent_profiles
+            self.state_dir               # var/state
         ]
         
         for directory in directories:

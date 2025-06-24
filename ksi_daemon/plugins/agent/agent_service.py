@@ -15,7 +15,7 @@ from datetime import datetime
 import logging
 
 from ...plugin_base import BasePlugin, hookimpl
-from ...plugin_types import PluginMetadata, PluginCapabilities
+from ...plugin_types import PluginInfo
 from ...timestamp_utils import TimestampManager
 from ...config import config
 from ...file_operations import FileOperations
@@ -28,33 +28,11 @@ class AgentServicePlugin(BasePlugin):
     
     def __init__(self):
         super().__init__(
-            metadata=PluginMetadata(
-                name="agent_service",
-                version="1.0.0",
-                description="Agent management service with profiles and identities",
-                author="KSI Team"
-            ),
-            capabilities=PluginCapabilities(
-                event_namespaces=["/agent"],
-                commands=[
-                    # Agent lifecycle
-                    "agent:spawn", "agent:terminate", "agent:restart",
-                    # Agent registry
-                    "agent:register", "agent:unregister", "agent:list",
-                    # Agent profiles  
-                    "agent:load_profile", "agent:save_profile", "agent:list_profiles",
-                    # Agent identities
-                    "agent:create_identity", "agent:update_identity", "agent:remove_identity",
-                    "agent:list_identities", "agent:get_identity",
-                    # Agent routing
-                    "agent:route_task", "agent:get_capabilities",
-                    # Agent messaging
-                    "agent:send_message", "agent:broadcast",
-                    # Agent state
-                    "agent:get_state", "agent:update_state"
-                ],
-                provides_services=["agent_management", "agent_profiles", "agent_identities", "task_routing"]
-            )
+            name="agent_service",
+            version="1.0.0",
+            description="Agent management service with profiles and identities",
+            author="KSI Team",
+            namespaces=["agent"]
         )
         
         # Agent registries
@@ -817,5 +795,24 @@ class AgentServicePlugin(BasePlugin):
         return appearance_map.get(role, appearance_map["general"])
 
 
+# Plugin instance
+plugin = AgentServicePlugin()
+
+# Module-level hooks that delegate to plugin instance
+@hookimpl
+def ksi_startup(config):
+    """Initialize agent service on startup."""
+    return plugin.ksi_startup()
+
+@hookimpl
+def ksi_handle_event(event_name, data, context):
+    """Handle agent-related events."""
+    return plugin.ksi_handle_event(event_name, data, context)
+
+@hookimpl
+def ksi_shutdown():
+    """Clean up on shutdown."""
+    return plugin.ksi_shutdown()
+
 # Module-level marker for plugin discovery
-ksi_plugin = AgentServicePlugin
+ksi_plugin = True

@@ -14,26 +14,20 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple, Any
 import subprocess
-import time
 
 # Import timestamp utilities for consistent timezone handling
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ksi_daemon.timestamp_utils import TimestampManager
-from ksi_client.utils import CommandBuilder, ResponseHandler, ConnectionManager
-from ksi_client import SimpleChatClient
-# Import AgentProcess later to avoid early logging setup
+from ksi_client import EventChatClient
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
 from textual.widgets import Header, Footer, Static, Label, Input, RichLog, Button, ListView, ListItem, Tree
-from textual.reactive import reactive
-from textual.message import Message
 from textual.binding import Binding
 from textual import events, work
-from textual.worker import Worker, WorkerState
 
 
-SOCKET_PATH = os.environ.get('CLAUDE_DAEMON_SOCKET', 'sockets/claude_daemon.sock')
+SOCKET_PATH = os.environ.get('CLAUDE_DAEMON_SOCKET', '/tmp/ksi/daemon.sock')
 
 
 class ChatInput(Input):
@@ -218,8 +212,6 @@ class ChatInterface(App):
         
         # For multi-agent mode
         self.agent_id: Optional[str] = None
-        self.message_reader: Optional[asyncio.StreamReader] = None
-        self.message_writer: Optional[asyncio.StreamWriter] = None
         
         # Metrics tracking
         self.metrics = {
@@ -228,11 +220,8 @@ class ChatInterface(App):
             'messages': 0
         }
         
-        # Agent process for composition-aware messaging
-        self.agent_process = None
-        
-        # Multi-socket client for new architecture
-        self.chat_client: Optional[SimpleChatClient] = None
+        # Event-based client for new architecture
+        self.chat_client: Optional[EventChatClient] = None
     
     def compose(self) -> ComposeResult:
         """Create the UI layout"""
@@ -283,16 +272,16 @@ class ChatInterface(App):
         # First ensure daemon is running
         await self.ensure_daemon_running()
         
-        # Initialize multi-socket client
-        self.chat_client = SimpleChatClient(client_id=f"chat_textual_{self.args.profile}")
+        # Initialize event-based client
+        self.chat_client = EventChatClient(
+            client_id=f"chat_textual_{self.args.profile}",
+            socket_path=SOCKET_PATH
+        )
         
         try:
-            # Initialize the client (connects to messaging socket, subscribes to events)
-            await self.chat_client.initialize()
+            # Connect to daemon
+            await self.chat_client.connect()
             self.daemon_connected = True
-            
-            # Note: AgentProcess is deprecated with new architecture
-            # Composition support is now handled by the daemon
             
             # Load available sessions
             await self.load_available_sessions()
@@ -345,8 +334,8 @@ class ChatInterface(App):
     async def connect_to_daemon(self) -> bool:
         """Test daemon connection"""
         try:
-            # Use multi-socket client to test connection
-            if self.chat_client:
+            # Use event-based client to test connection
+            if self.chat_client and self.chat_client.connected:
                 health = await self.chat_client.health_check()
                 return bool(health)
             return False
@@ -354,31 +343,24 @@ class ChatInterface(App):
             return False
     
     async def send_to_daemon(self, command: str, parameters: Dict[str, Any] = None) -> str:
-        """Send command to daemon and get response"""
+        """Send command to daemon and get response (legacy compatibility wrapper)"""
         try:
             if not self.chat_client:
                 return json.dumps({"status": "error", "error": {"message": "Client not initialized"}})
             
-            # Map commands to appropriate sockets
-            socket_map = {
-                "HEALTH_CHECK": "admin",
-                "GET_PROCESSES": "admin",
-                "MESSAGE_BUS_STATS": "admin",
-                "SHUTDOWN": "admin",
-                "GET_AGENTS": "agents",
-                "REGISTER_AGENT": "agents",
-                "SUBSCRIBE": "messaging",
-                "PUBLISH": "messaging",
-                "AGENT_CONNECTION": "messaging",
-                "SET_AGENT_KV": "state",
-                "GET_AGENT_KV": "state",
-                "COMPLETION": "completion"
-            }
-            
-            socket_name = socket_map.get(command, "admin")
-            
-            # Send command using multi-socket client
-            response = await self.chat_client.send_command(socket_name, command, parameters)
+            # Map legacy commands to event-based methods
+            if command == "HEALTH_CHECK":
+                response = await self.chat_client.health_check()
+            elif command == "MESSAGE_BUS_STATS":
+                # Use event API for stats
+                response = await self.chat_client.request_event("system:stats", parameters)
+            elif command == "SHUTDOWN":
+                await self.chat_client.shutdown_daemon()
+                response = {"status": "success"}
+            else:
+                # For other commands, use generic event request
+                event_name = f"legacy:{command.lower()}"
+                response = await self.chat_client.request_event(event_name, parameters)
             
             # Return as JSON string for compatibility
             return json.dumps(response)
@@ -386,9 +368,6 @@ class ChatInterface(App):
         except Exception as e:
             return json.dumps({"status": "error", "error": {"message": f"Command failed: {str(e)}"}})
     
-    async def send_spawn_command(self, command_dict: dict) -> str:
-        """DEPRECATED: This method is no longer used. Use chat_client.send_prompt() instead."""
-        return json.dumps({"status": "error", "error": {"message": "SPAWN command is deprecated. Use COMPLETION instead."}})
     
     def load_profile(self) -> None:
         """Load the specified profile"""
@@ -407,11 +386,6 @@ class ChatInterface(App):
             self.log_message("Error", f"Failed to load profile: {e}")
             self.profile_data = None
     
-    async def initialize_agent_process(self) -> None:
-        """DEPRECATED: AgentProcess functionality now handled by daemon via COMPLETION command"""
-        # The old AgentProcess was removed in the multi-socket architecture refactor
-        # Composition support is now server-side in the daemon
-        self.agent_process = None
     
     async def load_available_sessions(self) -> None:
         """Load list of available sessions from logs"""
@@ -468,8 +442,8 @@ class ChatInterface(App):
     async def load_active_conversations(self) -> None:
         """Load list of active conversations from daemon"""
         try:
-            # Query daemon for message bus stats
-            stats = await self.chat_client.get_message_bus_stats()
+            # Query daemon for stats using event API
+            stats = await self.chat_client.request_event("system:stats", {"type": "message_bus"})
             # Always scan for conversations regardless
             self.scan_recent_conversations()
             # Then update with combined info
@@ -692,7 +666,7 @@ class ChatInterface(App):
             # Send via message bus
             await self.send_multi_agent_message(message)
         else:
-            # Normal single-agent mode - use new multi-socket client
+            # Normal single-agent mode - use event-based client
             try:
                 # Send prompt and get response
                 response, new_session_id = await self.chat_client.send_prompt(
@@ -804,24 +778,8 @@ class ChatInterface(App):
     
     async def disconnect_from_conversation(self) -> None:
         """Disconnect from multi-agent conversation"""
-        if self.agent_id:
-            try:
-                # Already handled by chat_client.close()
-                pass
-            except:
-                pass
-        
-        # Clean up message writer if it exists
-        if self.message_writer:
-            try:
-                self.message_writer.close()
-                await self.message_writer.wait_closed()
-            except:
-                pass
-        
+        # Event-based client handles all connection cleanup
         self.agent_id = None
-        self.message_reader = None
-        self.message_writer = None
     
     def show_help_message(self) -> None:
         """Show help information"""
@@ -1017,7 +975,7 @@ class ChatInterface(App):
         """Clean up connections before exiting"""
         try:
             if self.chat_client:
-                await self.chat_client.close()
+                await self.chat_client.disconnect()
         except:
             pass
         self.exit()
@@ -1246,19 +1204,30 @@ def main():
 
 async def test_mode(args):
     """Test mode without TUI"""
-    from ksi_client import SimpleChatClient
+    from ksi_client import EventChatClient
     
     print("Testing daemon connection...")
     
     # Create client
-    client = SimpleChatClient(client_id=f"chat_test_{args.profile}")
+    client = EventChatClient(
+        client_id=f"chat_test_{args.profile}",
+        socket_path=SOCKET_PATH
+    )
     
     try:
-        # Initialize client
-        await client.initialize()
-        print("✓ Successfully connected to daemon")
+        # Connect to daemon
+        result = await client.connect()
+        if result:
+            print("✓ Successfully connected to daemon")
+        else:
+            print("✗ Failed to connect to daemon")
+            return 1
+        
+        # Small delay to ensure connection is stable
+        await asyncio.sleep(0.1)
         
         # Test health check
+        print("Testing health check...")
         health = await client.health_check()
         print(f"✓ Daemon health: {health}")
         
@@ -1273,7 +1242,11 @@ async def test_mode(args):
         print(f"✗ Error: {e}")
         return 1
     finally:
-        await client.close()
+        try:
+            await client.disconnect()
+        except Exception as e:
+            # Ignore disconnect errors - we're exiting anyway
+            pass
     
     return 0
 

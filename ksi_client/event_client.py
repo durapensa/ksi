@@ -88,21 +88,37 @@ class EventBasedClient:
                 str(self.socket_path)
             )
             
+            # Mark as connected before announcing (emit_event checks this)
+            self.connected = True
+            
             # Start event listener
             self._listen_task = asyncio.create_task(self._event_listener())
             
-            # Announce ourselves
-            await self.emit_event("transport:connection", {
-                "client_id": self.client_id,
-                "action": "connect"
-            })
+            # Give the listener a moment to start
+            await asyncio.sleep(0.01)
             
-            self.connected = True
+            # Announce ourselves
+            try:
+                await self.emit_event("transport:connection", {
+                    "client_id": self.client_id,
+                    "action": "connect"
+                })
+            except Exception as e:
+                logger.warning(f"Failed to announce connection: {e}")
+                # Continue anyway - connection might still work
+            
             logger.info(f"Event client {self.client_id} connected")
             return True
             
         except Exception as e:
             logger.error(f"Failed to connect: {e}")
+            # Clean up on failure
+            self.connected = False
+            if self._listen_task and not self._listen_task.done():
+                self._listen_task.cancel()
+            if self.writer:
+                self.writer.close()
+                await self.writer.wait_closed()
             return False
     
     async def disconnect(self):
@@ -293,14 +309,29 @@ class EventBasedClient:
             await self._handle_event(message)
         else:
             # Legacy response format - convert to event
-            if message.get("status") == "success" and "result" in message:
-                # Convert to event
-                event = {
-                    "event": "response",
-                    "data": message["result"],
-                    "correlation_id": message.get("id")
-                }
-                await self._handle_event(event)
+            correlation_id = message.get("id") or message.get("correlation_id")
+            
+            # Handle different response formats
+            if message.get("status") == "success":
+                # Response might have result or be the data itself
+                data = message.get("result", message)
+            elif message.get("status") == "healthy":
+                # Health check response
+                data = message
+            elif "error" in message:
+                # Error response
+                data = message
+            else:
+                # Unknown format - use as-is
+                data = message
+            
+            # Convert to event
+            event = {
+                "event": "response",
+                "data": data,
+                "correlation_id": correlation_id
+            }
+            await self._handle_event(event)
     
     async def _handle_event(self, event: Dict[str, Any]):
         """Handle incoming event."""
@@ -374,7 +405,7 @@ class EventBasedClient:
     
     async def create_completion(self, prompt: str, model: str = "sonnet",
                                session_id: Optional[str] = None,
-                               timeout: float = 300.0) -> Dict[str, Any]:
+                               timeout: float = 900.0) -> Dict[str, Any]:
         """
         Create a completion using event API.
         
@@ -396,51 +427,21 @@ class EventBasedClient:
         if session_id:
             data["session_id"] = session_id
         
-        # Subscribe to completion events for this client
-        completion_future = asyncio.Future()
-        request_id = None
+        # Use request_event for simple request/response pattern
+        result = await self.request_event("completion:request", data, timeout=timeout)
         
-        async def completion_handler(event_name: str, event_data: Dict[str, Any]):
-            nonlocal request_id
-            
-            if event_name == "completion:started":
-                # Capture request ID
-                if event_data.get("client_id") == self.client_id:
-                    request_id = event_data.get("request_id")
-            
-            elif event_name == "completion:result":
-                # Check if this is our result
-                if (event_data.get("request_id") == request_id or
-                    event_data.get("client_id") == self.client_id):
-                    if not completion_future.done():
-                        completion_future.set_result(event_data)
-            
-            elif event_name == "completion:error":
-                # Check if this is our error
-                if (event_data.get("request_id") == request_id or
-                    event_data.get("client_id") == self.client_id):
-                    if not completion_future.done():
-                        completion_future.set_exception(
-                            ValueError(event_data.get("error", "Completion failed"))
-                        )
-        
-        # Subscribe to completion events
-        self.subscribe("completion:*", completion_handler)
-        
-        try:
-            # Send completion request
-            await self.emit_event("completion:request", data)
-            
-            # Wait for result
-            result = await asyncio.wait_for(completion_future, timeout=timeout)
+        # Ensure we have the expected format
+        if isinstance(result, dict):
+            if result.get("status") == "error":
+                raise ValueError(result.get("error", "Completion failed"))
             return result
-            
-        except asyncio.TimeoutError:
-            raise TimeoutError(f"Completion timed out after {timeout}s")
-        
-        finally:
-            # Unsubscribe
-            self.unsubscribe("completion:*", completion_handler)
+        else:
+            # Fallback for unexpected formats
+            return {
+                "response": str(result),
+                "session_id": session_id or str(uuid.uuid4()),
+                "model": model
+            }
     
     async def shutdown_daemon(self) -> bool:
         """Request daemon shutdown."""
@@ -472,8 +473,8 @@ class EventChatClient(EventBasedClient):
     Provides a high-level API similar to SimpleChatClient but using events.
     """
     
-    def __init__(self, client_id: str = None):
-        super().__init__(client_id)
+    def __init__(self, client_id: str = None, socket_path: str = "/tmp/ksi/daemon.sock"):
+        super().__init__(client_id, socket_path)
         self.current_session_id: Optional[str] = None
     
     async def send_prompt(self, prompt: str, session_id: Optional[str] = None,

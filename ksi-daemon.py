@@ -80,9 +80,9 @@ async def daemon_wrapper():
     
     try:
         # Import and create daemon directly (avoiding argument conflicts)
-        from ksi_daemon import create_daemon
-        daemon_instance = await create_daemon()
-        await daemon_instance.start()
+        from ksi_daemon import create_plugin_daemon
+        daemon_instance = await create_plugin_daemon()
+        await daemon_instance.run()
         
     except asyncio.CancelledError:
         logger.info("Daemon cancelled due to shutdown request")
@@ -164,11 +164,11 @@ def run_in_foreground():
     
     try:
         # Import and create daemon directly (avoiding argument conflicts)
-        from ksi_daemon import create_daemon
+        from ksi_daemon import create_plugin_daemon
         
         async def run_daemon():
-            daemon_instance = await create_daemon()
-            await daemon_instance.start()
+            daemon_instance = await create_plugin_daemon()
+            await daemon_instance.run()
         
         asyncio.run(run_daemon())
     except KeyboardInterrupt:

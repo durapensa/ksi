@@ -144,9 +144,14 @@ class PluginManager:
             "socketio": {"enabled": False}
         })
         
+        logger.info(f"Initializing transports with config: {transport_config}")
+        
         for transport_type, config in transport_config.items():
             if not config.get("enabled", False):
+                logger.info(f"Transport {transport_type} is disabled")
                 continue
+            
+            logger.info(f"Creating transport: {transport_type}")
             
             # Try to create transport via hooks
             transports = self.plugin_loader.pm.hook.ksi_create_transport(
@@ -154,15 +159,35 @@ class PluginManager:
                 config=config
             )
             
-            for transport in transports:
-                if transport:
-                    try:
-                        await transport.start()
-                        self.transports[transport_type] = transport
-                        logger.info(f"Started transport: {transport_type}")
-                        break
-                    except Exception as e:
-                        logger.error(f"Error starting transport {transport_type}: {e}")
+            # Filter out None returns
+            valid_transports = [t for t in transports if t is not None]
+            logger.info(f"Got {len(valid_transports)} transport instances for {transport_type}")
+            
+            for transport in valid_transports:
+                try:
+                    # Set event emitter on transport if it supports it
+                    if hasattr(transport, 'emit_event'):
+                        # Create event emitter that routes through our event system
+                        async def transport_emit_event(event_name: str, data: Dict[str, Any], **kwargs):
+                            # Route through the plugin event system
+                            event = {
+                                "name": event_name,
+                                "data": data,
+                                "source": kwargs.get("source", "transport"),
+                                "correlation_id": kwargs.get("correlation_id")
+                            }
+                            result = await self.emit_event(event)
+                            return result if result else {"status": "success"}
+                        
+                        transport.emit_event = transport_emit_event
+                        logger.info(f"Injected event emitter into transport: {transport_type}")
+                    
+                    await transport.start()
+                    self.transports[transport_type] = transport
+                    logger.info(f"Started transport: {transport_type}")
+                    break
+                except Exception as e:
+                    logger.error(f"Error starting transport {transport_type}: {e}")
     
     async def emit_event(self, event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """

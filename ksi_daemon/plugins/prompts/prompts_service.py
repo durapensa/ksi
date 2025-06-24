@@ -15,7 +15,7 @@ from typing import Dict, Any, Optional, List
 import logging
 
 from ...plugin_base import BasePlugin, hookimpl
-from ...plugin_types import PluginMetadata, PluginCapabilities
+from ...plugin_types import PluginInfo
 
 logger = logging.getLogger(__name__)
 
@@ -25,23 +25,11 @@ class PromptsServicePlugin(BasePlugin):
     
     def __init__(self):
         super().__init__(
-            metadata=PluginMetadata(
-                name="prompts_service",
-                version="1.0.0",
-                description="Prompt composition and management service",
-                author="KSI Team"
-            ),
-            capabilities=PluginCapabilities(
-                event_namespaces=["/prompts"],
-                commands=[
-                    "prompts:compose",
-                    "prompts:list_compositions", 
-                    "prompts:get_composition",
-                    "prompts:validate",
-                    "prompts:list_components"
-                ],
-                provides_services=["prompts"]
-            )
+            name="prompts_service",
+            version="1.0.0",
+            description="Prompt composition and management service",
+            author="KSI Team",
+            namespaces=["prompts"]
         )
         
         # Plugin context references
@@ -622,3 +610,22 @@ class PromptsServicePlugin(BasePlugin):
 
 # Plugin instance
 plugin = PromptsServicePlugin()
+
+# Module-level hooks that delegate to plugin instance
+@hookimpl
+def ksi_startup(config):
+    """Initialize prompts service on startup."""
+    return plugin.ksi_startup()
+
+@hookimpl
+def ksi_handle_event(event_name, data, context):
+    """Handle prompts-related events."""
+    return plugin.ksi_handle_event(event_name, data, context)
+
+@hookimpl
+def ksi_shutdown():
+    """Clean up on shutdown."""
+    return plugin.ksi_shutdown()
+
+# Module-level marker for plugin discovery
+ksi_plugin = True

@@ -146,31 +146,55 @@ class PluginLoader:
             Plugin name if successful, None otherwise
         """
         try:
-            # Create module name from path
-            if plugin_path.suffix == ".py":
-                module_name = f"ksi_plugin_{plugin_path.stem}"
-            else:
-                module_name = plugin_path.stem
-            
-            # Add parent directories to sys.path to support relative imports
-            # Find the ksi_daemon directory
+            # Find the ksi_daemon directory to build proper module path
             ksi_daemon_dir = plugin_path.parent
             while ksi_daemon_dir.name != "ksi_daemon" and ksi_daemon_dir.parent != ksi_daemon_dir:
                 ksi_daemon_dir = ksi_daemon_dir.parent
             
-            # Add parent of ksi_daemon to path
+            # Build proper module name maintaining package hierarchy
             if ksi_daemon_dir.name == "ksi_daemon":
+                # Get relative path from ksi_daemon
+                rel_path = plugin_path.relative_to(ksi_daemon_dir.parent)
+                # Convert path to module name (e.g., ksi_daemon.plugins.transport.unix_socket)
+                module_parts = list(rel_path.parts[:-1]) + [plugin_path.stem]
+                module_name = ".".join(module_parts)
+                
+                # Add parent of ksi_daemon to path
                 parent_dir = ksi_daemon_dir.parent
                 if str(parent_dir) not in sys.path:
                     sys.path.insert(0, str(parent_dir))
+            else:
+                # Fallback to simple name
+                module_name = f"ksi_plugin_{plugin_path.stem}"
             
-            # Load module
-            spec = importlib.util.spec_from_file_location(module_name, plugin_path)
+            # Ensure parent modules exist in sys.modules for relative imports
+            if "." in module_name:
+                parts = module_name.split(".")
+                for i in range(1, len(parts)):
+                    parent_name = ".".join(parts[:i])
+                    if parent_name not in sys.modules:
+                        # Import parent module
+                        try:
+                            parent_module = importlib.import_module(parent_name)
+                            sys.modules[parent_name] = parent_module
+                        except ImportError:
+                            # Create empty parent module if it doesn't exist
+                            parent_module = type(sys)('module')
+                            parent_module.__path__ = []
+                            sys.modules[parent_name] = parent_module
+            
+            # Load module with proper package context
+            spec = importlib.util.spec_from_file_location(module_name, plugin_path, submodule_search_locations=[])
             if not spec or not spec.loader:
                 logger.error(f"Failed to create spec for {plugin_path}")
                 return None
             
             module = importlib.util.module_from_spec(spec)
+            # Set __package__ for relative imports to work
+            if "." in module_name:
+                module.__package__ = ".".join(module_name.split(".")[:-1])
+            else:
+                module.__package__ = module_name
             sys.modules[module_name] = module
             spec.loader.exec_module(module)
             
@@ -206,13 +230,31 @@ class PluginLoader:
                     if name == "plugin_info" and isinstance(obj, PluginInfo):
                         plugin_info = obj
                     
-                    # Check for explicit plugin instance
-                    if name == "plugin" and (hasattr(obj, "ksi_plugin") or hasattr(obj, "_hookimpl")):
-                        plugin_instance = obj
-                        if hasattr(obj, "info"):
-                            plugin_info = obj.info
-                        elif hasattr(obj, "PLUGIN_INFO"):
-                            plugin_info = obj.PLUGIN_INFO
+                    # Check for explicit plugin instance named "plugin"
+                    if name == "plugin":
+                        # Check if it's a plugin instance (has methods with hookimpl)
+                        has_hook_methods = any(
+                            hasattr(getattr(obj, method_name, None), "_hookimpl")
+                            for method_name in dir(obj)
+                            if not method_name.startswith("_")
+                        )
+                        
+                        # Or if it's a KSIPlugin instance
+                        is_plugin_instance = (
+                            hasattr(obj, "info") or 
+                            hasattr(obj, "_info") or
+                            has_hook_methods
+                        )
+                        
+                        if is_plugin_instance:
+                            logger.info(f"Found plugin instance: {name} in {module_name}")
+                            plugin_instance = obj
+                            if hasattr(obj, "info"):
+                                plugin_info = obj.info
+                            elif hasattr(obj, "_info"):
+                                plugin_info = obj._info
+                            elif hasattr(obj, "PLUGIN_INFO"):
+                                plugin_info = obj.PLUGIN_INFO
             
             # If no plugin class found, use module itself if it has hooks
             if not plugin_instance:
@@ -221,8 +263,9 @@ class PluginLoader:
                     for name in dir(module)
                     if not name.startswith("_")
                 )
-                logger.debug(f"Module {module_name} has hooks: {has_hooks}")
+                logger.info(f"Module {module_name} has hooks: {has_hooks}")
                 if has_hooks:
+                    logger.info(f"Using module as plugin instance for {module_name}")
                     plugin_instance = module
                     # Try to get plugin info from module
                     if hasattr(module, "PLUGIN_INFO"):

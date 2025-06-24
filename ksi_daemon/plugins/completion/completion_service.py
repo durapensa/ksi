@@ -17,7 +17,7 @@ import logging
 import litellm
 
 from ...plugin_base import BasePlugin, hookimpl
-from ...plugin_types import PluginMetadata, PluginCapabilities
+from ...plugin_types import PluginInfo
 from ...timestamp_utils import TimestampManager
 from ...config import config
 from ...event_taxonomy import CLAUDE_EVENTS, format_claude_event
@@ -33,17 +33,11 @@ class CompletionServicePlugin(BasePlugin):
     
     def __init__(self):
         super().__init__(
-            metadata=PluginMetadata(
-                name="completion_service",
-                version="1.0.0",
-                description="LLM completion service using LiteLLM",
-                author="KSI Team"
-            ),
-            capabilities=PluginCapabilities(
-                event_namespaces=["/completion"],
-                commands=["completion:request", "completion:async"],
-                provides_services=["completion"]
-            )
+            name="completion_service",
+            version="1.0.0",
+            description="LLM completion service using LiteLLM",
+            author="KSI Team",
+            namespaces=["completion"]
         )
         
         # Track active completions
@@ -361,3 +355,22 @@ class CompletionServicePlugin(BasePlugin):
 
 # Plugin instance
 plugin = CompletionServicePlugin()
+
+# Module-level hooks that delegate to plugin instance
+@hookimpl
+def ksi_startup(config):
+    """Initialize completion service on startup."""
+    return plugin.ksi_startup()
+
+@hookimpl
+def ksi_handle_event(event_name, data, context):
+    """Handle completion-related events."""
+    return plugin.ksi_handle_event(event_name, data, context)
+
+@hookimpl
+def ksi_shutdown():
+    """Clean up on shutdown."""
+    return plugin.ksi_shutdown()
+
+# Module-level marker for plugin discovery
+ksi_plugin = True

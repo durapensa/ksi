@@ -12,12 +12,15 @@ import os
 from pathlib import Path
 from typing import Dict, Any, Optional, Set
 import logging
+import pluggy
 
-from ...plugin_base import BasePlugin, hookimpl
+from ...plugin_base import BasePlugin
 from ...plugin_types import (
-    PluginMetadata, PluginCapabilities, 
-    TransportConnection, TransportStatus
+    PluginInfo, TransportConnection, TransportStatus
 )
+
+# Hook implementation marker
+hookimpl = pluggy.HookimplMarker("ksi")
 
 logger = logging.getLogger(__name__)
 
@@ -25,27 +28,47 @@ logger = logging.getLogger(__name__)
 class UnixSocketConnection(TransportConnection):
     """Unix socket transport implementation."""
     
-    def __init__(self, config: Dict[str, Any], event_emitter):
+    def __init__(self, config: Dict[str, Any], event_emitter=None):
         """
         Initialize Unix socket transport.
         
         Args:
             config: Transport configuration
-            event_emitter: Function to emit events
+            event_emitter: Function to emit events (can be set later)
         """
         self.config = config
-        self.emit_event = event_emitter
+        self._event_emitter = event_emitter
         
-        # Single socket path from config
-        socket_dir = Path(config.get("socket_dir", "/tmp/ksi"))
-        socket_dir.mkdir(parents=True, exist_ok=True)
-        self.socket_path = socket_dir / "daemon.sock"
+        # Set up paths
+        self._setup_paths()
         
         # Connection tracking
         self.connections: Dict[str, asyncio.StreamWriter] = {}
         self.connection_info: Dict[str, Dict[str, Any]] = {}
         self.servers = {}
         self.status = TransportStatus.DISCONNECTED
+        
+    @property
+    def emit_event(self):
+        """Get the event emitter function."""
+        return self._event_emitter or self._default_emit_event
+    
+    @emit_event.setter
+    def emit_event(self, emitter):
+        """Set the event emitter function."""
+        self._event_emitter = emitter
+    
+    async def _default_emit_event(self, event_name: str, data: Dict[str, Any], **kwargs):
+        """Default event emitter (logs only)."""
+        logger.warning(f"No event emitter set. Event: {event_name} - {data}")
+        return {"status": "error", "error": {"message": "No event emitter configured"}}
+    
+    def _setup_paths(self):
+        """Set up socket paths."""
+        # Single socket path from config
+        socket_dir = Path(self.config.get("socket_dir", "/tmp/ksi"))
+        socket_dir.mkdir(parents=True, exist_ok=True)
+        self.socket_path = socket_dir / "daemon.sock"
     
     async def start(self) -> None:
         """Start Unix socket server."""
@@ -125,6 +148,7 @@ class UnixSocketConnection(TransportConnection):
                 if not data:
                     break
                 
+                event_data = None  # Initialize for exception handlers
                 try:
                     # Parse JSON event
                     event_str = data.decode().strip()
@@ -150,9 +174,24 @@ class UnixSocketConnection(TransportConnection):
                         expect_response=True
                     )
                     
-                    # Send response
-                    if response:
-                        await self._send_response(writer, response)
+                    # Handle async responses
+                    if asyncio.iscoroutine(response) or asyncio.isfuture(response):
+                        # Await the async response
+                        response = await response
+                    
+                    # Always send a response
+                    if response is None:
+                        response = {"status": "success"}
+                    
+                    # Ensure response is a dict
+                    if not isinstance(response, dict):
+                        response = {"result": response}
+                    
+                    # Include correlation_id if present
+                    if correlation_id:
+                        response["correlation_id"] = correlation_id
+                    
+                    await self._send_response(writer, response)
                     
                 except json.JSONDecodeError as e:
                     # Send error response
@@ -257,17 +296,11 @@ class UnixSocketPlugin(BasePlugin):
     
     def __init__(self):
         super().__init__(
-            metadata=PluginMetadata(
-                name="unix_socket_transport",
-                version="1.0.0",
-                description="Unix domain socket transport for KSI daemon",
-                author="KSI Team"
-            ),
-            capabilities=PluginCapabilities(
-                event_namespaces=["/transport"],
-                commands=[],
-                provides_services=["transport:unix"]
-            )
+            name="unix_socket_transport",
+            version="1.0.0",
+            description="Unix domain socket transport for KSI daemon",
+            author="KSI Team",
+            namespaces=["transport"]
         )
         self._transport: Optional[UnixSocketConnection] = None
         self._context = None
@@ -326,6 +359,22 @@ class UnixSocketPlugin(BasePlugin):
             asyncio.create_task(self._transport.start())
     
     @hookimpl
+    def ksi_create_transport(self, transport_type: str, config: Dict[str, Any]):
+        """Create unix socket transport."""
+        logger.info(f"ksi_create_transport called with type: {transport_type}")
+        
+        if transport_type != "unix":
+            return None
+        
+        logger.info(f"Creating unix socket transport with config: {config}")
+        
+        # Create transport without event emitter (will be set later)
+        transport = UnixSocketConnection(config)
+        self._transport = transport
+        
+        return transport
+    
+    @hookimpl
     def ksi_handle_event(self, event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
         """Handle transport-related events."""
         if not self._transport:
@@ -379,3 +428,27 @@ class UnixSocketPlugin(BasePlugin):
 
 # Plugin instance
 plugin = UnixSocketPlugin()
+
+# Module-level hooks that delegate to plugin instance
+@hookimpl
+def ksi_startup():
+    """Initialize transport on startup."""
+    return plugin.ksi_startup()
+
+@hookimpl
+def ksi_create_transport(transport_type: str, config: Dict[str, Any]):
+    """Create unix socket transport."""
+    return plugin.ksi_create_transport(transport_type, config)
+
+@hookimpl
+def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
+    """Handle transport-related events."""
+    return plugin.ksi_handle_event(event_name, data, context)
+
+@hookimpl
+def ksi_shutdown():
+    """Clean up on shutdown."""
+    return plugin.ksi_shutdown()
+
+# Module-level marker for plugin discovery
+ksi_plugin = True
