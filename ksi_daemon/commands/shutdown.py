@@ -25,8 +25,8 @@ class ShutdownHandler(CommandHandler):
             'details': 'Daemon shutdown initiated'
         })
         
-        # Send response before closing
-        await self.context.send_response(writer, response.model_dump())
+        # Send response before closing (response is already a dict)
+        await self.context.send_response(writer, response)
         
         # Close connection
         writer.close()
@@ -36,8 +36,8 @@ class ShutdownHandler(CommandHandler):
         if hasattr(self.context, 'core_daemon') and self.context.core_daemon:
             self.context.core_daemon.shutdown_event.set()
         
-        # Return the already-sent response as dict
-        return response.model_dump()
+        # Return the already-sent response (already a dict)
+        return response
     
     @classmethod
     def get_help(cls) -> Dict[str, Any]:

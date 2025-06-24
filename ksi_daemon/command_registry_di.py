@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-Command Registry - Self-registering command pattern
-Eliminates large if/elif chains and manual command mapping
+Command Registry with Dependency Injection
+Uses aioinject for proper handler lifecycle management
 """
 
 import asyncio
 import json
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Type, Optional, Callable
-from datetime import datetime
+from typing import Dict, Any, Type, Optional
 import structlog
 from .protocols import BaseCommand, BaseResponse, SocketResponse
 from .manager_framework import with_error_handling
+from .di_container import daemon_container
 
 # Import all command handlers to trigger registration
 from . import commands
@@ -48,6 +48,14 @@ class CommandHandler(ABC):
         Returns:
             Response object
         """
+        pass
+    
+    async def initialize(self, context):
+        """Initialize handler with context - override in subclasses if needed"""
+        pass
+    
+    async def cleanup(self):
+        """Clean up handler resources - override in subclasses if needed"""
         pass
     
     @property
@@ -116,26 +124,27 @@ class CommandRegistry:
         return list(cls._handlers.keys())
     
     @classmethod
-    def list_aliases(cls) -> Dict[str, str]:
-        """List all command aliases"""
+    def list_aliases(cls) -> dict:
+        """List all aliases"""
         return cls._aliases.copy()
 
 
 def command_handler(command_name: str, aliases: list = None):
-    """Decorator to register command handlers with optional aliases"""
-    def decorator(cls: Type[CommandHandler]):
+    """Decorator to register command handlers"""
+    def decorator(cls):
         cls.command_name = command_name
-        CommandRegistry.register(cls, aliases=aliases)
+        CommandRegistry.register(cls, aliases)
         return cls
     return decorator
 
 
-# Simplified command handler that uses the registry
-class SimplifiedCommandHandler:
-    """Simplified command handler using registry pattern"""
+class CommandHandlerProxy:
+    """Proxy that integrates CommandRegistry with DI container"""
     
-    def __init__(self, core_daemon, **managers):
-        self.core_daemon = core_daemon
+    def __init__(self, managers: dict = None):
+        """Initialize with manager references"""
+        managers = managers or {}
+        self.core_daemon = managers.get('core_daemon', self)
         self.state_manager = managers.get('state_manager')
         self.completion_manager = managers.get('completion_manager')
         self.agent_manager = managers.get('agent_manager')
@@ -143,14 +152,17 @@ class SimplifiedCommandHandler:
         self.message_bus = managers.get('message_bus')
         self.identity_manager = managers.get('identity_manager')
         self.logger = structlog.get_logger('daemon.command_handler')
+        
+        # Set core daemon reference in DI container
+        daemon_container.set_core_daemon(self)
     
     @with_error_handling("handle_command")
     async def handle_command(self, command_text: str, writer: asyncio.StreamWriter, 
                            reader: asyncio.StreamReader = None) -> bool:
-        """Handle commands using the registry pattern"""
+        """Handle commands using the registry pattern with DI"""
         try:
             # Parse and validate command
-            from .command_validator import validate_command
+            from .command_validator_refactored import validate_command
             is_valid, error_msg, command_data = validate_command(command_text.strip())
             
             if not is_valid:
@@ -160,36 +172,28 @@ class SimplifiedCommandHandler:
             command_name = command_data.get("command")
             parameters = command_data.get("parameters", {})
             
-            # Get handler from registry
+            # Check if handler is registered
             handler_class = CommandRegistry.get_handler(command_name)
             if not handler_class:
                 await self.send_error_response(writer, "UNKNOWN_COMMAND", 
                                              f"Command '{command_name}' not recognized")
                 return True
             
-            # Create fresh handler instance using DI container
-            # This ensures handlers are stateless and dependencies are properly injected
-            from .di_container import daemon_container
-            handler = await daemon_container.create_handler(handler_class)
-            
+            # Get handler from DI container
+            handler = await daemon_container.get_handler(command_name)
             if not handler:
-                await self.send_error_response(writer, "HANDLER_ERROR", 
-                                             f"Failed to create handler for '{command_name}'")
-                return True
+                # Fallback to manual instantiation if DI fails
+                self.logger.warning(f"DI failed for {command_name}, using fallback")
+                handler = handler_class(self)
+                if hasattr(handler, 'initialize'):
+                    await handler.initialize(self)
             
+            # Execute handler
             response = await handler.handle(parameters, writer, command_data)
             
             # Send response
             if response:
-                # SocketResponse methods return dicts, not Pydantic models
-                if isinstance(response, dict):
-                    await self.send_response(writer, response)
-                elif hasattr(response, 'model_dump'):
-                    # Some handlers might return Pydantic models
-                    await self.send_response(writer, response.model_dump())
-                else:
-                    # Fallback for other types
-                    await self.send_response(writer, response)
+                await self.send_response(writer, response.model_dump())
             
             return True
             
@@ -211,8 +215,12 @@ class SimplifiedCommandHandler:
     
     async def send_error_response(self, writer: asyncio.StreamWriter, error_code: str, 
                                 details: str = "") -> bool:
-        """Send standardized error response to client"""
-        from .protocols import SocketResponse
-        response = SocketResponse.error("", error_code, details)
-        # SocketResponse.error returns a dict, not a model
-        return await self.send_response(writer, response)
+        """Send error response to client"""
+        error_response = {
+            "status": "error",
+            "error": {
+                "code": error_code,
+                "message": details
+            }
+        }
+        return await self.send_response(writer, error_response)

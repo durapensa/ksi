@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-
 """
-Modular Daemon Package - Main entry point and dependency injection
-Extracted from daemon_clean.py with 100% functionality preservation
+Modular Daemon Package with Dependency Injection
+Uses aioinject for proper service lifecycle management
 """
 
 import asyncio
@@ -15,14 +14,8 @@ from pathlib import Path
 # Import all modules
 from .config import config
 from .core import KSIDaemonCore
-from .session_and_shared_state_manager import SessionAndSharedStateManager
-from .completion_manager import CompletionManager
-from .agent_profile_registry import AgentProfileRegistry
-# Utils removed - functionality moved to commands/cleanup.py and commands/reload_module.py
-from .hot_reload import HotReloadManager
-from .command_handler import CommandHandler
-from .message_bus import MessageBus
-from .agent_identity_registry import AgentIdentityRegistry
+from .di_container import daemon_container
+from .command_registry_di import CommandHandlerProxy
 
 # Import commands to ensure registration
 from . import commands
@@ -33,6 +26,8 @@ def parse_args():
     parser.add_argument('--socket-dir', 
                        help='Override socket directory (creates all sockets in this dir)')
     parser.add_argument('--hot-reload-from', help='Socket path to reload from')
+    parser.add_argument('--foreground', action='store_true', 
+                       help='Run in foreground (for development)')
     return parser.parse_args()
 
 def setup_logging():
@@ -97,59 +92,57 @@ def setup_signal_handlers(core_daemon, loop):
             signal.signal(sig, lambda signum, frame: signal_handler(signal.Signals(signum).name))
 
 async def create_daemon(socket_dir: str = None, hot_reload_from: str = None):
-    """Create and wire together all daemon modules with dependency injection"""
+    """Create daemon with dependency injection"""
+    logger = logging.getLogger('daemon')
+    logger.info("Creating daemon with DI container")
     
     # Create core daemon with optional socket directory override
     core_daemon = KSIDaemonCore(socket_dir=socket_dir, hot_reload_from=hot_reload_from)
     
-    # Initialize DI container
-    from .di_container import daemon_container
-    daemon_container.set_core_daemon(core_daemon)
-    
-    # Initialize all services through DI
+    # Initialize services via DI container
     await daemon_container.initialize_services()
     
-    # Get managers from DI container
-    async with daemon_container.container.context() as ctx:
-        state_manager = await ctx.resolve(SessionAndSharedStateManager)
-        completion_manager = await ctx.resolve(CompletionManager)
-        agent_manager = await ctx.resolve(AgentProfileRegistry)
-        hot_reload_manager = await ctx.resolve(HotReloadManager)
-        message_bus = await ctx.resolve(MessageBus)
-        identity_manager = await ctx.resolve(AgentIdentityRegistry)
-        
-        # Create command handler with DI-managed dependencies
-        # Use the simplified handler that creates fresh handlers per request
-        from .command_registry import SimplifiedCommandHandler
-        command_handler = SimplifiedCommandHandler(
-            core_daemon=core_daemon,
-            state_manager=state_manager,
-            completion_manager=completion_manager,
-            agent_manager=agent_manager,
-            hot_reload_manager=hot_reload_manager,
-            message_bus=message_bus,
-            identity_manager=identity_manager
-        )
-        
-        # Wire everything together
-        core_daemon.set_managers(
-            state_manager=state_manager,
-            completion_manager=completion_manager,
-            agent_manager=agent_manager,
-            hot_reload_manager=hot_reload_manager,
-            command_handler=command_handler,
-            message_bus=message_bus,
-            identity_manager=identity_manager
-        )
-        
-        # Set up cross-manager dependencies
-        completion_manager.set_message_bus(message_bus)
-        completion_manager.set_agent_manager(agent_manager)
+    # Get services from container
+    state_manager = await daemon_container.get_service('StateManager')
+    completion_manager = await daemon_container.get_service('CompletionManager')
+    agent_manager = await daemon_container.get_service('AgentManager')
+    message_bus = await daemon_container.get_service('MessageBus')
+    identity_manager = await daemon_container.get_service('IdentityManager')
+    hot_reload_manager = await daemon_container.get_service('HotReloadManager')
     
+    # Create command handler proxy with manager references
+    managers = {
+        'core_daemon': core_daemon,
+        'state_manager': state_manager,
+        'completion_manager': completion_manager,
+        'agent_manager': agent_manager,
+        'hot_reload_manager': hot_reload_manager,
+        'message_bus': message_bus,
+        'identity_manager': identity_manager
+    }
+    
+    command_handler = CommandHandlerProxy(managers)
+    
+    # Wire everything together via dependency injection
+    core_daemon.set_managers(
+        state_manager=state_manager,
+        completion_manager=completion_manager,
+        agent_manager=agent_manager,
+        hot_reload_manager=hot_reload_manager,
+        command_handler=command_handler,
+        message_bus=message_bus,
+        identity_manager=identity_manager
+    )
+    
+    # Set up cross-manager dependencies
+    completion_manager.set_message_bus(message_bus)
+    completion_manager.set_agent_manager(agent_manager)
+    
+    logger.info("Daemon created with DI container successfully")
     return core_daemon
 
 async def main():
-    """Main entry point - EXACT logic from daemon_clean.py adapted for modular architecture"""
+    """Main entry point with DI"""
     args = parse_args()
     logger = setup_logging()
     
@@ -157,25 +150,38 @@ async def main():
     ensure_var_directories()
     
     # Create modular daemon with dependency injection
-    daemon = await create_daemon(args.socket_dir, args.hot_reload_from)
+    core_daemon = await create_daemon(
+        socket_dir=args.socket_dir,
+        hot_reload_from=args.hot_reload_from
+    )
     
-    # Get the current event loop
+    # Get event loop
     loop = asyncio.get_running_loop()
     
-    # Setup signal handlers with asyncio integration
-    setup_signal_handlers(daemon, loop)
+    # Set up signal handlers
+    setup_signal_handlers(core_daemon, loop)
     
     # Start the daemon
-    logger.info("Starting modular KSI daemon")
+    logger.info(f"Starting KSI daemon in {'foreground' if args.foreground else 'background'} mode")
     try:
-        await daemon.start()
+        await core_daemon.start()
     except asyncio.CancelledError:
-        logger.info("Daemon cancelled, shutting down gracefully")
+        logger.info("Daemon main cancelled during shutdown")
+    except Exception as e:
+        logger.error(f"Daemon error: {e}", exc_info=True)
+        raise
     finally:
-        # Ensure cleanup happens
-        logger.info("Final cleanup...")
-        await asyncio.sleep(0.1)  # Allow final logs to flush
+        logger.info("Daemon main exiting cleanly")
 
-# Make this package executable as a module
+def run():
+    """Entry point for running daemon - compatible with existing interface"""
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nShutdown requested via keyboard interrupt")
+    except Exception as e:
+        print(f"Fatal error: {e}")
+        raise
+
 if __name__ == '__main__':
-    asyncio.run(main())
+    run()

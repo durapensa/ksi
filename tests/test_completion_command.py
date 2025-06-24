@@ -199,10 +199,14 @@ class TestMultiSocketClientCompletion:
             await client.initialize()
             
             # Test real completion
+            # Get test timeout from config
+            from ksi_daemon.config import config
+            test_timeout = config.test_completion_timeout
+            
             response = await client.create_completion(
                 prompt="What is 1+1? Answer in one word.",
                 model="sonnet",
-                timeout=30
+                timeout=test_timeout
             )
             
             # Should return string response
@@ -221,6 +225,10 @@ class TestMultiSocketClientCompletion:
         """Test create_completion() with session continuity"""
         
         try:
+            # Get test timeout from config
+            from ksi_daemon.config import config
+            test_timeout = config.test_completion_timeout
+            
             client = AsyncClient(client_id="session_test_client")
             await client.initialize()
             
@@ -230,14 +238,14 @@ class TestMultiSocketClientCompletion:
             response1 = await client.create_completion(
                 prompt="Remember this number: 42",
                 session_id=session_id,
-                timeout=30
+                timeout=test_timeout
             )
             
             # Second completion with same session
             response2 = await client.create_completion(
                 prompt="What number did I just tell you to remember?",
                 session_id=session_id,
-                timeout=30
+                timeout=test_timeout
             )
             
             assert isinstance(response1, str)
@@ -256,12 +264,16 @@ class TestMultiSocketClientCompletion:
         """Test multiple concurrent create_completion() calls"""
         
         try:
+            # Get test timeout from config
+            from ksi_daemon.config import config
+            test_timeout = config.test_completion_timeout
+            
             client = AsyncClient(client_id="concurrent_completion_client")
             await client.initialize()
             
             # Create multiple completion tasks
             tasks = [
-                client.create_completion(f"Count to {i+1}", timeout=30)
+                client.create_completion(f"Count to {i+1}", timeout=test_timeout)
                 for i in range(3)
             ]
             

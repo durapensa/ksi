@@ -131,24 +131,16 @@ class MultiSocketAsyncClient:
         logger.info(f"Client {self.client_id} connected to messaging socket")
     
     async def _subscribe_completion_results(self) -> None:
-        """Subscribe to COMPLETION_RESULT events targeted to this client"""
-        # Try dynamic subscription first (if daemon supports it)
+        """Subscribe to COMPLETION_RESULT events"""
+        # Subscribe to general COMPLETION_RESULT events
+        # The handler will filter by client_id
         subscribe_cmd = CommandBuilder.build_subscribe_command(
             self.client_id, 
-            [f"COMPLETION_RESULT:{self.client_id}"]  # Targeted subscription
+            ["COMPLETION_RESULT"]
         )
         
-        try:
-            await self._send_messaging_command(subscribe_cmd)
-            logger.info(f"Client {self.client_id} subscribed to targeted COMPLETION_RESULT events")
-        except:
-            # Fallback to general subscription if dynamic patterns not supported
-            subscribe_cmd = CommandBuilder.build_subscribe_command(
-                self.client_id, 
-                ["COMPLETION_RESULT"]
-            )
-            await self._send_messaging_command(subscribe_cmd)
-            logger.info(f"Client {self.client_id} subscribed to all COMPLETION_RESULT events (will filter)")
+        await self._send_messaging_command(subscribe_cmd)
+        logger.info(f"Client {self.client_id} subscribed to COMPLETION_RESULT events")
     
     async def _send_messaging_command(self, command: Dict[str, Any]) -> None:
         """Send command on messaging connection"""

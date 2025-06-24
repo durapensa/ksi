@@ -178,8 +178,13 @@ class ClaudeCLIProvider(CustomLLM):
         """Execute Claude CLI with progressive timeouts and intelligent retry"""
         prompt, model_alias = self._extract_prompt_and_model(messages)
         
-        # Progressive timeouts: 5min, 15min, 30min
-        timeouts = [300, 900, 1800]
+        # Get timeouts from config if available
+        try:
+            from ksi_daemon.config import config
+            timeouts = config.claude_timeout_attempts
+        except ImportError:
+            # Fallback if running outside daemon context
+            timeouts = [300, 900, 1800]  # 5min, 15min, 30min
         
         for attempt, timeout in enumerate(timeouts):
             allowed = allowed_tools_from_openai(kwargs.get("tools"))
@@ -231,6 +236,12 @@ class ClaudeCLIProvider(CustomLLM):
                     raise
     
     def _run_claude_sync_with_progress(self, cmd: List[str], timeout: int):
+        # Get progress timeout from config if available
+        try:
+            from ksi_daemon.config import config
+            progress_timeout = config.claude_progress_timeout
+        except ImportError:
+            progress_timeout = 300  # 5 min fallback
         """Run Claude with cross-platform progress monitoring to detect hangs vs legitimate long operations"""
         # Set working directory to project root (matching daemon behavior)
         project_root = os.path.dirname(os.path.abspath(__file__))
@@ -291,12 +302,12 @@ class ClaudeCLIProvider(CustomLLM):
             while process.poll() is None:
                 current_time = time.time()
                 
-                # Check if no output for 5 minutes (might be hanging)
+                # Check if no output for progress_timeout seconds (might be hanging)
                 with output_lock:
-                    if current_time - last_output_time > 300:  # 5 min no output
+                    if current_time - last_output_time > progress_timeout:
                         process.kill()
                         process.wait()
-                        raise subprocess.TimeoutExpired(cmd, 300)
+                        raise subprocess.TimeoutExpired(cmd, progress_timeout)
                 
                 # Check overall timeout
                 if current_time - start_time > timeout:

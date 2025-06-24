@@ -10,3 +10,4 @@ pytest-asyncio>=1.0.0
 litellm>=1.37.0
 simpervisor>=1.0.0
 python-daemon>=3.0.0
+aioinject>=0.30.0

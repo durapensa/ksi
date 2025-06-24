@@ -19,11 +19,6 @@ from ..manager_framework import log_operation
 class ReloadModuleHandler(CommandHandler):
     """Handles RELOAD_MODULE command for dynamic module reloading"""
     
-    def __init__(self):
-        super().__init__()
-        self.modules_dir = Path('extension_modules')
-        self.loaded_modules: Dict[str, Any] = {}
-    
     @log_operation()
     async def handle(self, parameters: Dict[str, Any], writer: asyncio.StreamWriter, full_command: Dict[str, Any]) -> Any:
         """Execute module reload"""
@@ -47,7 +42,8 @@ class ReloadModuleHandler(CommandHandler):
     
     def _reload_module(self, module_name: str) -> Dict[str, Any]:
         """Reload a module from extension_modules/"""
-        module_path = self.modules_dir / f"{module_name}.py"
+        modules_dir = Path('extension_modules')
+        module_path = modules_dir / f"{module_name}.py"
         
         if not module_path.exists():
             return {
@@ -63,8 +59,11 @@ class ReloadModuleHandler(CommandHandler):
             
             if spec and spec.loader:
                 # Check if module already loaded
-                existing_module = self.loaded_modules.get(module_name)
                 full_module_name = f"extension_modules.{module_name}"
+                
+                # Get loaded modules tracking from state manager
+                loaded_modules = self.state_manager.get_state().get('loaded_extension_modules', {})
+                existing_module = loaded_modules.get(module_name)
                 
                 if existing_module and full_module_name in sys.modules:
                     # Reload existing module
@@ -75,11 +74,17 @@ class ReloadModuleHandler(CommandHandler):
                     module = importlib.util.module_from_spec(spec)
                     sys.modules[full_module_name] = module
                     spec.loader.exec_module(module)
-                    self.loaded_modules[module_name] = module
+                    
+                    # Update loaded modules tracking in state manager
+                    loaded_modules[module_name] = full_module_name
+                    self.state_manager.update_shared_state('loaded_extension_modules', loaded_modules)
                     message = f"Loaded new module: {module_name}"
                 
-                # Store reference for cognitive observer
-                self.context.loaded_extension_module = sys.modules[full_module_name]
+                # Store reference in shared state for cognitive observer
+                self.state_manager.update_shared_state('last_loaded_extension_module', {
+                    'name': module_name,
+                    'full_name': full_module_name
+                })
                 
                 return {
                     'success': True,

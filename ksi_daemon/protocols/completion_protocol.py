@@ -10,6 +10,7 @@ Commands: COMPLETION
 from typing import Dict, Any, Optional, Literal
 from pydantic import BaseModel, Field, field_validator
 import uuid
+from ..config import config
 
 
 # ============================================================================
@@ -23,19 +24,24 @@ class CompletionParameters(BaseModel):
     session_id: Optional[str] = Field(None, description="Session ID for conversation continuity")
     agent_id: Optional[str] = Field(None, description="Agent ID if routing through an agent")
     client_id: str = Field(..., description="Client ID for callback routing (required)")
-    timeout: int = Field(default=300, description="Timeout in seconds (max 5 minutes)")
+    timeout: int = Field(
+        default_factory=lambda: config.completion_timeout_default,
+        description=f"Timeout in seconds (min: {config.completion_timeout_min}, max: {config.completion_timeout_max})"
+    )
     metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
+    
+    @field_validator('timeout')
+    def validate_timeout(cls, v):
+        if v < config.completion_timeout_min:
+            v = config.completion_timeout_min
+        elif v > config.completion_timeout_max:
+            v = config.completion_timeout_max
+        return v
     
     @field_validator('client_id')
     def validate_client_id(cls, v):
         if not v:
             raise ValueError("client_id is required for async completion callbacks")
-        return v
-    
-    @field_validator('timeout')
-    def validate_timeout(cls, v):
-        if v < 1 or v > 600:  # 10 minutes max
-            raise ValueError("Timeout must be between 1 and 600 seconds")
         return v
 
 

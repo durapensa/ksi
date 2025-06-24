@@ -78,6 +78,50 @@ python3 test_composition_system.py
 python3 hello_goodbye_test.py
 ```
 
+### Daemon Management
+**CRITICAL**: ALWAYS use `./daemon_control.sh` for daemon operations. NEVER start the daemon directly with `python3 ksi-daemon.py`.
+
+**Commands**:
+```bash
+# Start daemon (required before running tests that use daemon)
+./daemon_control.sh start
+
+# Check status
+./daemon_control.sh status
+
+# Check health (shows agents and processes)
+./daemon_control.sh health
+
+# Restart daemon
+./daemon_control.sh restart
+
+# Stop daemon (graceful shutdown)
+./daemon_control.sh stop
+```
+
+**Why daemon_control.sh**:
+- Handles proper socket cleanup
+- Manages PID files correctly
+- Ensures graceful shutdown via SHUTDOWN command
+- Provides consistent logging
+- Prevents zombie processes
+- Sets up correct environment
+
+**Example workflow**:
+```bash
+# Start daemon before testing
+./daemon_control.sh start
+
+# Run tests that need daemon
+python3 tests/test_completion_command.py
+
+# Check daemon health
+./daemon_control.sh health
+
+# Stop when done
+./daemon_control.sh stop
+```
+
 ### Daemon Refactoring (2025-06-23)
 **Major refactoring completed to improve code quality**:
 - **Pydantic models** (`daemon/models.py`): Type-safe command/response validation
@@ -216,11 +260,14 @@ When working with the system, you have access to:
 
 ## Running the System
 ```bash
-# Start chatting (auto-starts daemon)
+# Start daemon using control script
+./daemon_control.sh start
+
+# Start chatting (requires daemon to be running)
 python3 chat.py
 
-# Or start daemon directly
-python3 daemon.py
+# Stop daemon when done
+./daemon_control.sh stop
 ```
 
 ---

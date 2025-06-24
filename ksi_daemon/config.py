@@ -19,6 +19,12 @@ Environment Variables:
     KSI_SESSION_LOG_DIR - Session logs directory (default: var/logs/sessions)
     KSI_IDENTITY_STORAGE_PATH - Identity storage path (default: var/db/identities.json)
     KSI_TMP_DIR - Temporary files directory (default: var/tmp)
+    KSI_COMPLETION_TIMEOUT_DEFAULT - Default completion timeout (default: 300)
+    KSI_COMPLETION_TIMEOUT_MIN - Minimum completion timeout (default: 60)
+    KSI_COMPLETION_TIMEOUT_MAX - Maximum completion timeout (default: 1800)
+    KSI_CLAUDE_TIMEOUT_ATTEMPTS - Claude CLI progressive timeouts (default: [300,900,1800])
+    KSI_CLAUDE_PROGRESS_TIMEOUT - Claude progress timeout (default: 300)
+    KSI_TEST_COMPLETION_TIMEOUT - Test completion timeout (default: 120)
 
 Example:
     export KSI_ADMIN_SOCKET=/custom/admin.sock
@@ -66,6 +72,18 @@ class KSIConfig(BaseSettings):
     
     # Network settings
     socket_timeout: float = 5.0
+    
+    # Completion timeouts (in seconds)
+    completion_timeout_default: int = 300  # 5 minutes default
+    completion_timeout_min: int = 60       # 1 minute minimum
+    completion_timeout_max: int = 1800     # 30 minutes maximum
+    
+    # Claude CLI progressive timeouts (in seconds)
+    claude_timeout_attempts: list[int] = [300, 900, 1800]  # 5min, 15min, 30min
+    claude_progress_timeout: int = 300     # 5 minutes without progress
+    
+    # Test timeouts (in seconds)
+    test_completion_timeout: int = 120     # 2 minutes for tests
     
     # Optional hot reload socket
     hot_reload_socket: Optional[Path] = None

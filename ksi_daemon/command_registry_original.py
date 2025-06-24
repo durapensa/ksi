@@ -81,6 +81,7 @@ class CommandRegistry:
     _instance = None
     _handlers: Dict[str, Type[CommandHandler]] = {}
     _aliases: Dict[str, str] = {}  # alias -> primary command name
+    _handler_instances: Dict[str, CommandHandler] = {}  # Cache handler instances
     
     def __new__(cls):
         if cls._instance is None:
@@ -150,7 +151,7 @@ class SimplifiedCommandHandler:
         """Handle commands using the registry pattern"""
         try:
             # Parse and validate command
-            from .command_validator import validate_command
+            from .command_validator_refactored import validate_command
             is_valid, error_msg, command_data = validate_command(command_text.strip())
             
             if not is_valid:
@@ -167,29 +168,24 @@ class SimplifiedCommandHandler:
                                              f"Command '{command_name}' not recognized")
                 return True
             
-            # Create fresh handler instance using DI container
-            # This ensures handlers are stateless and dependencies are properly injected
-            from .di_container import daemon_container
-            handler = await daemon_container.create_handler(handler_class)
-            
-            if not handler:
-                await self.send_error_response(writer, "HANDLER_ERROR", 
-                                             f"Failed to create handler for '{command_name}'")
-                return True
+            # Get or create handler instance (singleton pattern for stateful handlers)
+            if command_name not in CommandRegistry._handler_instances:
+                handler = handler_class(self)
+                
+                # Initialize handler if it has an initialize method
+                if hasattr(handler, 'initialize'):
+                    await handler.initialize(self)
+                
+                # Cache the handler instance
+                CommandRegistry._handler_instances[command_name] = handler
+            else:
+                handler = CommandRegistry._handler_instances[command_name]
             
             response = await handler.handle(parameters, writer, command_data)
             
             # Send response
             if response:
-                # SocketResponse methods return dicts, not Pydantic models
-                if isinstance(response, dict):
-                    await self.send_response(writer, response)
-                elif hasattr(response, 'model_dump'):
-                    # Some handlers might return Pydantic models
-                    await self.send_response(writer, response.model_dump())
-                else:
-                    # Fallback for other types
-                    await self.send_response(writer, response)
+                await self.send_response(writer, response.model_dump())
             
             return True
             
@@ -214,5 +210,4 @@ class SimplifiedCommandHandler:
         """Send standardized error response to client"""
         from .protocols import SocketResponse
         response = SocketResponse.error("", error_code, details)
-        # SocketResponse.error returns a dict, not a model
-        return await self.send_response(writer, response)
+        return await self.send_response(writer, response.model_dump())

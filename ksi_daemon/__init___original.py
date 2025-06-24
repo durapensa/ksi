@@ -102,49 +102,39 @@ async def create_daemon(socket_dir: str = None, hot_reload_from: str = None):
     # Create core daemon with optional socket directory override
     core_daemon = KSIDaemonCore(socket_dir=socket_dir, hot_reload_from=hot_reload_from)
     
-    # Initialize DI container
-    from .di_container import daemon_container
-    daemon_container.set_core_daemon(core_daemon)
+    # Create all managers
+    state_manager = SessionAndSharedStateManager()
+    completion_manager = CompletionManager(state_manager=state_manager)
+    agent_manager = AgentProfileRegistry(completion_manager=completion_manager)
+    hot_reload_manager = HotReloadManager(core_daemon, state_manager, agent_manager)
+    message_bus = MessageBus()
+    identity_manager = AgentIdentityRegistry()
     
-    # Initialize all services through DI
-    await daemon_container.initialize_services()
+    # Create command handler with all dependencies
+    command_handler = CommandHandler(
+        core_daemon=core_daemon,
+        state_manager=state_manager,
+        completion_manager=completion_manager,
+        agent_manager=agent_manager,
+        hot_reload_manager=hot_reload_manager,
+        message_bus=message_bus,
+        identity_manager=identity_manager
+    )
     
-    # Get managers from DI container
-    async with daemon_container.container.context() as ctx:
-        state_manager = await ctx.resolve(SessionAndSharedStateManager)
-        completion_manager = await ctx.resolve(CompletionManager)
-        agent_manager = await ctx.resolve(AgentProfileRegistry)
-        hot_reload_manager = await ctx.resolve(HotReloadManager)
-        message_bus = await ctx.resolve(MessageBus)
-        identity_manager = await ctx.resolve(AgentIdentityRegistry)
-        
-        # Create command handler with DI-managed dependencies
-        # Use the simplified handler that creates fresh handlers per request
-        from .command_registry import SimplifiedCommandHandler
-        command_handler = SimplifiedCommandHandler(
-            core_daemon=core_daemon,
-            state_manager=state_manager,
-            completion_manager=completion_manager,
-            agent_manager=agent_manager,
-            hot_reload_manager=hot_reload_manager,
-            message_bus=message_bus,
-            identity_manager=identity_manager
-        )
-        
-        # Wire everything together
-        core_daemon.set_managers(
-            state_manager=state_manager,
-            completion_manager=completion_manager,
-            agent_manager=agent_manager,
-            hot_reload_manager=hot_reload_manager,
-            command_handler=command_handler,
-            message_bus=message_bus,
-            identity_manager=identity_manager
-        )
-        
-        # Set up cross-manager dependencies
-        completion_manager.set_message_bus(message_bus)
-        completion_manager.set_agent_manager(agent_manager)
+    # Wire everything together via dependency injection
+    core_daemon.set_managers(
+        state_manager=state_manager,
+        completion_manager=completion_manager,
+        agent_manager=agent_manager,
+        hot_reload_manager=hot_reload_manager,
+        command_handler=command_handler,
+        message_bus=message_bus,
+        identity_manager=identity_manager
+    )
+    
+    # Set up cross-manager dependencies
+    completion_manager.set_message_bus(message_bus)
+    completion_manager.set_agent_manager(agent_manager)
     
     return core_daemon
 
