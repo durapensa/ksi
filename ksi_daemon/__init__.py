@@ -14,18 +14,13 @@ from pathlib import Path
 
 # Import all modules
 from .config import config
-from .core import KSIDaemonCore
-from .session_and_shared_state_manager import SessionAndSharedStateManager
-from .completion_manager import CompletionManager
-from .agent_profile_registry import AgentProfileRegistry
-# Utils removed - functionality moved to commands/cleanup.py and commands/reload_module.py
-from .hot_reload import HotReloadManager
-from .command_handler import CommandHandler
-from .message_bus import MessageBus
-from .agent_identity_registry import AgentIdentityRegistry
 
-# Import commands to ensure registration
-from . import commands
+# Import plugin system
+from .core_plugin import PluginDaemon
+
+# Get logger
+import structlog
+logger = structlog.get_logger(__name__)
 
 def parse_args():
     """Parse command line arguments with config system defaults"""
@@ -63,16 +58,15 @@ def ensure_var_directories():
     """Ensure all configured directories exist using config system"""
     config.ensure_directories()
 
-def setup_signal_handlers(core_daemon, loop):
+def setup_signal_handlers(shutdown_event, loop):
     """Setup asyncio-compatible signal handlers for graceful shutdown"""
-    logger = logging.getLogger('daemon')
     
     def signal_handler(signame):
         logger.info(f"Received signal {signame}, initiating shutdown...")
         
         # Set shutdown event
-        if hasattr(core_daemon, 'shutdown_event') and core_daemon.shutdown_event:
-            core_daemon.shutdown_event.set()
+        if shutdown_event:
+            shutdown_event.set()
             logger.info("Shutdown event set")
         else:
             logger.error("No shutdown event available")
@@ -96,83 +90,66 @@ def setup_signal_handlers(core_daemon, loop):
             logger.warning(f"Could not register asyncio signal handler for {sig}: {e}")
             signal.signal(sig, lambda signum, frame: signal_handler(signal.Signals(signum).name))
 
-async def create_daemon(socket_dir: str = None, hot_reload_from: str = None):
-    """Create and wire together all daemon modules with dependency injection"""
+async def create_plugin_daemon(socket_dir: str = None, hot_reload_from: str = None):
+    """Create plugin-based daemon"""
     
-    # Create core daemon with optional socket directory override
-    core_daemon = KSIDaemonCore(socket_dir=socket_dir, hot_reload_from=hot_reload_from)
+    # Build configuration
+    config_dict = {
+        "daemon": {
+            "plugin_dirs": [
+                str(Path(__file__).parent / "plugins")
+            ],
+            "max_event_history": 1000
+        },
+        "transports": {
+            "unix": {
+                "enabled": True,
+                "socket_dir": socket_dir if socket_dir else "/tmp/ksi"
+            }
+        }
+    }
     
-    # Initialize DI container
-    from .di_container import daemon_container
-    daemon_container.set_core_daemon(core_daemon)
+    # Hot reload not yet supported in plugin architecture
+    if hot_reload_from:
+        logger.warning("Hot reload not yet supported in plugin architecture")
     
-    # Initialize all services through DI
-    await daemon_container.initialize_services()
+    # Create and initialize plugin daemon
+    daemon = PluginDaemon(config_dict)
+    await daemon.initialize()
     
-    # Get managers from DI container
-    async with daemon_container.container.context() as ctx:
-        state_manager = await ctx.resolve(SessionAndSharedStateManager)
-        completion_manager = await ctx.resolve(CompletionManager)
-        agent_manager = await ctx.resolve(AgentProfileRegistry)
-        hot_reload_manager = await ctx.resolve(HotReloadManager)
-        message_bus = await ctx.resolve(MessageBus)
-        identity_manager = await ctx.resolve(AgentIdentityRegistry)
-        
-        # Create command handler with DI-managed dependencies
-        # Use the simplified handler that creates fresh handlers per request
-        from .command_registry import SimplifiedCommandHandler
-        command_handler = SimplifiedCommandHandler(
-            core_daemon=core_daemon,
-            state_manager=state_manager,
-            completion_manager=completion_manager,
-            agent_manager=agent_manager,
-            hot_reload_manager=hot_reload_manager,
-            message_bus=message_bus,
-            identity_manager=identity_manager
-        )
-        
-        # Wire everything together
-        core_daemon.set_managers(
-            state_manager=state_manager,
-            completion_manager=completion_manager,
-            agent_manager=agent_manager,
-            hot_reload_manager=hot_reload_manager,
-            command_handler=command_handler,
-            message_bus=message_bus,
-            identity_manager=identity_manager
-        )
-        
-        # Set up cross-manager dependencies
-        completion_manager.set_message_bus(message_bus)
-        completion_manager.set_agent_manager(agent_manager)
-    
-    return core_daemon
+    return daemon
 
 async def main():
-    """Main entry point - EXACT logic from daemon_clean.py adapted for modular architecture"""
+    """Main entry point for plugin-based daemon"""
     args = parse_args()
     logger = setup_logging()
     
     # Ensure var/ directory structure exists
     ensure_var_directories()
     
-    # Create modular daemon with dependency injection
-    daemon = await create_daemon(args.socket_dir, args.hot_reload_from)
+    # Create plugin-based daemon
+    daemon = await create_plugin_daemon(args.socket_dir, args.hot_reload_from)
     
     # Get the current event loop
     loop = asyncio.get_running_loop()
     
     # Setup signal handlers with asyncio integration
-    setup_signal_handlers(daemon, loop)
+    setup_signal_handlers(daemon.shutdown_event, loop)
     
     # Start the daemon
-    logger.info("Starting modular KSI daemon")
+    logger.info("Starting plugin-based KSI daemon")
     try:
-        await daemon.start()
+        await daemon.run()
     except asyncio.CancelledError:
         logger.info("Daemon cancelled, shutting down gracefully")
+    except KeyboardInterrupt:
+        logger.info("Keyboard interrupt received, shutting down...")
+    except Exception as e:
+        logger.error(f"Daemon failed: {e}", exc_info=True)
+        sys.exit(1)
     finally:
         # Ensure cleanup happens
+        await daemon.shutdown()
         logger.info("Final cleanup...")
         await asyncio.sleep(0.1)  # Allow final logs to flush
 

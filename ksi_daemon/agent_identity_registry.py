@@ -11,7 +11,6 @@ from pathlib import Path
 from .manager_framework import BaseManager, with_error_handling, log_operation, atomic_operation
 from .file_operations import FileOperations
 from .timestamp_utils import TimestampManager
-from .protocols import IdentityInfo
 from .config import config
 
 class AgentIdentityRegistry(BaseManager):

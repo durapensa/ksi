@@ -4,196 +4,20 @@ Client Utilities - Shared JSON command building and response handling
 
 Provides common utilities for building JSON Protocol v2.0 commands and handling responses.
 Used by daemon_client.py, agent_process.py, and other client code to eliminate duplication.
+
+Now supports both legacy command-based and new event-based protocols.
 """
 
 import json
 import asyncio
 import logging
+import uuid
 from typing import Dict, Any, Optional, Union, List, Tuple
 from datetime import datetime
 
 logger = logging.getLogger('ksi_client.utils')
 
-class CommandBuilder:
-    """Builder for JSON Protocol v2.0 commands"""
-    
-    VERSION = "2.0"
-    
-    @classmethod
-    def build_command(cls, command: str, parameters: Dict[str, Any] = None, 
-                     metadata: Dict[str, Any] = None) -> Dict[str, Any]:
-        """
-        Build a standard JSON command object
-        
-        Args:
-            command: Command name (e.g., "SPAWN", "PUBLISH")
-            parameters: Command parameters
-            metadata: Optional metadata
-            
-        Returns:
-            Complete command dict ready for JSON serialization
-        """
-        cmd_obj = {
-            "command": command,
-            "version": cls.VERSION,
-            "parameters": parameters or {}
-        }
-        
-        if metadata:
-            cmd_obj["metadata"] = metadata
-            
-        return cmd_obj
-    
-    @classmethod
-    def build_spawn_command(cls, prompt: str, mode: str = "sync", 
-                           session_id: str = None, model: str = "sonnet",
-                           agent_id: str = None, enable_tools: bool = True,
-                           spawn_type: str = "claude") -> Dict[str, Any]:
-        """
-        DEPRECATED: Use build_completion_command for the new architecture.
-        
-        Build a SPAWN command with all parameters (old single-socket architecture only).
-        
-        Args:
-            prompt: Text prompt for Claude
-            mode: "sync" or "async"
-            session_id: Optional session ID for continuity
-            model: Claude model to use
-            agent_id: Optional agent identifier
-            enable_tools: Whether to enable tool usage
-            spawn_type: Type of process to spawn ("claude")
-            
-        Returns:
-            SPAWN command dict
-        """
-        params = {
-            "mode": mode,
-            "type": spawn_type,
-            "prompt": prompt,
-            "model": model,
-            "enable_tools": enable_tools
-        }
-        
-        if session_id:
-            params["session_id"] = session_id
-        if agent_id:
-            params["agent_id"] = agent_id
-            
-        return cls.build_command("SPAWN", params)
-    
-    @classmethod
-    def build_completion_command(cls, prompt: str, client_id: str,
-                               model: str = "sonnet", session_id: str = None,
-                               agent_id: str = None, timeout: int = 300,
-                               metadata: Dict[str, Any] = None) -> Dict[str, Any]:
-        """
-        Build a COMPLETION command for async LLM requests (new multi-socket architecture).
-        
-        Args:
-            prompt: Text prompt for Claude
-            client_id: Client ID for callback routing (required)
-            model: Claude model to use
-            session_id: Optional session ID for continuity
-            agent_id: Optional agent to route through
-            timeout: Timeout in seconds (max 600)
-            metadata: Additional metadata
-            
-        Returns:
-            COMPLETION command dict
-        """
-        params = {
-            "prompt": prompt,
-            "client_id": client_id,
-            "model": model,
-            "timeout": timeout
-        }
-        
-        if session_id:
-            params["session_id"] = session_id
-        if agent_id:
-            params["agent_id"] = agent_id
-        if metadata:
-            params["metadata"] = metadata
-            
-        return cls.build_command("COMPLETION", params)
-    
-    @classmethod
-    def build_publish_command(cls, from_agent: str, event_type: str, 
-                             payload: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Build a PUBLISH command for message bus events
-        
-        Args:
-            from_agent: Agent ID publishing the event
-            event_type: Type of event (e.g., "DIRECT_MESSAGE", "CONVERSATION_INVITE")
-            payload: Event payload data
-            
-        Returns:
-            PUBLISH command dict
-        """
-        params = {
-            "from_agent": from_agent,
-            "event_type": event_type,
-            "payload": payload
-        }
-        
-        return cls.build_command("PUBLISH", params)
-    
-    @classmethod
-    def build_subscribe_command(cls, agent_id: str, event_types: List[str]) -> Dict[str, Any]:
-        """
-        Build a SUBSCRIBE command for message bus events
-        
-        Args:
-            agent_id: Agent ID to subscribe
-            event_types: List of event types to subscribe to
-            
-        Returns:
-            SUBSCRIBE command dict
-        """
-        params = {
-            "agent_id": agent_id,
-            "event_types": event_types
-        }
-        
-        return cls.build_command("SUBSCRIBE", params)
-    
-    @classmethod
-    def build_agent_connection_command(cls, action: str, agent_id: str) -> Dict[str, Any]:
-        """
-        Build an AGENT_CONNECTION command
-        
-        Args:
-            action: "connect" or "disconnect"
-            agent_id: Agent identifier
-            
-        Returns:
-            AGENT_CONNECTION command dict
-        """
-        params = {
-            "action": action,
-            "agent_id": agent_id
-        }
-        
-        return cls.build_command("AGENT_CONNECTION", params)
-    
-    @classmethod
-    def build_identity_command(cls, command: str, agent_id: str, **kwargs) -> Dict[str, Any]:
-        """
-        Build identity management commands (CREATE_IDENTITY, GET_IDENTITY, etc.)
-        
-        Args:
-            command: Identity command name
-            agent_id: Agent identifier
-            **kwargs: Additional parameters (display_name, role, personality_traits, etc.)
-            
-        Returns:
-            Identity command dict
-        """
-        params = {"agent_id": agent_id}
-        params.update(kwargs)
-        
-        return cls.build_command(command, params)
+# Legacy CommandBuilder removed - use EventBuilder instead
 
 class ResponseHandler:
     """Handler for JSON Protocol v2.0 responses"""
@@ -317,40 +141,173 @@ class ConnectionManager:
         except Exception as e:
             raise ConnectionError(f"Connection failed: {e}")
 
-# Convenience functions for common patterns
-def create_spawn_command(prompt: str, **kwargs) -> Dict[str, Any]:
-    """DEPRECATED: Use create_completion_command. Convenience function for creating SPAWN commands"""
-    return CommandBuilder.build_spawn_command(prompt, **kwargs)
+# Legacy command convenience functions removed - use event functions instead
 
-def create_completion_command(prompt: str, client_id: str, **kwargs) -> Dict[str, Any]:
-    """Convenience function for creating COMPLETION commands (new architecture)"""
-    return CommandBuilder.build_completion_command(prompt, client_id, **kwargs)
 
-def create_publish_command(from_agent: str, event_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Convenience function for creating PUBLISH commands"""
-    return CommandBuilder.build_publish_command(from_agent, event_type, payload)
+class EventBuilder:
+    """Builder for event-based protocol messages"""
+    
+    @classmethod
+    def build_event(cls, event_name: str, data: Dict[str, Any] = None,
+                   correlation_id: str = None, client_id: str = None) -> Dict[str, Any]:
+        """
+        Build an event message for the new plugin architecture
+        
+        Args:
+            event_name: Event name (e.g., "system:health", "completion:request")
+            data: Event data/parameters
+            correlation_id: Optional correlation ID for request/response patterns
+            client_id: Optional client identifier
+            
+        Returns:
+            Complete event dict ready for JSON serialization
+        """
+        event = {
+            "event": event_name,
+            "data": data or {},
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        if correlation_id:
+            event["correlation_id"] = correlation_id
+        if client_id:
+            event["client_id"] = client_id
+            
+        return event
+    
+    @classmethod
+    def build_health_event(cls) -> Dict[str, Any]:
+        """Build a system:health event"""
+        return cls.build_event("system:health")
+    
+    @classmethod
+    def build_completion_event(cls, prompt: str, model: str = "sonnet",
+                             session_id: str = None, client_id: str = None,
+                             correlation_id: str = None) -> Dict[str, Any]:
+        """
+        Build a completion:request event
+        
+        Args:
+            prompt: Text prompt for Claude
+            model: Claude model to use
+            session_id: Optional session ID for continuity
+            client_id: Client identifier for response routing
+            correlation_id: Correlation ID for response matching
+            
+        Returns:
+            Completion request event dict
+        """
+        data = {
+            "prompt": prompt,
+            "model": model
+        }
+        
+        if session_id:
+            data["session_id"] = session_id
+        if client_id:
+            data["client_id"] = client_id
+            
+        return cls.build_event("completion:request", data, correlation_id, client_id)
+    
+    @classmethod
+    def build_agent_event(cls, action: str, agent_id: str = None, 
+                         role: str = None, capabilities: List[str] = None,
+                         correlation_id: str = None) -> Dict[str, Any]:
+        """
+        Build agent-related events
+        
+        Args:
+            action: Action type ("register", "list", "spawn", etc.)
+            agent_id: Agent identifier (for actions on specific agents)
+            role: Agent role (for registration)
+            capabilities: Agent capabilities (for registration)
+            correlation_id: Correlation ID for response
+            
+        Returns:
+            Agent event dict
+        """
+        event_name = f"agent:{action}"
+        data = {}
+        
+        if agent_id:
+            data["agent_id"] = agent_id
+        if role:
+            data["role"] = role
+        if capabilities:
+            data["capabilities"] = capabilities
+            
+        return cls.build_event(event_name, data, correlation_id)
+    
+    @classmethod
+    def build_state_event(cls, action: str, namespace: str = None,
+                         key: str = None, value: Any = None,
+                         correlation_id: str = None) -> Dict[str, Any]:
+        """
+        Build state management events
+        
+        Args:
+            action: Action type ("get", "set", "delete")
+            namespace: State namespace
+            key: State key
+            value: State value (for set operations)
+            correlation_id: Correlation ID
+            
+        Returns:
+            State event dict
+        """
+        event_name = f"state:{action}"
+        data = {}
+        
+        if namespace:
+            data["namespace"] = namespace
+        if key:
+            data["key"] = key
+        if value is not None:
+            data["value"] = value
+            
+        return cls.build_event(event_name, data, correlation_id)
+    
+    @classmethod
+    def build_shutdown_event(cls) -> Dict[str, Any]:
+        """Build a system:shutdown event"""
+        return cls.build_event("system:shutdown")
 
-def create_subscribe_command(agent_id: str, event_types: List[str]) -> Dict[str, Any]:
-    """Convenience function for creating SUBSCRIBE commands"""
-    return CommandBuilder.build_subscribe_command(agent_id, event_types)
 
-def create_agent_connection_command(action: str, agent_id: str) -> Dict[str, Any]:
-    """Convenience function for creating AGENT_CONNECTION commands"""
-    return CommandBuilder.build_agent_connection_command(action, agent_id)
+# Event-based convenience functions
+def create_event(event_name: str, data: Dict[str, Any] = None, **kwargs) -> Dict[str, Any]:
+    """Convenience function for creating events"""
+    return EventBuilder.build_event(event_name, data, **kwargs)
 
-async def send_daemon_command(socket_path: str, command: str, parameters: Dict[str, Any] = None, 
-                             timeout: float = 5.0) -> Dict[str, Any]:
+def create_health_event() -> Dict[str, Any]:
+    """Convenience function for health check event"""
+    return EventBuilder.build_health_event()
+
+def create_completion_event(prompt: str, **kwargs) -> Dict[str, Any]:
+    """Convenience function for completion request event"""
+    return EventBuilder.build_completion_event(prompt, **kwargs)
+
+def create_agent_event(action: str, **kwargs) -> Dict[str, Any]:
+    """Convenience function for agent events"""
+    return EventBuilder.build_agent_event(action, **kwargs)
+
+def create_state_event(action: str, **kwargs) -> Dict[str, Any]:
+    """Convenience function for state events"""
+    return EventBuilder.build_state_event(action, **kwargs)
+
+async def send_daemon_event(socket_path: str, event_name: str, data: Dict[str, Any] = None,
+                          correlation_id: str = None, timeout: float = 5.0) -> Dict[str, Any]:
     """
-    High-level convenience function for sending commands to daemon
+    High-level convenience function for sending events to daemon
     
     Args:
         socket_path: Path to daemon socket
-        command: Command name
-        parameters: Command parameters
+        event_name: Event name
+        data: Event data
+        correlation_id: Optional correlation ID
         timeout: Connection timeout
         
     Returns:
         Parsed response dict
     """
-    command_dict = CommandBuilder.build_command(command, parameters)
-    return await ConnectionManager.send_command_once(socket_path, command_dict, timeout)
+    event_dict = EventBuilder.build_event(event_name, data, correlation_id)
+    return await ConnectionManager.send_command_once(socket_path, event_dict, timeout)

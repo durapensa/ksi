@@ -14,7 +14,6 @@ from .manager_framework import BaseManager, with_error_handling, log_operation
 from .file_operations import FileOperations, LogEntry
 from .timestamp_utils import TimestampManager
 from .config import config
-from .protocols import AgentInfo
 
 class AgentProfileRegistry(BaseManager):
     """Registry for agent profiles, capabilities, and task routing"""

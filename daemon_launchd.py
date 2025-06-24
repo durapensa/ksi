@@ -16,7 +16,7 @@ PLIST_FILE = "com.ksi.daemon.plist"
 DAEMON_LABEL = "com.ksi.daemon"
 PROJECT_DIR = Path(__file__).parent
 PLIST_PATH = PROJECT_DIR / PLIST_FILE
-ADMIN_SOCKET = PROJECT_DIR / "sockets/admin.sock"
+DAEMON_SOCKET = Path("/tmp/ksi/daemon.sock")
 
 def run_command(cmd, check=True):
     """Run shell command and return result"""
@@ -61,11 +61,11 @@ def daemon_health():
         # Test socket connection
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.settimeout(2.0)
-        sock.connect(str(ADMIN_SOCKET))
+        sock.connect(str(DAEMON_SOCKET))
         
-        # Send health check
-        health_cmd = {"version": "2.0", "command": "HEALTH_CHECK"}
-        sock.send(json.dumps(health_cmd).encode() + b'\n')
+        # Send health check event
+        health_event = {"event": "system:health", "data": {}}
+        sock.send(json.dumps(health_event).encode() + b'\n')
         
         response = sock.recv(4096).decode()
         sock.close()

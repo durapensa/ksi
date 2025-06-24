@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-KSI Client Library - Clean client interface for KSI daemon
+KSI Client Library - Event-driven client interface for KSI daemon
 
-This package provides a clean, standalone client library for interacting
-with the KSI multi-socket daemon architecture.
+This package provides a clean, event-driven client library for interacting
+with the KSI plugin-based daemon architecture.
 
 Usage:
-    # Simple chat interface
+    # Simple chat interface (event-based)
     from ksi_client import SimpleChatClient
     
     async def main():
@@ -14,61 +14,62 @@ Usage:
             response, session_id = await client.send_prompt("What is 2+2?")
             print(response)
     
-    # Full-featured async client  
+    # Full-featured event client  
     from ksi_client import AsyncClient
     
     async def main():
         client = AsyncClient(client_id="my-app")
-        await client.initialize()
+        await client.connect()
         
-        # Health check
-        health = await client.health_check()
+        # Health check via event
+        health = await client.emit_event("system:health")
         
-        # Create completion
+        # Create completion via event
         response = await client.create_completion("Explain quantum computing")
         
-        await client.close()
-
-    # Command building utilities
-    from ksi_client import CommandBuilder, ResponseHandler
+        await client.disconnect()
 """
 
-# Import and re-export main client classes
-from .async_client import (
-    MultiSocketAsyncClient as AsyncClient,  # Renamed for clarity
-    SimpleChatClient,
-    SocketConnection,
-    PendingCompletion
-)
-
-# Import event-based clients for new architecture
+# Import event-based clients as primary interface
 from .event_client import (
+    EventBasedClient as AsyncClient,  # Use event client as default
+    EventChatClient as SimpleChatClient,
     EventBasedClient,
     EventChatClient
 )
 
 # Import and re-export utilities
 from .utils import (
-    CommandBuilder,
     ConnectionManager, 
-    ResponseHandler
+    ResponseHandler,
+    EventBuilder,
+    create_event,
+    create_health_event,
+    create_completion_event,
+    create_agent_event,
+    create_state_event,
+    send_daemon_event
 )
 
 # Version info
 __version__ = "1.0.0"
 __all__ = [
-    # Legacy multi-socket clients
-    "AsyncClient",           # Primary full-featured client
-    "SimpleChatClient",      # Simplified chat interface
-    "SocketConnection",      # Connection management
-    "PendingCompletion",     # Completion tracking
-    
-    # Event-based clients (new architecture)
+    # Event-based clients - Primary interface
+    "AsyncClient",           # Primary full-featured client (EventBasedClient)
+    "SimpleChatClient",      # Simplified chat interface (EventChatClient)
     "EventBasedClient",      # Event-driven client
     "EventChatClient",       # Simplified event chat client
     
     # Utilities
-    "CommandBuilder",        # JSON command construction
+    "EventBuilder",          # Event construction
     "ConnectionManager",     # Low-level connection handling
     "ResponseHandler",       # Response parsing
+    
+    # Event convenience functions
+    "create_event",
+    "create_health_event",
+    "create_completion_event",
+    "create_agent_event",
+    "create_state_event",
+    "send_daemon_event",
 ]

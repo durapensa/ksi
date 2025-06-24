@@ -15,7 +15,7 @@ from pathlib import Path
 from ksi_client import EventChatClient
 from ksi_daemon.config import config
 
-SOCKET_PATH = os.environ.get('KSI_DAEMON_SOCKET', str(config.admin_socket))
+SOCKET_PATH = os.environ.get('KSI_DAEMON_SOCKET', str(config.socket_path))
 
 def start_daemon():
     """Start daemon if not running"""

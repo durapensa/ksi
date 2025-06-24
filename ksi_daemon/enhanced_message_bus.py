@@ -6,7 +6,6 @@ Improvements over basic message bus:
 1. Targeted subscriptions with topics/filters
 2. Direct delivery for point-to-point messages
 3. Channel-based subscriptions (e.g., "completions/<client_id>")
-4. Backward compatible with existing code
 """
 
 import asyncio
@@ -258,11 +257,3 @@ class EnhancedMessageBus(MessageBus):
             # Simple pattern
             return self._matches_pattern(event_type, pattern)
 
-
-# Convenience factory for backwards compatibility
-def create_message_bus(enhanced: bool = True) -> MessageBus:
-    """Create message bus instance"""
-    if enhanced:
-        return EnhancedMessageBus()
-    else:
-        return MessageBus()

@@ -49,13 +49,13 @@ class EventBasedClient:
     the new daemon's event-driven design.
     """
     
-    def __init__(self, client_id: str = None, socket_path: str = "/tmp/ksi/admin.sock"):
+    def __init__(self, client_id: str = None, socket_path: str = "/tmp/ksi/daemon.sock"):
         """
         Initialize event-based client.
         
         Args:
             client_id: Unique client identifier (auto-generated if None)
-            socket_path: Path to daemon socket (uses legacy socket for now)
+            socket_path: Path to daemon socket
         """
         self.client_id = client_id or f"event_client_{uuid.uuid4().hex[:8]}"
         self.socket_path = Path(socket_path)
@@ -167,15 +167,9 @@ class EventBasedClient:
         if correlation_id:
             event["correlation_id"] = correlation_id
         
-        # For now, wrap in legacy command format
-        # This will be removed when daemon fully supports raw events
-        command = {
-            "command": "EVENT",
-            "parameters": event
-        }
-        
-        command_str = json.dumps(command) + '\n'
-        self.writer.write(command_str.encode())
+        # Send event directly (new protocol)
+        event_str = json.dumps(event) + '\n'
+        self.writer.write(event_str.encode())
         await self.writer.drain()
     
     async def request_event(self, event_name: str, data: Dict[str, Any] = None,

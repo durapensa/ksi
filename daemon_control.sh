@@ -10,15 +10,9 @@ set -e
 DAEMON_SCRIPT="ksi-daemon.py"
 PID_FILE="${KSI_PID_FILE:-var/run/ksi_daemon.pid}"
 
-# Socket configuration
-ADMIN_SOCKET="${KSI_ADMIN_SOCKET:-sockets/admin.sock}"  # System operations
-AGENTS_SOCKET="${KSI_AGENTS_SOCKET:-sockets/agents.sock}"  # Agent lifecycle
-MESSAGING_SOCKET="${KSI_MESSAGING_SOCKET:-sockets/messaging.sock}"  # Pub/sub
-STATE_SOCKET="${KSI_STATE_SOCKET:-sockets/state.sock}"  # KV store
-COMPLETION_SOCKET="${KSI_COMPLETION_SOCKET:-sockets/completion.sock}"  # LLM
-
-# Use admin socket as primary
-SOCKET_FILE="$ADMIN_SOCKET"
+# Socket configuration - single socket for event-based architecture
+SOCKET_DIR="${KSI_SOCKET_DIR:-/tmp/ksi}"
+SOCKET_FILE="$SOCKET_DIR/daemon.sock"
 
 # Logging configuration
 LOG_DIR="${KSI_LOG_DIR:-var/logs/daemon}"
@@ -38,21 +32,16 @@ NC='\033[0m' # No Color
 # Change to script directory
 cd "$(dirname "$0")"
 
-# Helper function to send JSON commands
-send_json_command() {
-    local cmd="$1"
-    local params="${2:-null}"
+# Helper function to send JSON events
+send_json_event() {
+    local event="$1"
+    local data="${2:-{}}"
     
-    # Build JSON command
-    local json_cmd
-    if [ "$params" = "null" ]; then
-        json_cmd='{"version": "2.0", "command": "'"$cmd"'"}'
-    else
-        json_cmd='{"version": "2.0", "command": "'"$cmd"'", "parameters": '"$params"'}'
-    fi
+    # Build JSON event
+    local json_event='{"event": "'"$event"'", "data": '"$data"'}'
     
-    # Send command and get response
-    echo "$json_cmd" | nc -U "$SOCKET_FILE" 2>/dev/null
+    # Send event and get response
+    echo "$json_event" | nc -U "$SOCKET_FILE" 2>/dev/null
 }
 
 # Check virtual environment
@@ -99,11 +88,11 @@ daemon_health() {
         return 1
     fi
     
-    # Send HEALTH_CHECK command
-    response=$(send_json_command "HEALTH_CHECK" || echo '{"status":"error"}')
+    # Send health check event
+    response=$(send_json_event "system:health" || echo '{"error":{"code":"CONNECTION_FAILED"}}')
     
     # Parse JSON response
-    health_status=$(echo "$response" | python3 -c "import json,sys; d=json.load(sys.stdin); print('healthy' if d.get('status')=='success' and d.get('result',{}).get('status')=='healthy' else 'unhealthy')" 2>/dev/null || echo "error")
+    health_status=$(echo "$response" | python3 -c "import json,sys; d=json.load(sys.stdin); print('healthy' if not d.get('error') and d.get('status')=='healthy' else 'unhealthy')" 2>/dev/null || echo "error")
     
     if [ "$health_status" = "healthy" ]; then
         echo -e "${GREEN}✓ Daemon is healthy${NC}"
@@ -113,13 +102,12 @@ daemon_health() {
         echo "Additional Information:"
         
         # Get agent count
-        agents=$(send_json_command "GET_AGENTS" | python3 -c "
+        agents=$(send_json_event "agent:list" | python3 -c "
 import json, sys
 try:
     data = json.load(sys.stdin)
-    if data.get('status') == 'success':
-        result = data.get('result', {})
-        agents = result.get('agents', {})
+    if not data.get('error'):
+        agents = data.get('agents', [])
         print('  Active agents: ' + str(len(agents)))
     else:
         print('  Active agents: 0')
@@ -128,13 +116,12 @@ except:
 " 2>/dev/null || echo "  Active agents: Unable to retrieve")
         
         # Get process count
-        processes=$(send_json_command "GET_PROCESSES" | python3 -c "
+        processes=$(send_json_event "state:get" '{"namespace": "processes", "key": "active"}' | python3 -c "
 import json, sys
 try:
     data = json.load(sys.stdin)
-    if data.get('status') == 'success':
-        result = data.get('result', {})
-        procs = result.get('processes', {})
+    if not data.get('error') and data.get('value'):
+        procs = data.get('value', {})
         print('  Running processes: ' + str(len(procs)))
     else:
         print('  Running processes: 0')
@@ -146,14 +133,7 @@ except:
         echo "$processes"
         echo ""
         echo "Socket Configuration:"
-        echo "  Primary: $SOCKET_FILE"
-        if [ "$ADMIN_SOCKET" != "$SOCKET_FILE" ]; then
-            echo "  Admin: $ADMIN_SOCKET (system operations)"
-            echo "  Agents: $AGENTS_SOCKET (agent lifecycle)"
-            echo "  Messaging: $MESSAGING_SOCKET (pub/sub)"
-            echo "  State: $STATE_SOCKET (KV store)"
-            echo "  Completion: $COMPLETION_SOCKET (LLM)"
-        fi
+        echo "  Socket: $SOCKET_FILE"
         echo ""
         echo "Logging Configuration:"
         echo "  Log File: $LOG_FILE"
@@ -180,7 +160,7 @@ start_daemon() {
     check_venv
     
     # Ensure directories exist
-    mkdir -p var/run var/logs/daemon var/logs/sessions var/db var/tmp sockets logs
+    mkdir -p var/run var/logs/daemon var/logs/sessions var/db var/tmp "$SOCKET_DIR" logs
     
     # Export logging environment variables
     export KSI_LOG_LEVEL="$LOG_LEVEL"
@@ -234,7 +214,7 @@ stop_daemon() {
     # Try graceful shutdown via socket first
     if [ -S "$SOCKET_FILE" ]; then
         echo "Sending SHUTDOWN command..."
-        send_json_command "SHUTDOWN" >/dev/null 2>&1 || true
+        send_json_event "system:shutdown" >/dev/null 2>&1 || true
         
         # Wait for graceful shutdown
         echo -n "Waiting for graceful shutdown"

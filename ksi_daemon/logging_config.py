@@ -20,21 +20,15 @@ def get_logger(name: str) -> structlog.stdlib.BoundLogger:
     return config.get_structured_logger(name)
 
 
-def bind_socket_context(
-    functional_domain: str,
+def bind_connection_context(
     request_id: Optional[str] = None, 
     connection_id: Optional[str] = None,
     **extra_context
 ) -> str:
     """
-    Bind context for socket connections with functional domain identification.
+    Bind context for socket connections.
     
-    Functional Domains (separate sockets):
-    - 'admin': System operations (health, shutdown, cleanup) - admin.sock
-    - 'agents': Agent lifecycle & persona (spawn, identity, composition) - agents.sock  
-    - 'messaging': Ephemeral communication (pub/sub, send_message) - messaging.sock
-    - 'state': Persistent KV store (set_agent_kv, get_agent_kv) - state.sock
-    - 'completion': LLM interactions (completion) - completion.sock
+    Used for tracking requests and connections in the event-driven architecture.
     """
     if request_id is None:
         request_id = str(uuid.uuid4())
@@ -44,7 +38,6 @@ def bind_socket_context(
     context = {
         "request_id": request_id,
         "connection_id": connection_id,
-        "functional_domain": functional_domain,
         **extra_context
     }
     structlog.contextvars.bind_contextvars(**context)

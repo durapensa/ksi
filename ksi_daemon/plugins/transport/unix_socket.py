@@ -36,58 +36,42 @@ class UnixSocketConnection(TransportConnection):
         self.config = config
         self.emit_event = event_emitter
         
-        # Socket paths from config
+        # Single socket path from config
         socket_dir = Path(config.get("socket_dir", "/tmp/ksi"))
-        self.sockets = {
-            "admin": socket_dir / "admin.sock",
-            "agents": socket_dir / "agents.sock",
-            "messaging": socket_dir / "messaging.sock",
-            "state": socket_dir / "state.sock",
-            "completion": socket_dir / "completion.sock"
-        }
+        socket_dir.mkdir(parents=True, exist_ok=True)
+        self.socket_path = socket_dir / "daemon.sock"
         
         # Connection tracking
         self.connections: Dict[str, asyncio.StreamWriter] = {}
         self.connection_info: Dict[str, Dict[str, Any]] = {}
         self.servers = {}
         self.status = TransportStatus.DISCONNECTED
-        
-        # For legacy single socket compatibility
-        self.legacy_socket = self.sockets["admin"]
     
     async def start(self) -> None:
-        """Start Unix socket servers."""
+        """Start Unix socket server."""
         logger.info("Starting Unix socket transport")
         
-        # Create socket directory
-        socket_dir = Path(self.config.get("socket_dir", "/tmp/ksi"))
-        socket_dir.mkdir(parents=True, exist_ok=True)
+        # Clean up existing socket
+        if self.socket_path.exists():
+            self.socket_path.unlink()
+            logger.debug("Cleaned up existing socket")
         
-        # Clean up existing sockets
-        for name, path in self.sockets.items():
-            if path.exists():
-                path.unlink()
-                logger.debug(f"Cleaned up existing {name} socket")
-        
-        # Start servers
-        for name, path in self.sockets.items():
-            try:
-                server = await asyncio.start_unix_server(
-                    lambda r, w: self._handle_connection(r, w, name),
-                    path=str(path)
-                )
-                self.servers[name] = server
-                logger.info(f"Started {name} server on {path}")
-            except Exception as e:
-                logger.error(f"Failed to start {name} server: {e}")
-                await self.stop()
-                raise
+        # Start single server
+        try:
+            self.server = await asyncio.start_unix_server(
+                self._handle_connection,
+                path=str(self.socket_path)
+            )
+            logger.info(f"Started server on {self.socket_path}")
+        except Exception as e:
+            logger.error(f"Failed to start server: {e}")
+            raise
         
         self.status = TransportStatus.CONNECTED
         logger.info("Unix socket transport started successfully")
     
     async def stop(self) -> None:
-        """Stop Unix socket servers."""
+        """Stop Unix socket server."""
         logger.info("Stopping Unix socket transport")
         self.status = TransportStatus.DISCONNECTED
         
@@ -99,35 +83,31 @@ class UnixSocketConnection(TransportConnection):
             except Exception as e:
                 logger.error(f"Error closing connection {conn_id}: {e}")
         
-        # Stop all servers
-        for name, server in self.servers.items():
-            server.close()
-            await server.wait_closed()
-            logger.debug(f"Stopped {name} server")
+        # Stop server
+        if hasattr(self, 'server'):
+            self.server.close()
+            await self.server.wait_closed()
+            logger.debug("Stopped server")
         
-        # Clean up socket files
-        for name, path in self.sockets.items():
-            if path.exists():
-                try:
-                    path.unlink()
-                except Exception as e:
-                    logger.error(f"Error removing socket {name}: {e}")
+        # Clean up socket file
+        if self.socket_path.exists():
+            try:
+                self.socket_path.unlink()
+            except Exception as e:
+                logger.error(f"Error removing socket: {e}")
         
         self.connections.clear()
-        self.servers.clear()
         logger.info("Unix socket transport stopped")
     
     async def _handle_connection(self, reader: asyncio.StreamReader, 
-                                writer: asyncio.StreamWriter, 
-                                socket_name: str) -> None:
+                                writer: asyncio.StreamWriter) -> None:
         """Handle a client connection."""
-        conn_id = f"unix_{socket_name}_{len(self.connections)}"
+        conn_id = f"unix_{len(self.connections)}"
         
         try:
             # Store connection
             self.connections[conn_id] = writer
             self.connection_info[conn_id] = {
-                "socket": socket_name,
                 "connected_at": asyncio.get_event_loop().time()
             }
             
@@ -135,8 +115,7 @@ class UnixSocketConnection(TransportConnection):
             await self.emit_event("transport:connection", {
                 "transport_type": "unix",
                 "connection_id": conn_id,
-                "action": "connect",
-                "info": {"socket": socket_name}
+                "action": "connect"
             })
             
             # Handle messages
@@ -166,7 +145,7 @@ class UnixSocketConnection(TransportConnection):
                     response = await self.emit_event(
                         event_name,
                         event_payload,
-                        source=f"unix:{socket_name}",
+                        source="unix",
                         correlation_id=correlation_id,
                         expect_response=True
                     )
@@ -224,8 +203,7 @@ class UnixSocketConnection(TransportConnection):
             await self.emit_event("transport:connection", {
                 "transport_type": "unix",
                 "connection_id": conn_id,
-                "action": "disconnect",
-                "info": {"socket": socket_name}
+                "action": "disconnect"
             })
             
             # Close writer
@@ -256,23 +234,10 @@ class UnixSocketConnection(TransportConnection):
         await self._send_response(writer, event)
     
     async def broadcast_event(self, event: Dict[str, Any], room: Optional[str] = None) -> None:
-        """Broadcast event to connections."""
-        # Filter by room (socket name)
-        target_connections = []
-        
-        if room:
-            # Room is the socket name
-            target_connections = [
-                (conn_id, writer) 
-                for conn_id, writer in self.connections.items()
-                if self.connection_info.get(conn_id, {}).get("socket") == room
-            ]
-        else:
-            # Broadcast to all
-            target_connections = list(self.connections.items())
-        
-        # Send to all targets
-        for conn_id, writer in target_connections:
+        """Broadcast event to all connections."""
+        # With single socket, room filtering is not applicable
+        # Broadcast to all connections
+        for conn_id, writer in self.connections.items():
             try:
                 await self._send_response(writer, event)
             except Exception as e:
@@ -392,7 +357,7 @@ class UnixSocketPlugin(BasePlugin):
             return {
                 "status": self._transport.get_status().value,
                 "connections": len(self._transport.get_connections()),
-                "sockets": list(self._transport.sockets.keys())
+                "socket": str(self._transport.socket_path)
             }
         
         return None
