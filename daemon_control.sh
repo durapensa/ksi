@@ -11,15 +11,14 @@ DAEMON_SCRIPT="daemon.py"
 PID_FILE="${KSI_PID_FILE:-var/run/ksi_daemon.pid}"
 
 # Socket configuration for the 5-socket architecture
-# Currently using single socket, but prepared for multi-socket expansion
-ADMIN_SOCKET="${KSI_ADMIN_SOCKET:-var/run/ksi_daemon.sock}"  # System operations
-AGENTS_SOCKET="${KSI_AGENTS_SOCKET:-var/run/ksi_daemon.sock}"  # Agent lifecycle
-MESSAGING_SOCKET="${KSI_MESSAGING_SOCKET:-var/run/ksi_daemon.sock}"  # Pub/sub
-STATE_SOCKET="${KSI_STATE_SOCKET:-var/run/ksi_daemon.sock}"  # KV store
-COMPLETION_SOCKET="${KSI_COMPLETION_SOCKET:-var/run/ksi_daemon.sock}"  # LLM
+ADMIN_SOCKET="${KSI_ADMIN_SOCKET:-sockets/admin.sock}"  # System operations
+AGENTS_SOCKET="${KSI_AGENTS_SOCKET:-sockets/agents.sock}"  # Agent lifecycle
+MESSAGING_SOCKET="${KSI_MESSAGING_SOCKET:-sockets/messaging.sock}"  # Pub/sub
+STATE_SOCKET="${KSI_STATE_SOCKET:-sockets/state.sock}"  # KV store
+COMPLETION_SOCKET="${KSI_COMPLETION_SOCKET:-sockets/completion.sock}"  # LLM
 
-# Primary socket for backwards compatibility
-SOCKET_FILE="${KSI_SOCKET_PATH:-$ADMIN_SOCKET}"
+# Use admin socket as primary
+SOCKET_FILE="$ADMIN_SOCKET"
 
 # Logging configuration
 LOG_DIR="${KSI_LOG_DIR:-var/logs/daemon}"
@@ -324,16 +323,13 @@ case "$1" in
         echo "  logs     - Show recent daemon logs"
         echo ""
         echo "Environment Variables:"
-        echo "  KSI_LOG_LEVEL    - Logging level (default: INFO)"
-        echo "  KSI_LOG_FORMAT   - Log format: console or json (default: console)"
-        echo "  KSI_SOCKET_PATH  - Primary socket path (default: var/run/ksi_daemon.sock)"
-        echo ""
-        echo "Future Multi-Socket Support:"
-        echo "  KSI_ADMIN_SOCKET      - System operations socket"
-        echo "  KSI_AGENTS_SOCKET     - Agent lifecycle socket"
-        echo "  KSI_MESSAGING_SOCKET  - Pub/sub messaging socket"
-        echo "  KSI_STATE_SOCKET      - KV store socket"
-        echo "  KSI_COMPLETION_SOCKET - LLM completion socket"
+        echo "  KSI_LOG_LEVEL         - Logging level (default: INFO)"
+        echo "  KSI_LOG_FORMAT        - Log format: console or json (default: console)"
+        echo "  KSI_ADMIN_SOCKET      - Admin socket (default: sockets/admin.sock)"
+        echo "  KSI_AGENTS_SOCKET     - Agents socket (default: sockets/agents.sock)"
+        echo "  KSI_MESSAGING_SOCKET  - Messaging socket (default: sockets/messaging.sock)"
+        echo "  KSI_STATE_SOCKET      - State socket (default: sockets/state.sock)"
+        echo "  KSI_COMPLETION_SOCKET - Completion socket (default: sockets/completion.sock)"
         exit 1
         ;;
 esac
