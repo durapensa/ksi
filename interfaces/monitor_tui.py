@@ -14,7 +14,7 @@ import os
 
 # Add path for daemon client utilities
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from daemon.client import CommandBuilder
+from ksi_daemon.client import CommandBuilder
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical, ScrollableContainer

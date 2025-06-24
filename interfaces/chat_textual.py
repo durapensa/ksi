@@ -18,8 +18,9 @@ import time
 
 # Import timestamp utilities for consistent timezone handling
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from daemon.timestamp_utils import TimestampManager
-from daemon.client.utils import CommandBuilder, ResponseHandler, ConnectionManager
+from ksi_daemon.timestamp_utils import TimestampManager
+from ksi_daemon.client.utils import CommandBuilder, ResponseHandler, ConnectionManager
+from ksi_daemon.client.multi_socket_client import SimpleChatClient
 # Import AgentProcess later to avoid early logging setup
 
 from textual.app import App, ComposeResult
@@ -229,6 +230,9 @@ class ChatInterface(App):
         
         # Agent process for composition-aware messaging
         self.agent_process = None
+        
+        # Multi-socket client for new architecture
+        self.chat_client: Optional[SimpleChatClient] = None
     
     def compose(self) -> ComposeResult:
         """Create the UI layout"""
@@ -279,12 +283,16 @@ class ChatInterface(App):
         # First ensure daemon is running
         await self.ensure_daemon_running()
         
-        # Connect to daemon
-        self.daemon_connected = await self.connect_to_daemon()
+        # Initialize multi-socket client
+        self.chat_client = SimpleChatClient(client_id=f"chat_textual_{self.args.profile}")
         
-        if self.daemon_connected:
-            # Initialize agent process for composition support
-            await self.initialize_agent_process()
+        try:
+            # Initialize the client (connects to messaging socket, subscribes to events)
+            await self.chat_client.initialize()
+            self.daemon_connected = True
+            
+            # Note: AgentProcess is deprecated with new architecture
+            # Composition support is now handled by the daemon
             
             # Load available sessions
             await self.load_available_sessions()
@@ -296,8 +304,9 @@ class ChatInterface(App):
             await self.initialize_session()
             
             self.update_status()
-        else:
-            self.log_message("Error", "Failed to connect to daemon. Please check if daemon is running.")
+        except Exception as e:
+            self.daemon_connected = False
+            self.log_message("Error", f"Failed to initialize: {str(e)}")
     
     async def ensure_daemon_running(self) -> None:
         """Start daemon if not running"""
@@ -336,58 +345,50 @@ class ChatInterface(App):
     async def connect_to_daemon(self) -> bool:
         """Test daemon connection"""
         try:
-            # Test connection
-            reader, writer = await asyncio.open_unix_connection(SOCKET_PATH)
-            writer.close()
-            await writer.wait_closed()
-            return True
+            # Use multi-socket client to test connection
+            if self.chat_client:
+                health = await self.chat_client.health_check()
+                return bool(health)
+            return False
         except Exception as e:
             return False
     
     async def send_to_daemon(self, command: str, parameters: Dict[str, Any] = None) -> str:
         """Send command to daemon and get response"""
         try:
-            # Build command using CommandBuilder
-            if command.startswith('{'):
-                # Already a JSON string, send as-is
-                command_str = command
-            else:
-                # Use CommandBuilder for proper JSON Protocol v2.0 format
-                command_dict = CommandBuilder.build_command(command, parameters)
-                command_str = json.dumps(command_dict)
+            if not self.chat_client:
+                return json.dumps({"status": "error", "error": {"message": "Client not initialized"}})
             
-            # Create new connection for each command
-            reader, writer = await asyncio.open_unix_connection(SOCKET_PATH)
+            # Map commands to appropriate sockets
+            socket_map = {
+                "HEALTH_CHECK": "admin",
+                "GET_PROCESSES": "admin",
+                "MESSAGE_BUS_STATS": "admin",
+                "SHUTDOWN": "admin",
+                "GET_AGENTS": "agents",
+                "REGISTER_AGENT": "agents",
+                "SUBSCRIBE": "messaging",
+                "PUBLISH": "messaging",
+                "AGENT_CONNECTION": "messaging",
+                "SET_AGENT_KV": "state",
+                "GET_AGENT_KV": "state",
+                "COMPLETION": "completion"
+            }
             
-            # Send command
-            if not command_str.endswith('\n'):
-                command_str += '\n'
+            socket_name = socket_map.get(command, "admin")
             
-            writer.write(command_str.encode())
-            await writer.drain()
+            # Send command using multi-socket client
+            response = await self.chat_client.send_command(socket_name, command, parameters)
             
-            # Read response line by line (daemon sends JSON + newline)
-            response = await reader.readline()
-            
-            writer.close()
-            await writer.wait_closed()
-            
-            return response.decode().strip()
+            # Return as JSON string for compatibility
+            return json.dumps(response)
             
         except Exception as e:
             return json.dumps({"status": "error", "error": {"message": f"Command failed: {str(e)}"}})
     
     async def send_spawn_command(self, command_dict: dict) -> str:
-        """Send SPAWN command using JSON Protocol v2.0"""
-        try:
-            # Use ConnectionManager with much longer timeout for Claude CLI (can take 5+ minutes for complex requests)
-            response = await ConnectionManager.send_command_once(SOCKET_PATH, command_dict, timeout=300.0)
-            
-            # Return as JSON string for compatibility with existing code
-            return json.dumps(response)
-            
-        except Exception as e:
-            return json.dumps({"status": "error", "error": {"message": f"SPAWN command failed: {str(e)}"}})
+        """DEPRECATED: This method is no longer used. Use chat_client.send_prompt() instead."""
+        return json.dumps({"status": "error", "error": {"message": "SPAWN command is deprecated. Use COMPLETION instead."}})
     
     def load_profile(self) -> None:
         """Load the specified profile"""
@@ -407,22 +408,10 @@ class ChatInterface(App):
             self.profile_data = None
     
     async def initialize_agent_process(self) -> None:
-        """Initialize AgentProcess for composition-aware messaging"""
-        try:
-            # Import here to avoid early logging setup at module level
-            from daemon.agent_process import AgentProcess
-            
-            profile_name = self.args.profile
-            self.agent_process = AgentProcess(
-                agent_id=f"chat_interface_{profile_name}",
-                profile=profile_name,
-                daemon_socket=SOCKET_PATH
-            )
-            # Note: We don't call connect() as we only use it for message composition
-            self.log_message("System", f"Initialized agent process with profile: {profile_name}")
-        except Exception as e:
-            self.log_message("Error", f"Failed to initialize agent process: {e}")
-            self.agent_process = None
+        """DEPRECATED: AgentProcess functionality now handled by daemon via COMPLETION command"""
+        # The old AgentProcess was removed in the multi-socket architecture refactor
+        # Composition support is now server-side in the daemon
+        self.agent_process = None
     
     async def load_available_sessions(self) -> None:
         """Load list of available sessions from logs"""
@@ -478,12 +467,10 @@ class ChatInterface(App):
     
     async def load_active_conversations(self) -> None:
         """Load list of active conversations from daemon"""
-        # Query daemon for active agents/conversations
-        response = await self.send_to_daemon("MESSAGE_BUS_STATS")
-        
         try:
-            stats = json.loads(response)
-            # Always scan for conversations regardless of daemon response
+            # Query daemon for message bus stats
+            stats = await self.chat_client.get_message_bus_stats()
+            # Always scan for conversations regardless
             self.scan_recent_conversations()
             # Then update with combined info
             self.update_active_conversation_list(stats)
@@ -705,29 +692,32 @@ class ChatInterface(App):
             # Send via message bus
             await self.send_multi_agent_message(message)
         else:
-            # Normal single-agent mode - use AgentProcess for composition support
-            # Set session_id on agent process if we have one
-            if self.session_id:
-                self.agent_process.session_id = self.session_id
-            
-            # Use agent process to generate response (handles composition automatically)
-            response = await self.agent_process.generate_claude_response(message, "chat")
-            
-            if response:
-                # Extract session_id for future messages
-                if self.agent_process.session_id:
-                    self.session_id = self.agent_process.session_id
+            # Normal single-agent mode - use new multi-socket client
+            try:
+                # Send prompt and get response
+                response, new_session_id = await self.chat_client.send_prompt(
+                    prompt=message,
+                    session_id=self.session_id,
+                    model="sonnet"  # Could be configurable
+                )
+                
+                # Update session ID if we got a new one
+                if new_session_id:
+                    self.session_id = new_session_id
                 
                 # Display response
                 self.log_message("Claude", response)
                 
-                # Update metrics
+                # Update metrics (rough estimates)
                 self.metrics['messages'] += 2
                 tokens = len(response.split()) * 1.3
                 self.metrics['tokens'] += int(tokens)
                 self.metrics['cost'] += tokens * 0.00001
-            else:
-                self.log_message("Error", "No response from Claude")
+                
+            except asyncio.TimeoutError:
+                self.log_message("Error", "Request timed out. Please try again.")
+            except Exception as e:
+                self.log_message("Error", f"Failed to get response: {str(e)}")
         
         # Update status and refresh sessions list
         self.update_status()
@@ -816,12 +806,8 @@ class ChatInterface(App):
         """Disconnect from multi-agent conversation"""
         if self.agent_id:
             try:
-                # Use CommandBuilder to create disconnect command
-                command_dict = CommandBuilder.build_agent_connection_command(
-                    action="disconnect",
-                    agent_id=self.agent_id
-                )
-                await ConnectionManager.send_command_once(SOCKET_PATH, command_dict)
+                # Already handled by chat_client.close()
+                pass
             except:
                 pass
         
@@ -1021,6 +1007,19 @@ class ChatInterface(App):
     
     def action_quit(self) -> None:
         """Quit the application"""
+        # Schedule cleanup before exit
+        if self.chat_client:
+            asyncio.create_task(self._cleanup_and_exit())
+        else:
+            self.exit()
+    
+    async def _cleanup_and_exit(self):
+        """Clean up connections before exiting"""
+        try:
+            if self.chat_client:
+                await self.chat_client.close()
+        except:
+            pass
         self.exit()
     
     def action_new_session(self) -> None:
@@ -1199,6 +1198,10 @@ def main():
                        help='Send initial prompt from file')
     parser.add_argument('--profile', default='ksi-developer',
                        help='Agent profile to use (default: ksi-developer)')
+    parser.add_argument('--test-connection', action='store_true',
+                       help='Test daemon connection without starting TUI')
+    parser.add_argument('--send-message', metavar='MESSAGE',
+                       help='Send a single message and exit (no TUI)')
     args = parser.parse_args()
     
     # Ensure required directories exist
@@ -1206,6 +1209,11 @@ def main():
     os.makedirs('claude_logs', exist_ok=True)
     os.makedirs('agent_profiles', exist_ok=True)
     os.makedirs('logs', exist_ok=True)
+    
+    # Handle non-TUI modes
+    if args.test_connection or args.send_message:
+        asyncio.run(test_mode(args))
+        return
     
     # Redirect stdout/stderr to prevent TUI corruption - keep logging normal
     original_stdout = sys.stdout
@@ -1234,6 +1242,40 @@ def main():
         sys.stdout = original_stdout
         sys.stderr = original_stderr
         devnull.close()
+
+
+async def test_mode(args):
+    """Test mode without TUI"""
+    from ksi_daemon.client.multi_socket_client import SimpleChatClient
+    
+    print("Testing daemon connection...")
+    
+    # Create client
+    client = SimpleChatClient(client_id=f"chat_test_{args.profile}")
+    
+    try:
+        # Initialize client
+        await client.initialize()
+        print("✓ Successfully connected to daemon")
+        
+        # Test health check
+        health = await client.health_check()
+        print(f"✓ Daemon health: {health}")
+        
+        # Send message if provided
+        if args.send_message:
+            print(f"\nSending message: {args.send_message}")
+            response, session_id = await client.send_prompt(args.send_message)
+            print(f"\nClaude response:\n{response}")
+            print(f"\nSession ID: {session_id}")
+        
+    except Exception as e:
+        print(f"✗ Error: {e}")
+        return 1
+    finally:
+        await client.close()
+    
+    return 0
 
 
 if __name__ == '__main__':

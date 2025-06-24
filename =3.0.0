@@ -1,0 +1,9 @@
+Collecting python-daemon
+  Downloading python_daemon-3.1.2-py3-none-any.whl.metadata (4.8 kB)
+Collecting lockfile>=0.10 (from python-daemon)
+  Downloading lockfile-0.12.2-py2.py3-none-any.whl.metadata (2.4 kB)
+Downloading python_daemon-3.1.2-py3-none-any.whl (30 kB)
+Downloading lockfile-0.12.2-py2.py3-none-any.whl (13 kB)
+Installing collected packages: lockfile, python-daemon
+
+Successfully installed lockfile-0.12.2 python-daemon-3.1.2

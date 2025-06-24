@@ -2,7 +2,7 @@
 """
 Unified Protocol Models - Central export point for all socket protocols
 
-Organized by socket domain for the 5-socket architecture:
+Organized by socket domain for the multi-socket architecture:
 - admin.sock: System administration and monitoring
 - agents.sock: Agent lifecycle and persona management
 - messaging.sock: Ephemeral communication and events

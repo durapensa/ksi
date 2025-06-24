@@ -11,9 +11,9 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from daemon.client.async_client import AsyncClient
-from daemon.protocols import CommandFactory, SocketResponse
-from daemon.file_operations import FileOperations, LogEntry
+from ksi_daemon.client.async_client import AsyncClient
+from ksi_daemon.protocols import CommandFactory, SocketResponse
+from ksi_daemon.file_operations import FileOperations, LogEntry
 
 
 async def test_refactored_daemon():
@@ -166,7 +166,7 @@ async def test_refactored_daemon():
 def test_performance():
     """Quick performance test of validation"""
     import time
-    from daemon.command_validator import CommandValidator
+    from ksi_daemon.command_validator import CommandValidator
     
     print("\n=== Performance Test ===")
     print("-" * 40)

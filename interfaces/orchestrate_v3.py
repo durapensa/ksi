@@ -17,7 +17,7 @@ import os
 
 # Add path for daemon client utilities
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from daemon.client import CommandBuilder, ResponseHandler
+from ksi_daemon.client import CommandBuilder, ResponseHandler
 from prompts.discovery import CompositionDiscovery
 from prompts.composition_selector import CompositionSelector, SelectionContext
 

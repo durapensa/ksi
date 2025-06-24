@@ -50,7 +50,9 @@ class CommandBuilder:
                            agent_id: str = None, enable_tools: bool = True,
                            spawn_type: str = "claude") -> Dict[str, Any]:
         """
-        Build a SPAWN command with all parameters
+        DEPRECATED: Use build_completion_command for the new architecture.
+        
+        Build a SPAWN command with all parameters (old single-socket architecture only).
         
         Args:
             prompt: Text prompt for Claude
@@ -78,6 +80,42 @@ class CommandBuilder:
             params["agent_id"] = agent_id
             
         return cls.build_command("SPAWN", params)
+    
+    @classmethod
+    def build_completion_command(cls, prompt: str, client_id: str,
+                               model: str = "sonnet", session_id: str = None,
+                               agent_id: str = None, timeout: int = 300,
+                               metadata: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Build a COMPLETION command for async LLM requests (new multi-socket architecture).
+        
+        Args:
+            prompt: Text prompt for Claude
+            client_id: Client ID for callback routing (required)
+            model: Claude model to use
+            session_id: Optional session ID for continuity
+            agent_id: Optional agent to route through
+            timeout: Timeout in seconds (max 600)
+            metadata: Additional metadata
+            
+        Returns:
+            COMPLETION command dict
+        """
+        params = {
+            "prompt": prompt,
+            "client_id": client_id,
+            "model": model,
+            "timeout": timeout
+        }
+        
+        if session_id:
+            params["session_id"] = session_id
+        if agent_id:
+            params["agent_id"] = agent_id
+        if metadata:
+            params["metadata"] = metadata
+            
+        return cls.build_command("COMPLETION", params)
     
     @classmethod
     def build_publish_command(cls, from_agent: str, event_type: str, 
@@ -281,8 +319,12 @@ class ConnectionManager:
 
 # Convenience functions for common patterns
 def create_spawn_command(prompt: str, **kwargs) -> Dict[str, Any]:
-    """Convenience function for creating SPAWN commands"""
+    """DEPRECATED: Use create_completion_command. Convenience function for creating SPAWN commands"""
     return CommandBuilder.build_spawn_command(prompt, **kwargs)
+
+def create_completion_command(prompt: str, client_id: str, **kwargs) -> Dict[str, Any]:
+    """Convenience function for creating COMPLETION commands (new architecture)"""
+    return CommandBuilder.build_completion_command(prompt, client_id, **kwargs)
 
 def create_publish_command(from_agent: str, event_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     """Convenience function for creating PUBLISH commands"""

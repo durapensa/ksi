@@ -18,16 +18,16 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from daemon.protocols import (
+from ksi_daemon.protocols import (
     CommandFactory, SocketResponse, BaseCommand,
     CompletionParameters, AgentInfo, IdentityInfo,
     COMMAND_PARAMETER_MAP
 )
-from daemon.command_validator import CommandValidator
-from daemon.manager_framework import BaseManager, with_error_handling, log_operation
+from ksi_daemon.command_validator import CommandValidator
+from ksi_daemon.manager_framework import BaseManager, with_error_handling, log_operation
 # UtilsManager removed - module doesn't exist
-from daemon.file_operations import FileOperations, LogEntry
-from daemon.command_registry import CommandRegistry, command_handler, CommandHandler
+from ksi_daemon.file_operations import FileOperations, LogEntry
+from ksi_daemon.command_registry import CommandRegistry, command_handler, CommandHandler
 
 
 class TestPydanticModels:

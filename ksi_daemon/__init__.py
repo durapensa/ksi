@@ -25,13 +25,13 @@ from .message_bus import MessageBus
 from .agent_identity_registry import AgentIdentityRegistry
 
 # Import commands to ensure registration
-import daemon.commands
+from . import commands
 
 def parse_args():
     """Parse command line arguments with config system defaults"""
     parser = argparse.ArgumentParser()
-    parser.add_argument('--socket', default=str(config.admin_socket), 
-                       help=f'Socket path (default: {config.admin_socket})')
+    parser.add_argument('--socket-dir', 
+                       help='Override socket directory (creates all sockets in this dir)')
     parser.add_argument('--hot-reload-from', help='Socket path to reload from')
     return parser.parse_args()
 
@@ -96,11 +96,11 @@ def setup_signal_handlers(core_daemon, loop):
             logger.warning(f"Could not register asyncio signal handler for {sig}: {e}")
             signal.signal(sig, lambda signum, frame: signal_handler(signal.Signals(signum).name))
 
-async def create_daemon(socket_path: str, hot_reload_from: str = None):
+async def create_daemon(socket_dir: str = None, hot_reload_from: str = None):
     """Create and wire together all daemon modules with dependency injection"""
     
-    # Create core daemon
-    core_daemon = KSIDaemonCore(socket_path, hot_reload_from)
+    # Create core daemon with optional socket directory override
+    core_daemon = KSIDaemonCore(socket_dir=socket_dir, hot_reload_from=hot_reload_from)
     
     # Create all managers
     state_manager = SessionAndSharedStateManager()
@@ -147,7 +147,7 @@ async def main():
     ensure_var_directories()
     
     # Create modular daemon with dependency injection
-    daemon = await create_daemon(args.socket, args.hot_reload_from)
+    daemon = await create_daemon(args.socket_dir, args.hot_reload_from)
     
     # Get the current event loop
     loop = asyncio.get_running_loop()

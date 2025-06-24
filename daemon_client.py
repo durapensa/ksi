@@ -13,10 +13,10 @@ import logging
 from typing import Dict, Any, Optional, Union, List
 from datetime import datetime
 from pathlib import Path
-from daemon.config import config
+from ksi_daemon.config import config
 
 # Import shared utilities from organized client package
-from daemon.client import (
+from ksi_daemon.client import (
     CommandBuilder, 
     ResponseHandler, 
     ConnectionManager

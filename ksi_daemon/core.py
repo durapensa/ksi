@@ -20,11 +20,33 @@ logger = get_logger(__name__)
 class KSIDaemonCore:
     """Core daemon server with dependency injection for all managers - EXACT functionality from daemon_clean.py"""
     
-    def __init__(self, socket_path: str, hot_reload_from: str = None):
-        self.socket_path = socket_path
+    def __init__(self, socket_dir: str = None, hot_reload_from: str = None):
+        self.socket_dir = Path(socket_dir) if socket_dir else None
         self.hot_reload_from = hot_reload_from
         self.is_hot_reload = hot_reload_from is not None
         self.shutdown_event = asyncio.Event()
+        
+        # Multi-socket architecture paths
+        if self.socket_dir:
+            # Override socket directory
+            self.admin_socket = self.socket_dir / "admin.sock"
+            self.agents_socket = self.socket_dir / "agents.sock"
+            self.messaging_socket = self.socket_dir / "messaging.sock"
+            self.state_socket = self.socket_dir / "state.sock"
+            self.completion_socket = self.socket_dir / "completion.sock"
+        else:
+            # Use config defaults
+            self.admin_socket = config.admin_socket
+            self.agents_socket = config.agents_socket
+            self.messaging_socket = config.messaging_socket
+            self.state_socket = config.state_socket
+            self.completion_socket = config.completion_socket
+        
+        # Legacy single socket for compatibility (points to admin socket)
+        self.socket_path = str(self.admin_socket)
+        
+        # Server instances for each socket
+        self.servers = {}
         
         # PID file for collision detection
         self.pid_file = config.pid_file
@@ -329,34 +351,54 @@ class KSIDaemonCore:
                     return  # Exit gracefully - don't start another instance
                 else:
                     logger.warning(f"Found stale daemon (PID {existing_pid}), cleaning up and starting new instance")
-                    # Clean up stale resources
-                    self._cleanup_pid_file()
+                    # Clean up stale resources  
+                    # self._cleanup_pid_file()  # Disabled - let python-daemon handle PID management
                     if os.path.exists(self.socket_path):
                         os.unlink(self.socket_path)
         
         # Ensure var/ directory structure exists (handled by ensure_var_directories in __init__.py)
         
-        # Clean up socket file if it exists
-        if os.path.exists(self.socket_path):
-            os.unlink(self.socket_path)
+        # Clean up all socket files if they exist
+        sockets = {
+            'admin': self.admin_socket,
+            'agents': self.agents_socket, 
+            'messaging': self.messaging_socket,
+            'state': self.state_socket,
+            'completion': self.completion_socket
+        }
         
-        # Write PID file for collision detection
-        self._write_pid_file()
+        for name, sock_path in sockets.items():
+            if sock_path.exists():
+                sock_path.unlink()
+                logger.info(f"Cleaned up existing {name} socket")
         
-        server = await asyncio.start_unix_server(
-            self.handle_client,
-            path=self.socket_path
-        )
+        # PID file management is handled by python-daemon wrapper
+        # self._write_pid_file()  # Disabled to avoid conflict with python-daemon
         
-        logger.info(f"Modular KSI daemon listening on {self.socket_path}")
+        # Start servers on all sockets
+        for name, sock_path in sockets.items():
+            # Create parent directory if needed
+            sock_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Create server
+            server = await asyncio.start_unix_server(
+                self.handle_client,
+                path=str(sock_path)
+            )
+            
+            self.servers[name] = server
+            logger.info(f"Started {name} server on {sock_path}")
         
-        # Keep track of server task for cleanup
-        server_task = None
+        logger.info("Multi-socket KSI daemon fully operational")
+        
+        # Keep track of server tasks for cleanup
+        server_tasks = []
         
         try:
-            async with server:
-                # Create server task
-                server_task = asyncio.create_task(server.serve_forever())
+            # Start all servers
+            for name, server in self.servers.items():
+                task = asyncio.create_task(server.serve_forever())
+                server_tasks.append((name, task))
                 
                 # Wait for shutdown signal or cancellation
                 try:
@@ -366,18 +408,24 @@ class KSIDaemonCore:
                     logger.info("Server cancelled, initiating shutdown...")
                     self.shutdown_event.set()
                 
-                # Cancel server task
-                if server_task and not server_task.done():
-                    server_task.cancel()
-                    try:
-                        await server_task
-                    except asyncio.CancelledError:
-                        pass
+                # Cancel all server tasks
+                for name, task in server_tasks:
+                    if not task.done():
+                        logger.info(f"Cancelling {name} server task...")
+                        task.cancel()
                 
-                # Close server to stop accepting new connections
-                server.close()
-                await server.wait_closed()
-                logger.info("Server closed")
+                # Wait for all tasks to finish
+                for name, task in server_tasks:
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        logger.info(f"{name} server task cancelled")
+                
+                # Close all servers
+                for name, server in self.servers.items():
+                    server.close()
+                    await server.wait_closed()
+                    logger.info(f"{name} server closed")
                 
                 # Clean up any running processes
                 if self.completion_manager and hasattr(self.completion_manager, 'running_processes'):
@@ -445,4 +493,4 @@ class KSIDaemonCore:
                 pass
             
             # Clean up PID file
-            self._cleanup_pid_file()
+            # self._cleanup_pid_file()  # Disabled - python-daemon handles PID cleanup

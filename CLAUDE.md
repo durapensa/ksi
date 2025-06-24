@@ -212,6 +212,7 @@ When working with the system, you have access to:
 - The daemon is intentionally minimal - it's just plumbing
 - **IMPORTANT**: Always update your todo list when receiving updated instructions from the user
 - **WORKFLOW**: Don't exit early with summaries - continue working systematically through tasks
+- **CRITICAL**: DO NOT claim success when things are failing. If sockets don't work, processes die, or commands fail - that is NOT success. Be honest about actual status. Don't waste tokens on false celebration.
 
 ## Running the System
 ```bash

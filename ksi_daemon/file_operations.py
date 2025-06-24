@@ -12,7 +12,7 @@ import structlog
 from tenacity import retry, stop_after_attempt, wait_exponential
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from daemon.timestamp_utils import TimestampManager
+from .timestamp_utils import TimestampManager
 
 logger = structlog.get_logger('daemon.file_operations')
 

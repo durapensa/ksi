@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ksi.daemon</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/dp/projects/ksi/.venv/bin/python3</string>
+        <string>/Users/dp/projects/ksi/ksi-daemon.py</string>
+    </array>
+    
+    <key>WorkingDirectory</key>
+    <string>/Users/dp/projects/ksi</string>
+    
+    <key>KeepAlive</key>
+    <true/>
+    
+    <key>RunAtLoad</key>
+    <false/>
+    
+    <key>StandardOutPath</key>
+    <string>/Users/dp/projects/ksi/var/logs/daemon/daemon.log</string>
+    
+    <key>StandardErrorPath</key>
+    <string>/Users/dp/projects/ksi/var/logs/daemon/daemon.log</string>
+    
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>KSI_LOG_LEVEL</key>
+        <string>INFO</string>
+        <key>KSI_LOG_FORMAT</key>
+        <string>console</string>
+        <key>KSI_LOG_STRUCTURED</key>
+        <string>true</string>
+    </dict>
+</dict>
+</plist>

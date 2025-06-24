@@ -7,8 +7,8 @@ without pulling in server-side dependencies. It establishes clear boundaries bet
 client and server code.
 
 Usage:
-    from daemon.client import CommandBuilder, SyncClient, AsyncClient
-    from daemon.client.utils import create_spawn_command, send_daemon_command
+    from . import CommandBuilder, SyncClient, AsyncClient
+    from .utils import create_spawn_command, send_daemon_command
 """
 
 # Import and re-export client-safe utilities
@@ -16,7 +16,8 @@ from .utils import (
     CommandBuilder,
     ResponseHandler, 
     ConnectionManager,
-    create_spawn_command,
+    create_spawn_command,  # Deprecated
+    create_completion_command,  # New
     create_publish_command,
     create_subscribe_command,
     create_agent_connection_command,
@@ -29,6 +30,12 @@ try:
 except ImportError:
     AsyncClient = None
 
+try:
+    from .multi_socket_client import MultiSocketAsyncClient, SimpleChatClient
+except ImportError:
+    MultiSocketAsyncClient = None
+    SimpleChatClient = None
+
 __all__ = [
     # Core utilities
     'CommandBuilder',
@@ -36,14 +43,17 @@ __all__ = [
     'ConnectionManager',
     
     # Convenience functions
-    'create_spawn_command',
+    'create_spawn_command',  # Deprecated
+    'create_completion_command',  # New
     'create_publish_command', 
     'create_subscribe_command',
     'create_agent_connection_command',
     'send_daemon_command',
     
     # Client classes (if available)
-    'AsyncClient'
+    'AsyncClient',  # Deprecated - single socket only
+    'MultiSocketAsyncClient',  # New multi-socket architecture
+    'SimpleChatClient'  # Simplified chat interface
 ]
 
 # Version info

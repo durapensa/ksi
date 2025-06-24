@@ -150,15 +150,16 @@ class CompletionHandler(CommandHandler):
         return result
     
     async def _publish_result(self, request_id: str, client_id: str, result: Dict[str, Any]):
-        """Publish completion result to message bus"""
+        """Publish completion result to message bus with targeted delivery"""
         if not self.context.message_bus:
             logger.error("Message bus not available for completion result")
             return
         
-        await self.context.message_bus.publish({
-            'type': 'COMPLETION_RESULT',
+        # Build the result payload
+        payload = {
             'request_id': request_id,
             'client_id': client_id,
+            'to': client_id,  # Target for direct delivery
             'timestamp': self.context.timestamp_manager.timestamp_utc() if hasattr(self.context, 'timestamp_manager') else None,
             'result': {
                 'response': result.get('response', ''),
@@ -167,25 +168,60 @@ class CompletionHandler(CommandHandler):
                 'usage': result.get('usage'),
                 'duration_ms': result.get('duration_ms', 0)
             }
-        })
+        }
         
-        logger.info(f"Published completion result for {request_id} to client {client_id}")
+        # Use targeted delivery if available
+        if hasattr(self.context.message_bus, 'publish_targeted'):
+            # Enhanced message bus with targeted delivery
+            await self.context.message_bus.publish_targeted(
+                from_agent='completion_handler',
+                event_type='COMPLETION_RESULT',
+                target=client_id,
+                payload=payload
+            )
+        else:
+            # Fallback to standard publish (will use DIRECT_MESSAGE routing)
+            await self.context.message_bus.publish(
+                from_agent='completion_handler',
+                event_type='COMPLETION_RESULT',
+                payload=payload
+            )
+        
+        logger.info(f"Published completion result for {request_id} directly to client {client_id}")
     
     async def _publish_error(self, request_id: str, client_id: str, error: str):
-        """Publish completion error to message bus"""
+        """Publish completion error to message bus with targeted delivery"""
         if not self.context.message_bus:
             logger.error("Message bus not available for completion error")
             return
         
-        await self.context.message_bus.publish({
-            'type': 'COMPLETION_RESULT',
+        # Build the error payload
+        payload = {
             'request_id': request_id,
             'client_id': client_id,
+            'to': client_id,  # Target for direct delivery
             'timestamp': self.context.timestamp_manager.timestamp_utc() if hasattr(self.context, 'timestamp_manager') else None,
             'result': {
                 'error': error,
                 'code': 'COMPLETION_FAILED'
             }
-        })
+        }
         
-        logger.info(f"Published completion error for {request_id} to client {client_id}")
+        # Use targeted delivery if available
+        if hasattr(self.context.message_bus, 'publish_targeted'):
+            # Enhanced message bus with targeted delivery
+            await self.context.message_bus.publish_targeted(
+                from_agent='completion_handler',
+                event_type='COMPLETION_RESULT',
+                target=client_id,
+                payload=payload
+            )
+        else:
+            # Fallback to standard publish (will use DIRECT_MESSAGE routing)
+            await self.context.message_bus.publish(
+                from_agent='completion_handler',
+                event_type='COMPLETION_RESULT',
+                payload=payload
+            )
+        
+        logger.info(f"Published completion error for {request_id} directly to client {client_id}")

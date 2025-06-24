@@ -40,7 +40,7 @@ class KSIConfig(BaseSettings):
     For example: KSI_SOCKET_PATH, KSI_DB_PATH, KSI_LOG_LEVEL
     """
     
-    # Core daemon paths - 5-socket architecture
+    # Core daemon paths - multi-socket architecture
     admin_socket: Path = Path("sockets/admin.sock")
     agents_socket: Path = Path("sockets/agents.sock")
     messaging_socket: Path = Path("sockets/messaging.sock")

@@ -22,12 +22,12 @@ from io import StringIO
 # Add daemon directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from daemon.logging_config import (
+from ksi_daemon.logging_config import (
     get_logger, bind_socket_context, clear_context, 
     command_context, agent_context, log_event
 )
-from daemon.event_taxonomy import AGENT_EVENTS, SOCKET_EVENTS, format_agent_event
-from daemon.config import config
+from ksi_daemon.event_taxonomy import AGENT_EVENTS, SOCKET_EVENTS, format_agent_event
+from ksi_daemon.config import config
 
 
 class StructuredLogCapture:
@@ -162,7 +162,7 @@ def test_functional_domain_identification():
     """Test functional domain identification for different command types."""
     print("\n4. Testing functional domain identification...")
     
-    from daemon.core import KSIDaemonCore
+    from ksi_daemon.core import KSIDaemonCore
     daemon = KSIDaemonCore("/tmp/test.sock")
     
     # Test each domain
@@ -193,7 +193,7 @@ def test_event_taxonomy():
     assert agent_event["profile"] == "test"
     
     # Test event descriptions
-    from daemon.event_taxonomy import get_event_description, validate_event_name
+    from ksi_daemon.event_taxonomy import get_event_description, validate_event_name
     
     assert validate_event_name("agent.spawned") == True
     assert validate_event_name("invalid.event") == False

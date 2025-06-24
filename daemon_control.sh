@@ -7,10 +7,10 @@
 set -e
 
 # Configuration - can be overridden with KSI_* environment variables
-DAEMON_SCRIPT="daemon.py"
+DAEMON_SCRIPT="ksi-daemon.py"
 PID_FILE="${KSI_PID_FILE:-var/run/ksi_daemon.pid}"
 
-# Socket configuration for the 5-socket architecture
+# Socket configuration
 ADMIN_SOCKET="${KSI_ADMIN_SOCKET:-sockets/admin.sock}"  # System operations
 AGENTS_SOCKET="${KSI_AGENTS_SOCKET:-sockets/agents.sock}"  # Agent lifecycle
 MESSAGING_SOCKET="${KSI_MESSAGING_SOCKET:-sockets/messaging.sock}"  # Pub/sub
@@ -193,10 +193,15 @@ start_daemon() {
     echo "  Log Format: $LOG_FORMAT"
     echo "  Socket: $SOCKET_FILE"
     
-    # Activate venv and start daemon
-    source "$VENV_DIR/bin/activate"
-    # Let daemon handle its own logging - don't redirect to /dev/null
-    nohup python3 "$DAEMON_SCRIPT" >> logs/daemon_startup.log 2>&1 &
+    # Use venv python directly (nohup doesn't inherit venv activation properly)
+    VENV_PYTHON="$VENV_DIR/bin/python3"
+    if [ ! -x "$VENV_PYTHON" ]; then
+        echo -e "${RED}Error: Virtual environment python not found: $VENV_PYTHON${NC}"
+        exit 1
+    fi
+    
+    # Let daemon handle its own logging via config system
+    nohup "$VENV_PYTHON" "$DAEMON_SCRIPT" >/dev/null 2>&1 &
     
     # Wait for daemon to start
     echo -n "Waiting for daemon to start"

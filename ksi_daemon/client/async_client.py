@@ -1,9 +1,23 @@
 #!/usr/bin/env python3
 """
-Asynchronous Client - Full-featured async interface for JSON Protocol v2.0
+DEPRECATED: This client only supports the old single-socket architecture.
 
-Provides a comprehensive async API for complex agents and applications that need
-persistent connections, event handling, and high-performance communication.
+Please use multi_socket_client.py for the new multi-socket architecture:
+- Proper async completion flow with COMPLETION command
+- Event-based results via messaging socket subscriptions  
+- Support for all daemon sockets
+- Client-side filtering of COMPLETION_RESULT events
+
+Example migration:
+    # Old way:
+    from . import AsyncClient
+    client = AsyncClient()
+    response = await client.spawn_claude(prompt)
+    
+    # New way:
+    from .multi_socket_client import SimpleChatClient
+    client = SimpleChatClient()
+    response, session_id = await client.send_prompt(prompt)
 """
 
 import asyncio
@@ -14,6 +28,13 @@ from typing import Dict, Any, Optional, List, Callable
 from .utils import CommandBuilder, ConnectionManager, ResponseHandler
 
 logger = logging.getLogger('daemon.async_client')
+
+# Import the new client for convenience
+try:
+    from .multi_socket_client import MultiSocketAsyncClient, SimpleChatClient
+    __all__ = ['AsyncClient', 'PersistentAsyncClient', 'MultiSocketAsyncClient', 'SimpleChatClient']
+except ImportError:
+    __all__ = ['AsyncClient', 'PersistentAsyncClient']
 
 class AsyncClient:
     """Asynchronous client for daemon communication"""

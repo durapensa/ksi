@@ -13,7 +13,7 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from daemon.client import CommandBuilder
+from ksi_daemon.client import CommandBuilder
 
 async def send_daemon_command(command_name: str, parameters: dict = None) -> dict:
     """Send JSON command to daemon and get response"""
