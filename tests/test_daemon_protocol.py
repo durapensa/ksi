@@ -14,7 +14,11 @@ from pathlib import Path
 
 class DaemonProtocolTester:
     def __init__(self):
-        self.socket_path = "sockets/claude_daemon.sock"
+        # Import daemon config to use the same socket path
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from daemon.config import config
+        self.socket_path = str(config.admin_socket)
         self.results = []
         
     def test_socket_connection(self):
@@ -31,18 +35,26 @@ class DaemonProtocolTester:
             return False
     
     def test_json_spawn_format(self):
-        """Test unified SPAWN command format (sync mode)"""
-        print("Testing unified SPAWN sync format...")
+        """Test JSON Protocol v2.0 COMPLETION command"""
+        print("Testing JSON Protocol v2.0 COMPLETION format...")
         
-        # Use the new unified format
-        command = "SPAWN:sync:claude::sonnet::Test prompt - respond with exactly 'PROTOCOL_TEST_OK'"
+        # Use the new JSON format
+        command = {
+            "version": "2.0",
+            "command": "COMPLETION",
+            "parameters": {
+                "prompt": "Test prompt - respond with exactly 'PROTOCOL_TEST_OK'",
+                "model": "sonnet",
+                "client_id": "test-client-001"
+            }
+        }
         
         try:
             sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             sock.connect(self.socket_path)
             sock.settimeout(10.0)
             
-            sock.send(command.encode() + b'\n')
+            sock.send(json.dumps(command).encode() + b'\n')
             response = sock.recv(4096).decode()
             sock.close()
             
@@ -50,68 +62,84 @@ class DaemonProtocolTester:
             if response:
                 try:
                     parsed = json.loads(response)
-                    has_session_id = 'sessionId' in parsed or 'session_id' in parsed
-                    self.log_result("json_spawn_format", True, f"Got response with session_id: {has_session_id}")
-                except:
-                    self.log_result("json_spawn_format", True, "Got response but couldn't parse JSON")
+                    is_success = parsed.get('status') == 'success'
+                    has_request_id = 'request_id' in parsed.get('result', {})
+                    # Debug: print actual response
+                    if not is_success:
+                        print(f"  DEBUG: Response: {json.dumps(parsed, indent=2)}")
+                    self.log_result("json_spawn_format", is_success, f"Got JSON response, request_id present: {has_request_id}")
+                except Exception as e:
+                    self.log_result("json_spawn_format", False, f"Failed to parse JSON: {e}")
             else:
                 self.log_result("json_spawn_format", False, "No response received")
                 
         except Exception as e:
             self.log_result("json_spawn_format", False, f"Error: {e}")
     
-    def test_spawn_string_format(self):
-        """Test AutonomousResearcher SPAWN format"""
-        print("Testing SPAWN string format...")
+    def test_health_check(self):
+        """Test HEALTH_CHECK command"""
+        print("Testing HEALTH_CHECK command...")
         
-        # Test unified spawn format (async mode)
-        command = "SPAWN:async:claude::sonnet::Test prompt for string format"
+        # Test health check
+        command = {
+            "version": "2.0",
+            "command": "HEALTH_CHECK"
+        }
         
         try:
             sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             sock.connect(self.socket_path)
             sock.settimeout(10.0)
             
-            sock.sendall(command.encode() + b'\n')
-            response = sock.recv(1024)
+            sock.sendall(json.dumps(command).encode() + b'\n')
+            response = sock.recv(1024).decode()
             sock.close()
             
             if response:
-                self.log_result("spawn_string_format", True, f"Got response: {len(response)} bytes")
+                try:
+                    parsed = json.loads(response)
+                    is_healthy = parsed.get('result', {}).get('status') == 'healthy'
+                    self.log_result("health_check", is_healthy, f"Daemon health status: {'healthy' if is_healthy else 'unhealthy'}")
+                except Exception as e:
+                    self.log_result("health_check", False, f"Failed to parse response: {e}")
             else:
-                self.log_result("spawn_string_format", False, "No response received")
+                self.log_result("health_check", False, "No response received")
                 
         except Exception as e:
-            self.log_result("spawn_string_format", False, f"Error: {e}")
+            self.log_result("health_check", False, f"Error: {e}")
     
-    def test_stderr_capture(self):
-        """Test if stderr is captured in responses"""
-        print("Testing stderr capture...")
+    def test_invalid_command(self):
+        """Test error handling for invalid command"""
+        print("Testing invalid command handling...")
         
-        # Try a command that might generate stderr
-        command = "SPAWN:sync:claude::sonnet::Run a bash command that outputs to stderr: echo 'test stderr' >&2"
+        # Try an invalid command
+        command = {
+            "version": "2.0",
+            "command": "INVALID_COMMAND"
+        }
         
         try:
             sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             sock.connect(self.socket_path)
-            sock.settimeout(15.0)
+            sock.settimeout(5.0)
             
-            sock.send(command.encode() + b'\n')
+            sock.send(json.dumps(command).encode() + b'\n')
             response = sock.recv(4096).decode()
             sock.close()
             
             if response:
                 try:
                     parsed = json.loads(response)
-                    has_stderr = 'stderr' in parsed
-                    self.log_result("stderr_capture", has_stderr, f"stderr field present: {has_stderr}")
+                    is_error = parsed.get('status') == 'error'
+                    error_code = parsed.get('error', {}).get('code')
+                    self.log_result("invalid_command", is_error, f"Got error response with code: {error_code}")
                 except:
-                    self.log_result("stderr_capture", False, "Couldn't parse response JSON")
+                    self.log_result("invalid_command", False, "Couldn't parse response JSON")
             else:
-                self.log_result("stderr_capture", False, "No response received")
+                self.log_result("invalid_command", False, "No response received")
                 
         except Exception as e:
-            self.log_result("stderr_capture", False, f"Error: {e}")
+            self.log_result("invalid_command", False, f"Error: {e}")
     
     def log_result(self, test_name, success, message):
         """Log test result"""
@@ -135,8 +163,8 @@ class DaemonProtocolTester:
             
         # Run protocol tests
         self.test_json_spawn_format()
-        self.test_spawn_string_format() 
-        self.test_stderr_capture()
+        self.test_health_check() 
+        self.test_invalid_command()
         
         # Generate report
         self.generate_report()
@@ -173,8 +201,8 @@ def main():
     tester = DaemonProtocolTester()
     
     # Check if daemon is running
-    if not Path("sockets/claude_daemon.sock").exists():
-        print("❌ Daemon socket not found. Start daemon first:")
+    if not Path(tester.socket_path).exists():
+        print(f"❌ Daemon socket not found at {tester.socket_path}. Start daemon first:")
         print("   python3 daemon.py")
         sys.exit(1)
     

@@ -11,7 +11,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from daemon_client import DaemonClient
+from daemon.client.async_client import AsyncClient
 from daemon.protocols import CommandFactory, SocketResponse
 from daemon.file_operations import FileOperations, LogEntry
 
@@ -22,7 +22,7 @@ async def test_refactored_daemon():
     print("=== Testing Refactored Daemon Components ===\n")
     
     # Connect to daemon
-    client = DaemonClient()
+    client = AsyncClient()
     
     # 1. Test Health Check
     print("1. Testing Health Check:")
@@ -54,7 +54,8 @@ async def test_refactored_daemon():
     print("-" * 40)
     
     # Set state
-    response = await client.send_command("SET_SHARED", {
+    response = await client.send_command("SET_AGENT_KV", {
+        "agent_id": "test_agent",
         "key": "refactor_test",
         "value": "working_great"
     })
@@ -62,7 +63,8 @@ async def test_refactored_daemon():
     print(f"Set state: {response['result']}")
     
     # Get state
-    response = await client.send_command("GET_SHARED", {
+    response = await client.send_command("GET_AGENT_KV", {
+        "agent_id": "test_agent",
         "key": "refactor_test"
     })
     assert response['result']['value'] == 'working_great'

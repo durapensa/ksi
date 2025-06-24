@@ -21,8 +21,8 @@ logger = logging.getLogger('daemon')
 class CompletionHandler(CommandHandler):
     """Handles COMPLETION command for async Claude interactions"""
     
-    def __init__(self):
-        super().__init__()
+    def __init__(self, command_handler_context):
+        super().__init__(command_handler_context)
         self.completion_queue = asyncio.Queue()
         self.worker_task = None
     

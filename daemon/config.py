@@ -6,7 +6,11 @@ Centralized configuration using pydantic-settings with environment variable over
 Provides type-safe configuration management for all daemon components.
 
 Environment Variables:
-    KSI_SOCKET_PATH - Unix socket path (default: var/run/ksi_daemon.sock)
+    KSI_ADMIN_SOCKET - Admin socket path (default: sockets/admin.sock)
+    KSI_AGENTS_SOCKET - Agents socket path (default: sockets/agents.sock)
+    KSI_MESSAGING_SOCKET - Messaging socket path (default: sockets/messaging.sock)
+    KSI_STATE_SOCKET - State socket path (default: sockets/state.sock)
+    KSI_COMPLETION_SOCKET - Completion socket path (default: sockets/completion.sock)
     KSI_PID_FILE - Process ID file path (default: var/run/ksi_daemon.pid)
     KSI_DB_PATH - SQLite database path (default: var/db/agent_shared_state.db)
     KSI_LOG_DIR - Log directory (default: var/logs/daemon)
@@ -17,7 +21,7 @@ Environment Variables:
     KSI_TMP_DIR - Temporary files directory (default: var/tmp)
 
 Example:
-    export KSI_SOCKET_PATH=/custom/ksi_daemon.sock
+    export KSI_ADMIN_SOCKET=/custom/admin.sock
     export KSI_LOG_LEVEL=DEBUG
     python daemon.py
 """
@@ -36,8 +40,14 @@ class KSIConfig(BaseSettings):
     For example: KSI_SOCKET_PATH, KSI_DB_PATH, KSI_LOG_LEVEL
     """
     
-    # Core daemon paths
-    socket_path: Path = Path("var/run/ksi_daemon.sock")
+    # Core daemon paths - 5-socket architecture
+    admin_socket: Path = Path("sockets/admin.sock")
+    agents_socket: Path = Path("sockets/agents.sock")
+    messaging_socket: Path = Path("sockets/messaging.sock")
+    state_socket: Path = Path("sockets/state.sock")
+    completion_socket: Path = Path("sockets/completion.sock")
+    
+    # PID file
     pid_file: Path = Path("var/run/ksi_daemon.pid")
     
     # Database and storage
@@ -71,7 +81,11 @@ class KSIConfig(BaseSettings):
     def ensure_directories(self) -> None:
         """Ensure all configured directories exist."""
         directories = [
-            self.socket_path.parent,     # var/run
+            self.admin_socket.parent,    # sockets
+            self.agents_socket.parent,   # sockets
+            self.messaging_socket.parent,# sockets
+            self.state_socket.parent,    # sockets
+            self.completion_socket.parent,# sockets
             self.pid_file.parent,        # var/run  
             self.db_path.parent,         # var/db
             self.identity_storage_path.parent,  # var/db
@@ -131,7 +145,7 @@ class KSIConfig(BaseSettings):
     def __str__(self) -> str:
         """String representation showing key configuration values."""
         return (
-            f"KSIConfig(socket={self.socket_path}, "
+            f"KSIConfig(admin={self.admin_socket}, "
             f"db={self.db_path}, "
             f"log_level={self.log_level})"
         )

@@ -25,7 +25,7 @@ from daemon.protocols import (
 )
 from daemon.command_validator import CommandValidator
 from daemon.manager_framework import BaseManager, with_error_handling, log_operation
-from daemon.utils import UtilsManager
+# UtilsManager removed - module doesn't exist
 from daemon.file_operations import FileOperations, LogEntry
 from daemon.command_registry import CommandRegistry, command_handler, CommandHandler
 
@@ -229,69 +229,7 @@ class TestBaseManager:
         assert manager.call_count == 1
 
 
-class TestUtils:
-    """Test the utils manager with strategy pattern"""
-    
-    def test_cleanup_strategies(self, tmp_path):
-        """Test cleanup with strategy pattern"""
-        # Create test files
-        logs_dir = tmp_path / "claude_logs"
-        logs_dir.mkdir()
-        (logs_dir / "test1.jsonl").write_text("{}")
-        (logs_dir / "test2.jsonl").write_text("{}")
-        (logs_dir / "latest.jsonl").write_text("{}")
-        
-        # Mock state manager
-        state_manager = Mock()
-        state_manager.clear_sessions.return_value = 3
-        
-        # Change to test directory
-        original_cwd = os.getcwd()
-        os.chdir(tmp_path)
-        
-        try:
-            utils = UtilsManager(state_manager)
-            
-            # Test logs cleanup
-            result = utils.cleanup("logs")
-            assert "2" in result  # Should remove 2 files (not latest.jsonl)
-            
-            # Test sessions cleanup
-            result = utils.cleanup("sessions")
-            assert "3" in result
-            
-            # Test unknown cleanup type
-            result = utils.cleanup("unknown")
-            assert "Unknown cleanup type" in result
-            
-        finally:
-            os.chdir(original_cwd)
-    
-    def test_module_reload(self, tmp_path):
-        """Test module reloading"""
-        # Create test module
-        modules_dir = tmp_path / "claude_modules"
-        modules_dir.mkdir()
-        
-        module_file = modules_dir / "test_module.py"
-        module_file.write_text("""
-def handle_output(output, daemon):
-    return "Module loaded"
-""")
-        
-        # Change to test directory
-        original_cwd = os.getcwd()
-        os.chdir(tmp_path)
-        
-        try:
-            utils = UtilsManager()
-            utils.reload_module("test_module")
-            
-            assert utils.loaded_module is not None
-            assert hasattr(utils.loaded_module, "handle_output")
-            
-        finally:
-            os.chdir(original_cwd)
+# TestUtils class removed - UtilsManager doesn't exist in daemon.utils
 
 
 class TestFileOperations:

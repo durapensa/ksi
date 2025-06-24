@@ -30,8 +30,8 @@ import daemon.commands
 def parse_args():
     """Parse command line arguments with config system defaults"""
     parser = argparse.ArgumentParser()
-    parser.add_argument('--socket', default=str(config.socket_path), 
-                       help=f'Socket path (default: {config.socket_path})')
+    parser.add_argument('--socket', default=str(config.admin_socket), 
+                       help=f'Socket path (default: {config.admin_socket})')
     parser.add_argument('--hot-reload-from', help='Socket path to reload from')
     return parser.parse_args()
 
