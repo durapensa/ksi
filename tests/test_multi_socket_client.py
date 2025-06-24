@@ -2,7 +2,7 @@
 """
 Comprehensive tests for the real MultiSocketAsyncClient implementation.
 
-Tests the actual 5-socket architecture from ksi_client.async_client:
+Tests the actual multi-socket architecture from ksi_client.async_client:
 1. admin.sock - health_check(), get_processes(), shutdown_daemon(), get_message_bus_stats()
 2. agents.sock - register_agent(), get_agents(), spawn_agent()  
 3. messaging.sock - publish_event(), send_message(), event handlers (persistent connection)
@@ -28,7 +28,7 @@ from ksi_client import AsyncClient, SimpleChatClient, SocketConnection, PendingC
 
 
 class TestMultiSocketArchitecture:
-    """Test the real 5-socket architecture from ksi_client.async_client"""
+    """Test the real multi-socket architecture from ksi_client.async_client"""
     
     def test_socket_connection_dataclass(self):
         """Test SocketConnection dataclass from actual implementation"""
@@ -65,7 +65,7 @@ class TestMultiSocketArchitecture:
         
         client = AsyncClient(client_id="test_socket_structure")
         
-        # Should have all 5 socket connections from actual config
+        # Should have all socket connections from actual config
         expected_sockets = ["admin", "agents", "messaging", "state", "completion"]
         
         assert len(client.sockets) == 5
