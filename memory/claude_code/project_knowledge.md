@@ -9,7 +9,7 @@ Minimal daemon system for managing Claude processes with conversation continuity
 - **Agent Management**: MultiAgentOrchestrator + AgentController for efficient coordination
 - **Commands**: All using JSON Protocol v2.0 with Pydantic validation
 - **Message Bus**: Enhanced with targeted pub/sub for COMPLETION_RESULT events
-- **Client Libraries**: New multi_socket_client.py supports full multi-socket architecture
+- **Client Libraries**: New ksi_client/ library with clean AsyncClient and SimpleChatClient interfaces
 - **Daemon Integration**: python-daemon package successfully integrated with ksi-daemon.py wrapper (2025-06-24)
 
 ## Critical Patterns & Gotchas
@@ -26,6 +26,13 @@ Minimal daemon system for managing Claude processes with conversation continuity
 - **Socket Separation**: admin, agents, messaging, state, completion sockets for clean separation
 - **Async Completions**: All LLM calls are async with event-based results via COMPLETION_RESULT
 - **Targeted Delivery**: COMPLETION_RESULT events delivered directly to requesting client, not broadcast
+
+### Client Library Restructure (2025-06-24)
+**BREAKING CHANGE**: Removed confusing daemon_client.py, extracted clean ksi_client/ library
+- **ksi_client/**: Standalone async client library (AsyncClient, SimpleChatClient)  
+- **Files needing migration**: chat.py, prompts/discovery.py, tests/test_agent_composition_selection.py
+- **Old imports**: `from daemon_client import DaemonClient` → **New**: `from ksi_client import AsyncClient`
+- **Benefits**: Clean separation, no more dual client confusion, proper Python packaging
 
 ### Multi-Socket Architecture (NEW - 2025-06-24)
 1. **admin.sock**: System admin commands (HEALTH_CHECK, SHUTDOWN, etc.)

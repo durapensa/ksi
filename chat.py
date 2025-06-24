@@ -21,7 +21,7 @@ def start_daemon():
     """Start daemon if not running"""
     print("Starting daemon...")
     # Properly detach daemon from terminal
-    subprocess.Popen(['nohup', 'python3', 'daemon.py'], 
+    subprocess.Popen(['nohup', 'python3', 'ksi-daemon.py', '--foreground'], 
                     stdout=subprocess.DEVNULL, 
                     stderr=subprocess.DEVNULL,
                     preexec_fn=os.setsid)  # Create new process group

@@ -14,7 +14,7 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from ksi_daemon.client.multi_socket_client import SimpleChatClient
+from ksi_client import SimpleChatClient
 
 
 async def chat_loop(client: SimpleChatClient, session_id: str = None):
@@ -87,7 +87,7 @@ async def main():
     
     # Check if daemon is running
     if not Path("sockets/admin.sock").exists():
-        print("Error: Daemon not running. Please start daemon.py first.")
+        print("Error: Daemon not running. Please start ksi-daemon.py first.")
         return 1
     
     # Create client

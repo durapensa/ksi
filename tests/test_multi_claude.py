@@ -39,7 +39,7 @@ async def test_basic_conversation():
         await writer.wait_closed()
     except Exception as e:
         print(f"✗ Cannot connect to daemon: {e}")
-        print("  Please start the daemon with: python daemon.py")
+        print("  Please start the daemon with: python3 ksi-daemon.py --foreground")
         return
     
     # Test 2: Check message bus

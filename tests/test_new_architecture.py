@@ -17,14 +17,14 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from ksi_daemon.client.multi_socket_client import MultiSocketAsyncClient, SimpleChatClient
+from ksi_client import AsyncClient, SimpleChatClient
 
 
 async def test_basic_connectivity():
     """Test basic connectivity to all sockets"""
     print("\n=== Testing Basic Connectivity ===")
     
-    client = MultiSocketAsyncClient(client_id="test_client_001")
+    client = AsyncClient(client_id="test_client_001")
     
     try:
         # Initialize (connects to messaging socket)
@@ -162,7 +162,7 @@ async def test_targeted_delivery():
     
     async def track_events(client_name):
         """Track all events received by a client"""
-        client = MultiSocketAsyncClient(client_id=client_name)
+        client = AsyncClient(client_id=client_name)
         
         # Add handler to track ALL events
         def event_handler(event):
@@ -234,7 +234,7 @@ async def main():
     # Ensure daemon is running
     socket_path = Path("sockets/admin.sock")
     if not socket_path.exists():
-        print("✗ Daemon not running. Please start daemon.py first.")
+        print("✗ Daemon not running. Please start ksi-daemon.py first.")
         return
     
     tests = [

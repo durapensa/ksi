@@ -12,7 +12,7 @@ import logging
 from typing import Dict, Any, Optional, Union, List, Tuple
 from datetime import datetime
 
-logger = logging.getLogger('daemon.client_utils')
+logger = logging.getLogger('ksi_client.utils')
 
 class CommandBuilder:
     """Builder for JSON Protocol v2.0 commands"""

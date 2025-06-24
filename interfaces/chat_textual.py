@@ -19,8 +19,8 @@ import time
 # Import timestamp utilities for consistent timezone handling
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ksi_daemon.timestamp_utils import TimestampManager
-from ksi_daemon.client.utils import CommandBuilder, ResponseHandler, ConnectionManager
-from ksi_daemon.client.multi_socket_client import SimpleChatClient
+from ksi_client.utils import CommandBuilder, ResponseHandler, ConnectionManager
+from ksi_client import SimpleChatClient
 # Import AgentProcess later to avoid early logging setup
 
 from textual.app import App, ComposeResult
@@ -322,7 +322,7 @@ class ChatInterface(App):
         # Start daemon with all output suppressed
         self.log_message("System", "Starting daemon...")
         with open(os.devnull, 'w') as devnull:
-            subprocess.Popen(['python3', 'daemon.py'], 
+            subprocess.Popen(['python3', 'ksi-daemon.py', '--foreground'], 
                             stdout=devnull, 
                             stderr=devnull,
                             stdin=devnull,
@@ -1246,7 +1246,7 @@ def main():
 
 async def test_mode(args):
     """Test mode without TUI"""
-    from ksi_daemon.client.multi_socket_client import SimpleChatClient
+    from ksi_client import SimpleChatClient
     
     print("Testing daemon connection...")
     

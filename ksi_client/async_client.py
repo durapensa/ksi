@@ -19,10 +19,10 @@ import uuid
 from typing import Dict, Any, Optional, List, Callable, Tuple
 from pathlib import Path
 from dataclasses import dataclass, field
-from ..config import config
+from ksi_daemon.config import config
 from .utils import CommandBuilder, ConnectionManager, ResponseHandler
 
-logger = logging.getLogger('daemon.multi_socket_client')
+logger = logging.getLogger('ksi_client.async_client')
 
 
 @dataclass

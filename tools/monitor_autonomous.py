@@ -28,7 +28,7 @@ class AutonomousMonitor:
             
         # Check if daemon process is running
         try:
-            result = subprocess.run(['pgrep', '-f', 'daemon.py'], 
+            result = subprocess.run(['pgrep', '-f', 'ksi-daemon.py'], 
                                   capture_output=True, text=True)
             if result.returncode == 0:
                 pid = result.stdout.strip()
@@ -179,7 +179,7 @@ class AutonomousMonitor:
         print("💡 Recommendations:")
         
         if daemon['status'] != 'running':
-            print("   🔧 Start daemon: python3 daemon.py")
+            print("   🔧 Start daemon: python3 ksi-daemon.py --foreground")
             
         # Check if experiments are stalled
         if experiments:

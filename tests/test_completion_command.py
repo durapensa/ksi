@@ -21,9 +21,10 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from ksi_daemon.protocols import CompletionParameters, SocketResponse
+from ksi_daemon.protocols import SocketResponse
 from ksi_daemon.commands.completion import CompletionHandler
 from ksi_daemon.command_handler import CommandHandler
+from ksi_client.protocols import CompletionParameters
 
 
 class TestCompletionCommand:

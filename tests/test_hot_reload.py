@@ -41,13 +41,13 @@ async def test_hot_reload():
             print("✅ Daemon is healthy")
         else:
             print(f"❌ Daemon not healthy: {health_data}")
-            print("Please start daemon first: python daemon.py")
+            print("Please start daemon first: python3 ksi-daemon.py --foreground")
             return
     except json.JSONDecodeError:
         # Fallback for legacy text response
         if "HEALTHY" not in health_response:
             print(f"❌ Daemon not healthy: {health_response}")
-            print("Please start daemon first: python daemon.py")
+            print("Please start daemon first: python3 ksi-daemon.py --foreground")
             return
         print("✅ Daemon is healthy")
     

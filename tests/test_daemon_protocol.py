@@ -203,7 +203,7 @@ def main():
     # Check if daemon is running
     if not Path(tester.socket_path).exists():
         print(f"❌ Daemon socket not found at {tester.socket_path}. Start daemon first:")
-        print("   python3 daemon.py")
+        print("   python3 ksi-daemon.py --foreground")
         sys.exit(1)
     
     tester.run_all_tests()

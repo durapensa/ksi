@@ -122,7 +122,7 @@ async def main():
         writer.close()
         await writer.wait_closed()
     except Exception:
-        print("❌ Daemon is not running. Please start it first with: python3 daemon.py")
+        print("❌ Daemon is not running. Please start it first with: python3 ksi-daemon.py --foreground")
         return
     
     success = await test_identity_system()
