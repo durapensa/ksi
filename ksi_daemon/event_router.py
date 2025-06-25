@@ -32,7 +32,7 @@ class SimpleEventRouter:
             plugin_loader: The plugin loader instance
         """
         self.plugin_loader = plugin_loader
-        self.plugin_manager = plugin_loader.plugin_manager
+        self.plugin_manager = plugin_loader.pm
         
         # Direct event routing without intermediate subscriptions
         self.pending_requests: Dict[str, asyncio.Future] = {}
@@ -85,15 +85,17 @@ class SimpleEventRouter:
             )
             
             # Collect non-None responses
-            for result in hook_results:
-                if result is not None:
-                    handlers_called += 1
-                    
-                    # Handle async results
-                    if asyncio.iscoroutine(result):
-                        result = await result
-                    
-                    responses.append(result)
+            if hook_results:
+                for result in hook_results:
+                    if result is not None:
+                        handlers_called += 1
+                        
+                        # Handle async results
+                        if asyncio.iscoroutine(result):
+                            result = await result
+                        
+                        logger.debug(f"Got response from plugin: {result}")
+                        responses.append(result)
             
             if handlers_called > 0:
                 self.stats["events_handled"] += 1
@@ -112,6 +114,7 @@ class SimpleEventRouter:
             
             # For multiple responses, combine them
             elif len(responses) > 1:
+                logger.debug(f"Multiple responses for {event_name}: {responses}")
                 combined = {"responses": responses}
                 
                 # Handle correlation

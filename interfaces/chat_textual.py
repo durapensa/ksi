@@ -27,7 +27,7 @@ from textual.binding import Binding
 from textual import events, work
 
 
-SOCKET_PATH = os.environ.get('CLAUDE_DAEMON_SOCKET', '/tmp/ksi/daemon.sock')
+SOCKET_PATH = os.environ.get('CLAUDE_DAEMON_SOCKET', 'var/run/daemon.sock')
 
 
 class ChatInput(Input):

@@ -112,8 +112,9 @@ async def handle_completion_async(prompt: str, model: str = None,
 @hookimpl
 def ksi_handle_event(event_name, data, context):
     """Handle completion events."""
-    if event_name != "completion:request":
-        return None
+    # Disabled - completion_service.py handles completion:request
+    # This plugin now only provides the completion backend
+    return None
     
     # Extract parameters
     prompt = data.get("prompt", "")

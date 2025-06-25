@@ -85,7 +85,7 @@ def ksi_pre_event(event_name: str, data: Dict[str, Any], context: "EventContext"
     """
 
 
-@hookspec(firstresult=True)
+@hookspec
 def ksi_handle_event(event_name: str, data: Dict[str, Any], context: "EventContext") -> Optional[Dict[str, Any]]:
     """
     Handle an event. First plugin to return non-None wins.

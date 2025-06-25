@@ -16,7 +16,7 @@ from pathlib import Path
 from .config import config
 
 # Import plugin system
-from .core_plugin import PluginDaemon
+from .core_plugin import SimpleDaemonCore as PluginDaemon
 
 # Get logger
 import structlog
@@ -104,7 +104,7 @@ async def create_plugin_daemon(socket_dir: str = None, hot_reload_from: str = No
         "transports": {
             "unix": {
                 "enabled": True,
-                "socket_dir": socket_dir if socket_dir else "/tmp/ksi"
+                "socket_dir": socket_dir if socket_dir else str(config.socket_path.parent)
             }
         }
     }

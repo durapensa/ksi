@@ -1,454 +1,218 @@
 #!/usr/bin/env python3
 """
-Unix Socket Transport Plugin
+Simplified Unix Socket Transport Plugin
 
-Provides Unix domain socket transport for the KSI daemon.
-Handles all socket communication and converts between socket protocol and events.
+Handles Unix domain socket communication without complex inheritance.
 """
 
 import asyncio
 import json
 import os
 from pathlib import Path
-from typing import Dict, Any, Optional, Set
 import logging
+from typing import Dict, Any, Optional, Callable
 import pluggy
 
-from ...plugin_base import BasePlugin
-from ...plugin_types import (
-    PluginInfo, TransportConnection, TransportStatus
-)
+from ...plugin_utils import get_logger, plugin_metadata
+from ...config import config
+
+# Plugin metadata
+plugin_metadata("unix_socket_transport", version="2.0.0",
+                description="Simplified Unix domain socket transport")
 
 # Hook implementation marker
 hookimpl = pluggy.HookimplMarker("ksi")
 
-logger = logging.getLogger(__name__)
+# Module state
+logger = get_logger("unix_socket_transport")
+server = None
+event_emitter: Optional[Callable] = None
+client_connections = {}
 
 
-class UnixSocketConnection(TransportConnection):
-    """Unix socket transport implementation."""
+class UnixSocketTransport:
+    """Simple Unix socket transport implementation."""
     
-    def __init__(self, config: Dict[str, Any], event_emitter=None):
-        """
-        Initialize Unix socket transport.
-        
-        Args:
-            config: Transport configuration
-            event_emitter: Function to emit events (can be set later)
-        """
-        self.config = config
-        self._event_emitter = event_emitter
-        
-        # Set up paths
-        self._setup_paths()
-        
-        # Connection tracking
-        self.connections: Dict[str, asyncio.StreamWriter] = {}
-        self.connection_info: Dict[str, Dict[str, Any]] = {}
-        self.servers = {}
-        self.status = TransportStatus.DISCONNECTED
-        
-    @property
-    def emit_event(self):
-        """Get the event emitter function."""
-        return self._event_emitter or self._default_emit_event
+    def __init__(self, socket_path: str):
+        self.socket_path = socket_path
+        self.server = None
+        self.running = False
     
-    @emit_event.setter
-    def emit_event(self, emitter):
+    def set_event_emitter(self, emitter: Callable):
         """Set the event emitter function."""
-        self._event_emitter = emitter
+        global event_emitter
+        event_emitter = emitter
+        logger.info("Event emitter configured")
     
-    async def _default_emit_event(self, event_name: str, data: Dict[str, Any], **kwargs):
-        """Default event emitter (logs only)."""
-        logger.warning(f"No event emitter set. Event: {event_name} - {data}")
-        return {"status": "error", "error": {"message": "No event emitter configured"}}
-    
-    def _setup_paths(self):
-        """Set up socket paths."""
-        # Single socket path from config
-        socket_dir = Path(self.config.get("socket_dir", "/tmp/ksi"))
-        socket_dir.mkdir(parents=True, exist_ok=True)
-        self.socket_path = socket_dir / "daemon.sock"
-    
-    async def start(self) -> None:
-        """Start Unix socket server."""
-        logger.info("Starting Unix socket transport")
-        
-        # Clean up existing socket
-        if self.socket_path.exists():
-            self.socket_path.unlink()
-            logger.debug("Cleaned up existing socket")
-        
-        # Start single server
-        try:
-            self.server = await asyncio.start_unix_server(
-                self._handle_connection,
-                path=str(self.socket_path)
-            )
-            logger.info(f"Started server on {self.socket_path}")
-        except Exception as e:
-            logger.error(f"Failed to start server: {e}")
-            raise
-        
-        self.status = TransportStatus.CONNECTED
-        logger.info("Unix socket transport started successfully")
-    
-    async def stop(self) -> None:
-        """Stop Unix socket server."""
-        logger.info("Stopping Unix socket transport")
-        self.status = TransportStatus.DISCONNECTED
-        
-        # Close all connections
-        for conn_id, writer in list(self.connections.items()):
-            try:
-                writer.close()
-                await writer.wait_closed()
-            except Exception as e:
-                logger.error(f"Error closing connection {conn_id}: {e}")
-        
-        # Stop server
-        if hasattr(self, 'server'):
-            self.server.close()
-            await self.server.wait_closed()
-            logger.debug("Stopped server")
-        
-        # Clean up socket file
-        if self.socket_path.exists():
-            try:
-                self.socket_path.unlink()
-            except Exception as e:
-                logger.error(f"Error removing socket: {e}")
-        
-        self.connections.clear()
-        logger.info("Unix socket transport stopped")
-    
-    async def _handle_connection(self, reader: asyncio.StreamReader, 
-                                writer: asyncio.StreamWriter) -> None:
-        """Handle a client connection."""
-        conn_id = f"unix_{len(self.connections)}"
-        
-        try:
-            # Store connection
-            self.connections[conn_id] = writer
-            self.connection_info[conn_id] = {
-                "connected_at": asyncio.get_event_loop().time()
-            }
-            
-            # Emit connection event
-            await self.emit_event("transport:connection", {
-                "transport_type": "unix",
-                "connection_id": conn_id,
-                "action": "connect"
-            })
-            
-            # Handle messages
-            while True:
-                # Read line (JSON protocol)
-                data = await reader.readline()
-                if not data:
-                    break
-                
-                event_data = None  # Initialize for exception handlers
-                try:
-                    # Parse JSON event
-                    event_str = data.decode().strip()
-                    if not event_str:
-                        continue
-                    
-                    event_data = json.loads(event_str)
-                    
-                    # Extract event details
-                    event_name = event_data.get("event", "")
-                    event_payload = event_data.get("data", {})
-                    correlation_id = event_data.get("correlation_id")
-                    
-                    if not event_name:
-                        raise ValueError("Missing event name")
-                    
-                    # Emit event and wait for response
-                    response = await self.emit_event(
-                        event_name,
-                        event_payload,
-                        source="unix",
-                        correlation_id=correlation_id,
-                        expect_response=True
-                    )
-                    
-                    # Handle async responses
-                    if asyncio.iscoroutine(response) or asyncio.isfuture(response):
-                        # Await the async response
-                        response = await response
-                    
-                    # Always send a response
-                    if response is None:
-                        response = {"status": "success"}
-                    
-                    # Ensure response is a dict
-                    if not isinstance(response, dict):
-                        response = {"result": response}
-                    
-                    # Include correlation_id if present
-                    if correlation_id:
-                        response["correlation_id"] = correlation_id
-                    
-                    await self._send_response(writer, response)
-                    
-                except json.JSONDecodeError as e:
-                    # Send error response
-                    error_response = {
-                        "error": {
-                            "code": "INVALID_JSON",
-                            "message": str(e)
-                        },
-                        "correlation_id": event_data.get("correlation_id") if isinstance(event_data, dict) else None
-                    }
-                    await self._send_response(writer, error_response)
-                
-                except ValueError as e:
-                    # Missing event name or other validation error
-                    error_response = {
-                        "error": {
-                            "code": "INVALID_EVENT",
-                            "message": str(e)
-                        },
-                        "correlation_id": event_data.get("correlation_id") if isinstance(event_data, dict) else None
-                    }
-                    await self._send_response(writer, error_response)
-                
-                except Exception as e:
-                    logger.error(f"Error handling event: {e}")
-                    error_response = {
-                        "error": {
-                            "code": "INTERNAL_ERROR",
-                            "message": str(e)
-                        },
-                        "correlation_id": event_data.get("correlation_id") if isinstance(event_data, dict) else None
-                    }
-                    await self._send_response(writer, error_response)
-        
-        except asyncio.CancelledError:
-            logger.debug(f"Connection {conn_id} cancelled")
-        
-        except Exception as e:
-            logger.error(f"Connection error: {e}")
-        
-        finally:
-            # Clean up connection
-            if conn_id in self.connections:
-                del self.connections[conn_id]
-                del self.connection_info[conn_id]
-            
-            # Emit disconnection event
-            await self.emit_event("transport:connection", {
-                "transport_type": "unix",
-                "connection_id": conn_id,
-                "action": "disconnect"
-            })
-            
-            # Close writer
-            try:
-                writer.close()
-                await writer.wait_closed()
-            except:
-                pass
-    
-    
-    async def _send_response(self, writer: asyncio.StreamWriter, 
-                           response: Dict[str, Any]) -> None:
-        """Send response to client."""
-        try:
-            response_json = json.dumps(response) + '\n'
-            writer.write(response_json.encode())
-            await writer.drain()
-        except Exception as e:
-            logger.error(f"Error sending response: {e}")
-    
-    async def send_event(self, connection_id: str, event: Dict[str, Any]) -> None:
-        """Send event to specific connection."""
-        writer = self.connections.get(connection_id)
-        if not writer:
-            logger.warning(f"Connection {connection_id} not found")
+    async def start(self):
+        """Start the Unix socket server."""
+        if self.running:
             return
         
-        await self._send_response(writer, event)
-    
-    async def broadcast_event(self, event: Dict[str, Any], room: Optional[str] = None) -> None:
-        """Broadcast event to all connections."""
-        # With single socket, room filtering is not applicable
-        # Broadcast to all connections
-        for conn_id, writer in self.connections.items():
-            try:
-                await self._send_response(writer, event)
-            except Exception as e:
-                logger.error(f"Error broadcasting to {conn_id}: {e}")
-    
-    def get_connections(self) -> list[str]:
-        """Get list of active connection IDs."""
-        return list(self.connections.keys())
-    
-    def get_status(self) -> TransportStatus:
-        """Get transport status."""
-        return self.status
-
-
-class UnixSocketPlugin(BasePlugin):
-    """Unix socket transport plugin."""
-    
-    def __init__(self):
-        super().__init__(
-            name="unix_socket_transport",
-            version="1.0.0",
-            description="Unix domain socket transport for KSI daemon",
-            author="KSI Team",
-            namespaces=["transport"]
+        # Ensure socket directory exists
+        socket_dir = os.path.dirname(self.socket_path)
+        os.makedirs(socket_dir, exist_ok=True)
+        
+        # Remove existing socket file
+        if os.path.exists(self.socket_path):
+            os.unlink(self.socket_path)
+        
+        # Start server
+        self.server = await asyncio.start_unix_server(
+            handle_client,
+            path=self.socket_path
         )
-        self._transport: Optional[UnixSocketConnection] = None
-        self._context = None
-        self._event_bus = None
-    
-    @hookimpl
-    def ksi_startup(self):
-        """Initialize transport on startup."""
-        logger.info("Unix socket transport plugin starting")
-        return {"status": "unix_socket_transport_ready"}
-    
-    @hookimpl
-    def ksi_plugin_context(self, context):
-        """Receive plugin context with event bus access."""
-        self._context = context
-        self._event_bus = context.get("event_bus") if context else None
         
-        # Create event emitter function
-        async def emit_event(event_name: str, data: Dict[str, Any], **kwargs):
-            if self._event_bus:
-                correlation_id = kwargs.get("correlation_id")
-                source = kwargs.get("source", "unix_socket")
-                expect_response = kwargs.get("expect_response", False)
-                
-                # Publish event
-                await self._event_bus.publish(
-                    event_name,
-                    data,
-                    correlation_id=correlation_id,
-                    source=source
-                )
-                
-                # If expecting response, wait for it
-                if expect_response and correlation_id:
-                    # This is simplified - in real implementation we'd subscribe to response events
-                    # For now, return success
-                    return {
-                        "status": "success",
-                        "id": correlation_id,
-                        "data": data
-                    }
-                
-                return {"status": "published"}
+        self.running = True
+        logger.info(f"Unix socket transport started on {self.socket_path}")
+    
+    async def stop(self):
+        """Stop the Unix socket server."""
+        if not self.running:
+            return
+        
+        self.running = False
+        
+        if self.server:
+            self.server.close()
+            await self.server.wait_closed()
+        
+        # Clean up socket file
+        if os.path.exists(self.socket_path):
+            os.unlink(self.socket_path)
+        
+        logger.info("Unix socket transport stopped")
+
+
+async def handle_client(reader, writer):
+    """Handle a client connection."""
+    client_addr = writer.get_extra_info('peername', 'unknown')
+    client_id = id(writer)
+    client_connections[client_id] = writer
+    
+    logger.debug(f"Client connected: {client_addr}")
+    
+    try:
+        while True:
+            # Read line-delimited JSON messages
+            line = await reader.readline()
+            if not line:
+                break
+            
+            try:
+                message = json.loads(line.decode('utf-8').strip())
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid JSON: {e}")
+                await send_response(writer, {"error": f"Invalid JSON: {e}"})
+                continue
+            
+            # Handle the message
+            response = await handle_message(message)
+            
+            # Send response
+            logger.debug(f"Got response to send: {response}")
+            if response:
+                await send_response(writer, response)
             else:
-                logger.error("No event bus available for event emission")
-                return None
-        
-        # Initialize transport with event emitter
-        config = self._context.get("config", {}).get("transport", {}).get("unix", {})
-        self._transport = UnixSocketConnection(config, emit_event)
-        
-        # Start transport
-        if self._context and hasattr(self._context, "create_task"):
-            self._context.create_task(self._transport.start())
-        else:
-            asyncio.create_task(self._transport.start())
+                logger.debug("No response to send")
     
-    @hookimpl
-    def ksi_create_transport(self, transport_type: str, config: Dict[str, Any]):
-        """Create unix socket transport."""
-        logger.info(f"ksi_create_transport called with type: {transport_type}")
-        
-        if transport_type != "unix":
-            return None
-        
-        logger.info(f"Creating unix socket transport with config: {config}")
-        
-        # Create transport without event emitter (will be set later)
-        transport = UnixSocketConnection(config)
-        self._transport = transport
-        
-        return transport
-    
-    @hookimpl
-    def ksi_handle_event(self, event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
-        """Handle transport-related events."""
-        if not self._transport:
-            return None
-        
-        # Handle transport control events
-        if event_name == "transport:send":
-            # Send to specific connection
-            connection_id = data.get("connection_id")
-            event_data = data.get("event")
-            if connection_id and event_data:
-                asyncio.create_task(
-                    self._transport.send_event(connection_id, event_data)
-                )
-                return {"status": "sent"}
-        
-        elif event_name == "transport:broadcast":
-            # Broadcast to room or all
-            event_data = data.get("event")
-            room = data.get("room")
-            if event_data:
-                asyncio.create_task(
-                    self._transport.broadcast_event(event_data, room)
-                )
-                return {"status": "broadcast"}
-        
-        elif event_name == "transport:status":
-            # Get transport status
-            return {
-                "status": self._transport.get_status().value,
-                "connections": len(self._transport.get_connections()),
-                "socket": str(self._transport.socket_path)
-            }
-        
-        return None
-    
-    @hookimpl
-    def ksi_shutdown(self):
-        """Clean up on shutdown."""
-        if self._transport:
-            # Create cleanup task
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.create_task(self._transport.stop())
-            else:
-                # If loop not running, run sync
-                loop.run_until_complete(self._transport.stop())
-        
-        return {"status": "unix_socket_transport_stopped"}
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        logger.error(f"Error handling client: {e}", exc_info=True)
+    finally:
+        # Clean up
+        del client_connections[client_id]
+        writer.close()
+        await writer.wait_closed()
+        logger.debug(f"Client disconnected: {client_addr}")
 
 
-# Plugin instance
-plugin = UnixSocketPlugin()
+async def handle_message(message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Handle an incoming message."""
+    if not event_emitter:
+        logger.error("No event emitter configured")
+        return {"error": "Transport not initialized"}
+    
+    # Extract event info
+    event_name = message.get("event")
+    data = message.get("data", {})
+    correlation_id = message.get("correlation_id")
+    
+    if not event_name:
+        return {"error": "Missing event name"}
+    
+    try:
+        # Emit the event and get response
+        response = await event_emitter(event_name, data, correlation_id)
+        
+        # Handle async responses
+        if asyncio.iscoroutine(response) or asyncio.isfuture(response):
+            response = await response
+        
+        # Include correlation_id if present
+        if response and correlation_id:
+            response["correlation_id"] = correlation_id
+        
+        return response
+    
+    except Exception as e:
+        logger.error(f"Error handling event {event_name}: {e}", exc_info=True)
+        return {
+            "error": str(e),
+            "correlation_id": correlation_id
+        }
 
-# Module-level hooks that delegate to plugin instance
+
+async def send_response(writer, response: Dict[str, Any]):
+    """Send a response to the client."""
+    try:
+        # Send newline-delimited JSON response
+        response_str = json.dumps(response) + '\n'
+        logger.debug(f"Sending response: {response_str.strip()}")
+        writer.write(response_str.encode('utf-8'))
+        await writer.drain()
+        logger.debug("Response sent successfully")
+    except Exception as e:
+        logger.error(f"Error sending response: {e}")
+
+
+# Hook implementations
 @hookimpl
-def ksi_startup():
+def ksi_startup(config):
     """Initialize transport on startup."""
-    return plugin.ksi_startup()
+    logger.info("Unix socket transport plugin starting")
+    return {"plugin.unix_socket_transport": {"loaded": True}}
+
 
 @hookimpl
 def ksi_create_transport(transport_type: str, config: Dict[str, Any]):
-    """Create unix socket transport."""
-    return plugin.ksi_create_transport(transport_type, config)
+    """Create Unix socket transport if requested."""
+    if transport_type != "unix":
+        return None
+    
+    logger.info(f"Creating unix socket transport with config: {config}")
+    
+    # Import daemon config to get default paths
+    from ...config import config as daemon_config
+    
+    # Get socket path from config or use default
+    socket_dir = config.get("socket_dir", str(daemon_config.socket_path.parent))
+    socket_path = os.path.join(socket_dir, "daemon.sock")
+    
+    return UnixSocketTransport(socket_path)
 
-@hookimpl
-def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
-    """Handle transport-related events."""
-    return plugin.ksi_handle_event(event_name, data, context)
 
 @hookimpl
 def ksi_shutdown():
     """Clean up on shutdown."""
-    return plugin.ksi_shutdown()
+    global server
+    if server:
+        asyncio.create_task(server.stop())
+    
+    logger.info("Unix socket transport plugin stopped")
+    return {"status": "unix_socket_transport_stopped"}
+
 
 # Module-level marker for plugin discovery
 ksi_plugin = True

@@ -43,7 +43,7 @@ class KSIConfig(BaseSettings):
     """
     
     # Core daemon socket - single socket architecture
-    socket_path: Path = Path("/tmp/ksi/daemon.sock")
+    socket_path: Path = Path("var/run/daemon.sock")
     
     # PID file
     pid_file: Path = Path("var/run/ksi_daemon.pid")

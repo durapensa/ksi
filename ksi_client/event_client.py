@@ -49,7 +49,7 @@ class EventBasedClient:
     the new daemon's event-driven design.
     """
     
-    def __init__(self, client_id: str = None, socket_path: str = "/tmp/ksi/daemon.sock"):
+    def __init__(self, client_id: str = None, socket_path: str = "var/run/daemon.sock"):
         """
         Initialize event-based client.
         
@@ -473,7 +473,7 @@ class EventChatClient(EventBasedClient):
     Provides a high-level API similar to SimpleChatClient but using events.
     """
     
-    def __init__(self, client_id: str = None, socket_path: str = "/tmp/ksi/daemon.sock"):
+    def __init__(self, client_id: str = None, socket_path: str = "var/run/daemon.sock"):
         super().__init__(client_id, socket_path)
         self.current_session_id: Optional[str] = None
     

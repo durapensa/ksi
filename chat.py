@@ -30,7 +30,7 @@ def start_daemon():
 async def check_daemon_health() -> bool:
     """Check if daemon is healthy using event-based protocol"""
     try:
-        async with EventChatClient() as client:
+        async with EventChatClient(socket_path=SOCKET_PATH) as client:
             health = await client.health_check()
             return health.get("status") == "healthy"
     except:
@@ -39,7 +39,7 @@ async def check_daemon_health() -> bool:
 async def send_cleanup(cleanup_type: str) -> str:
     """Send cleanup command to daemon using event protocol"""
     try:
-        async with EventChatClient() as client:
+        async with EventChatClient(socket_path=SOCKET_PATH) as client:
             await client.emit_event("system:cleanup", {"type": cleanup_type})
             return f"Cleanup {cleanup_type} initiated"
     except Exception as e:
@@ -48,7 +48,7 @@ async def send_cleanup(cleanup_type: str) -> str:
 async def send_prompt(prompt: str, session_id: str = None) -> tuple:
     """Send prompt to Claude via daemon using event protocol"""
     try:
-        async with EventChatClient() as client:
+        async with EventChatClient(socket_path=SOCKET_PATH) as client:
             # Send prompt and get response
             response_text, new_session_id = await client.send_prompt(
                 prompt=prompt,

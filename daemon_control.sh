@@ -11,7 +11,7 @@ DAEMON_SCRIPT="ksi-daemon.py"
 PID_FILE="${KSI_PID_FILE:-var/run/ksi_daemon.pid}"
 
 # Socket configuration - single socket for event-based architecture
-SOCKET_DIR="${KSI_SOCKET_DIR:-/tmp/ksi}"
+SOCKET_DIR="${KSI_SOCKET_DIR:-var/run}"
 SOCKET_FILE="$SOCKET_DIR/daemon.sock"
 
 # Logging configuration
