@@ -6,17 +6,11 @@ KSI (Knowledge System Interface) is a minimal daemon system for managing Claude 
 ## System Architecture
 
 ### Core Design
-- **Plugin-Based**: Event-driven architecture using pluggy (90% complete)
-- **Multi-Socket**: Separate Unix sockets for different concerns
+- **Plugin-Based**: Event-driven architecture using pluggy (100% complete)
+- **Single Socket**: Unix socket at `var/run/daemon.sock` for all communication
 - **Async Everything**: No polling, pure event-driven communication
 - **Process Management**: `ksi-daemon.py` wrapper using python-daemon
-
-### Socket Architecture
-- `admin.sock` - System administration (health, shutdown, metrics)
-- `agents.sock` - Agent lifecycle management
-- `messaging.sock` - Pub/sub and inter-agent communication
-- `state.sock` - Persistent key-value storage
-- `completion.sock` - Async LLM completion requests
+- **Protocol**: Newline-delimited JSON (NDJSON) for easy debugging
 
 ### Plugin Documentation
 - `ksi_daemon/PLUGIN_ARCHITECTURE.md` - Complete architecture and status
@@ -28,19 +22,18 @@ KSI (Knowledge System Interface) is a minimal daemon system for managing Claude 
 ### Daemon Control
 - `./daemon_control.sh` - Start/stop/restart/health operations
 - `ksi-daemon.py` - Main daemon wrapper with python-daemon
-- `ksi_daemon/core.py` - Core daemon implementation
+- `ksi_daemon/core_plugin.py` - Core daemon implementation with plugin system
 
 ### Client Libraries (`ksi_client/`)
-- `AsyncClient` - Full-featured multi-socket client
-- `SimpleChatClient` - Simplified chat interface
-- `EventBasedClient` - New event-driven client
-- `EventChatClient` - Event-based chat interface
+- `EventChatClient` - Primary event-based client for all communication
+- `SimpleChatClient` - Legacy simplified chat interface (being phased out)
 
 ### User Interfaces
 - `chat.py` - Simple CLI chat interface
-- `interfaces/orchestrate.py` - Multi-Claude orchestration
+- `interfaces/orchestrate.py` - Multi-Claude orchestration (legacy)
 - `interfaces/monitor_tui.py` - Real-time TUI monitor
 - `interfaces/chat_textual.py` - TUI chat (AVOID - corrupts Claude Code TUI)
+- `example_orchestration.py` - Example of multi-Claude orchestration via ksi_client
 
 ## Development Environment
 
@@ -62,18 +55,29 @@ source .venv/bin/activate     # Activate virtual environment
 ksi/
 ├── ksi_daemon/           # Core daemon code
 │   ├── plugins/         # Plugin implementations
-│   ├── commands/        # Legacy command handlers
+│   ├── commands/        # Legacy command handlers (being removed)
 │   └── protocols/       # Protocol definitions
 ├── ksi_client/          # Client library
 ├── tests/               # Test suite
 ├── interfaces/          # User interfaces
 ├── var/                 # Runtime data
-│   ├── sockets/        # Unix sockets
-│   ├── state/          # Persistent state
+│   ├── run/            # PID file and daemon socket
+│   ├── state/          # Persistent state files
 │   ├── logs/           # Daemon logs
-│   └── claude_logs/    # Session transcripts
+│   └── db/             # SQLite database
+├── claude_logs/         # Session transcripts
 └── memory/              # Knowledge management
 ```
+
+### Active Plugins
+- **transport/unix_socket.py** - Unix socket transport using NDJSON protocol
+- **completion/completion_service.py** - Completion request handling
+- **completion/litellm.py** - LiteLLM provider for Claude CLI
+- **agent/agent_service.py** - Agent lifecycle, profiles, and messaging
+- **state/state_service.py** - SQLite-backed persistent state management
+- **messaging/message_bus.py** - Pub/sub messaging for inter-agent communication
+- **core/health.py** - Health check endpoint
+- **core/shutdown.py** - Graceful shutdown handling
 
 ## Testing Framework
 
@@ -86,7 +90,10 @@ ksi/
 ### Quick Tests
 ```bash
 # Health check
-echo '{"command":"HEALTH_CHECK","parameters":{}}' | nc -U var/sockets/admin.sock
+echo '{"event": "system:health", "data": {}}' | nc -U var/run/daemon.sock
+
+# Test completion
+echo '{"event": "completion:request", "data": {"prompt": "Hello"}}' | nc -U var/run/daemon.sock
 
 # Plugin system
 python3 tests/test_plugin_system.py
@@ -94,6 +101,29 @@ python3 tests/test_plugin_system.py
 # Full test suite
 python3 tests/test_daemon_protocol.py
 ```
+
+## Core Functionality
+
+### Message Bus / Pub-Sub
+- **Plugin**: `messaging/message_bus.py`
+- **Events**: `message:subscribe`, `message:publish`, `message:unsubscribe`
+- **Features**: Inter-agent messaging, event subscriptions, targeted delivery
+
+### State Management (SQLite)
+- **Plugin**: `state/state_service.py`
+- **Backend**: `SessionAndSharedStateManager` with SQLite database
+- **Events**: `state:get`, `state:set`, `state:delete`, `state:list`
+- **Features**: Namespaced keys, persistent storage, session tracking
+
+### Agent Management
+- **Plugin**: `agent/agent_service.py`
+- **Features**: Agent profiles, lifecycle management, message queues
+- **Events**: `agent:spawn`, `agent:terminate`, `agent:send_message`
+
+### Async Completion Flow
+- **Plugin**: `completion/completion_service.py`
+- **Events**: `completion:request` (sync), `completion:async` (non-blocking)
+- **Backend**: LiteLLM with claude-cli provider
 
 ## Common Operations
 
@@ -105,8 +135,8 @@ python3 tests/test_daemon_protocol.py
 # Chat with Claude
 python3 chat.py
 
-# Multi-Claude conversation
-python3 interfaces/orchestrate.py "Discuss AI ethics"
+# Multi-Claude orchestration (via ksi_client)
+python3 example_orchestration.py
 
 # Monitor in real-time
 python3 interfaces/monitor_tui.py
