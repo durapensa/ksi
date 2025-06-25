@@ -18,6 +18,7 @@ import os
 # Add path for daemon client utilities
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ksi_daemon.client import CommandBuilder, ResponseHandler
+from ksi_daemon.config import config
 from prompts.discovery import CompositionDiscovery
 from prompts.composition_selector import CompositionSelector, SelectionContext
 
@@ -229,8 +230,8 @@ class MultiClaudeOrchestratorV3:
         
         # Save temporary profile
         profile_name = f'temp_{mode}_{agent_index}'
-        profile_path = Path(f'agent_profiles/{profile_name}.json')
-        profile_path.parent.mkdir(exist_ok=True)
+        profile_path = config.agent_profiles_dir / f'{profile_name}.json'
+        profile_path.parent.mkdir(parents=True, exist_ok=True)
         
         with open(profile_path, 'w') as f:
             json.dump(profile, f, indent=2)
@@ -346,7 +347,7 @@ class MultiClaudeOrchestratorV3:
         await asyncio.sleep(2)
         
         # Clean up temporary profiles
-        for profile_path in Path('agent_profiles').glob('temp_*'):
+        for profile_path in config.agent_profiles_dir.glob('temp_*'):
             try:
                 profile_path.unlink()
             except:

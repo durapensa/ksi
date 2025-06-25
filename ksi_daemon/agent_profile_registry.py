@@ -22,7 +22,7 @@ class AgentProfileRegistry(BaseManager):
         self.completion_manager = completion_manager
         super().__init__(
             manager_name="agent",
-            required_dirs=["agent_profiles"]  # session_logs handled by config system
+            required_dirs=[str(config.agent_profiles_dir)]  # Use config-based path
         )
     
     def _initialize(self):
@@ -36,7 +36,7 @@ class AgentProfileRegistry(BaseManager):
         warnings.warn("load_agent_profile is deprecated. Use composition system instead.", DeprecationWarning, stacklevel=2)
         
         try:
-            profile_path = f'agent_profiles/{profile_name}.json'
+            profile_path = config.agent_profiles_dir / f'{profile_name}.json'
             with open(profile_path, 'r') as f:
                 profile = json.load(f)
             return profile
@@ -114,7 +114,7 @@ class AgentProfileRegistry(BaseManager):
         """Spawn an agent using composition-based approach with profile fallback"""
         # First try to find an existing profile that references this composition
         composition_profile = None
-        for profile_file in Path('agent_profiles').glob('*.json'):
+        for profile_file in config.agent_profiles_dir.glob('*.json'):
             try:
                 with open(profile_file) as f:
                     profile = json.load(f)

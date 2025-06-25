@@ -18,6 +18,7 @@ import os
 # Add path for daemon client utilities
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ksi_daemon.client import CommandBuilder, ResponseHandler
+from ksi_daemon.config import config
 
 # Set up logging only if not already configured
 def _setup_logging():
@@ -38,8 +39,11 @@ logger = logging.getLogger('orchestrator')
 class ConversationModeManager:
     """Load and manage conversation modes from compositions"""
     
-    def __init__(self, compositions_path: str = "prompts/compositions"):
-        self.compositions_path = Path(compositions_path)
+    def __init__(self, compositions_path: str = None):
+        if compositions_path is None:
+            self.compositions_path = config.prompts_dir / "compositions"
+        else:
+            self.compositions_path = Path(compositions_path)
         self.modes = {}
         self._load_conversation_modes()
     
@@ -168,8 +172,8 @@ class MultiClaudeOrchestrator:
         }
         
         # Save profile
-        profile_path = Path(f'agent_profiles/temp_{mode_name}_{agent_index}.json')
-        profile_path.parent.mkdir(exist_ok=True)
+        profile_path = config.agent_profiles_dir / f'temp_{mode_name}_{agent_index}.json'
+        profile_path.parent.mkdir(parents=True, exist_ok=True)
         
         with open(profile_path, 'w') as f:
             json.dump(profile, f, indent=2)

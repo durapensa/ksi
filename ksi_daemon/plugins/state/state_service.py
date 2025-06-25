@@ -35,7 +35,7 @@ def ksi_startup(config):
     
     try:
         state_manager = SessionAndSharedStateManager()
-        state_manager.initialize()
+        # BaseManager automatically calls _initialize() during construction
         
         # Get current state counts
         shared_count = len(state_manager.list_shared_state())

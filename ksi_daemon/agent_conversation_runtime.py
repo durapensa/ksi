@@ -80,9 +80,9 @@ class AgentConversationRuntime:
     
     async def _load_profile(self):
         """Load agent profile from JSON file"""
-        profile_file = f"agent_profiles/{self.profile_name}.json"
+        profile_file = config.agent_profiles_dir / f"{self.profile_name}.json"
         
-        if not os.path.exists(profile_file):
+        if not profile_file.exists():
             raise FileNotFoundError(f"Agent profile not found: {profile_file}")
         
         with open(profile_file, 'r') as f:

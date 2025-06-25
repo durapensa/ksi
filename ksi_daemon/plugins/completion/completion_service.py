@@ -43,8 +43,7 @@ event_emitter = None
 def ensure_directories():
     """Ensure required directories exist."""
     config.ensure_directories()
-    # Legacy directories for agent profiles
-    os.makedirs('agent_profiles', exist_ok=True)
+    # Agent profiles now managed in var/agent_profiles via config
 
 
 # Hook implementations

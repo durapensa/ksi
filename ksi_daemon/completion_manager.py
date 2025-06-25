@@ -49,8 +49,7 @@ class CompletionManager:
         """Ensure required directories exist using config system"""
         # Config system handles directory creation via ensure_directories()
         config.ensure_directories()
-        # Legacy directories for agent profiles (could be migrated to config later)
-        os.makedirs('agent_profiles', exist_ok=True)
+        # Agent profiles now managed in var/agent_profiles via config
     
     async def create_completion(
         self, 

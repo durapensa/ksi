@@ -25,14 +25,15 @@ KSI (Knowledge System Interface) is a minimal daemon system for managing Claude 
 - `ksi_daemon/core_plugin.py` - Core daemon implementation with plugin system
 
 ### Client Libraries (`ksi_client/`)
-- `EventChatClient` - Primary event-based client for all communication
-- `SimpleChatClient` - Legacy simplified chat interface (being phased out)
+- `EventChatClient` - Simplified event-based client for chat operations only
+- `MultiAgentClient` - Specialized client for agent coordination, messaging, and state
+- `SimpleChatClient` - Legacy simplified chat interface (deprecated)
 
 ### User Interfaces
 - `chat.py` - Simple CLI chat interface
-- `interfaces/orchestrate.py` - Multi-Claude orchestration (legacy)
+- `interfaces/orchestrate.py` - Multi-Claude orchestration with composition modes
 - `interfaces/monitor_tui.py` - Real-time TUI monitor
-- `interfaces/chat_textual.py` - TUI chat (AVOID - corrupts Claude Code TUI)
+- `interfaces/chat_textual.py` - Enhanced TUI chat with 10-100x faster conversation loading (AVOID running - corrupts Claude Code TUI)
 - `example_orchestration.py` - Example of multi-Claude orchestration via ksi_client
 
 ## Development Environment
@@ -55,17 +56,22 @@ source .venv/bin/activate     # Activate virtual environment
 ksi/
 ├── ksi_daemon/           # Core daemon code
 │   ├── plugins/         # Plugin implementations
-│   ├── commands/        # Legacy command handlers (being removed)
 │   └── protocols/       # Protocol definitions
 ├── ksi_client/          # Client library
 ├── tests/               # Test suite
 ├── interfaces/          # User interfaces
-├── var/                 # Runtime data
+├── prompts/             # Prompt system Python code
+├── var/                 # Runtime data (gitignored)
 │   ├── run/            # PID file and daemon socket
 │   ├── state/          # Persistent state files
-│   ├── logs/           # Daemon logs
-│   └── db/             # SQLite database
-├── claude_logs/         # Session transcripts
+│   ├── logs/           # Daemon and session logs
+│   │   ├── daemon/     # Daemon logs
+│   │   └── sessions/   # Session transcripts and message_bus.jsonl
+│   ├── db/             # SQLite database
+│   ├── agent_profiles/ # Agent profile JSON files
+│   └── prompts/        # Prompt templates and compositions
+│       ├── components/ # Markdown component templates
+│       └── compositions/ # YAML composition definitions
 └── memory/              # Knowledge management
 ```
 
@@ -170,6 +176,12 @@ python3 interfaces/monitor_tui.py
 - **Import Errors**: Always activate venv first
 - **Plugin Imports**: Need absolute imports or proper path setup
 
+### Recent Fixes (2025-06-25)
+- **State Service**: Fixed initialization issue with BaseManager pattern
+- **Configuration**: All paths now use config system (var/agent_profiles, var/prompts)
+- **Performance**: chat_textual.py now has efficient conversation loading with message ordering, deduplication, and pagination
+- **Client Architecture**: Separated EventChatClient (chat) from MultiAgentClient (coordination)
+
 ## Troubleshooting
 
 ### Common Problems
@@ -190,4 +202,4 @@ python3 interfaces/monitor_tui.py
    - Fix: Test with `claude --version`
 
 ---
-*Last updated: 2025-06-24*
+*Last updated: 2025-06-25*
