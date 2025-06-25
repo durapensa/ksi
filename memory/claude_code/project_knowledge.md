@@ -24,15 +24,24 @@ KSI (Knowledge System Interface) is a minimal daemon system for managing Claude 
 - `ksi-daemon.py` - Main daemon wrapper with python-daemon
 - `ksi_daemon/core_plugin.py` - Core daemon implementation with plugin system
 
-### Client Libraries (`ksi_client/`)
+### Client Libraries
+
+#### `ksi_client/` - Participant Clients
 - `EventChatClient` - Simplified event-based client for chat operations only
 - `MultiAgentClient` - Specialized client for agent coordination, messaging, and state
 - `SimpleChatClient` - Legacy simplified chat interface (deprecated)
 
+#### `ksi_admin/` - Administrative Clients (NEW)
+- `MonitorClient` - Real-time monitoring of all daemon activity
+- `MetricsClient` - System telemetry and performance metrics
+- `ControlClient` - Daemon lifecycle management
+- `DebugClient` - Troubleshooting and diagnostics
+- **No dependencies on ksi_client** - completely standalone implementation
+
 ### User Interfaces
 - `chat.py` - Simple CLI chat interface
 - `interfaces/orchestrate.py` - Multi-Claude orchestration with composition modes
-- `interfaces/monitor_tui.py` - Real-time TUI monitor
+- `interfaces/monitor_tui.py` - Real-time TUI monitor (now uses ksi_admin.MonitorClient)
 - `interfaces/chat_textual.py` - Enhanced TUI chat with 10-100x faster conversation loading (AVOID running - corrupts Claude Code TUI)
 - `example_orchestration.py` - Example of multi-Claude orchestration via ksi_client
 
@@ -176,11 +185,24 @@ python3 interfaces/monitor_tui.py
 - **Import Errors**: Always activate venv first
 - **Plugin Imports**: Need absolute imports or proper path setup
 
-### Recent Fixes (2025-06-25)
+### Recent Changes (2025-06-25)
 - **State Service**: Fixed initialization issue with BaseManager pattern
 - **Configuration**: All paths now use config system (var/agent_profiles, var/prompts)
 - **Performance**: chat_textual.py now has efficient conversation loading with message ordering, deduplication, and pagination
 - **Client Architecture**: Separated EventChatClient (chat) from MultiAgentClient (coordination)
+- **ksi_admin Library**: Created new administrative library parallel to ksi_client
+- **monitor_tui.py**: Refactored to use ksi_admin.MonitorClient instead of raw sockets
+
+### Development Philosophy
+- **Fast-moving research software** - no backward compatibility guarantees
+- **Breaking changes welcomed** - prioritize clean architecture
+- **Libraries are complementary** - ksi_client for participants, ksi_admin for operators
+
+### Future Vision
+- **Distributed KSI**: Multiple nodes forming clusters
+- **HTTP/gRPC Transport**: For inter-node communication
+- **Declarative Deployment**: Kubernetes-like manifests for agents
+- **Agent Federation**: Cross-cluster agent migration and communication
 
 ## Troubleshooting
 
@@ -203,3 +225,4 @@ python3 interfaces/monitor_tui.py
 
 ---
 *Last updated: 2025-06-25*
+*ksi_admin library added*

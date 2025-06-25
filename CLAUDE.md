@@ -122,107 +122,23 @@ python3 tests/test_completion_command.py
 ./daemon_control.sh stop
 ```
 
-### Daemon Refactoring (2025-06-23)
-**Major refactoring completed to improve code quality**:
-- **Pydantic models** (`daemon/models.py`): Type-safe command/response validation
-- **Base manager pattern** (`daemon/manager_utils.py`): Eliminates code duplication
-- **Strategy pattern** (`daemon/utils_refactored.py`): Replaces 50+ line if/elif chains
-- **Command registry** (`daemon/command_registry.py`): Self-registering command pattern
-- **File operations** (`daemon/file_operations.py`): Centralized I/O with retry logic
-- **Migration guide** (`daemon/migration_guide.md`): Gradual adoption path
-- **~35% code reduction** with better patterns and type safety
+## Technical Details
 
-When working on daemon code:
-- Prefer Pydantic models over manual validation
-- Use decorators from manager_utils for error handling
-- Add new commands via @command_handler decorator
-- Use FileOperations for all file I/O
-- See `daemon/REFACTORING_SUMMARY.md` for full details
-
-## Architecture
-
-### Core Components
-- **daemon.py**: Modular async daemon with multi-agent coordination capabilities
-- **chat.py**: Simple interface for chatting with Claude
-- **daemon/**: Modular daemon architecture (core, state_manager, agent_manager, etc.)
-
-### How It Works
-1. Daemon receives commands via Unix socket
-2. Spawns: `claude --model sonnet --print --output-format json --allowedTools "..." --resume sessionId`
-3. Logs all sessions to `claude_logs/<session-id>.jsonl` in JSONL format
-4. Uses `--resume sessionId` for conversation continuity
-
-### Multi-Agent Capabilities (Implemented - Requires Testing)
-- **Agent coordination**: Register agents, route tasks, manage state
-- **Inter-agent messaging**: Communication between Claude instances
-- **Shared state**: Persistent coordination across agents
-- **Agent profiles**: Pre-configured specialist roles
-
-### Multi-Claude Orchestrator (NEW)
-- **Peer-to-peer conversations**: Multiple Claudes conversing autonomously
-- **Event-driven architecture**: No polling, efficient async design
-- **Rich conversation modes**: Debate, collaboration, teaching, brainstorming
-- **Real-time TUI monitor**: Observe conversations, tool calls, metrics
-- **Persistent Claude nodes**: Maintain context across messages
+**See `memory/claude_code/project_knowledge.md` for:**
+- Architecture details and component descriptions
+- Plugin system documentation
+- Testing procedures
+- Recent changes and fixes
+- Event namespaces and protocols
 
 ## Design Principles
 
 ### Event-Driven Architecture
-**CRITICAL**: This system follows strict event-driven design principles:
-- **No polling**: Never poll for state changes or results. Use message bus events instead
-- **No timers**: Avoid setTimeout, sleep loops, or periodic checks
-- **No wait loops**: Don't spin waiting for conditions. Subscribe to events
-- **Blocking is OK when necessary**: Acceptable only for unavoidable operations (e.g., waiting for Claude CLI responses)
-- **Push, don't pull**: All communication via events pushed through the message bus
-- **Async by default**: Use SPAWN:async:claude for non-blocking Claude invocations
+- **No polling, timers, or wait loops** - Use events and callbacks
+- **Push, don't pull** - All communication via message bus
+- **Async by default** - Non-blocking operations
 
-Examples of what NOT to do:
-```python
-# BAD: Polling for result
-while not result_ready:
-    await asyncio.sleep(1)
-    result = check_if_ready()
-
-# BAD: Timer-based heartbeats
-async def heartbeat():
-    while True:
-        send_ping()
-        await asyncio.sleep(30)
-```
-
-Instead, use event subscriptions and callbacks:
-```python
-# GOOD: Event-driven completion
-await subscribe(['PROCESS_COMPLETE'])
-process_id = await spawn_async(prompt)
-# Handler will be called when ready
-```
-
-Quick start:
-```bash
-# Test the system
-python test_multi_claude.py
-
-# Start a debate
-python interfaces/orchestrate.py "AI ethics" --mode debate
-
-# Monitor in another terminal
-python monitor_tui.py
-```
-
-#### Monitor TUI Troubleshooting
-If the monitor shows no data:
-1. The monitor must CONNECT_AGENT before SUBSCRIBE (fixed in latest version)
-2. Start in debug mode ('d' key) to see raw message flow
-3. Check Event Stream panel for connection/subscription status
-4. Ensure daemon is running and interfaces/orchestrate.py is actively sending messages
-
-#### Multi-Claude Conversation Troubleshooting
-If nodes disconnect with "Broken pipe" errors:
-- This was fixed on 2025-06-21 - agent_process.py (formerly claude_node.py) now uses separate connections for commands
-- Kill all existing processes and restart with fresh daemon and interfaces/orchestrate.py
-- Check logs/daemon.log for connection errors
-- Nodes should now maintain stable connections and continue conversing
+See `memory/claude_code/project_knowledge.md` for detailed patterns and examples.
 
 ## Available Tools
 When working with the system, you have access to:
@@ -248,6 +164,12 @@ When working with the system, you have access to:
 - Use `Read` tool to analyze conversation patterns, costs, performance
 - Latest session is symlinked at `claude_logs/latest.jsonl`
 
+## Development Philosophy
+- **Fast-Moving Research Software**: KSI is experimental research software, not a production system
+- **No Backward Compatibility**: We prioritize rapid iteration and better design over compatibility
+- **Breaking Changes Welcome**: Feel free to refactor aggressively for cleaner architecture
+- **Fail Fast**: If something breaks, that's valuable feedback - don't hide failures
+
 ## Key Points for Claude Code
 - **FIRST**: Always read `memory/claude_code/project_knowledge.md` at session start
 - Keep the daemon minimal and focused
@@ -258,6 +180,18 @@ When working with the system, you have access to:
 - **WORKFLOW**: Don't exit early with summaries - continue working systematically through tasks
 - **CRITICAL**: DO NOT claim success when things are failing. If sockets don't work, processes die, or commands fail - that is NOT success. Be honest about actual status. Don't waste tokens on false celebration.
 
+## Library Architecture
+- **ksi_client/**: For agents participating in the system (chat, coordination)
+- **ksi_admin/**: For monitoring and controlling the system (observe, manage)
+- **Independent**: No cross-dependencies between libraries
+
+## Future Architecture Vision
+- **Dockerized Nodes**: Each KSI instance will be containerized with declarative configuration
+- **HTTP/gRPC Transport**: Supplement Unix sockets for inter-node communication
+- **Kubernetes-like Orchestration**: Declarative agent deployment across multiple nodes
+- **Agent Federation**: Multiple KSI clusters communicating and sharing agents
+- **Composable Architecture**: Mix and match components like prompts and agent profiles
+
 ## Running the System
 ```bash
 # Start daemon using control script
@@ -265,6 +199,9 @@ When working with the system, you have access to:
 
 # Start chatting (requires daemon to be running)
 python3 chat.py
+
+# Monitor the system (new!)
+python3 interfaces/monitor_tui.py
 
 # Stop daemon when done
 ./daemon_control.sh stop

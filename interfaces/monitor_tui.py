@@ -11,10 +11,11 @@ from pathlib import Path
 import re
 import sys
 import os
+import logging
 
-# Add path for daemon client utilities
+# Add path for ksi_admin
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from ksi_daemon.client import CommandBuilder
+from ksi_admin import MonitorClient
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
@@ -192,18 +193,16 @@ class MultiClaudeMonitor(App):
         ("d", "debug", "Toggle debug"),
     ]
     
-    def __init__(self, daemon_socket: str = "sockets/claude_daemon.sock"):
+    def __init__(self, daemon_socket: str = "var/run/daemon.sock"):
         super().__init__()
         self.daemon_socket = daemon_socket
-        self.reader: Optional[asyncio.StreamReader] = None
-        self.writer: Optional[asyncio.StreamWriter] = None
+        self.monitor_client = MonitorClient(socket_path=daemon_socket)
         self.connected = False
         self.paused = False
         self.debug_mode = True  # Start in debug mode for troubleshooting
         
-        # Tracking data
-        self.active_agents: Dict[str, Dict] = {}
-        self.conversations: Dict[str, List[Dict]] = {}
+        # Tracking data - MonitorClient maintains these internally
+        # We'll sync from monitor_client as needed
         self.metrics = {
             'tokens': 0,
             'cost': 0.0,
@@ -263,136 +262,93 @@ class MultiClaudeMonitor(App):
     
     async def connect_to_daemon(self) -> None:
         """Connect to the daemon and start monitoring"""
+        event_log = self.query_one("#event_log", RichLog)
+        
         try:
-            # Use the main connection for receiving messages
-            self.reader, self.writer = await asyncio.open_unix_connection(self.daemon_socket)
+            # Connect monitor client
+            await self.monitor_client.connect()
             self.connected = True
             
-            # First connect as an agent (this connection will be used for message bus)
-            connect_cmd = CommandBuilder.build_agent_connection_command("connect", "monitor")
-            command_str = json.dumps(connect_cmd) + '\n'
-            self.writer.write(command_str.encode())
-            await self.writer.drain()
+            # Register event handlers
+            self.monitor_client.on_message_flow(self.handle_message_event)
+            self.monitor_client.on_agent_activity(self.handle_agent_event)
+            self.monitor_client.on_tool_usage(self.handle_tool_event)
+            self.monitor_client.on_system_event(self.handle_system_event)
             
-            # Read and verify connection response
-            response = await self.reader.readline()
-            if not response:
-                raise Exception("No response from daemon for AGENT_CONNECTION")
+            # Also register a catch-all handler for debug mode
+            if self.debug_mode:
+                self.monitor_client.on_any_activity(self.handle_debug_event)
             
-            try:
-                resp_data = json.loads(response.decode().strip())
-                # Check JSON protocol v2.0 response format
-                if resp_data.get('status') != 'success' or resp_data.get('result', {}).get('status') != 'connected':
-                    raise Exception(f"Failed to connect: {resp_data}")
-            except json.JSONDecodeError:
-                self.notify(f"Connect response: {response.decode().strip()}", severity="warning")
+            # Start observing all events
+            await self.monitor_client.observe_all()
             
-            # Create a separate connection for sending the subscribe command
-            cmd_reader, cmd_writer = await asyncio.open_unix_connection(self.daemon_socket)
-            
-            # Subscribe to all message bus events
-            event_types = ["DIRECT_MESSAGE", "BROADCAST", "TASK_ASSIGNMENT", "TOOL_CALL", "AGENT_STATUS", "CONVERSATION_INVITE"]
-            subscribe_cmd = CommandBuilder.build_subscribe_command("monitor", event_types)
-            command_str = json.dumps(subscribe_cmd) + '\n'
-            cmd_writer.write(command_str.encode())
-            await cmd_writer.drain()
-            
-            # Read subscription response
-            sub_response = await cmd_reader.readline()
-            if sub_response:
-                try:
-                    sub_data = json.loads(sub_response.decode().strip())
-                    # Check JSON protocol v2.0 response format
-                    if sub_data.get('status') != 'success' or sub_data.get('result', {}).get('status') != 'subscribed':
-                        self.notify(f"Subscription issue: {sub_data}", severity="warning")
-                except json.JSONDecodeError:
-                    self.notify(f"Subscribe response: {sub_response.decode().strip()}", severity="warning")
-            
-            # Close the command connection
-            cmd_writer.close()
-            await cmd_writer.wait_closed()
-            
-            # Start listening for messages on the main connection
-            asyncio.create_task(self.listen_for_messages())
-            
-            self.notify("Connected to daemon and subscribed to events", severity="information")
+            self.notify("Connected to daemon and monitoring all events", severity="information")
+            event_log.write(f"[green]Monitor connected at {datetime.now().strftime('%H:%M:%S')}[/]")
             
         except Exception as e:
             self.notify(f"Failed to connect: {e}", severity="error")
+            event_log.write(f"[red]Connection failed: {e}[/]")
             self.connected = False
     
-    async def listen_for_messages(self) -> None:
-        """Listen for messages from daemon"""
-        event_log = self.query_one("#event_log", RichLog)
-        
-        # Log that we're starting to listen
-        event_log.write(f"[green]Started listening for messages at {datetime.now().strftime('%H:%M:%S')}[/]")
-        
-        try:
-            while self.connected and self.reader:
-                data = await self.reader.readline()
-                if not data:
-                    event_log.write("[red]Connection closed - no data received[/]")
-                    break
-                
-                # Always show raw data in debug mode
-                if self.debug_mode:
-                    event_log.write(f"[dim]RAW: {data.decode().strip()}[/]")
-                
-                try:
-                    message = json.loads(data.decode().strip())
-                    if not self.paused:
-                        await self.process_message(message)
-                    
-                    # Always log to event stream if in debug mode
-                    if self.debug_mode:
-                        event_log.write(f"[dim]{datetime.now().strftime('%H:%M:%S')}[/] {json.dumps(message, indent=2)}")
-                        
-                except json.JSONDecodeError as e:
-                    event_log.write(f"[red]Invalid JSON:[/] {data.decode().strip()} - Error: {e}")
-                    
-        except Exception as e:
-            event_log.write(f"[red]Error in message listener: {e}[/]")
-            self.notify(f"Connection lost: {e}", severity="error")
-        finally:
-            self.connected = False
-            event_log.write("[yellow]Message listener stopped[/]")
+    async def handle_debug_event(self, event_name: str, event_data: Dict[str, Any]) -> None:
+        """Handle any event in debug mode for raw visibility"""
+        if self.debug_mode and not self.paused:
+            event_log = self.query_one("#event_log", RichLog)
+            event_log.write(f"[dim]{datetime.now().strftime('%H:%M:%S')} {event_name}[/] {json.dumps(event_data, indent=2)}")
     
-    async def process_message(self, message: Dict) -> None:
-        """Process incoming message from daemon"""
-        # The message bus sends messages directly without an envelope
-        # Format: {"id": "...", "type": "DIRECT_MESSAGE", "from": "...", "to": "...", "content": "...", ...}
-        msg_type = message.get('type')
-        
+    async def handle_message_event(self, event_name: str, event_data: Dict[str, Any]) -> None:
+        """Handle message events from MonitorClient"""
+        if self.paused:
+            return
+            
         # Update metrics
         self.metrics['messages'] += 1
         self.message_times.append(datetime.now())
         
-        # Debug: log the message type
-        event_log = self.query_one("#event_log", RichLog)
-        event_log.write(f"[cyan]DEBUG: Routing message with type: {msg_type}[/]")
+        # The event_data contains the message
+        msg_type = event_data.get('type')
         
-        # Route to appropriate handler based on message type
-        if msg_type == 'DIRECT_MESSAGE':
-            event_log.write(f"[cyan]DEBUG: Routing to handle_conversation_message[/]")
-            await self.handle_conversation_message(message)
-        elif msg_type == 'TOOL_CALL':
-            await self.handle_tool_call(message)
-        elif msg_type == 'AGENT_STATUS':
-            await self.handle_agent_status(message)
+        # Route based on message type
+        if msg_type in ['DIRECT_MESSAGE', 'CONVERSATION_MESSAGE']:
+            await self.handle_conversation_message(event_data)
         elif msg_type == 'BROADCAST':
-            await self.handle_broadcast(message)
+            await self.handle_broadcast(event_data)
         elif msg_type == 'CONVERSATION_INVITE':
-            await self.handle_conversation_invite(message)
-        else:
-            event_log.write(f"[red]DEBUG: Unknown message type: {msg_type}[/]")
+            await self.handle_conversation_invite(event_data)
         
         # Update token/cost estimates
-        if 'content' in message:
+        if 'content' in event_data:
             # Rough token estimation
-            tokens = len(message['content'].split()) * 1.3
+            tokens = len(event_data['content'].split()) * 1.3
             self.metrics['tokens'] += int(tokens)
             self.metrics['cost'] += tokens * 0.00001  # Rough cost estimate
+    
+    async def handle_agent_event(self, event_name: str, event_data: Dict[str, Any]) -> None:
+        """Handle agent lifecycle events from MonitorClient"""
+        if self.paused:
+            return
+            
+        if event_name == 'agent:connect':
+            await self.handle_agent_connect(event_data)
+        elif event_name == 'agent:disconnect':
+            await self.handle_agent_disconnect(event_data)
+        elif event_name == 'agent:status' or event_data.get('type') == 'AGENT_STATUS':
+            await self.handle_agent_status(event_data)
+    
+    async def handle_tool_event(self, event_name: str, event_data: Dict[str, Any]) -> None:
+        """Handle tool events from MonitorClient"""
+        if self.paused:
+            return
+            
+        await self.handle_tool_call(event_data)
+    
+    async def handle_system_event(self, event_name: str, event_data: Dict[str, Any]) -> None:
+        """Handle system events from MonitorClient"""
+        if self.paused:
+            return
+            
+        event_log = self.query_one("#event_log", RichLog)
+        event_log.write(f"[yellow]System: {event_name}[/] {event_data}")
     
     async def handle_conversation_message(self, message: Dict) -> None:
         """Handle conversation message between agents"""
@@ -404,18 +360,6 @@ class MultiClaudeMonitor(App):
             content = message.get('content', '')
             conversation_id = message.get('conversation_id', 'default')
             timestamp = datetime.now().strftime('%H:%M:%S')
-            
-            # Debug logging
-            event_log = self.query_one("#event_log", RichLog)
-            event_log.write(f"[yellow]DEBUG: handle_conversation_message called[/]")
-            event_log.write(f"[yellow]  from: {from_agent}, to: {to_agent}[/]")
-            event_log.write(f"[yellow]  content length: {len(content)}[/]")
-            event_log.write(f"[yellow]  conversation_id: {conversation_id}[/]")
-            
-            # Store in conversation history
-            if conversation_id not in self.conversations:
-                self.conversations[conversation_id] = []
-            self.conversations[conversation_id].append(message)
             
             # Format and display
             conv_log.write(f"\n[bold cyan]{timestamp}[/] [bold green]{from_agent}[/] → [bold blue]{to_agent}[/]")
@@ -464,17 +408,23 @@ class MultiClaudeMonitor(App):
                 result_str = result_str[:100] + "..."
             tool_log.write(f"  [green]→ {result_str}[/]")
     
+    async def handle_agent_connect(self, event_data: Dict) -> None:
+        """Handle agent connection"""
+        agent_id = event_data.get('agent_id')
+        if agent_id:
+            # Update agent tree using monitor client's data
+            await self.update_agent_tree()
+    
+    async def handle_agent_disconnect(self, event_data: Dict) -> None:
+        """Handle agent disconnection"""
+        agent_id = event_data.get('agent_id')
+        if agent_id:
+            # Update agent tree using monitor client's data
+            await self.update_agent_tree()
+    
     async def handle_agent_status(self, message: Dict) -> None:
         """Handle agent status update"""
-        agent_id = message.get('agent_id')
-        status = message.get('status')
-        
-        if status == 'connected':
-            self.active_agents[agent_id] = message
-        elif status == 'disconnected':
-            self.active_agents.pop(agent_id, None)
-        
-        # Update agent tree
+        # Update agent tree using monitor client's data
         await self.update_agent_tree()
     
     async def handle_broadcast(self, message: Dict) -> None:
@@ -506,15 +456,21 @@ class MultiClaudeMonitor(App):
         tree = self.query_one("#agent_tree", Tree)
         tree.clear()
         
-        for agent_id, info in self.active_agents.items():
-            role = info.get('role', 'unknown')
-            profile = info.get('profile', 'default')
+        # Get agents from monitor client
+        active_agents = self.monitor_client.get_active_agents()
+        
+        for agent_info in active_agents:
+            agent_id = agent_info.get('id', 'Unknown')
+            role = agent_info.get('role', 'unknown')
+            profile = agent_info.get('profile', 'default')
             node = tree.root.add(f"{agent_id} [{role}]")
             node.add_leaf(f"Profile: {profile}")
             
-            # Add conversation participation
-            for conv_id, messages in self.conversations.items():
-                if any(m.get('from') == agent_id or m.get('to') == agent_id for m in messages):
+            # Add conversation participation from monitor client data
+            for conv_id in self.monitor_client.conversations.keys():
+                messages = self.monitor_client.get_conversation_messages(conv_id)
+                if any(m.get('data', {}).get('from') == agent_id or 
+                      m.get('data', {}).get('to') == agent_id for m in messages):
                     node.add_leaf(f"In: {conv_id[:20]}...")
     
     def update_metrics(self) -> None:
@@ -527,8 +483,11 @@ class MultiClaudeMonitor(App):
         recent_messages = [t for t in self.message_times if (now - t).seconds < 60]
         msg_rate = len(recent_messages)
         
+        # Get active agent count from monitor client
+        active_count = len(self.monitor_client.get_active_agents())
+        
         # Update single status line
-        status_text = f"Tokens: {self.metrics['tokens']:,} | Cost: ${self.metrics['cost']:.4f} | Msg/min: {msg_rate} | Active: {len(self.active_agents)}"
+        status_text = f"Tokens: {self.metrics['tokens']:,} | Cost: ${self.metrics['cost']:.4f} | Msg/min: {msg_rate} | Active: {active_count}"
         try:
             self.query_one("#status-line", Static).update(status_text)
         except:
@@ -536,22 +495,19 @@ class MultiClaudeMonitor(App):
     
     def action_quit(self) -> None:
         """Quit the application"""
-        if self.writer:
+        if self.connected:
             asyncio.create_task(self.disconnect())
         self.exit()
 
     async def disconnect(self) -> None:
         """Disconnect from daemon"""
-        if self.writer:
+        if self.connected:
             try:
-                disconnect_cmd = CommandBuilder.build_agent_connection_command("disconnect", "monitor")
-                command_str = json.dumps(disconnect_cmd) + '\n'
-                self.writer.write(command_str.encode())
-                await self.writer.drain()
-                self.writer.close()
-                await self.writer.wait_closed()
-            except:
-                pass
+                await self.monitor_client.stop_observing()
+                await self.monitor_client.disconnect()
+                self.connected = False
+            except Exception as e:
+                self.notify(f"Error during disconnect: {e}", severity="warning")
     
     def action_clear(self) -> None:
         """Clear all logs"""
@@ -570,6 +526,11 @@ class MultiClaudeMonitor(App):
         """Toggle debug mode"""
         self.debug_mode = not self.debug_mode
         status = "enabled" if self.debug_mode else "disabled"
+        
+        # Register/unregister debug handler based on mode
+        if self.debug_mode and self.connected:
+            self.monitor_client.on_any_activity(self.handle_debug_event)
+        
         self.notify(f"Debug mode {status}")
 
 
@@ -577,7 +538,7 @@ def main():
     """Main entry point"""
     import sys
     
-    socket = "sockets/claude_daemon.sock"
+    socket = "var/run/daemon.sock"
     if len(sys.argv) > 1:
         socket = sys.argv[1]
     
