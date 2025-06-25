@@ -13,21 +13,18 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple, Any
-import subprocess
 
 # Import timestamp utilities for consistent timezone handling
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ksi_daemon.timestamp_utils import TimestampManager
-from ksi_client import EventChatClient
+from ksi_daemon.config import config
+from ksi_client import EventChatClient, MultiAgentClient
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
 from textual.widgets import Header, Footer, Static, Label, Input, RichLog, Button, ListView, ListItem, Tree
 from textual.binding import Binding
 from textual import events, work
-
-
-SOCKET_PATH = os.environ.get('CLAUDE_DAEMON_SOCKET', 'var/run/daemon.sock')
 
 
 class ChatInput(Input):
@@ -220,8 +217,9 @@ class ChatInterface(App):
             'messages': 0
         }
         
-        # Event-based client for new architecture
+        # Event-based clients for new architecture
         self.chat_client: Optional[EventChatClient] = None
+        self.agent_client: Optional[MultiAgentClient] = None
     
     def compose(self) -> ComposeResult:
         """Create the UI layout"""
@@ -269,18 +267,22 @@ class ChatInterface(App):
         # Load profile first
         self.load_profile()
         
-        # First ensure daemon is running
-        await self.ensure_daemon_running()
-        
-        # Initialize event-based client
+        # Initialize chat client for basic operations
         self.chat_client = EventChatClient(
             client_id=f"chat_textual_{self.args.profile}",
-            socket_path=SOCKET_PATH
+            socket_path=str(config.socket_path)
+        )
+        
+        # Initialize multi-agent client for coordination features
+        self.agent_client = MultiAgentClient(
+            client_id=f"chat_textual_agent_{self.args.profile}",
+            socket_path=str(config.socket_path)
         )
         
         try:
-            # Connect to daemon
+            # Connect both clients to daemon
             await self.chat_client.connect()
+            await self.agent_client.connect()
             self.daemon_connected = True
             
             # Load available sessions
@@ -297,82 +299,14 @@ class ChatInterface(App):
             self.daemon_connected = False
             self.log_message("Error", f"Failed to initialize: {str(e)}")
     
-    async def ensure_daemon_running(self) -> None:
-        """Start daemon if not running"""
-        # Check if daemon is running by trying to connect
-        try:
-            reader, writer = await asyncio.open_unix_connection(SOCKET_PATH)
-            writer.close()
-            await writer.wait_closed()
-            return  # Daemon is running
-        except:
-            pass
-        
-        # Start daemon with all output suppressed
-        self.log_message("System", "Starting daemon...")
-        with open(os.devnull, 'w') as devnull:
-            subprocess.Popen(['python3', 'ksi-daemon.py', '--foreground'], 
-                            stdout=devnull, 
-                            stderr=devnull,
-                            stdin=devnull,
-                            preexec_fn=os.setsid)
-        
-        # Wait for daemon to start
-        for i in range(20):  # 10 seconds timeout
-            await asyncio.sleep(0.5)
-            try:
-                reader, writer = await asyncio.open_unix_connection(SOCKET_PATH)
-                writer.close()
-                await writer.wait_closed()
-                self.log_message("System", "Daemon started successfully")
-                return
-            except:
-                continue
-        
-        self.log_message("System", "Warning: Daemon may not have started properly")
     
-    async def connect_to_daemon(self) -> bool:
-        """Test daemon connection"""
-        try:
-            # Use event-based client to test connection
-            if self.chat_client and self.chat_client.connected:
-                health = await self.chat_client.health_check()
-                return bool(health)
-            return False
-        except Exception as e:
-            return False
     
-    async def send_to_daemon(self, command: str, parameters: Dict[str, Any] = None) -> str:
-        """Send command to daemon and get response (legacy compatibility wrapper)"""
-        try:
-            if not self.chat_client:
-                return json.dumps({"status": "error", "error": {"message": "Client not initialized"}})
-            
-            # Map legacy commands to event-based methods
-            if command == "HEALTH_CHECK":
-                response = await self.chat_client.health_check()
-            elif command == "MESSAGE_BUS_STATS":
-                # Use event API for stats
-                response = await self.chat_client.request_event("system:stats", parameters)
-            elif command == "SHUTDOWN":
-                await self.chat_client.shutdown_daemon()
-                response = {"status": "success"}
-            else:
-                # For other commands, use generic event request
-                event_name = f"legacy:{command.lower()}"
-                response = await self.chat_client.request_event(event_name, parameters)
-            
-            # Return as JSON string for compatibility
-            return json.dumps(response)
-            
-        except Exception as e:
-            return json.dumps({"status": "error", "error": {"message": f"Command failed: {str(e)}"}})
     
     
     def load_profile(self) -> None:
         """Load the specified profile"""
         profile_name = self.args.profile
-        profile_path = Path(f'agent_profiles/{profile_name}.json')
+        profile_path = config.agent_profiles_dir / f'{profile_name}.json'
         
         if not profile_path.exists():
             self.log_message("System", f"Profile {profile_name} not found, using default behavior")
@@ -391,7 +325,7 @@ class ChatInterface(App):
         """Load list of available sessions from logs"""
         self.available_sessions.clear()
         
-        logs_dir = Path('claude_logs')
+        logs_dir = config.session_log_dir.parent / 'claude_logs'  # Session logs in var/logs/sessions/../claude_logs
         if not logs_dir.exists():
             return
         
@@ -442,11 +376,12 @@ class ChatInterface(App):
     async def load_active_conversations(self) -> None:
         """Load list of active conversations from daemon"""
         try:
-            # Query daemon for stats using event API
-            stats = await self.chat_client.request_event("system:stats", {"type": "message_bus"})
-            # Always scan for conversations regardless
+            # Query daemon for active agents
+            agents = await self.agent_client.list_agents()
+            stats = {"agents": agents}
+            # Also scan for conversations from logs
             self.scan_recent_conversations()
-            # Then update with combined info
+            # Update UI with combined info
             self.update_active_conversation_list(stats)
         except:
             # Fallback: scan for recent message_bus activity
@@ -456,7 +391,7 @@ class ChatInterface(App):
         """Scan message_bus.jsonl for recent conversations"""
         self.active_conversations.clear()
         
-        message_bus_file = Path('claude_logs/message_bus.jsonl')
+        message_bus_file = config.session_log_dir.parent / 'claude_logs' / 'message_bus.jsonl'
         if not message_bus_file.exists():
             self.log_message("System", f"No message bus file found at {message_bus_file}")
             return
@@ -507,9 +442,10 @@ class ChatInterface(App):
         list_view = self.query_one("#active-conversation-list", ListView)
         list_view.clear()
         
-        if stats and 'connected_agents' in stats:
-            # Use daemon-provided stats
-            for agent_id in stats['connected_agents']:
+        if stats and 'agents' in stats:
+            # Use daemon-provided agent list
+            for agent_info in stats.get('agents', []):
+                agent_id = agent_info if isinstance(agent_info, str) else agent_info.get('agent_id', 'Unknown')
                 label = f"🟢 {agent_id}"
                 item = ListItem(Label(label))
                 item.agent_id = agent_id
@@ -578,8 +514,8 @@ class ChatInterface(App):
     
     async def get_last_session_id(self) -> Optional[str]:
         """Get the last session ID"""
-        # Check persistent file
-        session_file = Path('sockets/last_session_id')
+        # Check persistent file in state directory
+        session_file = config.state_dir / 'last_session_id'
         if session_file.exists():
             try:
                 session_id = session_file.read_text().strip()
@@ -698,9 +634,38 @@ class ChatInterface(App):
         await self.load_available_sessions()
     
     async def send_multi_agent_message(self, message: str) -> None:
-        """Send message in multi-agent mode"""
-        # TODO: Implement multi-agent message sending via message bus
-        self.log_message("System", "Multi-agent messaging coming soon...")
+        """Send message in multi-agent mode via message bus"""
+        if not self.agent_id:
+            # First register as an agent
+            self.agent_id = f"user_{self.args.profile}"
+            if not await self.agent_client.register_as_agent(self.agent_id):
+                self.log_message("Error", "Failed to register as agent")
+                return
+            
+            # Set up message handler
+            self.agent_client.on_message(self._handle_agent_message)
+        
+        # Send message to conversation
+        try:
+            # Find participants in this conversation
+            participants = list(self.active_conversations.get(self.conversation_id, {}).get('participants', []))
+            # Remove ourselves
+            participants = [p for p in participants if p != self.agent_id]
+            
+            if not participants:
+                self.log_message("System", "No other participants in conversation")
+                return
+            
+            # Send to first participant (could be enhanced to broadcast)
+            target = participants[0]
+            
+            if await self.agent_client.send_message(message, to=target, conversation_id=self.conversation_id):
+                self.metrics['messages'] += 1
+            else:
+                self.log_message("Error", "Failed to send message")
+            
+        except Exception as e:
+            self.log_message("Error", f"Failed to send message: {e}")
     
     async def handle_command(self, command: str) -> None:
         """Handle special commands"""
@@ -735,9 +700,6 @@ class ChatInterface(App):
         """Join an active multi-agent conversation"""
         self.log_message("System", f"Joining conversation: {conversation_id}")
         
-        # TODO: Implement actual connection to message bus
-        # For now, just switch mode and show messages from message_bus.jsonl
-        
         self.mode = "multi"
         self.conversation_id = conversation_id
         self.session_id = None
@@ -747,17 +709,31 @@ class ChatInterface(App):
         conv_log.clear()
         self.current_conversation.clear()
         
-        # Load recent messages from this conversation
-        await self.load_conversation_messages(conversation_id)
+        # Register as agent if not already
+        if not self.agent_id:
+            self.agent_id = f"user_{self.args.profile}"
+            if not await self.agent_client.register_as_agent(self.agent_id):
+                self.log_message("Error", "Failed to register as agent")
+                return
+            
+            # Set up message handler
+            self.agent_client.on_message(self._handle_agent_message)
         
-        self.log_message("System", f"Joined conversation: {conversation_id}")
-        self.log_message("System", "Multi-agent interaction coming soon. For now, viewing conversation history.")
+        # Join the conversation
+        if await self.agent_client.join_conversation(conversation_id):
+            # Load recent messages from this conversation
+            await self.load_conversation_messages(conversation_id)
+            
+            self.log_message("System", f"Joined conversation: {conversation_id}")
+            self.log_message("System", "You can now send messages to other participants")
+        else:
+            self.log_message("Error", "Failed to join conversation")
         
         self.update_status()
     
     async def load_conversation_messages(self, conversation_id: str) -> None:
         """Load messages from a specific conversation"""
-        message_bus_file = Path('claude_logs/message_bus.jsonl')
+        message_bus_file = config.session_log_dir.parent / 'claude_logs' / 'message_bus.jsonl'
         if not message_bus_file.exists():
             return
         
@@ -778,8 +754,20 @@ class ChatInterface(App):
     
     async def disconnect_from_conversation(self) -> None:
         """Disconnect from multi-agent conversation"""
-        # Event-based client handles all connection cleanup
-        self.agent_id = None
+        if self.agent_id and self.agent_client:
+            try:
+                await self.agent_client.leave_conversation()
+                await self.agent_client.unregister_agent()
+            except:
+                pass  # Ignore errors during disconnect
+            
+            self.agent_id = None
+    
+    def _handle_agent_message(self, sender: str, content: str, timestamp: str, conversation_id: Optional[str]):
+        """Handle incoming message from another agent"""
+        # Only display messages for our current conversation
+        if conversation_id == self.conversation_id:
+            self.log_message(sender, content, timestamp)
     
     def show_help_message(self) -> None:
         """Show help information"""
@@ -867,7 +855,7 @@ class ChatInterface(App):
         self.current_conversation.clear()
         
         # Load conversation from log file
-        log_file = Path(f'claude_logs/{session_id}.jsonl')
+        log_file = config.session_log_dir.parent / 'claude_logs' / f'{session_id}.jsonl'
         if not log_file.exists():
             self.log_message("Error", f"Session file not found: {session_id}")
             return
@@ -910,7 +898,7 @@ class ChatInterface(App):
     
     async def load_message_bus_log(self) -> None:
         """Special handler for message_bus.jsonl"""
-        message_bus_file = Path('claude_logs/message_bus.jsonl')
+        message_bus_file = config.session_log_dir.parent / 'claude_logs' / 'message_bus.jsonl'
         if not message_bus_file.exists():
             return
         
@@ -976,6 +964,8 @@ class ChatInterface(App):
         try:
             if self.chat_client:
                 await self.chat_client.disconnect()
+            if self.agent_client:
+                await self.agent_client.disconnect()
         except:
             pass
         self.exit()
@@ -1046,7 +1036,7 @@ class ChatInterface(App):
         
         # Determine export filename (use local time for user convenience)
         timestamp = TimestampManager.filename_timestamp(utc=False)
-        export_dir = Path('exports')
+        export_dir = config.state_dir / 'exports'
         export_dir.mkdir(exist_ok=True)
         export_file = export_dir / f'conversation_{session_id}_{timestamp}.md'
         
@@ -1057,7 +1047,7 @@ class ChatInterface(App):
             md_lines.append("---\n")
             
             # Load conversation from log file
-            log_file = Path(f'claude_logs/{session_id}.jsonl')
+            log_file = config.session_log_dir.parent / 'claude_logs' / f'{session_id}.jsonl'
             if not log_file.exists():
                 self.notify(f"Session file not found: {session_id}", severity="error")
                 return
@@ -1132,12 +1122,16 @@ class ChatInterface(App):
 
 def main():
     """Main entry point"""
+    # Ensure config directories exist
+    config.ensure_directories()
+    
     # Configure logging to file BEFORE any TUI operations to prevent screen corruption
-    os.makedirs('logs', exist_ok=True)
+    log_file = config.log_dir.parent / 'logs' / 'chat_textual.log'
+    log_file.parent.mkdir(exist_ok=True)
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        filename='logs/chat_textual.log',
+        filename=str(log_file),
         filemode='a'
     )
     
@@ -1162,11 +1156,9 @@ def main():
                        help='Send a single message and exit (no TUI)')
     args = parser.parse_args()
     
-    # Ensure required directories exist
-    os.makedirs('sockets', exist_ok=True)
-    os.makedirs('claude_logs', exist_ok=True)
-    os.makedirs('agent_profiles', exist_ok=True)
-    os.makedirs('logs', exist_ok=True)
+    # Ensure additional directories exist
+    claude_logs_dir = config.session_log_dir.parent / 'claude_logs'
+    claude_logs_dir.mkdir(exist_ok=True)
     
     # Handle non-TUI modes
     if args.test_connection or args.send_message:
@@ -1204,37 +1196,51 @@ def main():
 
 async def test_mode(args):
     """Test mode without TUI"""
-    from ksi_client import EventChatClient
+    from ksi_client import EventChatClient, MultiAgentClient
     
     print("Testing daemon connection...")
     
-    # Create client
-    client = EventChatClient(
+    # Create clients
+    chat_client = EventChatClient(
         client_id=f"chat_test_{args.profile}",
-        socket_path=SOCKET_PATH
+        socket_path=str(config.socket_path)
+    )
+    
+    agent_client = MultiAgentClient(
+        client_id=f"chat_test_agent_{args.profile}",
+        socket_path=str(config.socket_path)
     )
     
     try:
         # Connect to daemon
-        result = await client.connect()
+        result = await chat_client.connect()
         if result:
-            print("✓ Successfully connected to daemon")
+            print("✓ Successfully connected chat client")
         else:
-            print("✗ Failed to connect to daemon")
+            print("✗ Failed to connect chat client")
             return 1
+        
+        result = await agent_client.connect()
+        if result:
+            print("✓ Successfully connected agent client")
         
         # Small delay to ensure connection is stable
         await asyncio.sleep(0.1)
         
         # Test health check
-        print("Testing health check...")
-        health = await client.health_check()
+        print("\nTesting health check...")
+        health = await chat_client.health_check()
         print(f"✓ Daemon health: {health}")
+        
+        # Test agent list
+        print("\nTesting agent list...")
+        agents = await agent_client.list_agents()
+        print(f"✓ Active agents: {agents}")
         
         # Send message if provided
         if args.send_message:
             print(f"\nSending message: {args.send_message}")
-            response, session_id = await client.send_prompt(args.send_message)
+            response, session_id = await chat_client.send_prompt(args.send_message)
             print(f"\nClaude response:\n{response}")
             print(f"\nSession ID: {session_id}")
         
@@ -1243,7 +1249,8 @@ async def test_mode(args):
         return 1
     finally:
         try:
-            await client.disconnect()
+            await chat_client.disconnect()
+            await agent_client.disconnect()
         except Exception as e:
             # Ignore disconnect errors - we're exiting anyway
             pass

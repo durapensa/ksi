@@ -35,7 +35,8 @@ from .event_client import (
     EventBasedClient as AsyncClient,  # Use event client as default
     EventChatClient as SimpleChatClient,
     EventBasedClient,
-    EventChatClient
+    EventChatClient,
+    MultiAgentClient
 )
 
 # Import and re-export utilities
@@ -59,6 +60,7 @@ __all__ = [
     "SimpleChatClient",      # Simplified chat interface (EventChatClient)
     "EventBasedClient",      # Event-driven client
     "EventChatClient",       # Simplified event chat client
+    "MultiAgentClient",      # Multi-agent coordination client
     
     # Utilities
     "EventBuilder",          # Event construction

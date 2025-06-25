@@ -470,7 +470,8 @@ class EventChatClient(EventBasedClient):
     """
     Simplified event-based client for chat interfaces.
     
-    Provides a high-level API similar to SimpleChatClient but using events.
+    Provides a high-level API for simple chat operations.
+    For multi-agent coordination, use MultiAgentClient instead.
     """
     
     def __init__(self, client_id: str = None, socket_path: str = "var/run/daemon.sock"):
@@ -507,3 +508,369 @@ class EventChatClient(EventBasedClient):
         self.current_session_id = session_id
         
         return response_text, session_id
+    
+
+
+class MultiAgentClient(EventBasedClient):
+    """
+    Multi-agent coordination client.
+    
+    Provides agent management, message bus, and state management capabilities
+    for multi-agent systems. State management is included here because persistent
+    state is primarily used for agent coordination.
+    """
+    
+    def __init__(self, client_id: str = None, socket_path: str = "var/run/daemon.sock"):
+        super().__init__(client_id, socket_path)
+        self.agent_id: Optional[str] = None
+        self.conversation_id: Optional[str] = None
+        self._message_handlers: List[Callable] = []
+        self._agent_connected = False
+    
+    # ========================================================================
+    # AGENT MANAGEMENT API
+    # ========================================================================
+    
+    async def register_as_agent(self, agent_id: str = None, profile: str = None) -> bool:
+        """
+        Register this client as an agent.
+        
+        Args:
+            agent_id: Agent ID (uses client_id if None)
+            profile: Optional agent profile to use
+            
+        Returns:
+            True if registration successful
+        """
+        self.agent_id = agent_id or self.client_id
+        
+        try:
+            # Connect as agent
+            result = await self.request_event("agent:connect", {
+                "agent_id": self.agent_id,
+                "profile": profile
+            })
+            
+            if result.get("status") == "connected":
+                self._agent_connected = True
+                
+                # Subscribe to agent messages
+                await self._setup_agent_subscriptions()
+                
+                logger.info(f"Registered as agent: {self.agent_id}")
+                return True
+            else:
+                logger.error(f"Agent registration failed: {result}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to register as agent: {e}")
+            return False
+    
+    async def unregister_agent(self) -> bool:
+        """Unregister current agent."""
+        if not self.agent_id or not self._agent_connected:
+            return True
+            
+        try:
+            # Unsubscribe from messages
+            await self.request_event("message:unsubscribe", {
+                "agent_id": self.agent_id
+            })
+            
+            # Disconnect agent
+            await self.request_event("agent:disconnect", {
+                "agent_id": self.agent_id
+            })
+            
+            self._agent_connected = False
+            self.agent_id = None
+            logger.info(f"Unregistered agent")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to unregister agent: {e}")
+            return False
+    
+    async def list_agents(self) -> List[Dict[str, Any]]:
+        """Get list of active agents."""
+        try:
+            result = await self.request_event("agent:list", {})
+            return result.get("agents", [])
+        except Exception as e:
+            logger.error(f"Failed to list agents: {e}")
+            return []
+    
+    async def get_agent_info(self, agent_id: str = None) -> Optional[Dict[str, Any]]:
+        """Get information about an agent."""
+        agent_id = agent_id or self.agent_id
+        if not agent_id:
+            return None
+            
+        try:
+            result = await self.request_event("agent:info", {
+                "agent_id": agent_id
+            })
+            return result
+        except Exception as e:
+            logger.error(f"Failed to get agent info: {e}")
+            return None
+    
+    # ========================================================================
+    # MESSAGE BUS API
+    # ========================================================================
+    
+    async def join_conversation(self, conversation_id: str) -> bool:
+        """
+        Join a conversation.
+        
+        Args:
+            conversation_id: Conversation to join
+            
+        Returns:
+            True if joined successfully
+        """
+        if not self._agent_connected:
+            # Auto-register as agent if not already
+            if not await self.register_as_agent():
+                return False
+        
+        self.conversation_id = conversation_id
+        
+        # Subscribe to conversation messages
+        try:
+            await self.request_event("message:subscribe", {
+                "agent_id": self.agent_id,
+                "conversation_id": conversation_id,
+                "events": ["DIRECT_MESSAGE", "BROADCAST", "CONVERSATION_MESSAGE"]
+            })
+            
+            logger.info(f"Joined conversation: {conversation_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to join conversation: {e}")
+            return False
+    
+    async def leave_conversation(self) -> bool:
+        """Leave current conversation."""
+        if not self.conversation_id:
+            return True
+            
+        try:
+            await self.request_event("message:unsubscribe", {
+                "agent_id": self.agent_id,
+                "conversation_id": self.conversation_id
+            })
+            
+            self.conversation_id = None
+            logger.info("Left conversation")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to leave conversation: {e}")
+            return False
+    
+    async def send_message(self, content: str, to: str = None, 
+                          conversation_id: str = None) -> bool:
+        """
+        Send a message.
+        
+        Args:
+            content: Message content
+            to: Target agent ID (for direct messages)
+            conversation_id: Conversation ID (uses current if None)
+            
+        Returns:
+            True if sent successfully
+        """
+        if not self._agent_connected:
+            logger.error("Not registered as agent")
+            return False
+        
+        conversation_id = conversation_id or self.conversation_id
+        
+        try:
+            # Determine message type
+            if to:
+                # Direct message
+                await self.request_event("message:publish", {
+                    "agent_id": self.agent_id,
+                    "event_type": "DIRECT_MESSAGE",
+                    "data": {
+                        "to": to,
+                        "content": content,
+                        "conversation_id": conversation_id
+                    }
+                })
+            elif conversation_id:
+                # Conversation broadcast
+                await self.request_event("message:publish", {
+                    "agent_id": self.agent_id,
+                    "event_type": "CONVERSATION_MESSAGE",
+                    "data": {
+                        "content": content,
+                        "conversation_id": conversation_id
+                    }
+                })
+            else:
+                logger.error("No target specified for message")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to send message: {e}")
+            return False
+    
+    def on_message(self, callback: Callable[[str, str, str, Optional[str]], None]):
+        """
+        Register callback for incoming messages.
+        
+        Args:
+            callback: Function to call with (sender, content, timestamp, conversation_id)
+        """
+        self._message_handlers.append(callback)
+    
+    async def list_conversations(self) -> List[Dict[str, Any]]:
+        """Get list of active conversations."""
+        try:
+            result = await self.request_event("message:conversations", {})
+            return result.get("conversations", [])
+        except Exception as e:
+            logger.error(f"Failed to list conversations: {e}")
+            return []
+    
+    # ========================================================================
+    # STATE MANAGEMENT API
+    # ========================================================================
+    
+    async def get_state(self, key: str, namespace: str = "global") -> Any:
+        """
+        Get state value.
+        
+        Args:
+            key: State key
+            namespace: State namespace
+            
+        Returns:
+            State value or None
+        """
+        try:
+            result = await self.request_event("state:get", {
+                "key": key,
+                "namespace": namespace
+            })
+            
+            if result.get("found"):
+                return result.get("value")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to get state: {e}")
+            return None
+    
+    async def set_state(self, key: str, value: Any, 
+                       namespace: str = "global") -> bool:
+        """
+        Set state value.
+        
+        Args:
+            key: State key
+            value: State value
+            namespace: State namespace
+            
+        Returns:
+            True if set successfully
+        """
+        try:
+            result = await self.request_event("state:set", {
+                "key": key,
+                "value": value,
+                "namespace": namespace
+            })
+            
+            return result.get("status") == "set"
+            
+        except Exception as e:
+            logger.error(f"Failed to set state: {e}")
+            return False
+    
+    async def delete_state(self, key: str, namespace: str = "global") -> bool:
+        """Delete state value."""
+        try:
+            result = await self.request_event("state:delete", {
+                "key": key,
+                "namespace": namespace
+            })
+            
+            return result.get("status") in ["deleted", "not_found"]
+            
+        except Exception as e:
+            logger.error(f"Failed to delete state: {e}")
+            return False
+    
+    async def list_state_keys(self, namespace: str = None, 
+                             pattern: str = None) -> List[str]:
+        """List state keys."""
+        try:
+            data = {}
+            if namespace:
+                data["namespace"] = namespace
+            if pattern:
+                data["pattern"] = pattern
+                
+            result = await self.request_event("state:list", data)
+            return result.get("keys", [])
+            
+        except Exception as e:
+            logger.error(f"Failed to list state keys: {e}")
+            return []
+    
+    # ========================================================================
+    # INTERNAL METHODS
+    # ========================================================================
+    
+    async def _setup_agent_subscriptions(self):
+        """Set up message subscriptions for agent."""
+        if not self.agent_id:
+            return
+            
+        # Subscribe to message events
+        await self.subscribe("message:received:*", self._handle_incoming_message)
+        await self.subscribe(f"message:direct:{self.agent_id}", self._handle_incoming_message)
+        await self.subscribe(f"message:broadcast", self._handle_incoming_message)
+        
+        # Also request explicit subscription for the message bus
+        await self.request_event("message:subscribe", {
+            "agent_id": self.agent_id,
+            "events": ["DIRECT_MESSAGE", "BROADCAST", "CONVERSATION_INVITE"]
+        })
+    
+    async def _handle_incoming_message(self, event_name: str, data: Dict[str, Any]):
+        """Handle incoming message events."""
+        # Extract message details
+        sender = data.get("from", "Unknown")
+        content = data.get("content", "")
+        timestamp = data.get("timestamp", "")
+        conversation_id = data.get("conversation_id")
+        
+        # Call all registered handlers
+        for handler in self._message_handlers:
+            try:
+                if asyncio.iscoroutinefunction(handler):
+                    await handler(sender, content, timestamp, conversation_id)
+                else:
+                    handler(sender, content, timestamp, conversation_id)
+            except Exception as e:
+                logger.error(f"Error in message handler: {e}", exc_info=True)
+    
+    async def disconnect(self):
+        """Enhanced disconnect that cleans up agent state."""
+        # Unregister agent if needed
+        if self._agent_connected:
+            await self.unregister_agent()
+            
+        # Call parent disconnect
+        await super().disconnect()
+    
