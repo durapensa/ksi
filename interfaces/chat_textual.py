@@ -14,17 +14,19 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple, Any
 
-# Import timestamp utilities for consistent timezone handling
+# Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from ksi_daemon.timestamp_utils import TimestampManager
-from ksi_daemon.config import config
 from ksi_client import EventChatClient, MultiAgentClient
+from ksi_common import TimestampManager, KSIPaths
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
 from textual.widgets import Header, Footer, Static, Label, Input, RichLog, Button, ListView, ListItem, Tree
 from textual.binding import Binding
 from textual import events, work
+
+# Use KSIPaths for configuration
+config = KSIPaths()
 
 
 class ChatInput(Input):
@@ -325,7 +327,7 @@ class ChatInterface(App):
         """Load list of available sessions from logs"""
         self.available_sessions.clear()
         
-        logs_dir = config.claude_logs_dir
+        logs_dir = config.session_logs_dir
         if not logs_dir.exists():
             return
         
@@ -396,7 +398,7 @@ class ChatInterface(App):
         """
         self.active_conversations.clear()
         
-        message_bus_file = config.claude_logs_dir / 'message_bus.jsonl'
+        message_bus_file = config.session_logs_dir / 'message_bus.jsonl'
         if not message_bus_file.exists():
             self.log_message("System", f"No message bus file found at {message_bus_file}")
             return
@@ -843,7 +845,7 @@ class ChatInterface(App):
             conversation_id: The conversation to load
             limit: Maximum number of recent messages to load (default: 100)
         """
-        message_bus_file = config.claude_logs_dir / 'message_bus.jsonl'
+        message_bus_file = config.session_logs_dir / 'message_bus.jsonl'
         if not message_bus_file.exists():
             return
         
@@ -1006,7 +1008,7 @@ class ChatInterface(App):
         self.current_conversation.clear()
         
         # Load conversation from log file
-        log_file = config.claude_logs_dir / f'{session_id}.jsonl'
+        log_file = config.session_logs_dir / f'{session_id}.jsonl'
         if not log_file.exists():
             self.log_message("Error", f"Session file not found: {session_id}")
             return
@@ -1092,7 +1094,7 @@ class ChatInterface(App):
     
     async def load_message_bus_log(self) -> None:
         """Special handler for message_bus.jsonl"""
-        message_bus_file = config.claude_logs_dir / 'message_bus.jsonl'
+        message_bus_file = config.session_logs_dir / 'message_bus.jsonl'
         if not message_bus_file.exists():
             return
         
@@ -1241,7 +1243,7 @@ class ChatInterface(App):
             md_lines.append("---\n")
             
             # Load conversation from log file
-            log_file = config.claude_logs_dir / f'{session_id}.jsonl'
+            log_file = config.session_logs_dir / f'{session_id}.jsonl'
             if not log_file.exists():
                 self.notify(f"Session file not found: {session_id}", severity="error")
                 return
@@ -1316,12 +1318,11 @@ class ChatInterface(App):
 
 def main():
     """Main entry point"""
-    # Ensure config directories exist
-    config.ensure_directories()
+    # Config directories are created as needed by KSIPaths
     
     # Configure logging to file BEFORE any TUI operations to prevent screen corruption
-    log_file = config.log_dir.parent / 'logs' / 'chat_textual.log'
-    log_file.parent.mkdir(exist_ok=True)
+    log_file = config.log_dir / 'chat_textual.log'
+    config.ensure_dir(log_file.parent)
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -1348,13 +1349,22 @@ def main():
                        help='Test daemon connection without starting TUI')
     parser.add_argument('--send-message', metavar='MESSAGE',
                        help='Send a single message and exit (no TUI)')
+    parser.add_argument('--list-conversations', action='store_true',
+                       help='List recent conversations and exit (no TUI)')
+    parser.add_argument('--export-conversation', metavar='SESSION_ID',
+                       help='Export a conversation to markdown and exit (no TUI)')
+    parser.add_argument('--search-conversations', metavar='QUERY',
+                       help='Search conversations for text and exit (no TUI)')
+    parser.add_argument('--conversation-stats', action='store_true',
+                       help='Show conversation statistics and exit (no TUI)')
     args = parser.parse_args()
     
     # Ensure additional directories exist
-    config.claude_logs_dir.mkdir(exist_ok=True)
+    config.ensure_dir(config.session_logs_dir)
     
     # Handle non-TUI modes
-    if args.test_connection or args.send_message:
+    if (args.test_connection or args.send_message or args.list_conversations or 
+        args.export_conversation or args.search_conversations or args.conversation_stats):
         asyncio.run(test_mode(args))
         return
     
@@ -1389,7 +1399,7 @@ def main():
 
 async def test_mode(args):
     """Test mode without TUI"""
-    from ksi_client import EventChatClient, MultiAgentClient
+    from ksi_client import EventChatClient, MultiAgentClient, AsyncClient
     
     print("Testing daemon connection...")
     
@@ -1401,6 +1411,12 @@ async def test_mode(args):
     
     agent_client = MultiAgentClient(
         client_id=f"chat_test_agent_{args.profile}",
+        socket_path=str(config.socket_path)
+    )
+    
+    # Create async client for conversation operations
+    async_client = AsyncClient(
+        client_id=f"chat_test_async_{args.profile}",
         socket_path=str(config.socket_path)
     )
     
@@ -1417,18 +1433,23 @@ async def test_mode(args):
         if result:
             print("✓ Successfully connected agent client")
         
+        result = await async_client.connect()
+        if result:
+            print("✓ Successfully connected async client")
+        
         # Small delay to ensure connection is stable
         await asyncio.sleep(0.1)
         
         # Test health check
-        print("\nTesting health check...")
-        health = await chat_client.health_check()
-        print(f"✓ Daemon health: {health}")
-        
-        # Test agent list
-        print("\nTesting agent list...")
-        agents = await agent_client.list_agents()
-        print(f"✓ Active agents: {agents}")
+        if args.test_connection:
+            print("\nTesting health check...")
+            health = await chat_client.health_check()
+            print(f"✓ Daemon health: {health}")
+            
+            # Test agent list
+            print("\nTesting agent list...")
+            agents = await agent_client.list_agents()
+            print(f"✓ Active agents: {agents}")
         
         # Send message if provided
         if args.send_message:
@@ -1437,13 +1458,88 @@ async def test_mode(args):
             print(f"\nClaude response:\n{response}")
             print(f"\nSession ID: {session_id}")
         
+        # List conversations
+        if args.list_conversations:
+            print("\nListing recent conversations...")
+            result = await async_client.request_event("conversation:list", {
+                "limit": 10,
+                "sort_by": "last_timestamp",
+                "reverse": True
+            })
+            if result and 'error' not in result:
+                conversations = result.get('conversations', [])
+                print(f"\nFound {result.get('total', 0)} conversations, showing {len(conversations)}:")
+                for conv in conversations:
+                    print(f"  - {conv['session_id']}: {conv['message_count']} messages")
+                    if conv.get('last_timestamp'):
+                        dt = TimestampManager.parse_iso_timestamp(conv['last_timestamp'])
+                        local_dt = TimestampManager.utc_to_local(dt)
+                        print(f"    Last: {local_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+            else:
+                print(f"✗ Failed to list conversations: {result}")
+        
+        # Export conversation
+        if args.export_conversation:
+            print(f"\nExporting conversation {args.export_conversation}...")
+            result = await async_client.request_event("conversation:export", {
+                "session_id": args.export_conversation,
+                "format": "markdown"
+            })
+            if result and 'error' not in result:
+                print(f"✓ Exported to: {result.get('filename')}")
+                print(f"  Path: {result.get('export_path')}")
+                print(f"  Size: {result.get('size_bytes', 0)} bytes")
+                print(f"  Messages: {result.get('message_count', 0)}")
+            else:
+                print(f"✗ Failed to export conversation: {result}")
+        
+        # Search conversations
+        if args.search_conversations:
+            print(f"\nSearching conversations for '{args.search_conversations}'...")
+            result = await async_client.request_event("conversation:search", {
+                "query": args.search_conversations,
+                "limit": 10
+            })
+            if result and 'error' not in result:
+                results = result.get('results', [])
+                print(f"\nFound matches in {result.get('total_conversations', 0)} conversations:")
+                for res in results:
+                    print(f"\n  {res['session_id']}: {res['match_count']} matches")
+                    for match in res.get('matches', [])[:3]:
+                        print(f"    - {match.get('sender', 'Unknown')}: {match.get('content_preview', '')}")
+            else:
+                print(f"✗ Failed to search conversations: {result}")
+        
+        # Show conversation stats
+        if args.conversation_stats:
+            print("\nGetting conversation statistics...")
+            result = await async_client.request_event("conversation:stats", {})
+            if result and 'error' not in result:
+                print(f"\n✓ Conversation Statistics:")
+                print(f"  Total conversations: {result.get('total_conversations', 0)}")
+                print(f"  Total messages: {result.get('total_messages', 0)}")
+                print(f"  Total size: {result.get('total_size_mb', 0):.2f} MB")
+                if result.get('earliest_timestamp'):
+                    dt = TimestampManager.parse_iso_timestamp(result['earliest_timestamp'])
+                    local_dt = TimestampManager.utc_to_local(dt)
+                    print(f"  Earliest: {local_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+                if result.get('latest_timestamp'):
+                    dt = TimestampManager.parse_iso_timestamp(result['latest_timestamp'])
+                    local_dt = TimestampManager.utc_to_local(dt)
+                    print(f"  Latest: {local_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+            else:
+                print(f"✗ Failed to get stats: {result}")
+        
     except Exception as e:
         print(f"✗ Error: {e}")
+        import traceback
+        traceback.print_exc()
         return 1
     finally:
         try:
             await chat_client.disconnect()
             await agent_client.disconnect()
+            await async_client.disconnect()
         except Exception as e:
             # Ignore disconnect errors - we're exiting anyway
             pass
