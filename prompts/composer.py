@@ -10,10 +10,16 @@ Created as part of the ksi project: https://github.com/user/ksi
 
 import yaml
 import re
+import sys
+import os
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 import logging
+
+# Add parent directory to path to import config
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from ksi_daemon.config import config
 
 # Set up logging only if not already configured
 def _setup_logging():
@@ -49,8 +55,17 @@ class Composition:
 class PromptComposer:
     """Compose prompts from YAML compositions and Markdown components"""
     
-    def __init__(self, base_path: str = "prompts"):
-        self.base_path = Path(base_path)
+    def __init__(self, base_path: str = None):
+        # Use config.prompts_dir as default, fallback to "prompts" for backward compatibility
+        if base_path is None:
+            try:
+                self.base_path = config.prompts_dir
+            except:
+                # Fallback if config is not available
+                self.base_path = Path("prompts")
+        else:
+            self.base_path = Path(base_path)
+        
         self.components_path = self.base_path / "components"
         self.compositions_path = self.base_path / "compositions"
         

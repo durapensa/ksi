@@ -52,12 +52,13 @@ class KSIConfig(BaseSettings):
     db_path: Path = Path("var/db/agent_shared_state.db")
     identity_storage_path: Path = Path("var/db/identities.json")
     agent_profiles_dir: Path = Path("var/agent_profiles")
+    prompts_dir: Path = Path("var/prompts")
     state_dir: Path = Path("var/state")
     
     # Logging configuration
     log_dir: Path = Path("var/logs/daemon")
     session_log_dir: Path = Path("var/logs/sessions")
-    claude_logs_dir: Path = Path("claude_logs")  # Legacy session logs
+    claude_logs_dir: Path = Path("var/logs/sessions")  # Session logs location
     log_level: str = "INFO"
     log_format: Literal["json", "console"] = "console"
     log_structured: bool = True
@@ -94,7 +95,7 @@ class KSIConfig(BaseSettings):
     def ensure_directories(self) -> None:
         """Ensure all configured directories exist."""
         directories = [
-            self.socket_path.parent,     # /tmp/ksi
+            self.socket_path.parent,     # var/run
             self.pid_file.parent,        # var/run  
             self.db_path.parent,         # var/db
             self.identity_storage_path.parent,  # var/db
@@ -102,6 +103,7 @@ class KSIConfig(BaseSettings):
             self.session_log_dir,        # var/logs/sessions
             self.tmp_dir,                # var/tmp
             self.agent_profiles_dir,     # var/agent_profiles
+            self.prompts_dir,            # var/prompts
             self.state_dir               # var/state
         ]
         
