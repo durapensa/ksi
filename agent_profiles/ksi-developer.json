@@ -1,9 +1,0 @@
-{
-  "name": "ksi-developer",
-  "role": "KSI Project Developer",
-  "model": "sonnet",
-  "capabilities": ["coding", "debugging", "testing", "architecture", "daemon_management", "memory_system"],
-  "composition": "ksi_project_developer",
-  "enable_tools": true,
-  "system_instructions": "Use Read to check memory/README.md and CLAUDE.md for project context. Work within the established daemon architecture. Test thoroughly with the daemon system. Document important discoveries in appropriate memory/ files."
-}
