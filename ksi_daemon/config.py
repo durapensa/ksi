@@ -57,6 +57,7 @@ class KSIConfig(BaseSettings):
     # Logging configuration
     log_dir: Path = Path("var/logs/daemon")
     session_log_dir: Path = Path("var/logs/sessions")
+    claude_logs_dir: Path = Path("claude_logs")  # Legacy session logs
     log_level: str = "INFO"
     log_format: Literal["json", "console"] = "console"
     log_structured: bool = True

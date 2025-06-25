@@ -325,7 +325,7 @@ class ChatInterface(App):
         """Load list of available sessions from logs"""
         self.available_sessions.clear()
         
-        logs_dir = config.session_log_dir.parent / 'claude_logs'  # Session logs in var/logs/sessions/../claude_logs
+        logs_dir = config.claude_logs_dir
         if not logs_dir.exists():
             return
         
@@ -387,55 +387,159 @@ class ChatInterface(App):
             # Fallback: scan for recent message_bus activity
             self.scan_recent_conversations()
     
-    def scan_recent_conversations(self) -> None:
-        """Scan message_bus.jsonl for recent conversations"""
+    def scan_recent_conversations(self, max_lines: int = 1000) -> None:
+        """
+        Scan message_bus.jsonl for recent conversations with performance optimization.
+        
+        Args:
+            max_lines: Maximum lines to scan from end of file (default: 1000)
+        """
         self.active_conversations.clear()
         
-        message_bus_file = config.session_log_dir.parent / 'claude_logs' / 'message_bus.jsonl'
+        message_bus_file = config.claude_logs_dir / 'message_bus.jsonl'
         if not message_bus_file.exists():
             self.log_message("System", f"No message bus file found at {message_bus_file}")
             return
         
         try:
-            with open(message_bus_file, 'r') as f:
-                for line in f:
-                    try:
-                        msg = json.loads(line)
-                        conv_id = msg.get('conversation_id')
-                        if conv_id and conv_id not in self.active_conversations:
+            # Read recent lines from end of file for better performance
+            recent_lines = self._read_recent_lines(message_bus_file, max_lines)
+            
+            processed_count = 0
+            error_count = 0
+            
+            # Process lines in reverse order (most recent first)
+            for line_num, line in enumerate(reversed(recent_lines)):
+                try:
+                    msg = json.loads(line.strip())
+                    conv_id = msg.get('conversation_id')
+                    
+                    if conv_id:
+                        # Initialize conversation if not seen
+                        if conv_id not in self.active_conversations:
                             self.active_conversations[conv_id] = {
                                 'id': conv_id,
-                                'participants': [],
-                                'last_message': msg.get('timestamp', ''),
+                                'participants': set(),  # Use set for efficiency
+                                'last_message': '',
                                 'message_count': 0
                             }
                         
-                        if conv_id:
-                            # Update conversation info
-                            conv = self.active_conversations[conv_id]
-                            from_agent = msg.get('from', 'Unknown')
-                            to_agent = msg.get('to', 'Unknown')
-                            
-                            # Add participants if not already present
-                            if from_agent not in conv['participants']:
-                                conv['participants'].append(from_agent)
-                            if to_agent not in conv['participants']:
-                                conv['participants'].append(to_agent)
-                            conv['message_count'] += 1
-                            conv['last_message'] = msg.get('timestamp', conv['last_message'])
-                    except:
-                        continue
+                        # Update conversation info
+                        conv = self.active_conversations[conv_id]
+                        from_agent = msg.get('from')
+                        to_agent = msg.get('to')
+                        timestamp = msg.get('timestamp', '')
+                        
+                        # Add participants (filter out None/empty)
+                        if from_agent:
+                            conv['participants'].add(from_agent)
+                        if to_agent and to_agent != from_agent:  # Avoid duplicates
+                            conv['participants'].add(to_agent)
+                        
+                        conv['message_count'] += 1
+                        
+                        # Update last_message timestamp (keep most recent)
+                        if timestamp > conv['last_message']:
+                            conv['last_message'] = timestamp
+                    
+                    processed_count += 1
+                    
+                except json.JSONDecodeError as e:
+                    error_count += 1
+                    if error_count <= 5:  # Log first few errors only
+                        logger.warning(f"Malformed JSON in message bus: {e}")
+                except Exception as e:
+                    error_count += 1
+                    if error_count <= 5:
+                        logger.warning(f"Error processing message bus line: {e}")
+                    continue
             
-            # Log what we found
+            # Convert participants sets back to lists for UI display
+            for conv in self.active_conversations.values():
+                conv['participants'] = list(conv['participants'])
+            
+            # Log scan results
             if self.active_conversations:
-                self.log_message("System", f"Found {len(self.active_conversations)} active conversations")
+                self.log_message("System", f"Found {len(self.active_conversations)} active conversations "
+                                          f"(scanned {processed_count} messages, {error_count} errors)")
             else:
-                self.log_message("System", "No active conversations found in message bus")
+                self.log_message("System", "No active conversations found in recent message history")
                 
         except Exception as e:
             self.log_message("Error", f"Failed to scan message bus: {e}")
+            logger.error(f"Error scanning message bus: {e}", exc_info=True)
         
         self.update_active_conversation_list()
+    
+    def _read_recent_lines(self, file_path: Path, max_lines: int) -> List[str]:
+        """
+        Read the last N lines from a file efficiently.
+        
+        Args:
+            file_path: Path to the file
+            max_lines: Maximum number of lines to read from end
+            
+        Returns:
+            List of lines (newest last)
+        """
+        try:
+            # For small files, just read everything
+            file_size = file_path.stat().st_size
+            if file_size < 1024 * 1024:  # Less than 1MB
+                with open(file_path, 'r') as f:
+                    lines = f.readlines()
+                    return lines[-max_lines:] if len(lines) > max_lines else lines
+            
+            # For larger files, read from end more efficiently
+            lines = []
+            with open(file_path, 'rb') as f:
+                # Start from end of file
+                f.seek(0, 2)  # Seek to end
+                file_size = f.tell()
+                
+                # Read in chunks from end until we have enough lines
+                chunk_size = min(8192, file_size)
+                position = file_size
+                buffer = b''
+                
+                while len(lines) < max_lines and position > 0:
+                    # Move back by chunk size
+                    position = max(0, position - chunk_size)
+                    f.seek(position)
+                    
+                    # Read chunk and combine with previous buffer
+                    chunk = f.read(min(chunk_size, file_size - position))
+                    buffer = chunk + buffer
+                    
+                    # Split into lines
+                    chunk_lines = buffer.split(b'\n')
+                    
+                    # Keep incomplete line for next iteration
+                    if position > 0:
+                        buffer = chunk_lines[0]
+                        chunk_lines = chunk_lines[1:]
+                    else:
+                        buffer = b''
+                    
+                    # Convert to strings and add to lines (in reverse order)
+                    for line in reversed(chunk_lines):
+                        if line.strip():  # Skip empty lines
+                            lines.append(line.decode('utf-8', errors='ignore'))
+                            if len(lines) >= max_lines:
+                                break
+                
+                # Return in correct order (oldest first)
+                return list(reversed(lines[-max_lines:]))
+                
+        except Exception as e:
+            logger.error(f"Error reading recent lines from {file_path}: {e}")
+            # Fallback to simple read
+            try:
+                with open(file_path, 'r') as f:
+                    lines = f.readlines()
+                    return lines[-max_lines:] if len(lines) > max_lines else lines
+            except:
+                return []
     
     def update_active_conversation_list(self, stats: Dict = None) -> None:
         """Update the active conversation browser list"""
@@ -731,26 +835,73 @@ class ChatInterface(App):
         
         self.update_status()
     
-    async def load_conversation_messages(self, conversation_id: str) -> None:
-        """Load messages from a specific conversation"""
-        message_bus_file = config.session_log_dir.parent / 'claude_logs' / 'message_bus.jsonl'
+    async def load_conversation_messages(self, conversation_id: str, limit: int = 100) -> None:
+        """
+        Load messages from a specific conversation with proper ordering and deduplication.
+        
+        Args:
+            conversation_id: The conversation to load
+            limit: Maximum number of recent messages to load (default: 100)
+        """
+        message_bus_file = config.claude_logs_dir / 'message_bus.jsonl'
         if not message_bus_file.exists():
             return
         
         try:
+            # First pass: collect all matching messages
+            messages = []
+            seen_messages = set()  # For deduplication
+            
             with open(message_bus_file, 'r') as f:
-                for line in f:
+                for line_num, line in enumerate(f):
                     try:
-                        msg = json.loads(line)
+                        msg = json.loads(line.strip())
                         if msg.get('conversation_id') == conversation_id:
+                            # Create unique message ID for deduplication
+                            timestamp = msg.get('timestamp', '')
                             sender = msg.get('from', 'Unknown')
                             content = msg.get('content', '')
-                            timestamp = msg.get('timestamp')
-                            self.log_message(sender, content, timestamp)
-                    except:
+                            
+                            # Simple deduplication based on timestamp + sender + content hash
+                            msg_id = f"{timestamp}:{sender}:{hash(content)}"
+                            
+                            if msg_id not in seen_messages:
+                                seen_messages.add(msg_id)
+                                messages.append({
+                                    'timestamp': timestamp,
+                                    'sender': sender,
+                                    'content': content,
+                                    'raw_msg': msg
+                                })
+                    except json.JSONDecodeError as e:
+                        # Log malformed JSON but continue
+                        logger.warning(f"Malformed JSON at line {line_num + 1}: {e}")
                         continue
+                    except Exception as e:
+                        # Log other errors but continue
+                        logger.warning(f"Error processing line {line_num + 1}: {e}")
+                        continue
+            
+            # Sort messages by timestamp (chronological order)
+            messages.sort(key=lambda m: m['timestamp'] or '1970-01-01T00:00:00Z')
+            
+            # Apply pagination - show most recent messages
+            if len(messages) > limit:
+                skipped = len(messages) - limit
+                messages = messages[-limit:]  # Take last N messages
+                self.log_message("System", f"Showing {limit} most recent messages ({skipped} older messages hidden)")
+            
+            # Display messages in chronological order
+            if messages:
+                self.log_message("System", f"Loading {len(messages)} messages from conversation history...")
+                for msg in messages:
+                    self.log_message(msg['sender'], msg['content'], msg['timestamp'])
+            else:
+                self.log_message("System", f"No messages found for conversation: {conversation_id}")
+                
         except Exception as e:
             self.log_message("Error", f"Failed to load conversation: {e}")
+            logger.error(f"Error loading conversation {conversation_id}: {e}", exc_info=True)
     
     async def disconnect_from_conversation(self) -> None:
         """Disconnect from multi-agent conversation"""
@@ -844,7 +995,7 @@ class ChatInterface(App):
                 self.log_message("System", f"Agent observation not yet implemented: {event.item.agent_id}")
     
     async def load_past_conversation(self, session_id: str) -> None:
-        """Load and display a past conversation"""
+        """Load and display a past conversation with improved error handling and ordering"""
         self.mode = "replay"
         self.session_id = session_id
         self.conversation_id = None
@@ -855,7 +1006,7 @@ class ChatInterface(App):
         self.current_conversation.clear()
         
         # Load conversation from log file
-        log_file = config.session_log_dir.parent / 'claude_logs' / f'{session_id}.jsonl'
+        log_file = config.claude_logs_dir / f'{session_id}.jsonl'
         if not log_file.exists():
             self.log_message("Error", f"Session file not found: {session_id}")
             return
@@ -866,30 +1017,73 @@ class ChatInterface(App):
         if session_id == "message_bus":
             await self.load_message_bus_log()
         else:
-            # Normal conversation log
+            # Normal conversation log - load with ordering and error handling
             try:
+                messages = []
+                error_count = 0
+                
                 with open(log_file, 'r') as f:
-                    for line in f:
-                        entry = json.loads(line)
-                        
-                        # Handle different log formats
-                        if 'type' in entry:
-                            # Extract timestamp defensively - older convos may have timestamp bugs
-                            timestamp = entry.get('timestamp')
+                    for line_num, line in enumerate(f):
+                        try:
+                            entry = json.loads(line.strip())
                             
-                            if entry['type'] in ['user', 'human']:
-                                self.log_message("You", entry.get('content', ''), timestamp)
-                            elif entry['type'] == 'claude':
-                                content = entry.get('result', entry.get('content', ''))
-                                self.log_message("Claude", content, timestamp)
-                            elif entry['type'] == 'DIRECT_MESSAGE':
-                                # Message bus format
-                                sender = entry.get('from', 'Unknown')
-                                content = entry.get('content', '')
-                                self.log_message(sender, content, timestamp)
+                            # Handle different log formats
+                            if 'type' in entry:
+                                timestamp = entry.get('timestamp', '')
+                                
+                                if entry['type'] in ['user', 'human']:
+                                    messages.append({
+                                        'timestamp': timestamp,
+                                        'sender': 'You',
+                                        'content': entry.get('content', ''),
+                                        'type': 'user'
+                                    })
+                                elif entry['type'] == 'claude':
+                                    content = entry.get('result', entry.get('content', ''))
+                                    messages.append({
+                                        'timestamp': timestamp,
+                                        'sender': 'Claude',
+                                        'content': content,
+                                        'type': 'claude'
+                                    })
+                                elif entry['type'] == 'DIRECT_MESSAGE':
+                                    # Message bus format embedded in session log
+                                    sender = entry.get('from', 'Unknown')
+                                    content = entry.get('content', '')
+                                    messages.append({
+                                        'timestamp': timestamp,
+                                        'sender': sender,
+                                        'content': content,
+                                        'type': 'message'
+                                    })
+                        
+                        except json.JSONDecodeError as e:
+                            error_count += 1
+                            if error_count <= 3:  # Log first few errors only
+                                logger.warning(f"Malformed JSON in {session_id} at line {line_num + 1}: {e}")
+                        except Exception as e:
+                            error_count += 1
+                            if error_count <= 3:
+                                logger.warning(f"Error processing {session_id} line {line_num + 1}: {e}")
+                            continue
+                
+                # Sort messages by timestamp for proper chronological order
+                messages.sort(key=lambda m: m['timestamp'] or '1970-01-01T00:00:00Z')
+                
+                # Display messages in order
+                if messages:
+                    self.log_message("System", f"Loaded {len(messages)} messages from session")
+                    if error_count > 0:
+                        self.log_message("System", f"Note: {error_count} lines had errors and were skipped")
+                    
+                    for msg in messages:
+                        self.log_message(msg['sender'], msg['content'], msg['timestamp'])
+                else:
+                    self.log_message("System", f"No messages found in session: {session_id}")
                         
             except Exception as e:
                 self.log_message("Error", f"Failed to load conversation: {e}")
+                logger.error(f"Error loading past conversation {session_id}: {e}", exc_info=True)
         
         self.log_message("System", "End of conversation replay. Press Ctrl+N to start new session.")
         
@@ -898,7 +1092,7 @@ class ChatInterface(App):
     
     async def load_message_bus_log(self) -> None:
         """Special handler for message_bus.jsonl"""
-        message_bus_file = config.session_log_dir.parent / 'claude_logs' / 'message_bus.jsonl'
+        message_bus_file = config.claude_logs_dir / 'message_bus.jsonl'
         if not message_bus_file.exists():
             return
         
@@ -1047,7 +1241,7 @@ class ChatInterface(App):
             md_lines.append("---\n")
             
             # Load conversation from log file
-            log_file = config.session_log_dir.parent / 'claude_logs' / f'{session_id}.jsonl'
+            log_file = config.claude_logs_dir / f'{session_id}.jsonl'
             if not log_file.exists():
                 self.notify(f"Session file not found: {session_id}", severity="error")
                 return
@@ -1157,8 +1351,7 @@ def main():
     args = parser.parse_args()
     
     # Ensure additional directories exist
-    claude_logs_dir = config.session_log_dir.parent / 'claude_logs'
-    claude_logs_dir.mkdir(exist_ok=True)
+    config.claude_logs_dir.mkdir(exist_ok=True)
     
     # Handle non-TUI modes
     if args.test_connection or args.send_message:
