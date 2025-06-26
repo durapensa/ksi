@@ -132,7 +132,6 @@ python3 tests/test_daemon_protocol.py
 
 ### In Progress
 - **Conversation Plugin**: Created but has indentation errors
-- **chat_textual.py**: Needs ksi_daemon imports removed
 
 ### Available Events (via system:discover)
 - **system**: health, shutdown, discover, help (4 events)
@@ -230,6 +229,10 @@ python3 interfaces/monitor_tui.py
   - ksi_client, ksi_admin, and interfaces use shared config
   - Environment variable support (KSI_SOCKET_PATH, KSI_LOG_LEVEL, etc.)
   - Removed old timestamp_utils.py, now using ksi_common
+- **Interface Updates**: Migrated orchestrate.py and orchestrate_v3.py to ksi_client
+  - Now use event-based API instead of command-based protocol
+  - Proper AsyncClient connection management
+  - Updated to use agent:spawn and message:publish events
 
 ### Key Technical Insights
 
