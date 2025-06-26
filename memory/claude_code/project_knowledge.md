@@ -117,29 +117,25 @@ python3 tests/test_plugin_system.py
 python3 tests/test_daemon_protocol.py
 ```
 
-## Current System Status (2025-06-25)
+## Current System Status
 
 ### Working Components
-- **Core Daemon**: Running with plugin architecture (10+ plugins)
-- **Event Discovery**: `system:discover`, `system:help`, `system:capabilities`
-- **Completion Service**: LiteLLM integration for Claude
-- **Agent Management**: Spawn, terminate, messaging
-- **State Management**: SQLite-backed persistent storage
-- **Message Bus**: Inter-agent pub/sub messaging
-- **Health/Shutdown**: Graceful lifecycle management
-- **ksi_client**: EventChatClient, MultiAgentClient, AsyncClient
-- **ksi_admin**: MonitorClient (used by monitor_tui.py)
+- **Core Daemon**: Plugin architecture with 10+ active plugins
+- **Event Discovery**: Full introspection via `system:discover`
+- **Completion Service**: LiteLLM/Claude integration
+- **Agent Management**: Lifecycle and messaging
+- **State Management**: SQLite-backed persistence
+- **Message Bus**: Inter-agent pub/sub
+- **Unified Logging**: Structured logging with context propagation
+- **Libraries**: ksi_client (participants), ksi_admin (operators)
 
-### In Progress
-- None currently
-
-### Available Events (via system:discover)
-- **system**: health, shutdown, discover, help (4 events)
-- **completion**: request, async (2 events)  
-- **agent**: spawn, terminate, list, send_message (4 events)
-- **state**: get, set, delete (3 events)
-- **message**: subscribe, publish (2 events)
-- **conversation**: list, search, get, export, stats (5 events - pending fix)
+### Available Event Namespaces
+- **system**: health, shutdown, discover, help, capabilities
+- **completion**: request, async
+- **agent**: spawn, terminate, list, send_message
+- **state**: get, set, delete, list
+- **message**: subscribe, publish, unsubscribe
+- **conversation**: list, search, get, export, stats
 
 ## Core Functionality
 
@@ -209,53 +205,14 @@ python3 interfaces/monitor_tui.py
 - **Import Errors**: Always activate venv first
 - **Plugin Imports**: Need absolute imports or proper path setup
 
-### Recent Changes (2025-06-26)
-- **State Service**: Fixed initialization issue with BaseManager pattern
-- **Configuration**: All paths now use config system (var/agent_profiles, var/prompts)
-- **Performance**: chat_textual.py now has efficient conversation loading with message ordering, deduplication, and pagination
-- **Client Architecture**: Separated EventChatClient (chat) from MultiAgentClient (coordination)
-- **ksi_admin Library**: Created new administrative library parallel to ksi_client
-- **monitor_tui.py**: Refactored to use ksi_admin.MonitorClient instead of raw sockets
-- **Event Discovery Service**: Created discovery plugin providing GET_COMMANDS equivalent functionality
-  - `system:discover` - Lists all available events with descriptions and parameters
-  - `system:help` - Detailed help for specific events
-  - `system:capabilities` - Daemon capabilities summary
-  - Enables agents to autonomously discover and use daemon features
-- **Conversation Plugin**: Created plugin for conversation history (listing, search, export)
-  - Simplified timestamp handling - drops malformed entries
-  - Currently has indentation issues preventing loading
-- **ksi_common Migration**: All components now use shared pydantic-settings configuration
-  - ksi_daemon extends KSIBaseConfig with daemon-specific settings
-  - ksi_client, ksi_admin, and interfaces use shared config
-  - Environment variable support (KSI_SOCKET_PATH, KSI_LOG_LEVEL, etc.)
-  - Removed old timestamp_utils.py, now using ksi_common
-- **Interface Updates**: Migrated orchestrate.py and orchestrate_v3.py to ksi_client
-  - Now use event-based API instead of command-based protocol
-  - Proper AsyncClient connection management
-  - Updated to use agent:spawn and message:publish events
-- **EVENT_CATALOG.md Generation**: Automated documentation from plugin introspection
-  - Created tools/generate_event_catalog.py
-  - Comprehensive event documentation with parameter validation info
-  - Includes descriptions, types, constraints, patterns, allowed values
-- **Enhanced Discovery Plugin**: Added rich parameter validation information
-  - Min/max values for numeric types
-  - Pattern validation for strings
-  - Allowed values for enums
-  - Length constraints
-- **MonitorClient Enhancements**: Added conversation operations
-  - export_conversation() with format validation
-  - list_conversations() with pagination
-  - search_conversations() for content search
-  - get_conversation_stats() for analytics
-- **Conversation Plugin Fixed**: Now loads correctly (uses ksi_common)
-- **Unified Structured Logging**: All components now use structlog from ksi_common
-  - Fixed "logger is not defined" error in chat_textual.py
-  - Consistent logging with context propagation across all components
-  - TUI-aware configuration prevents console corruption
-- **Conversation Plugin Enhancements**:
-  - Added JSON export support alongside markdown
-  - chat_textual.py now uses conversation events (list, get, export)
-  - Comprehensive test suite for conversation operations
+### Recent Highlights
+- **Unified Structured Logging**: All components use ksi_common/logging.py
+- **Dual Library Architecture**: ksi_client (participants) + ksi_admin (operators)
+- **Event Discovery**: Full introspection enables autonomous agents
+- **Conversation Plugin**: History management with JSON/markdown export
+- **Configuration System**: pydantic-settings with env var support
+
+For detailed change history, see git log.
 
 ### Key Technical Insights
 
@@ -324,60 +281,15 @@ See `docs/dependency-analysis.md` for comprehensive analysis of potential additi
 - **result** - Explicit error handling patterns
 - **hypothesis** - Property-based testing for edge cases
 
-### ksi_common Enhancements Completed
+### ksi_common Foundation
 
-#### 1. **pydantic-settings Integration** ✅
-- Created `KSIBaseConfig` in ksi_common/config.py
-- Environment variable support with KSI_ prefix
-- All components now use shared configuration:
-  - **ksi_daemon**: Extends KSIBaseConfig with daemon-specific settings
-  - **ksi_client**: Uses shared socket path configuration 
-  - **ksi_admin**: Uses shared configuration
-  - **interfaces**: chat_textual.py and monitor_tui.py migrated
-- Works with `export KSI_SOCKET_PATH=/custom/path` 
-- Supports .env files
-- See `docs/config-migration-strategy.md` for migration plan
-
-#### 2. **structlog Foundation**
-- Consistent structured logging across all components
-- Automatic correlation ID propagation
-- JSON or console output based on configuration
-- Rich debugging with structured context
-
-#### 3. **Pydantic Models for Protocol**
-- Type-safe message validation
-- Automatic JSON schema generation
-- Clear API contracts between components
-- Validated event messages and responses
-
-#### 4. **tenacity Retry Strategies**
-- Pre-configured retry patterns for different operations
-- Socket connections, completions, state operations
-- Consistent exponential backoff across components
-
-#### 5. **Enhanced Async Utilities**
-- Timeout decorators and context managers
-- Connection lifecycle management
-- Async iterator helpers
-- Resource cleanup patterns
-
-#### 6. **Rich CLI Utilities**
-- Shared click decorators for common options
-- Consistent CLI argument handling
-- Environment variable integration
-
-#### 7. **Advanced Timestamp Handling**
-- python-dateutil for flexible parsing
-- Human-readable time deltas
-- Timezone handling improvements
-
-#### 8. **Unified Structured Logging** ✅ (2025-06-26)
-- Moved all logging to `ksi_common/logging.py`
-- All components now use structlog consistently
-- Automatic context propagation (request IDs, session IDs)
-- TUI-aware configuration (prevents console corruption)
-- JSON or console output formats
-- Context managers for operations and timing
+1. **Unified Configuration**: pydantic-settings with env vars (KSI_*)
+2. **Structured Logging**: structlog with context propagation  
+3. **Protocol Models**: Type-safe message validation
+4. **Retry Patterns**: tenacity-based resilience
+5. **Async Utilities**: Timeouts, lifecycles, cleanup
+6. **CLI Helpers**: Consistent command-line interfaces
+7. **Timestamp Utils**: Flexible parsing and formatting
 
 ### Important Technical Patterns
 
@@ -428,6 +340,61 @@ await monitor.observe_all()  # Subscribe to all events
    - Check: Claude CLI is installed and working
    - Fix: Test with `claude --version`
 
+## Project Plans
+
+### 1. Complete Correlation ID Implementation (Medium Priority)
+- Add `correlation_id` field to socket protocol as optional parameter
+- Update all clients to generate and propagate correlation IDs
+- Bind correlation IDs to structlog context in daemon
+- Pass parent correlation to spawned agents
+- Include correlation_id in all responses
+- **Benefits**: End-to-end request tracing, better debugging, performance analysis
+
+### 2. Enhanced Monitoring with Structured Logs (High Value)
+- Extend monitor_tui.py to display correlation chains
+- Add real-time filtering by correlation_id
+- Visualize request flows across components
+- Show context propagation in message traces
+- **Benefits**: Better system visibility, easier troubleshooting
+
+### 3. Performance Metrics from Logs (Quick Win)
+- Extract timing data from structured log events
+- Build performance dashboards from log analysis
+- Identify bottlenecks using duration_ms fields
+- Track operation latencies across components
+- **Benefits**: Performance insights without new instrumentation
+
+### 4. Agent Communication Patterns (Research)
+- Analyze message_bus usage from structured logs
+- Study inter-agent messaging patterns
+- Optimize pub/sub topic design
+- Design better coordination primitives
+- **Benefits**: More efficient multi-agent systems
+
+### 5. Error Analysis System (High Impact)
+- Aggregate errors by type/component from logs
+- Build correlation-based error chains
+- Implement automatic error pattern detection
+- Create error dashboards and alerts
+- **Benefits**: Proactive issue detection, faster resolution
+
+## Testing Notes
+
+### TUI Interface Testing
+Both `interfaces/chat_textual.py` and `interfaces/monitor_tui.py` need manual testing in separate terminals:
+
+```bash
+# Terminal 1: Start daemon
+./daemon_control.sh start
+
+# Terminal 2: Test enhanced chat
+python3 interfaces/chat_textual.py
+
+# Terminal 3: Test monitor (with multi-agent activity)
+python3 interfaces/monitor_tui.py
+```
+
+**Important**: Run TUI interfaces in separate terminals to avoid corrupting Claude Code's interface.
+
 ---
 *Last updated: 2025-06-26*
-*Unified structured logging implemented*
