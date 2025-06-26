@@ -6,7 +6,6 @@ Rich TUI with support for single-agent chat, multi-agent participation, and conv
 
 import asyncio
 import json
-import logging
 import os
 import sys
 import argparse
@@ -17,13 +16,16 @@ from typing import Optional, Dict, List, Tuple, Any
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ksi_client import EventChatClient, MultiAgentClient
-from ksi_common import TimestampManager, config
+from ksi_common import TimestampManager, config, get_logger, configure_structlog
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
 from textual.widgets import Header, Footer, Static, Label, Input, RichLog, Button, ListView, ListItem, Tree
 from textual.binding import Binding
 from textual import events, work
+
+# Module logger using structured logging
+logger = get_logger(__name__)
 
 
 class ChatInput(Input):
@@ -1461,21 +1463,17 @@ def main():
     """Main entry point"""
     # Config directories are created as needed by KSIPaths
     
-    # Configure logging to file BEFORE any TUI operations to prevent screen corruption
+    # Configure structured logging BEFORE any TUI operations to prevent screen corruption
     log_file = config.log_dir / 'chat_textual.log'
     log_file.parent.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        filename=str(log_file),
-        filemode='a'
-    )
     
-    # Disable logging to console for all existing loggers
-    root_logger = logging.getLogger()
-    for handler in root_logger.handlers[:]:
-        if isinstance(handler, logging.StreamHandler) and handler.stream in (sys.stdout, sys.stderr):
-            root_logger.removeHandler(handler)
+    # Configure structlog with file output and no console output for TUI
+    configure_structlog(
+        log_level=config.log_level,
+        log_format="console",  # Human-readable format for log files
+        log_file=log_file,
+        disable_console_in_tui=True  # Automatically disables console in TUI mode
+    )
     
     parser = argparse.ArgumentParser(description='Enhanced Claude Chat Interface (Textual)')
     parser.add_argument('--new', '-n', action='store_true', 

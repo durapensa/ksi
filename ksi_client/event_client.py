@@ -21,9 +21,9 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from collections import defaultdict
 
-from ksi_common import config
+from ksi_common import config, get_logger
 
-logger = logging.getLogger('ksi_client.event_client')
+logger = get_logger(__name__)
 
 
 @dataclass

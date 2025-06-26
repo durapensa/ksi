@@ -15,7 +15,9 @@ import uuid
 from typing import Dict, Any, Optional, Union, List, Tuple
 from datetime import datetime
 
-logger = logging.getLogger('ksi_client.utils')
+from ksi_common import get_logger
+
+logger = get_logger(__name__)
 
 # Legacy CommandBuilder removed - use EventBuilder instead
 

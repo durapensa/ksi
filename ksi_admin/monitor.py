@@ -11,10 +11,11 @@ from typing import Dict, Any, Optional, List, Callable, Set
 from datetime import datetime
 from collections import defaultdict
 
+from ksi_common import get_logger
 from .base import AdminBaseClient
 from .protocols import EventNamespace, MonitorEventTypes
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class MonitorClient(AdminBaseClient):

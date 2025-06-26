@@ -10,6 +10,9 @@ import asyncio
 from typing import Dict, Any, Optional, Callable, List
 import functools
 
+# Import structured logging from ksi_common
+from ksi_common import get_logger as get_structured_logger
+
 # Simple plugin registry for metadata
 plugin_registry: Dict[str, Dict[str, Any]] = {}
 
@@ -35,9 +38,9 @@ def plugin_metadata(name: str, version: str = "1.0.0",
     return decorator
 
 
-def get_logger(plugin_name: str) -> logging.Logger:
-    """Get a logger for the plugin."""
-    return logging.getLogger(f"ksi.plugin.{plugin_name}")
+def get_logger(plugin_name: str) -> 'structlog.stdlib.BoundLogger':
+    """Get a structured logger for the plugin."""
+    return get_structured_logger(f"ksi.plugin.{plugin_name}")
 
 
 def event_handler(*event_patterns: str):

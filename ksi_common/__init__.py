@@ -31,6 +31,18 @@ from .exceptions import (
     ProtocolError,
     TimeoutError as KSITimeoutError,
 )
+from .logging import (
+    get_logger,
+    configure_structlog,
+    bind_connection_context,
+    clear_context,
+    operation_context,
+    async_operation_context,
+    command_context,
+    agent_context,
+    log_event,
+    disable_console_logging,
+)
 
 __all__ = [
     # Version
@@ -65,4 +77,16 @@ __all__ = [
     "KSIConnectionError",
     "ProtocolError",
     "KSITimeoutError",
+    
+    # Logging utilities
+    "get_logger",
+    "configure_structlog",
+    "bind_connection_context",
+    "clear_context",
+    "operation_context",
+    "async_operation_context",
+    "command_context",
+    "agent_context",
+    "log_event",
+    "disable_console_logging",
 ]

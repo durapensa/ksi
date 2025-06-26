@@ -13,10 +13,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from ksi_common import config as ksi_config
+from ksi_common import config as ksi_config, get_logger
 from .protocols import AdminMessage, EventNamespace
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

@@ -11,7 +11,8 @@ from datetime import datetime
 from .base import AdminBaseClient
 from .protocols import EventNamespace
 
-logger = logging.getLogger(__name__)
+from ksi_common import get_logger
+logger = get_logger(__name__)
 
 
 class MetricsClient(AdminBaseClient):
