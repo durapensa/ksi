@@ -302,7 +302,7 @@ class AgentProfileRegistry(BaseManager):
             "match_score": best_agent['match_score']
         }
         
-        log_file = str(config.session_log_dir / 'task_routing.jsonl')
+        log_file = str(config.response_log_dir / 'task_routing.jsonl')
         FileOperations.append_jsonl(log_file, routing_entry)
         
         self.logger.info(f"Routed task to agent {agent_id} (score: {best_agent['match_score']})")
@@ -327,7 +327,7 @@ class AgentProfileRegistry(BaseManager):
         }
         
         # Save to inter-agent log
-        log_file = str(config.session_log_dir / 'inter_agent_messages.jsonl')
+        log_file = str(config.response_log_dir / 'inter_agent_messages.jsonl')
         FileOperations.append_jsonl(log_file, message_entry)
         
         self.logger.info(f"Inter-agent message from {from_agent} to {to_agent}")

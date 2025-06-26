@@ -16,7 +16,7 @@ import logging
 import pluggy
 
 from ...plugin_utils import get_logger, plugin_metadata
-from ...timestamp_utils import TimestampManager
+from ksi_common import TimestampManager
 from ...config import config
 from ...file_operations import FileOperations
 

@@ -33,14 +33,14 @@ logger = get_logger("conversation")
 conversation_cache: Dict[str, Dict[str, Any]] = {}
 cache_timestamp: Optional[datetime] = None
 cache_ttl_seconds = 60  # Refresh cache every minute
-claude_logs_dir = None
+responses_dir_path = None
 exports_dir = None
 
 
 def ensure_directories():
     """Ensure required directories exist."""
-    global claude_logs_dir, exports_dir
-    claude_logs_dir = config.claude_logs_dir
+    global responses_dir_path, exports_dir
+    responses_dir_path = config.responses_dir
     exports_dir = config.state_dir / 'exports'
     exports_dir.mkdir(exist_ok=True)
 
@@ -94,7 +94,7 @@ def refresh_conversation_cache() -> None:
     conversation_cache.clear()
     
     # Scan all conversation files
-    for log_file in claude_logs_dir.glob("*.jsonl"):
+    for log_file in responses_dir_path.glob("*.jsonl"):
         session_id = log_file.stem
         
         # Skip message_bus.jsonl - it's special
@@ -369,7 +369,7 @@ def handle_get_conversation(data: Dict[str, Any], context: Dict[str, Any]) -> Di
             return get_message_bus_conversation(conversation_id, limit, offset)
         
         # Regular conversation
-        log_file = claude_logs_dir / f"{session_id}.jsonl"
+        log_file = responses_dir_path / f"{session_id}.jsonl"
         if not log_file.exists():
             return {"error": f"Conversation not found: {session_id}"}
         
@@ -454,7 +454,7 @@ def get_message_bus_conversation(
     conversation_id: Optional[str], limit: int, offset: int
 ) -> Dict[str, Any]:
     """Get messages from message_bus.jsonl, optionally filtered by conversation_id."""
-    message_bus_file = claude_logs_dir / 'message_bus.jsonl'
+    message_bus_file = responses_dir_path / 'message_bus.jsonl'
     if not message_bus_file.exists():
         return {"error": "Message bus log not found"}
     
@@ -688,7 +688,7 @@ def handle_active_conversations(data: Dict[str, Any], context: Dict[str, Any]) -
         max_lines = data.get('max_lines', 100)
         max_age_hours = data.get('max_age_hours', 2160)  # 90 days default
         
-        message_bus_file = claude_logs_dir / 'message_bus.jsonl'
+        message_bus_file = responses_dir_path / 'message_bus.jsonl'
         if not message_bus_file.exists():
             return {"active_sessions": []}
         

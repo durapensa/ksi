@@ -204,8 +204,10 @@ python3 interfaces/monitor_tui.py
 ### Known Issues & Solutions
 - **TUI Scripts**: ⚠️ NEVER run `chat_textual.py` or `monitor_tui.py` from Claude Code - corrupts interface
   - **Solution**: Use `chat.py` or run TUI programs in separate terminals only
+  - **Testing**: Use `--test-connection` flag to verify connectivity before running full TUI
 - **Import Errors**: Always activate venv first: `source .venv/bin/activate`
 - **Plugin Imports**: Need absolute imports or proper path setup
+- **Monitor TUI Connection**: No agent_id required - uses admin client architecture with auto-generated client_id
 
 For detailed change history, see git log.
 

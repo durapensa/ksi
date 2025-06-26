@@ -21,7 +21,7 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from collections import defaultdict
 
-from ksi_common import config, get_logger
+from ksi_common import config, get_logger, parse_completion_response
 
 logger = get_logger(__name__)
 
@@ -438,11 +438,13 @@ class EventBasedClient:
                 raise ValueError(result.get("error", "Completion failed"))
             return result
         else:
-            # Fallback for unexpected formats
+            # Fallback for unexpected formats - this should not happen with standardized format
+            # but handle gracefully for debugging
             return {
                 "response": str(result),
-                "session_id": session_id or str(uuid.uuid4()),
-                "model": model
+                "session_id": session_id,  # May be None for new conversations
+                "model": model,
+                "error": "Unexpected completion result format"
             }
     
     async def shutdown_daemon(self) -> bool:
@@ -493,8 +495,10 @@ class EventChatClient(EventBasedClient):
         Returns:
             Tuple of (response_text, session_id)
         """
-        # Use provided session_id or current
-        session_id = session_id or self.current_session_id or str(uuid.uuid4())
+        # Use provided session_id or current - None is valid for NEW conversations
+        session_id = session_id or self.current_session_id
+        # Note: session_id=None is valid for starting new conversations
+        # Claude CLI will provide session_id in response
         
         # Get completion
         result = await self.create_completion(
@@ -503,13 +507,15 @@ class EventChatClient(EventBasedClient):
             session_id=session_id
         )
         
-        # Extract response text
-        response_text = result.get("response", "")
+        # Parse standardized completion response and extract text
+        completion_response = parse_completion_response(result)
+        response_text = completion_response.get_text()
         
-        # Update session ID
-        self.current_session_id = session_id
+        # Extract session ID from response (might be updated by provider)
+        response_session_id = completion_response.get_session_id() or session_id
+        self.current_session_id = response_session_id
         
-        return response_text, session_id
+        return response_text, response_session_id
     
 
 

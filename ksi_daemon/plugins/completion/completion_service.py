@@ -9,6 +9,7 @@ Handles completion requests through events rather than direct method calls.
 import asyncio
 import json
 import os
+import time
 import uuid
 from pathlib import Path
 from typing import Dict, Any, Optional, List
@@ -18,7 +19,7 @@ import pluggy
 import litellm
 
 from ...plugin_utils import get_logger, plugin_metadata
-from ...timestamp_utils import TimestampManager
+from ksi_common import TimestampManager, create_completion_response, parse_completion_response
 from ...config import config
 from ...event_taxonomy import CLAUDE_EVENTS, format_claude_event
 
@@ -46,6 +47,39 @@ def ensure_directories():
     # Agent profiles now managed in var/agent_profiles via config
 
 
+def save_completion_response(response_data: Dict[str, Any]) -> None:
+    """
+    Save standardized completion response to session file.
+    
+    Args:
+        response_data: Standardized completion response from create_completion_response
+    """
+    try:
+        # Parse the completion response to extract session_id
+        completion_response = parse_completion_response(response_data)
+        session_id = completion_response.get_session_id()
+        
+        if not session_id:
+            logger.warning("No session_id in completion response, cannot save to session file")
+            return
+        
+        # Ensure responses directory exists
+        responses_dir = config.response_log_dir
+        responses_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Session file path
+        session_file = responses_dir / f"{session_id}.jsonl"
+        
+        # Append response to session file
+        with open(session_file, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(response_data) + '\n')
+        
+        logger.debug(f"Saved completion response to {session_file}")
+        
+    except Exception as e:
+        logger.error(f"Failed to save completion response: {e}", exc_info=True)
+
+
 # Hook implementations
 @hookimpl
 def ksi_startup(config):
@@ -60,8 +94,14 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
     """Handle completion-related events."""
     
     if event_name == "completion:request":
-        # Synchronous completion request
-        return handle_completion_request(data, context)
+        # Create async task for completion request
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # Return the coroutine for the daemon to await
+            return handle_completion_request(data, context)
+        else:
+            # Fallback - shouldn't happen in daemon context
+            return {"error": "No event loop available"}
     
     elif event_name == "completion:async":
         # Asynchronous completion request
@@ -94,9 +134,13 @@ async def handle_completion_request(data: Dict[str, Any], context: Dict[str, Any
     session_id = data.get("session_id")
     temperature = data.get("temperature", 0.7)
     max_tokens = data.get("max_tokens", 4096)
+    client_id = data.get("client_id")
+    request_id = data.get("request_id", str(uuid.uuid4()))
     
     if not prompt:
         return {"error": "No prompt provided"}
+    
+    start_time = time.time()
     
     try:
         # Prepare messages
@@ -125,28 +169,76 @@ async def handle_completion_request(data: Dict[str, Any], context: Dict[str, Any
         # Call LiteLLM
         response = await litellm.acompletion(**completion_params)
         
-        # Extract response
-        content = response.choices[0].message.content
+        # Calculate duration
+        duration_ms = int((time.time() - start_time) * 1000)
         
-        # Get session ID from response if available
-        response_session_id = session_id
-        if hasattr(response, '_hidden_params') and 'session_id' in response._hidden_params:
-            response_session_id = response._hidden_params['session_id']
+        # Extract response - Claude CLI returns JSON, other providers return structured response
+        raw_response = {}
         
-        return {
-            "status": "success",
-            "response": content,
-            "session_id": response_session_id,
-            "model": model,
-            "usage": response.usage.model_dump() if hasattr(response, 'usage') else None
-        }
+        if model.startswith("claude-cli/"):
+            # Claude CLI returns JSON string in content
+            content = response.choices[0].message.content
+            if isinstance(content, str) and content.strip().startswith('{'):
+                try:
+                    raw_response = json.loads(content)
+                except json.JSONDecodeError:
+                    # If JSON parsing fails, treat as plain text
+                    raw_response = {
+                        "result": content,
+                        "session_id": session_id,
+                        "model": model
+                    }
+            else:
+                # Plain text response from Claude CLI
+                raw_response = {
+                    "result": content,
+                    "session_id": session_id,
+                    "model": model
+                }
+        else:
+            # Other providers (OpenAI, etc.) - preserve their response format
+            raw_response = response.model_dump() if hasattr(response, 'model_dump') else dict(response)
+        
+        # Create standardized response
+        completion_response = create_completion_response(
+            provider="claude-cli" if model.startswith("claude-cli/") else "unknown",
+            raw_response=raw_response,
+            request_id=request_id,
+            client_id=client_id,
+            duration_ms=duration_ms
+        )
+        
+        # Save response to session file
+        response_data = completion_response.to_dict()
+        save_completion_response(response_data)
+        
+        return response_data
         
     except Exception as e:
         logger.error(f"Completion error: {e}", exc_info=True)
-        return {
-            "status": "error",
-            "error": str(e)
-        }
+        duration_ms = int((time.time() - start_time) * 1000)
+        
+        # Return error in standardized format
+        error_response = create_completion_response(
+            provider="claude-cli" if model.startswith("claude-cli/") else "unknown",
+            raw_response={
+                "error": str(e),
+                "error_type": type(e).__name__
+            },
+            request_id=request_id,
+            client_id=client_id,
+            duration_ms=duration_ms
+        )
+        
+        # Add error flag for easier detection
+        result = error_response.to_dict()
+        result["error"] = str(e)
+        result["status"] = "error"
+        
+        # Save error response to session file if possible
+        save_completion_response(result)
+        
+        return result
 
 
 def handle_async_completion(data: Dict[str, Any], context: Dict[str, Any]) -> str:

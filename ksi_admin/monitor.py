@@ -73,6 +73,7 @@ class MonitorClient(AdminBaseClient):
         ]
         
         result = await self.request_event("message:subscribe", {
+            "agent_id": self.client_id,
             "event_types": message_bus_events
         })
         
@@ -90,9 +91,17 @@ class MonitorClient(AdminBaseClient):
     async def stop_observing(self):
         """Stop observing events."""
         try:
-            # Unsubscribe from message bus - try with no parameters first
+            # Unsubscribe from message bus - include agent_id and same event types
+            message_bus_events = [
+                "COMPLETION_RESULT", "DIRECT_MESSAGE", "BROADCAST", 
+                "CONVERSATION_MESSAGE", "TASK_ASSIGNMENT", "TOOL_CALL", 
+                "AGENT_STATUS", "CONVERSATION_INVITE", "SYSTEM_EVENT"
+            ]
             try:
-                await self.request_event("message:unsubscribe", {})
+                await self.request_event("message:unsubscribe", {
+                    "agent_id": self.client_id,
+                    "event_types": message_bus_events
+                })
             except Exception as e:
                 logger.warning(f"Failed to unsubscribe from messages: {e}")
             

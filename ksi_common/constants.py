@@ -15,7 +15,7 @@ DEFAULT_SHUTDOWN_TIMEOUT = 10.0     # 10 seconds for graceful shutdown
 # Directory structure (relative to working directory)
 DEFAULT_VAR_DIR = "var"
 DEFAULT_LOG_DIR = "var/logs"
-DEFAULT_SESSION_LOG_DIR = "var/logs/sessions"
+DEFAULT_SESSION_LOG_DIR = "var/logs/responses"
 DEFAULT_DAEMON_LOG_DIR = "var/logs/daemon"
 DEFAULT_STATE_DIR = "var/state"
 DEFAULT_DB_DIR = "var/db"

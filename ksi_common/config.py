@@ -9,7 +9,7 @@ Environment Variables:
     KSI_LOG_LEVEL - Logging level (default: INFO)
     KSI_LOG_FORMAT - Log format: json or console (default: console)
     KSI_LOG_DIR - Log directory (default: var/logs)  
-    KSI_SESSION_LOG_DIR - Session logs directory (default: var/logs/sessions)
+    KSI_SESSION_LOG_DIR - Session logs directory (default: var/logs/responses)
     KSI_STATE_DIR - State directory (default: var/state)
     KSI_SOCKET_TIMEOUT - Socket timeout in seconds (default: 5.0)
     KSI_DEBUG - Enable debug mode (default: false)
@@ -42,7 +42,8 @@ class KSIBaseConfig(BaseSettings):
     
     # Logging configuration
     log_dir: Path = Path("var/logs")
-    session_log_dir: Path = Path("var/logs/sessions")
+    session_log_dir: Path = Path("var/logs/responses")  # Session logs migrated to responses directory
+    response_log_dir: Path = Path("var/logs/responses")  # Provider-agnostic completion responses
     log_level: str = "INFO"
     log_format: Literal["json", "console"] = "console"
     
@@ -69,7 +70,8 @@ class KSIBaseConfig(BaseSettings):
         directories = [
             self.socket_path.parent,  # var/run
             self.log_dir,            # var/logs
-            self.session_log_dir,    # var/logs/sessions
+            self.session_log_dir,    # var/logs/responses
+            self.response_log_dir,   # var/logs/responses
             self.state_dir,          # var/state
         ]
         
@@ -98,10 +100,11 @@ class KSIBaseConfig(BaseSettings):
         
         return KSIPaths(base_dir=base_dir)
     
+    
     @property
-    def claude_logs_dir(self) -> Path:
-        """Alias for session_log_dir for backward compatibility."""
-        return self.session_log_dir
+    def responses_dir(self) -> Path:
+        """Get provider-agnostic response logs directory."""
+        return self.response_log_dir
     
     def __str__(self) -> str:
         """String representation for debugging."""

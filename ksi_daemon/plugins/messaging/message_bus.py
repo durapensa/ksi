@@ -12,6 +12,7 @@ import pluggy
 
 from ...message_bus import MessageBus
 from ...plugin_utils import get_logger, plugin_metadata
+from ksi_common import TimestampManager
 
 # Plugin metadata
 plugin_metadata("message_bus", version="1.0.0",

@@ -549,6 +549,8 @@ def main():
                        help="Request timeout in seconds (default: 30)")
     parser.add_argument("--test-connection", action="store_true",
                        help="Test daemon connection before starting TUI")
+    parser.add_argument("--test-only", action="store_true",
+                       help="Test daemon connection and exit (no TUI)")
     
     args = parser.parse_args()
     
@@ -557,7 +559,7 @@ def main():
         app.debug_mode = True
     app.request_timeout = getattr(args, 'timeout', 30.0)
     
-    if args.test_connection:
+    if args.test_connection or args.test_only:
         # Test connection before starting TUI
         import asyncio
         from ksi_admin import MonitorClient
@@ -567,14 +569,28 @@ def main():
             try:
                 await client.connect()
                 print(f"✓ Successfully connected to daemon at {args.socket}")
+                
+                # Test basic functionality
+                print("✓ Testing basic monitoring capabilities...")
+                # Just verify the client can start observing
+                await client.observe_all()
+                print("✓ Monitor client can observe events")
+                
+                await client.stop_observing()
                 await client.disconnect()
                 return True
             except Exception as e:
                 print(f"✗ Failed to connect to daemon: {e}")
                 return False
         
-        if not asyncio.run(test_connection()):
+        success = asyncio.run(test_connection())
+        if not success:
             return 1
+        
+        # If --test-only, exit after successful test
+        if args.test_only:
+            print("✓ Connection test completed successfully")
+            return 0
     
     app.run()
     return 0

@@ -146,7 +146,7 @@ class CompletionManager:
             
             # Log to JSONL (exact copy from original)
             if new_session_id:
-                log_file = str(config.session_log_dir / f'{new_session_id}.jsonl')
+                log_file = str(config.response_log_dir / f'{new_session_id}.jsonl')
                 
                 # Log human input
                 human_entry = {
@@ -169,7 +169,7 @@ class CompletionManager:
                     self.state_manager.track_session(new_session_id, output)
                 
                 # Update latest symlink (exact copy from original)
-                latest_link = str(config.session_log_dir / 'latest.jsonl')
+                latest_link = str(config.response_log_dir / 'latest.jsonl')
                 if os.path.exists(latest_link):
                     os.unlink(latest_link)
                 os.symlink(f'{new_session_id}.jsonl', latest_link)
@@ -285,7 +285,7 @@ class CompletionManager:
                 # Log to JSONL with process info (this will be duplicate if create_completion already logged,
                 # but we preserve original behavior exactly)
                 if new_session_id:
-                    log_file = str(config.session_log_dir / f'{new_session_id}.jsonl')
+                    log_file = str(config.response_log_dir / f'{new_session_id}.jsonl')
                     
                     # Log human input with process info (exact copy from original)
                     human_entry = {

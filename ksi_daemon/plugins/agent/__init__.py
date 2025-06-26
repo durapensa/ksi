@@ -3,6 +3,5 @@
 Agent management plugins.
 """
 
-from .agent_service import AgentServicePlugin
-
-__all__ = ['AgentServicePlugin']
+# Agent service uses functional plugin approach with hook implementations
+# No classes to export

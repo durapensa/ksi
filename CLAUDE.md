@@ -149,26 +149,29 @@ python3 tests/test_completion_command.py
 - **Push, don't pull** - All communication via message bus
 - **Async by default** - Non-blocking operations
 
+### Fail Fast, Don't Patch
+- **Never create fallback/default values** that mask upstream problems
+- **Let the system fail loudly** when components don't work as expected
+- **Fix root causes** rather than adding defensive patches
+- **Keep behavior predictable** - avoid silent fallbacks that hide issues
+- **Research software philosophy**: Better to fail and fix than patch and accumulate complexity
+
+### Component Ownership
+- **claude-cli owns session_id generation** - KSI never creates arbitrary session_ids
+- **Trust upstream components** to work correctly or fail clearly
+- **Single source of truth** for each data element
+- **No UUID fallbacks** - if Claude CLI doesn't provide session_id, that's a real problem to fix
+
 See `memory/claude_code/project_knowledge.md` for detailed patterns and examples.
 
 ## Available Tools
 When working with the system, you have access to:
 - Task, Bash, Glob, Grep, LS, Read, Edit, MultiEdit, Write, WebFetch, WebSearch
 
-## ⚠️ CRITICAL TUI WARNING ⚠️
-**ABSOLUTELY NEVER RUN THESE INTERACTIVE PROGRAMS FROM CLAUDE CODE - THEY CORRUPT THE TUI AND FORCE SESSION RESTART:**
-
-### ❌ FORBIDDEN IN CLAUDE CODE:
-- **`python3 interfaces/chat_textual.py`** - Corrupts Claude Code interface
-- **`python3 interfaces/monitor_tui.py`** - Corrupts Claude Code interface  
-- **ANY interactive TUI/terminal program** - Will break Claude Code session
-
-### ✅ SAFE ALTERNATIVES:
-- **chat_textual.py**: Use `chat.py` instead for command-line interaction
-- **monitor_tui.py**: Test in separate terminal OR use daemon health/status commands
-- **Testing TUI**: Add `--test-connection` flag instead of running full interface
-
-**IMPORTANT**: These programs use terminal control sequences that conflict with Claude Code's TUI, causing interface corruption and requiring session restart.
+## ⚠️ NEVER RUN TEXTUAL TUI SCRIPTS FROM CLAUDE CODE ⚠️
+- **`interfaces/chat_textual.py`** - Only with `--test-connection` flag
+- **`interfaces/monitor_tui.py`** - Only with `--test-connection` flag  
+- **Running without flags corrupts Claude Code and requires session restart**
 
 ## Extending the System
 

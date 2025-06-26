@@ -376,7 +376,7 @@ class ChatInterface(App):
     
     def _load_sessions_from_files(self) -> None:
         """Fallback method to load sessions directly from files"""
-        logs_dir = config.session_log_dir
+        logs_dir = config.response_log_dir
         if not logs_dir.exists():
             return
         
@@ -751,7 +751,7 @@ class ChatInterface(App):
             conversation_id: The conversation to load
             limit: Maximum number of recent messages to load (default: 100)
         """
-        message_bus_file = config.session_log_dir / 'message_bus.jsonl'
+        message_bus_file = config.response_log_dir / 'message_bus.jsonl'
         if not message_bus_file.exists():
             return
         
@@ -961,7 +961,7 @@ class ChatInterface(App):
     
     async def _load_conversation_from_file(self, session_id: str) -> None:
         """Fallback method to load conversation directly from file"""
-        log_file = config.session_log_dir / f'{session_id}.jsonl'
+        log_file = config.response_log_dir / f'{session_id}.jsonl'
         if not log_file.exists():
             self.log_message("Error", f"Session file not found: {session_id}")
             return
@@ -1085,7 +1085,7 @@ class ChatInterface(App):
     
     async def _load_message_bus_from_file(self) -> None:
         """Fallback method to load message bus directly from file"""
-        message_bus_file = config.session_log_dir / 'message_bus.jsonl'
+        message_bus_file = config.response_log_dir / 'message_bus.jsonl'
         if not message_bus_file.exists():
             return
         
@@ -1267,7 +1267,7 @@ class ChatInterface(App):
             md_lines.append("---\n")
             
             # Load conversation from log file
-            log_file = config.session_log_dir / f'{session_id}.jsonl'
+            log_file = config.response_log_dir / f'{session_id}.jsonl'
             if not log_file.exists():
                 self.notify(f"Session file not found: {session_id}", severity="error")
                 return

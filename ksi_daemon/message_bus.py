@@ -268,7 +268,7 @@ class MessageBus:
         
         # Also log to file
         try:
-            log_file = str(config.session_log_dir / 'message_bus.jsonl')
+            log_file = str(config.response_log_dir / 'message_bus.jsonl')
             with open(log_file, 'a') as f:
                 f.write(json.dumps(message) + '\n')
         except Exception as e:

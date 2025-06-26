@@ -308,7 +308,7 @@ class AgentConversationRuntime:
             return
             
         try:
-            log_file = str(config.session_log_dir / f"{self.session_id}.jsonl")
+            log_file = str(config.response_log_dir / f"{self.session_id}.jsonl")
             
             # Log human input
             human_entry = {

@@ -112,10 +112,10 @@ class KSIPaths:
         return self.run_dir / "ksi_daemon.pid"
     
     @property
-    def claude_logs_dir(self) -> Path:
-        """Get Claude logs directory (alias for session_logs_dir)."""
-        # Alias for backward compatibility
-        return self.session_logs_dir
+    def responses_dir(self) -> Path:
+        """Get provider-agnostic response logs directory."""
+        return self.base_dir / "var/logs/responses"
+    
     
     def ensure_dir(self, path: Path) -> Path:
         """Ensure directory exists and return it.

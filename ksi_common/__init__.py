@@ -43,6 +43,12 @@ from .logging import (
     log_event,
     disable_console_logging,
 )
+from .completion_format import (
+    CompletionResponse,
+    ProviderHelpers,
+    create_completion_response,
+    parse_completion_response,
+)
 
 __all__ = [
     # Version
@@ -89,4 +95,10 @@ __all__ = [
     "agent_context",
     "log_event",
     "disable_console_logging",
+    
+    # Completion format utilities
+    "CompletionResponse",
+    "ProviderHelpers",
+    "create_completion_response",
+    "parse_completion_response",
 ]
