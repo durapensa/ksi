@@ -73,6 +73,9 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
     elif event_name == "conversation:stats":
         return handle_conversation_stats(data, context)
     
+    elif event_name == "conversation:active":
+        return handle_active_conversations(data, context)
+    
     return None
 
 
@@ -468,28 +471,34 @@ def get_message_bus_conversation(
                 if not timestamp:
                     continue
                 
-                # Filter by conversation_id if provided
-                if conversation_id and msg.get('conversation_id') != conversation_id:
+                # Only include COMPLETION_RESULT types
+                if msg.get('type') != 'COMPLETION_RESULT':
                     continue
                 
-                # Only include DIRECT_MESSAGE types
-                if msg.get('type') != 'DIRECT_MESSAGE':
+                # Extract session_id and content from result
+                result = msg.get('result', {})
+                session_id = result.get('session_id')
+                if not session_id:
+                    continue
+                
+                # Filter by conversation_id (session_id) if provided
+                if conversation_id and session_id != conversation_id:
                     continue
                 
                 # Deduplicate
-                sender = msg.get('from', 'Unknown')
-                content = msg.get('content', '')
-                msg_id = f"{timestamp}:{sender}:{hash(content)}"
+                content = result.get('response', '')
+                client_id = msg.get('client_id', 'Unknown')
+                msg_id = f"{timestamp}:{client_id}:{hash(content)}"
                 
                 if msg_id not in seen_messages:
                     seen_messages.add(msg_id)
                     messages.append({
                         'timestamp': timestamp,
-                        'sender': sender,
-                        'to': msg.get('to'),
+                        'sender': client_id,
                         'content': content,
-                        'conversation_id': msg.get('conversation_id'),
-                        'type': 'message'
+                        'session_id': session_id,
+                        'model': result.get('model', 'unknown'),
+                        'type': 'completion_result'
                     })
                     
             except:
@@ -504,7 +513,7 @@ def get_message_bus_conversation(
     
     return {
         'session_id': 'message_bus',
-        'conversation_id': conversation_id,
+        'filtered_session_id': conversation_id,
         'messages': messages,
         'total': total,
         'offset': offset,
@@ -670,6 +679,97 @@ def handle_conversation_stats(data: Dict[str, Any], context: Dict[str, Any]) -> 
     except Exception as e:
         logger.error(f"Error getting conversation stats: {e}", exc_info=True)
         return {"error": f"Failed to get stats: {str(e)}"}
+
+
+def handle_active_conversations(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+    """Find active conversations from recent COMPLETION_RESULT messages."""
+    try:
+        # Parameters
+        max_lines = data.get('max_lines', 100)
+        max_age_hours = data.get('max_age_hours', 2160)  # 90 days default
+        
+        message_bus_file = claude_logs_dir / 'message_bus.jsonl'
+        if not message_bus_file.exists():
+            return {"active_sessions": []}
+        
+        active_sessions = {}
+        cutoff_time = datetime.now(timezone.utc).timestamp() - (max_age_hours * 3600)
+        
+        # Read recent lines from message bus
+        recent_lines = []
+        try:
+            with open(message_bus_file, 'rb') as f:
+                f.seek(0, 2)  # Go to end
+                f.seek(max(0, f.tell() - max_lines * 200))  # Estimate
+                lines = f.read().decode('utf-8', errors='ignore').split('\n')[-max_lines:]
+                recent_lines = [line for line in lines if line.strip()]
+        except Exception as e:
+            logger.warning(f"Error reading message bus: {e}")
+            return {"active_sessions": []}
+        
+        # Process recent COMPLETION_RESULT messages
+        for line in reversed(recent_lines):  # Most recent first
+            try:
+                msg = json.loads(line.strip())
+                
+                # Only process COMPLETION_RESULT messages
+                if msg.get('type') != 'COMPLETION_RESULT':
+                    continue
+                
+                # Extract session_id from result
+                result = msg.get('result', {})
+                session_id = result.get('session_id')
+                if not session_id:
+                    continue
+                
+                # Check timestamp
+                timestamp = msg.get('timestamp')
+                if timestamp:
+                    try:
+                        dt = TimestampManager.parse_iso_timestamp(timestamp)
+                        if dt.timestamp() < cutoff_time:
+                            continue
+                    except:
+                        continue
+                
+                # Track session activity
+                if session_id not in active_sessions:
+                    active_sessions[session_id] = {
+                        'session_id': session_id,
+                        'last_activity': timestamp,
+                        'client_id': msg.get('client_id'),
+                        'message_count': 0,
+                        'last_response': result.get('response', ''),
+                        'model': result.get('model', 'unknown')
+                    }
+                
+                active_sessions[session_id]['message_count'] += 1
+                
+                # Keep most recent activity
+                if timestamp > active_sessions[session_id]['last_activity']:
+                    active_sessions[session_id].update({
+                        'last_activity': timestamp,
+                        'last_response': result.get('response', ''),
+                        'client_id': msg.get('client_id')
+                    })
+                    
+            except Exception as e:
+                logger.debug(f"Error processing message bus line: {e}")
+                continue
+        
+        # Sort by last activity
+        sessions_list = list(active_sessions.values())
+        sessions_list.sort(key=lambda s: s['last_activity'], reverse=True)
+        
+        return {
+            'active_sessions': sessions_list,
+            'total_active': len(sessions_list),
+            'scanned_lines': len(recent_lines)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting active conversations: {e}", exc_info=True)
+        return {"error": f"Failed to get active conversations: {str(e)}"}
 
 
 @hookimpl

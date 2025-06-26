@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import argparse
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple, Any
@@ -29,13 +30,33 @@ logger = get_logger(__name__)
 
 
 class ChatInput(Input):
-    """Custom Input that allows app-level key bindings to work"""
+    """Custom Input that allows app-level key bindings to work and fixes mouse artifacts"""
     
     def on_key(self, event: events.Key) -> None:
         """Handle key events, allowing app bindings for non-text keys"""
         # Let app-level control keys bubble up naturally - don't intercept them
         # Input widget doesn't handle these anyway, so they'll reach the app bindings
         pass
+    
+    def on_mouse_down(self, event: events.MouseDown) -> None:
+        """Handle mouse down events to fix cursor positioning artifacts"""
+        # Prevent default mouse handling to avoid cursor artifacts
+        if self.has_focus:
+            # Only handle if we already have focus to avoid focus conflicts
+            super().on_mouse_down(event)
+        else:
+            # If we don't have focus, just focus without processing mouse position
+            self.focus()
+            event.prevent_default()
+    
+    def on_click(self, event: events.Click) -> None:
+        """Handle click events more reliably"""
+        # Always focus on click, but don't process cursor positioning if unfocused
+        if not self.has_focus:
+            self.focus()
+            event.prevent_default()
+        else:
+            super().on_click(event)
 
 
 class PastConversationBrowser(Container):
@@ -355,7 +376,7 @@ class ChatInterface(App):
     
     def _load_sessions_from_files(self) -> None:
         """Fallback method to load sessions directly from files"""
-        logs_dir = config.session_logs_dir
+        logs_dir = config.session_log_dir
         if not logs_dir.exists():
             return
         
@@ -401,172 +422,32 @@ class ChatInterface(App):
             list_view.append(item)
     
     async def load_active_conversations(self) -> None:
-        """Load list of active conversations from daemon"""
+        """Load list of active conversations from daemon using conversation service"""
         try:
             # Query daemon for active agents
             agents = await self.agent_client.list_agents()
             stats = {"agents": agents}
-            # Also scan for conversations from logs
-            self.scan_recent_conversations()
+            
+            # Get active conversations from conversation service
+            result = await self.chat_client.request_event("conversation:active", {"max_lines": 100})
+            if result and 'active_sessions' in result:
+                self.active_conversations.clear()
+                for session in result['active_sessions']:
+                    session_id = session['session_id']
+                    self.active_conversations[session_id] = {
+                        'id': session_id,
+                        'participants': [session.get('client_id', 'Unknown')],
+                        'last_message': session['last_activity'],
+                        'message_count': session['message_count']
+                    }
+            
             # Update UI with combined info
             self.update_active_conversation_list(stats)
-        except:
-            # Fallback: scan for recent message_bus activity
-            self.scan_recent_conversations()
-    
-    def scan_recent_conversations(self, max_lines: int = 1000) -> None:
-        """
-        Scan message_bus.jsonl for recent conversations with performance optimization.
-        
-        Args:
-            max_lines: Maximum lines to scan from end of file (default: 1000)
-        """
-        self.active_conversations.clear()
-        
-        message_bus_file = config.session_logs_dir / 'message_bus.jsonl'
-        if not message_bus_file.exists():
-            self.log_message("System", f"No message bus file found at {message_bus_file}")
-            return
-        
-        try:
-            # Read recent lines from end of file for better performance
-            recent_lines = self._read_recent_lines(message_bus_file, max_lines)
-            
-            processed_count = 0
-            error_count = 0
-            
-            # Process lines in reverse order (most recent first)
-            for line_num, line in enumerate(reversed(recent_lines)):
-                try:
-                    msg = json.loads(line.strip())
-                    conv_id = msg.get('conversation_id')
-                    
-                    if conv_id:
-                        # Initialize conversation if not seen
-                        if conv_id not in self.active_conversations:
-                            self.active_conversations[conv_id] = {
-                                'id': conv_id,
-                                'participants': set(),  # Use set for efficiency
-                                'last_message': '',
-                                'message_count': 0
-                            }
-                        
-                        # Update conversation info
-                        conv = self.active_conversations[conv_id]
-                        from_agent = msg.get('from')
-                        to_agent = msg.get('to')
-                        timestamp = msg.get('timestamp', '')
-                        
-                        # Add participants (filter out None/empty)
-                        if from_agent:
-                            conv['participants'].add(from_agent)
-                        if to_agent and to_agent != from_agent:  # Avoid duplicates
-                            conv['participants'].add(to_agent)
-                        
-                        conv['message_count'] += 1
-                        
-                        # Update last_message timestamp (keep most recent)
-                        if timestamp > conv['last_message']:
-                            conv['last_message'] = timestamp
-                    
-                    processed_count += 1
-                    
-                except json.JSONDecodeError as e:
-                    error_count += 1
-                    if error_count <= 5:  # Log first few errors only
-                        logger.warning(f"Malformed JSON in message bus: {e}")
-                except Exception as e:
-                    error_count += 1
-                    if error_count <= 5:
-                        logger.warning(f"Error processing message bus line: {e}")
-                    continue
-            
-            # Convert participants sets back to lists for UI display
-            for conv in self.active_conversations.values():
-                conv['participants'] = list(conv['participants'])
-            
-            # Log scan results
-            if self.active_conversations:
-                self.log_message("System", f"Found {len(self.active_conversations)} active conversations "
-                                          f"(scanned {processed_count} messages, {error_count} errors)")
-            else:
-                self.log_message("System", "No active conversations found in recent message history")
-                
         except Exception as e:
-            self.log_message("Error", f"Failed to scan message bus: {e}")
-            logger.error(f"Error scanning message bus: {e}", exc_info=True)
-        
-        self.update_active_conversation_list()
-    
-    def _read_recent_lines(self, file_path: Path, max_lines: int) -> List[str]:
-        """
-        Read the last N lines from a file efficiently.
-        
-        Args:
-            file_path: Path to the file
-            max_lines: Maximum number of lines to read from end
-            
-        Returns:
-            List of lines (newest last)
-        """
-        try:
-            # For small files, just read everything
-            file_size = file_path.stat().st_size
-            if file_size < 1024 * 1024:  # Less than 1MB
-                with open(file_path, 'r') as f:
-                    lines = f.readlines()
-                    return lines[-max_lines:] if len(lines) > max_lines else lines
-            
-            # For larger files, read from end more efficiently
-            lines = []
-            with open(file_path, 'rb') as f:
-                # Start from end of file
-                f.seek(0, 2)  # Seek to end
-                file_size = f.tell()
-                
-                # Read in chunks from end until we have enough lines
-                chunk_size = min(8192, file_size)
-                position = file_size
-                buffer = b''
-                
-                while len(lines) < max_lines and position > 0:
-                    # Move back by chunk size
-                    position = max(0, position - chunk_size)
-                    f.seek(position)
-                    
-                    # Read chunk and combine with previous buffer
-                    chunk = f.read(min(chunk_size, file_size - position))
-                    buffer = chunk + buffer
-                    
-                    # Split into lines
-                    chunk_lines = buffer.split(b'\n')
-                    
-                    # Keep incomplete line for next iteration
-                    if position > 0:
-                        buffer = chunk_lines[0]
-                        chunk_lines = chunk_lines[1:]
-                    else:
-                        buffer = b''
-                    
-                    # Convert to strings and add to lines (in reverse order)
-                    for line in reversed(chunk_lines):
-                        if line.strip():  # Skip empty lines
-                            lines.append(line.decode('utf-8', errors='ignore'))
-                            if len(lines) >= max_lines:
-                                break
-                
-                # Return in correct order (oldest first)
-                return list(reversed(lines[-max_lines:]))
-                
-        except Exception as e:
-            logger.error(f"Error reading recent lines from {file_path}: {e}")
-            # Fallback to simple read
-            try:
-                with open(file_path, 'r') as f:
-                    lines = f.readlines()
-                    return lines[-max_lines:] if len(lines) > max_lines else lines
-            except:
-                return []
+            self.log_message("Error", f"Failed to load active conversations: {e}")
+            # Fallback: clear active conversations
+            self.active_conversations.clear()
+            self.update_active_conversation_list({})
     
     def update_active_conversation_list(self, stats: Dict = None) -> None:
         """Update the active conversation browser list"""
@@ -870,7 +751,7 @@ class ChatInterface(App):
             conversation_id: The conversation to load
             limit: Maximum number of recent messages to load (default: 100)
         """
-        message_bus_file = config.session_logs_dir / 'message_bus.jsonl'
+        message_bus_file = config.session_log_dir / 'message_bus.jsonl'
         if not message_bus_file.exists():
             return
         
@@ -1080,7 +961,7 @@ class ChatInterface(App):
     
     async def _load_conversation_from_file(self, session_id: str) -> None:
         """Fallback method to load conversation directly from file"""
-        log_file = config.session_logs_dir / f'{session_id}.jsonl'
+        log_file = config.session_log_dir / f'{session_id}.jsonl'
         if not log_file.exists():
             self.log_message("Error", f"Session file not found: {session_id}")
             return
@@ -1204,7 +1085,7 @@ class ChatInterface(App):
     
     async def _load_message_bus_from_file(self) -> None:
         """Fallback method to load message bus directly from file"""
-        message_bus_file = config.session_logs_dir / 'message_bus.jsonl'
+        message_bus_file = config.session_log_dir / 'message_bus.jsonl'
         if not message_bus_file.exists():
             return
         
@@ -1386,7 +1267,7 @@ class ChatInterface(App):
             md_lines.append("---\n")
             
             # Load conversation from log file
-            log_file = config.session_logs_dir / f'{session_id}.jsonl'
+            log_file = config.session_log_dir / f'{session_id}.jsonl'
             if not log_file.exists():
                 self.notify(f"Session file not found: {session_id}", severity="error")
                 return
