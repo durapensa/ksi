@@ -226,10 +226,34 @@ def handle_discover_events(data: Dict[str, Any]) -> Dict[str, Any]:
                 "event": "completion:request",
                 "summary": "Request a synchronous completion",
                 "parameters": {
-                    "prompt": {"type": "str", "required": True},
-                    "model": {"type": "str", "required": False, "default": "sonnet"},
-                    "session_id": {"type": "str", "required": False},
-                    "temperature": {"type": "float", "required": False, "default": "0.7"}
+                    "prompt": {
+                        "type": "str", 
+                        "required": True,
+                        "description": "The prompt text to send to the LLM",
+                        "min_length": 1,
+                        "max_length": 100000
+                    },
+                    "model": {
+                        "type": "str", 
+                        "required": False, 
+                        "default": "sonnet",
+                        "description": "The model to use for completion",
+                        "allowed_values": ["sonnet", "opus", "haiku", "gpt-4", "gpt-3.5-turbo"]
+                    },
+                    "session_id": {
+                        "type": "str", 
+                        "required": False,
+                        "description": "Session ID for conversation continuity",
+                        "pattern": "^[a-zA-Z0-9-_]+$"
+                    },
+                    "temperature": {
+                        "type": "float", 
+                        "required": False, 
+                        "default": "0.7",
+                        "description": "Sampling temperature for the model",
+                        "min": 0.0,
+                        "max": 2.0
+                    }
                 }
             },
             {
@@ -268,8 +292,24 @@ def handle_discover_events(data: Dict[str, Any]) -> Dict[str, Any]:
                 "event": "agent:send_message",
                 "summary": "Send a message to an agent",
                 "parameters": {
-                    "agent_id": {"type": "str", "required": True},
-                    "message": {"type": "dict", "required": True}
+                    "agent_id": {
+                        "type": "str", 
+                        "required": True,
+                        "description": "The ID of the agent to send the message to",
+                        "pattern": "^[a-zA-Z0-9-_:]+$"
+                    },
+                    "message": {
+                        "type": "dict", 
+                        "required": True,
+                        "description": "The message payload to send",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "content": {"type": "string"},
+                                "metadata": {"type": "object"}
+                            }
+                        }
+                    }
                 }
             }
         ],
@@ -286,9 +326,25 @@ def handle_discover_events(data: Dict[str, Any]) -> Dict[str, Any]:
                 "event": "state:set",
                 "summary": "Set a state value",
                 "parameters": {
-                    "key": {"type": "str", "required": True},
-                    "value": {"type": "Any", "required": True},
-                    "namespace": {"type": "str", "required": False}
+                    "key": {
+                        "type": "str", 
+                        "required": True,
+                        "description": "The state key to set",
+                        "pattern": "^[a-zA-Z0-9-_:.]+$",
+                        "max_length": 255
+                    },
+                    "value": {
+                        "type": "Any", 
+                        "required": True,
+                        "description": "The value to store (can be any JSON-serializable type)"
+                    },
+                    "namespace": {
+                        "type": "str", 
+                        "required": False,
+                        "description": "Optional namespace for the key",
+                        "pattern": "^[a-zA-Z0-9-_]+$",
+                        "max_length": 100
+                    }
                 }
             },
             {
@@ -323,8 +379,21 @@ def handle_discover_events(data: Dict[str, Any]) -> Dict[str, Any]:
                 "event": "conversation:list",
                 "summary": "List available conversations",
                 "parameters": {
-                    "limit": {"type": "int", "required": False, "default": "100"},
-                    "offset": {"type": "int", "required": False, "default": "0"},
+                    "limit": {
+                        "type": "int", 
+                        "required": False, 
+                        "default": "100",
+                        "description": "Maximum number of conversations to return",
+                        "min": 1,
+                        "max": 1000
+                    },
+                    "offset": {
+                        "type": "int", 
+                        "required": False, 
+                        "default": "0",
+                        "description": "Number of conversations to skip",
+                        "min": 0
+                    },
                     "sort_by": {"type": "str", "required": False, "default": "last_timestamp"},
                     "start_date": {"type": "str", "required": False},
                     "end_date": {"type": "str", "required": False}
@@ -334,7 +403,13 @@ def handle_discover_events(data: Dict[str, Any]) -> Dict[str, Any]:
                 "event": "conversation:search",
                 "summary": "Search conversations by content",
                 "parameters": {
-                    "query": {"type": "str", "required": True},
+                    "query": {
+                        "type": "str", 
+                        "required": True,
+                        "description": "Search query string",
+                        "min_length": 1,
+                        "max_length": 500
+                    },
                     "limit": {"type": "int", "required": False, "default": "50"},
                     "search_in": {"type": "list", "required": False, "default": "['content']"}
                 }
@@ -353,7 +428,13 @@ def handle_discover_events(data: Dict[str, Any]) -> Dict[str, Any]:
                 "summary": "Export a conversation",
                 "parameters": {
                     "session_id": {"type": "str", "required": True},
-                    "format": {"type": "str", "required": False, "default": "markdown"}
+                    "format": {
+                        "type": "str", 
+                        "required": False, 
+                        "default": "markdown",
+                        "description": "Export format for the conversation",
+                        "allowed_values": ["markdown", "json", "text", "html"]
+                    }
                 }
             },
             {

@@ -15,7 +15,7 @@ import hashlib
 import pluggy
 
 from ...config import config
-from ...timestamp_utils import TimestampManager
+from ksi_common import TimestampManager
 from ...plugin_utils import get_logger, plugin_metadata
 
 # Plugin metadata

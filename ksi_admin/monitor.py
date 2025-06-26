@@ -317,3 +317,121 @@ class MonitorClient(AdminBaseClient):
     def get_recent_system_events(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Get recent system events."""
         return self.system_events[-limit:]
+    
+    # ========================================================================
+    # CONVERSATION OPERATIONS
+    # ========================================================================
+    
+    async def export_conversation(self, session_id: str, format: str = "markdown") -> Dict[str, Any]:
+        """
+        Export a conversation in the specified format.
+        
+        Args:
+            session_id: The session ID of the conversation to export
+            format: Export format (markdown, json, text, html)
+            
+        Returns:
+            Dictionary containing export status and file path or content
+        """
+        if not self.connected:
+            raise ConnectionError("Not connected to daemon")
+        
+        # Validate format
+        allowed_formats = ["markdown", "json", "text", "html"]
+        if format not in allowed_formats:
+            raise ValueError(f"Invalid format '{format}'. Must be one of: {', '.join(allowed_formats)}")
+        
+        try:
+            # Request conversation export via event
+            result = await self.request_event("conversation:export", {
+                "session_id": session_id,
+                "format": format
+            })
+            
+            # Log export action
+            logger.info(f"Exported conversation {session_id} in {format} format")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to export conversation {session_id}: {e}")
+            raise
+    
+    async def list_conversations(self, limit: int = 100, offset: int = 0, 
+                                sort_by: str = "last_timestamp") -> Dict[str, Any]:
+        """
+        List available conversations with pagination.
+        
+        Args:
+            limit: Maximum number of conversations to return
+            offset: Number of conversations to skip
+            sort_by: Sort field (last_timestamp, start_timestamp, message_count)
+            
+        Returns:
+            Dictionary containing conversations list and metadata
+        """
+        if not self.connected:
+            raise ConnectionError("Not connected to daemon")
+        
+        try:
+            result = await self.request_event("conversation:list", {
+                "limit": limit,
+                "offset": offset,
+                "sort_by": sort_by
+            })
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to list conversations: {e}")
+            raise
+    
+    async def search_conversations(self, query: str, limit: int = 50,
+                                  search_in: List[str] = None) -> Dict[str, Any]:
+        """
+        Search conversations by content.
+        
+        Args:
+            query: Search query string
+            limit: Maximum number of results
+            search_in: Fields to search in (default: ['content'])
+            
+        Returns:
+            Dictionary containing search results
+        """
+        if not self.connected:
+            raise ConnectionError("Not connected to daemon")
+        
+        if search_in is None:
+            search_in = ["content"]
+        
+        try:
+            result = await self.request_event("conversation:search", {
+                "query": query,
+                "limit": limit,
+                "search_in": search_in
+            })
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to search conversations: {e}")
+            raise
+    
+    async def get_conversation_stats(self) -> Dict[str, Any]:
+        """
+        Get overall conversation statistics.
+        
+        Returns:
+            Dictionary containing conversation statistics
+        """
+        if not self.connected:
+            raise ConnectionError("Not connected to daemon")
+        
+        try:
+            result = await self.request_event("conversation:stats", {})
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to get conversation stats: {e}")
+            raise
