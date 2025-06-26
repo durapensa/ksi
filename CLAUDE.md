@@ -48,12 +48,23 @@ python3 tests/test_daemon_protocol.py
 - Organize files by purpose and audience
 
 ### Documentation Practices
-**IMPORTANT**: Do not create temporary markdown files in the project root
-- **Use TodoWrite tool** for tracking issues, tasks, and findings
-- **Update existing docs** (CLAUDE.md, memory/, README.md) for permanent knowledge
+**CRITICAL**: Keep project documentation free of session-specific details
+- **Session work belongs in git commits** - NOT in project files
+- **Do NOT add to docs**: Timestamps, PIDs, specific session counts, "Recent work done", commit-style entries
+- **DO add to docs**: Architecture, APIs, troubleshooting patterns, essential working knowledge
+- **Use TodoWrite tool** for tracking issues, tasks, and findings during sessions
+- **Update existing docs** (CLAUDE.md, memory/, README.md) for permanent knowledge only
 - **Avoid creating files like**: ISSUE.md, TODO.md, FINDINGS.md, STATUS.md
 - **If you must create a doc**: Clean it up in the same session
 - **Exception**: Only create .md files when explicitly requested by user
+
+**Examples of what NOT to put in project docs:**
+- ❌ "Fixed issue X in today's session"
+- ❌ "Daemon running on PID 1234"  
+- ❌ "Recent Session Work (2025-06-26)"
+- ❌ "Current status: 5 commits ahead"
+- ✅ "Use ./daemon_control.sh status to check daemon"
+- ✅ "conversation:active event finds active sessions"
 
 ### File Deletion Policy
 **CRITICAL**: Always confirm with user before deleting files, especially:
@@ -193,6 +204,7 @@ echo '{"event": "conversation:active", "data": {}}' | nc -U var/run/daemon.sock 
 
 ## Key Points for Claude Code
 - **FIRST**: Always read `memory/claude_code/project_knowledge.md` at session start
+- **DOCUMENTATION**: Keep project files free of session-specific details - use git commits for session work
 - Keep the daemon minimal and focused
 - Organize files by purpose and audience
 - Check the memory system for detailed knowledge
