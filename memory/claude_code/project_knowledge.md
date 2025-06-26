@@ -225,6 +225,11 @@ python3 interfaces/monitor_tui.py
 - **Conversation Plugin**: Created plugin for conversation history (listing, search, export)
   - Simplified timestamp handling - drops malformed entries
   - Currently has indentation issues preventing loading
+- **ksi_common Migration**: All components now use shared pydantic-settings configuration
+  - ksi_daemon extends KSIBaseConfig with daemon-specific settings
+  - ksi_client, ksi_admin, and interfaces use shared config
+  - Environment variable support (KSI_SOCKET_PATH, KSI_LOG_LEVEL, etc.)
+  - Removed old timestamp_utils.py, now using ksi_common
 
 ### Key Technical Insights
 
@@ -298,10 +303,13 @@ See `docs/dependency-analysis.md` for comprehensive analysis of potential additi
 #### 1. **pydantic-settings Integration** ✅
 - Created `KSIBaseConfig` in ksi_common/config.py
 - Environment variable support with KSI_ prefix
-- All components can now share same configuration
+- All components now use shared configuration:
+  - **ksi_daemon**: Extends KSIBaseConfig with daemon-specific settings
+  - **ksi_client**: Uses shared socket path configuration 
+  - **ksi_admin**: Uses shared configuration
+  - **interfaces**: chat_textual.py and monitor_tui.py migrated
 - Works with `export KSI_SOCKET_PATH=/custom/path` 
 - Supports .env files
-- chat_textual.py migrated to use shared config
 - See `docs/config-migration-strategy.md` for migration plan
 
 #### 2. **structlog Foundation**

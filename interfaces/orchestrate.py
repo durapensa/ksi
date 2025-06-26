@@ -15,10 +15,10 @@ from datetime import datetime
 import time
 import os
 
-# Add path for daemon client utilities
+# Add path for ksi_client
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from ksi_daemon.client import CommandBuilder, ResponseHandler
-from ksi_daemon.config import config
+from ksi_client import AsyncClient, EventBuilder, ResponseHandler
+from ksi_common import config
 
 # Set up logging only if not already configured
 def _setup_logging():
@@ -113,33 +113,16 @@ class MultiClaudeOrchestrator:
             logger.error("Daemon is not running. Start with: ./daemon_control.sh start")
             return False
     
-    async def _send_daemon_command(self, command: str) -> dict:
-        """Send command to daemon and get response"""
+    async def _send_event(self, event_name: str, data: dict = None) -> dict:
+        """Send event to daemon and get response"""
         try:
-            reader, writer = await asyncio.open_unix_connection(str(self.daemon_socket))
+            if not self.connected:
+                await self.client.connect()
+                self.connected = True
             
-            if not command.endswith('\n'):
-                command += '\n'
-            
-            writer.write(command.encode())
-            await writer.drain()
-            
-            response = await reader.readline()
-            writer.close()
-            await writer.wait_closed()
-            
-            if response:
-                response_str = response.decode().strip()
-                if response_str == "HEALTHY":
-                    return {"status": "healthy"}
-                try:
-                    return json.loads(response_str)
-                except json.JSONDecodeError:
-                    return {"response": response_str}
-            return {}
-            
+            return await self.client.request_event(event_name, data or {})
         except Exception as e:
-            logger.error(f"Error communicating with daemon: {e}")
+            logger.error(f"Failed to send event: {e}")
             return {"error": str(e)}
     
     def determine_agent_role(self, mode_name: str, agent_index: int) -> tuple[str, str]:
@@ -229,17 +212,15 @@ class MultiClaudeOrchestrator:
                 'agent_role': role
             })
             
-            # Build JSON SPAWN_AGENT command
+            # Spawn agent via event
             spawn_params = {
                 "profile_name": profile_name,
                 "task": initial_task,
                 "context": context,
                 "agent_id": agent_id
             }
-            spawn_cmd = CommandBuilder.build_command("SPAWN_AGENT", spawn_params)
-            command_str = json.dumps(spawn_cmd) + '\n'
             
-            result = await self._send_daemon_command(command_str)
+            result = await self._send_event("agent:spawn", spawn_params)
             
             if result.get('error'):
                 logger.error(f"Failed to start agent {agent_id}: {result['error']}")
@@ -256,14 +237,16 @@ class MultiClaudeOrchestrator:
         starter_message = f"Let's begin our {mode} session about: {topic}"
         
         # Send initial broadcast to all agents
-        # Build JSON PUBLISH command for broadcast
-        broadcast_payload = {
-            'content': starter_message,
-            'conversation_id': self.conversation_id
+        # Publish broadcast message via event
+        broadcast_data = {
+            'sender': 'orchestrator',
+            'topic': 'BROADCAST',
+            'payload': {
+                'content': starter_message,
+                'conversation_id': self.conversation_id
+            }
         }
-        broadcast_cmd = CommandBuilder.build_publish_command("orchestrator", "BROADCAST", broadcast_payload)
-        broadcast_command_str = json.dumps(broadcast_cmd) + '\n'
-        await self._send_daemon_command(broadcast_command_str)
+        await self._send_event("message:publish", broadcast_data)
         
         logger.info(f"Conversation started with ID: {self.conversation_id}")
         logger.info("Agents are now conversing autonomously...")
@@ -285,15 +268,16 @@ class MultiClaudeOrchestrator:
         
         logger.info("Sending shutdown signal to all agents...")
         
-        # Broadcast END signal
-        # Build JSON PUBLISH command for END signal
-        end_payload = {
-            'content': '[END]',
-            'conversation_id': self.conversation_id
+        # Broadcast END signal via event
+        end_data = {
+            'sender': 'orchestrator',
+            'topic': 'BROADCAST',
+            'payload': {
+                'content': '[END]',
+                'conversation_id': self.conversation_id
+            }
         }
-        end_cmd = CommandBuilder.build_publish_command("orchestrator", "BROADCAST", end_payload)
-        end_command_str = json.dumps(end_cmd) + '\n'
-        await self._send_daemon_command(end_command_str)
+        await self._send_event("message:publish", end_data)
         
         # Give agents time to shut down gracefully
         await asyncio.sleep(2)
@@ -336,6 +320,8 @@ async def main():
         logger.info("\nConversation interrupted")
     finally:
         await orchestrator.stop_conversation()
+        if orchestrator.connected:
+            await orchestrator.client.disconnect()
 
 
 if __name__ == "__main__":
