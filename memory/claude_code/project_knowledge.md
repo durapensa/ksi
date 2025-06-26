@@ -209,7 +209,7 @@ python3 interfaces/monitor_tui.py
 - **Import Errors**: Always activate venv first
 - **Plugin Imports**: Need absolute imports or proper path setup
 
-### Recent Changes (2025-06-25)
+### Recent Changes (2025-06-26)
 - **State Service**: Fixed initialization issue with BaseManager pattern
 - **Configuration**: All paths now use config system (var/agent_profiles, var/prompts)
 - **Performance**: chat_textual.py now has efficient conversation loading with message ordering, deduplication, and pagination
@@ -248,6 +248,14 @@ python3 interfaces/monitor_tui.py
   - search_conversations() for content search
   - get_conversation_stats() for analytics
 - **Conversation Plugin Fixed**: Now loads correctly (uses ksi_common)
+- **Unified Structured Logging**: All components now use structlog from ksi_common
+  - Fixed "logger is not defined" error in chat_textual.py
+  - Consistent logging with context propagation across all components
+  - TUI-aware configuration prevents console corruption
+- **Conversation Plugin Enhancements**:
+  - Added JSON export support alongside markdown
+  - chat_textual.py now uses conversation events (list, get, export)
+  - Comprehensive test suite for conversation operations
 
 ### Key Technical Insights
 
@@ -363,6 +371,14 @@ See `docs/dependency-analysis.md` for comprehensive analysis of potential additi
 - Human-readable time deltas
 - Timezone handling improvements
 
+#### 8. **Unified Structured Logging** ✅ (2025-06-26)
+- Moved all logging to `ksi_common/logging.py`
+- All components now use structlog consistently
+- Automatic context propagation (request IDs, session IDs)
+- TUI-aware configuration (prevents console corruption)
+- JSON or console output formats
+- Context managers for operations and timing
+
 ### Important Technical Patterns
 
 #### Client Usage Patterns
@@ -413,5 +429,5 @@ await monitor.observe_all()  # Subscribe to all events
    - Fix: Test with `claude --version`
 
 ---
-*Last updated: 2025-06-25*
-*ksi_admin library added*
+*Last updated: 2025-06-26*
+*Unified structured logging implemented*
