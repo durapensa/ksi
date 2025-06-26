@@ -120,21 +120,15 @@ python3 tests/test_daemon_protocol.py
 ## Current System Status
 
 ### Working Components
-- **Core Daemon**: Plugin architecture with 10+ active plugins (PID: 1527, healthy)
-- **Event Discovery**: Full introspection via `system:discover` (20 total events)
+- **Core Daemon**: Plugin architecture with 10+ active plugins
+- **Event Discovery**: Full introspection via `system:discover`
 - **Completion Service**: LiteLLM/Claude integration
 - **Agent Management**: Lifecycle and messaging
 - **State Management**: SQLite-backed persistence
 - **Message Bus**: Inter-agent pub/sub
 - **Unified Logging**: Structured logging with context propagation
 - **Libraries**: ksi_client (participants), ksi_admin (operators)
-- **Conversation Service**: Enhanced with conversation:active event (tracking 7 active sessions)
-
-### Recent Session Work (2025-06-26)
-- **Fixed chat_textual.py issues**: Mouse cursor artifacts and conversation loading
-- **Modernized conversation handling**: Centralized service APIs, archived old message formats
-- **Enhanced TUI protection**: Strengthened warnings to prevent Claude Code interface corruption
-- **Monitor fixes**: Fixed event subscription timeouts by removing non-existent agent events
+- **Conversation Service**: Active session tracking and history management
 
 ### Available Event Namespaces
 - **system**: health, shutdown, discover, help, capabilities
@@ -142,7 +136,7 @@ python3 tests/test_daemon_protocol.py
 - **agent**: spawn, terminate, list, send_message
 - **state**: get, set, delete, list
 - **message**: subscribe, publish, unsubscribe
-- **conversation**: list, search, get, export, stats, **active** (NEW - finds active sessions from COMPLETION_RESULT messages)
+- **conversation**: list, search, get, export, stats, active
 
 ## Core Functionality
 
@@ -211,16 +205,7 @@ python3 interfaces/monitor_tui.py
 - **TUI Scripts**: ⚠️ NEVER run `chat_textual.py` or `monitor_tui.py` from Claude Code - corrupts interface
   - **Solution**: Use `chat.py` or run TUI programs in separate terminals only
 - **Import Errors**: Always activate venv first: `source .venv/bin/activate`
-- **Monitor Timeouts**: Fixed in 2025-06-26 session by removing non-existent agent events
-- **Mouse Artifacts**: Fixed in chat_textual.py with proper Textual event handling
-
-### Recent Highlights
-- **Conversation Service Modernization**: Added conversation:active event, archived old formats, 90-day session window
-- **TUI Safety Improvements**: Enhanced warnings prevent Claude Code interface corruption
-- **Centralized Conversation Logic**: Removed 200+ lines of duplicate parsing from chat_textual.py
-- **Monitor Event Fixes**: Fixed timeout issues by correcting event subscription parameters
-- **Mouse Handling**: Fixed cursor artifacts in chat input with proper Textual event handling
-- **Configuration System**: Uses ksi_common config instead of hardcoded paths
+- **Plugin Imports**: Need absolute imports or proper path setup
 
 For detailed change history, see git log.
 
@@ -406,19 +391,5 @@ python3 interfaces/monitor_tui.py
 
 **Important**: Run TUI interfaces in separate terminals to avoid corrupting Claude Code's interface.
 
-## Session Continuity for Fresh Claude Code Sessions
-
-**Current Session Status (2025-06-26 17:15):**
-- **Daemon Running**: PID 1527, healthy, 7 active sessions tracked
-- **Recent Work**: TUI fixes, conversation service modernization, enhanced safety warnings
-- **Git Status**: 5 commits ahead of origin/main, working tree clean
-- **Next Steps**: Monitor and chat_textual testing (in separate terminals only)
-
-**For New Sessions:**
-1. **Check daemon**: `./daemon_control.sh status` 
-2. **Recent commits**: `git log --oneline -5` for context
-3. **Active sessions**: `echo '{"event": "conversation:active", "data": {}}' | nc -U var/run/daemon.sock`
-4. **Safety reminder**: Never run TUI programs from Claude Code
-
 ---
-*Last updated: 2025-06-26 17:15*
+*Last updated: 2025-06-26*

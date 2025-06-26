@@ -182,6 +182,15 @@ When working with the system, you have access to:
 - **Breaking Changes Welcome**: Feel free to refactor aggressively for cleaner architecture
 - **Fail Fast**: If something breaks, that's valuable feedback - don't hide failures
 
+## Session Continuity & Status
+
+**Quick Status Check for Fresh Sessions:**
+```bash
+./daemon_control.sh status                    # Check if daemon is running
+git log --oneline -5                         # Recent work context  
+echo '{"event": "conversation:active", "data": {}}' | nc -U var/run/daemon.sock  # Active sessions
+```
+
 ## Key Points for Claude Code
 - **FIRST**: Always read `memory/claude_code/project_knowledge.md` at session start
 - Keep the daemon minimal and focused
