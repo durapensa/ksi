@@ -131,7 +131,7 @@ python3 tests/test_daemon_protocol.py
 - **ksi_admin**: MonitorClient (used by monitor_tui.py)
 
 ### In Progress
-- **Conversation Plugin**: Created but has indentation errors
+- None currently
 
 ### Available Events (via system:discover)
 - **system**: health, shutdown, discover, help (4 events)
@@ -233,6 +233,21 @@ python3 interfaces/monitor_tui.py
   - Now use event-based API instead of command-based protocol
   - Proper AsyncClient connection management
   - Updated to use agent:spawn and message:publish events
+- **EVENT_CATALOG.md Generation**: Automated documentation from plugin introspection
+  - Created tools/generate_event_catalog.py
+  - Comprehensive event documentation with parameter validation info
+  - Includes descriptions, types, constraints, patterns, allowed values
+- **Enhanced Discovery Plugin**: Added rich parameter validation information
+  - Min/max values for numeric types
+  - Pattern validation for strings
+  - Allowed values for enums
+  - Length constraints
+- **MonitorClient Enhancements**: Added conversation operations
+  - export_conversation() with format validation
+  - list_conversations() with pagination
+  - search_conversations() for content search
+  - get_conversation_stats() for analytics
+- **Conversation Plugin Fixed**: Now loads correctly (uses ksi_common)
 
 ### Key Technical Insights
 
