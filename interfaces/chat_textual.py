@@ -321,9 +321,38 @@ class ChatInterface(App):
     
     
     async def load_available_sessions(self) -> None:
-        """Load list of available sessions from logs"""
+        """Load list of available sessions using conversation plugin"""
         self.available_sessions.clear()
         
+        try:
+            # Use conversation:list event to get available conversations
+            result = await self.chat_client.client.request_event("conversation:list", {
+                "limit": 50,  # Get last 50 conversations
+                "sort_by": "last_timestamp",
+                "reverse": True  # Most recent first
+            })
+            
+            if "conversations" in result:
+                for conv in result["conversations"]:
+                    session_id = conv.get("session_id", "Unknown")
+                    # Use last_timestamp for display
+                    timestamp = conv.get("last_timestamp") or conv.get("first_timestamp") or "Unknown"
+                    message_count = conv.get("message_count", 0)
+                    
+                    self.available_sessions.append((session_id, timestamp, message_count))
+            else:
+                logger.warning(f"Unexpected response from conversation:list: {result}")
+                
+        except Exception as e:
+            logger.error(f"Failed to load available sessions: {e}")
+            # Fallback to direct file access if conversation plugin fails
+            self._load_sessions_from_files()
+        
+        # Update the conversation list
+        self.update_past_conversation_list()
+    
+    def _load_sessions_from_files(self) -> None:
+        """Fallback method to load sessions directly from files"""
         logs_dir = config.session_logs_dir
         if not logs_dir.exists():
             return
@@ -332,7 +361,7 @@ class ChatInterface(App):
         log_files = list(logs_dir.glob('*.jsonl'))
         log_files = [f for f in log_files if f.name != 'latest.jsonl']
         
-        for log_file in sorted(log_files, key=lambda p: p.stat().st_mtime, reverse=True):
+        for log_file in sorted(log_files, key=lambda p: p.stat().st_mtime, reverse=True)[:20]:
             try:
                 # Read first line to get timestamp
                 with open(log_file, 'r') as f:
@@ -349,9 +378,6 @@ class ChatInterface(App):
                         self.available_sessions.append((session_id, timestamp, message_count))
             except:
                 continue
-        
-        # Update the conversation list
-        self.update_past_conversation_list()
     
     def update_past_conversation_list(self) -> None:
         """Update the past conversation browser list"""
@@ -994,7 +1020,7 @@ class ChatInterface(App):
                 self.log_message("System", f"Agent observation not yet implemented: {event.item.agent_id}")
     
     async def load_past_conversation(self, session_id: str) -> None:
-        """Load and display a past conversation with improved error handling and ordering"""
+        """Load and display a past conversation using conversation plugin"""
         self.mode = "replay"
         self.session_id = session_id
         self.conversation_id = None
@@ -1004,85 +1030,127 @@ class ChatInterface(App):
         conv_log.clear()
         self.current_conversation.clear()
         
-        # Load conversation from log file
-        log_file = config.session_logs_dir / f'{session_id}.jsonl'
-        if not log_file.exists():
-            self.log_message("Error", f"Session file not found: {session_id}")
-            return
-        
         self.log_message("System", f"Loading conversation: {session_id}")
         
         # Special handling for message_bus.jsonl
         if session_id == "message_bus":
             await self.load_message_bus_log()
         else:
-            # Normal conversation log - load with ordering and error handling
+            # Use conversation plugin to load conversation
             try:
-                messages = []
-                error_count = 0
+                # Request conversation from plugin
+                result = await self.chat_client.client.request_event("conversation:get", {
+                    "session_id": session_id,
+                    "limit": 1000  # Load up to 1000 messages
+                })
                 
-                with open(log_file, 'r') as f:
-                    for line_num, line in enumerate(f):
-                        try:
-                            entry = json.loads(line.strip())
-                            
-                            # Handle different log formats
-                            if 'type' in entry:
-                                timestamp = entry.get('timestamp', '')
-                                
-                                if entry['type'] in ['user', 'human']:
-                                    messages.append({
-                                        'timestamp': timestamp,
-                                        'sender': 'You',
-                                        'content': entry.get('content', ''),
-                                        'type': 'user'
-                                    })
-                                elif entry['type'] == 'claude':
-                                    content = entry.get('result', entry.get('content', ''))
-                                    messages.append({
-                                        'timestamp': timestamp,
-                                        'sender': 'Claude',
-                                        'content': content,
-                                        'type': 'claude'
-                                    })
-                                elif entry['type'] == 'DIRECT_MESSAGE':
-                                    # Message bus format embedded in session log
-                                    sender = entry.get('from', 'Unknown')
-                                    content = entry.get('content', '')
-                                    messages.append({
-                                        'timestamp': timestamp,
-                                        'sender': sender,
-                                        'content': content,
-                                        'type': 'message'
-                                    })
-                        
-                        except json.JSONDecodeError as e:
-                            error_count += 1
-                            if error_count <= 3:  # Log first few errors only
-                                logger.warning(f"Malformed JSON in {session_id} at line {line_num + 1}: {e}")
-                        except Exception as e:
-                            error_count += 1
-                            if error_count <= 3:
-                                logger.warning(f"Error processing {session_id} line {line_num + 1}: {e}")
-                            continue
+                if "error" in result:
+                    self.log_message("Error", f"Failed to load conversation: {result['error']}")
+                    # Try fallback method
+                    await self._load_conversation_from_file(session_id)
+                    return
                 
-                # Sort messages by timestamp for proper chronological order
-                messages.sort(key=lambda m: m['timestamp'] or '1970-01-01T00:00:00Z')
+                messages = result.get("messages", [])
+                total = result.get("total", 0)
                 
-                # Display messages in order
+                # Display messages
                 if messages:
                     self.log_message("System", f"Loaded {len(messages)} messages from session")
-                    if error_count > 0:
-                        self.log_message("System", f"Note: {error_count} lines had errors and were skipped")
+                    if total > len(messages):
+                        self.log_message("System", f"(Showing most recent {len(messages)} of {total} total messages)")
                     
+                    # Messages are already sorted chronologically by the plugin
                     for msg in messages:
                         self.log_message(msg['sender'], msg['content'], msg['timestamp'])
                 else:
                     self.log_message("System", f"No messages found in session: {session_id}")
                         
             except Exception as e:
-                self.log_message("Error", f"Failed to load conversation: {e}")
-                logger.error(f"Error loading past conversation {session_id}: {e}", exc_info=True)
+                self.log_message("Error", f"Failed to load conversation via plugin: {e}")
+                logger.error(f"Error loading conversation {session_id} via plugin: {e}", exc_info=True)
+                # Try fallback method
+                await self._load_conversation_from_file(session_id)
+        
+        self.log_message("System", "End of conversation replay. Press Ctrl+N to start new session.")
+        
+        # Don't auto-hide browser
+        self.update_status()
+    
+    async def _load_conversation_from_file(self, session_id: str) -> None:
+        """Fallback method to load conversation directly from file"""
+        log_file = config.session_logs_dir / f'{session_id}.jsonl'
+        if not log_file.exists():
+            self.log_message("Error", f"Session file not found: {session_id}")
+            return
+        
+        self.log_message("System", "[Fallback mode - loading from file]")
+        
+        try:
+            messages = []
+            error_count = 0
+            
+            with open(log_file, 'r') as f:
+                for line_num, line in enumerate(f):
+                    try:
+                        entry = json.loads(line.strip())
+                        
+                        # Handle different log formats
+                        if 'type' in entry:
+                            timestamp = entry.get('timestamp', '')
+                            
+                            if entry['type'] in ['user', 'human']:
+                                messages.append({
+                                    'timestamp': timestamp,
+                                    'sender': 'You',
+                                    'content': entry.get('content', ''),
+                                    'type': 'user'
+                                })
+                            elif entry['type'] == 'claude':
+                                content = entry.get('result', entry.get('content', ''))
+                                messages.append({
+                                    'timestamp': timestamp,
+                                    'sender': 'Claude',
+                                    'content': content,
+                                    'type': 'claude'
+                                })
+                            elif entry['type'] == 'DIRECT_MESSAGE':
+                                # Message bus format embedded in session log
+                                sender = entry.get('from', 'Unknown')
+                                content = entry.get('content', '')
+                                messages.append({
+                                    'timestamp': timestamp,
+                                    'sender': sender,
+                                    'content': content,
+                                    'type': 'message'
+                                })
+                    
+                    except json.JSONDecodeError as e:
+                        error_count += 1
+                        if error_count <= 3:  # Log first few errors only
+                            logger.warning(f"Malformed JSON in {session_id} at line {line_num + 1}: {e}")
+                    except Exception as e:
+                        error_count += 1
+                        if error_count <= 3:
+                            logger.warning(f"Error processing {session_id} line {line_num + 1}: {e}")
+                        continue
+            
+            # Sort messages by timestamp for proper chronological order
+            messages.sort(key=lambda m: m['timestamp'] or '1970-01-01T00:00:00Z')
+            
+            # Display messages in order
+            if messages:
+                self.log_message("System", f"Loaded {len(messages)} messages from session")
+                if error_count > 0:
+                    self.log_message("System", f"Note: {error_count} lines had errors and were skipped")
+                
+                for msg in messages:
+                    self.log_message(msg['sender'], msg['content'], msg['timestamp'])
+            else:
+                self.log_message("System", f"No messages found in session: {session_id}")
+                    
+        except Exception as e:
+            self.log_message("Error", f"Failed to load conversation: {e}")
+            logger.error(f"Error loading past conversation {session_id}: {e}", exc_info=True)
         
         self.log_message("System", "End of conversation replay. Press Ctrl+N to start new session.")
         
@@ -1090,12 +1158,55 @@ class ChatInterface(App):
         self.update_status()
     
     async def load_message_bus_log(self) -> None:
-        """Special handler for message_bus.jsonl"""
+        """Load message bus messages using conversation plugin"""
+        self.log_message("System", "Loading inter-agent messages...")
+        
+        try:
+            # Use conversation plugin to get message_bus messages
+            result = await self.chat_client.client.request_event("conversation:get", {
+                "session_id": "message_bus",
+                "limit": 1000  # Get recent messages
+            })
+            
+            if "error" in result:
+                # Fallback to direct file access
+                await self._load_message_bus_from_file()
+                return
+            
+            messages = result.get("messages", [])
+            
+            # Display messages
+            current_conv_id = None
+            for msg in messages:
+                if msg.get('type') == 'message' and msg.get('conversation_id'):
+                    conv_id = msg['conversation_id']
+                    
+                    # Show conversation context change
+                    if conv_id != current_conv_id:
+                        current_conv_id = conv_id
+                        conv_log = self.query_one("#conversation_log", RichLog)
+                        conv_log.write(f"\n[dim cyan]--- Conversation: {conv_id} ---[/]\n")
+                    
+                    # Show message with arrow format
+                    sender = msg.get('sender', 'Unknown')
+                    to = msg.get('to', '')
+                    if to:
+                        self.log_message(f"{sender} → {to}", msg.get('content', ''), msg.get('timestamp'))
+                    else:
+                        self.log_message(sender, msg.get('content', ''), msg.get('timestamp'))
+                        
+        except Exception as e:
+            self.log_message("Error", f"Failed to load message bus: {e}")
+            # Try fallback
+            await self._load_message_bus_from_file()
+    
+    async def _load_message_bus_from_file(self) -> None:
+        """Fallback method to load message bus directly from file"""
         message_bus_file = config.session_logs_dir / 'message_bus.jsonl'
         if not message_bus_file.exists():
             return
         
-        self.log_message("System", "Loading inter-agent messages...")
+        self.log_message("System", "[Fallback mode - loading from file]")
         
         try:
             with open(message_bus_file, 'r') as f:
@@ -1224,9 +1335,42 @@ class ChatInterface(App):
         self.run_worker(self.export_conversation_to_markdown())
     
     async def export_conversation_to_markdown(self) -> None:
-        """Export conversation to markdown file"""
+        """Export conversation to markdown or JSON file using conversation plugin"""
         session_id = self.selected_past_session
         
+        try:
+            # Use conversation plugin to export
+            # Let's offer both markdown and JSON formats
+            export_format = "markdown"  # Could be made configurable
+            
+            result = await self.chat_client.client.request_event("conversation:export", {
+                "session_id": session_id,
+                "format": export_format
+            })
+            
+            if "error" in result:
+                # Fallback to direct file export
+                await self._export_conversation_from_file(session_id)
+                return
+            
+            # Show success notification
+            export_path = result.get('export_path', 'Unknown location')
+            filename = result.get('filename', 'Unknown file')
+            message_count = result.get('message_count', 0)
+            
+            self.notify(
+                f"Exported {message_count} messages to: {filename}", 
+                title="Export Complete", 
+                timeout=3
+            )
+            
+        except Exception as e:
+            self.notify(f"Export failed: {str(e)}", severity="error")
+            # Try fallback method
+            await self._export_conversation_from_file(session_id)
+    
+    async def _export_conversation_from_file(self, session_id: str) -> None:
+        """Fallback method to export conversation directly from file"""
         # Determine export filename (use local time for user convenience)
         timestamp = TimestampManager.filename_timestamp(utc=False)
         export_dir = config.state_dir / 'exports'
@@ -1302,8 +1446,8 @@ class ChatInterface(App):
             with open(export_file, 'w', encoding='utf-8') as f:
                 f.writelines(md_lines)
             
-            # Show success notification
-            self.notify(f"Exported to: {export_file.name}", title="Export Complete", timeout=3)
+            # Show success notification (fallback)
+            self.notify(f"[Fallback] Exported to: {export_file.name}", title="Export Complete", timeout=3)
             
         except Exception as e:
             self.notify(f"Export failed: {str(e)}", severity="error")

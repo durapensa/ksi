@@ -513,15 +513,15 @@ def get_message_bus_conversation(
 
 
 def handle_export_conversation(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
-    """Export conversation to markdown format."""
+    """Export conversation to markdown or JSON format."""
     try:
         session_id = data.get('session_id')
         if not session_id:
             return {"error": "session_id required"}
         
         format_type = data.get('format', 'markdown')
-        if format_type != 'markdown':
-            return {"error": f"Unsupported format: {format_type}"}
+        if format_type not in ['markdown', 'json']:
+            return {"error": f"Unsupported format: {format_type}. Supported formats: markdown, json"}
         
         # Get conversation messages
         conv_result = handle_get_conversation(
@@ -534,47 +534,95 @@ def handle_export_conversation(data: Dict[str, Any], context: Dict[str, Any]) ->
         
         messages = conv_result['messages']
         
-        # Build markdown content
+        # Generate timestamp for filename
         timestamp = TimestampManager.filename_timestamp(utc=False)
-        md_lines = [f"# Conversation Export: {session_id}\n"]
-        md_lines.append(f"*Exported on {TimestampManager.display_timestamp('%Y-%m-%d %H:%M:%S', utc=False)}*\n")
-        md_lines.append(f"*Total messages: {len(messages)}*\n")
-        md_lines.append("---\n")
         
-        # Add messages
-        for msg in messages:
-            timestamp = msg.get('timestamp', '')
+        if format_type == 'json':
+            # Build JSON content
+            export_data = {
+                'session_id': session_id,
+                'exported_at': TimestampManager.display_timestamp('%Y-%m-%d %H:%M:%S', utc=False),
+                'exported_at_iso': datetime.now(timezone.utc).isoformat(),
+                'total_messages': len(messages),
+                'messages': []
+            }
             
-            # Format timestamp for display
-            try:
-                dt = TimestampManager.parse_iso_timestamp(timestamp)
-                local_dt = TimestampManager.utc_to_local(dt)
-                time_str = local_dt.strftime('%Y-%m-%d %H:%M:%S')
-            except:
-                time_str = timestamp
+            # Add messages with structured data
+            for msg in messages:
+                msg_timestamp = msg.get('timestamp', '')
+                
+                # Format timestamp for display
+                display_time = msg_timestamp
+                try:
+                    dt = TimestampManager.parse_iso_timestamp(msg_timestamp)
+                    local_dt = TimestampManager.utc_to_local(dt)
+                    display_time = local_dt.strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    pass
+                
+                message_data = {
+                    'timestamp': msg_timestamp,
+                    'display_time': display_time,
+                    'sender': msg.get('sender', 'Unknown'),
+                    'content': msg.get('content', ''),
+                    'type': msg.get('type', 'unknown')
+                }
+                
+                # Add recipient for direct messages
+                if msg.get('type') == 'message' and msg.get('to'):
+                    message_data['to'] = msg['to']
+                
+                export_data['messages'].append(message_data)
             
-            sender = msg.get('sender', 'Unknown')
-            content = msg.get('content', '')
+            # Save to JSON file
+            export_filename = f"conversation_{session_id}_{timestamp}.json"
+            export_path = exports_dir / export_filename
             
-            # Add recipient for direct messages
-            if msg.get('type') == 'message' and msg.get('to'):
-                md_lines.append(f"### {time_str} - {sender} → {msg['to']}\n")
-            else:
-                md_lines.append(f"### {time_str} - {sender}\n")
-            
-            md_lines.append(f"{content}\n")
+            with open(export_path, 'w', encoding='utf-8') as f:
+                json.dump(export_data, f, indent=2, ensure_ascii=False)
+        
+        else:  # markdown format
+            # Build markdown content
+            md_lines = [f"# Conversation Export: {session_id}\n"]
+            md_lines.append(f"*Exported on {TimestampManager.display_timestamp('%Y-%m-%d %H:%M:%S', utc=False)}*\n")
+            md_lines.append(f"*Total messages: {len(messages)}*\n")
             md_lines.append("---\n")
-        
-        # Save to file
-        export_filename = f"conversation_{session_id}_{timestamp}.md"
-        export_path = exports_dir / export_filename
-        
-        with open(export_path, 'w', encoding='utf-8') as f:
-            f.writelines(md_lines)
+            
+            # Add messages
+            for msg in messages:
+                msg_timestamp = msg.get('timestamp', '')
+                
+                # Format timestamp for display
+                try:
+                    dt = TimestampManager.parse_iso_timestamp(msg_timestamp)
+                    local_dt = TimestampManager.utc_to_local(dt)
+                    time_str = local_dt.strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    time_str = msg_timestamp
+                
+                sender = msg.get('sender', 'Unknown')
+                content = msg.get('content', '')
+                
+                # Add recipient for direct messages
+                if msg.get('type') == 'message' and msg.get('to'):
+                    md_lines.append(f"### {time_str} - {sender} → {msg['to']}\n")
+                else:
+                    md_lines.append(f"### {time_str} - {sender}\n")
+                
+                md_lines.append(f"{content}\n")
+                md_lines.append("---\n")
+            
+            # Save to file
+            export_filename = f"conversation_{session_id}_{timestamp}.md"
+            export_path = exports_dir / export_filename
+            
+            with open(export_path, 'w', encoding='utf-8') as f:
+                f.writelines(md_lines)
         
         return {
             'export_path': str(export_path),
             'filename': export_filename,
+            'format': format_type,
             'message_count': len(messages),
             'size_bytes': export_path.stat().st_size
         }
