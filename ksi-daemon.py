@@ -20,6 +20,7 @@ import daemon.pidfile
 # Import our local daemon modules (path will be set in forked process)
 from ksi_daemon import main as daemon_main
 from ksi_daemon.config import config
+from ksi_common import configure_structlog
 
 # Global shutdown coordination
 shutdown_requested = False
@@ -44,8 +45,12 @@ def setup_daemon_logging():
     # Ensure log directory exists
     config.log_dir.mkdir(parents=True, exist_ok=True)
     
-    # Configure structlog first (from existing config system)
-    config.configure_structlog()
+    # Configure structlog first (from ksi_common)
+    configure_structlog(
+        log_level=config.log_level,
+        log_format=config.log_format,
+        log_file=config.get_log_file_path()
+    )
     
     # Create file handler for daemon logs
     log_file = config.get_log_file_path()
