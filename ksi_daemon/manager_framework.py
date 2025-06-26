@@ -17,7 +17,7 @@ from abc import ABC, abstractmethod
 from functools import wraps
 from pathlib import Path
 from typing import Any, Dict, Optional, TypeVar, Callable
-from .logging_config import get_logger, log_event
+from ksi_common import get_logger, log_event
 
 T = TypeVar('T', bound='BaseManager')
 

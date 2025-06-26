@@ -17,7 +17,7 @@ from collections import defaultdict
 
 from .plugin_loader import PluginLoader
 from .plugin_types import EventContext, EventMetadata, EventSubscription, TransportConnection
-from .logging_config import get_logger, log_event
+from ksi_common import get_logger, log_event
 
 logger = get_logger(__name__)
 

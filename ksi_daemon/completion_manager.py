@@ -23,7 +23,7 @@ import litellm
 from ksi_common import TimestampManager
 from .agent_orchestrator import AgentOrchestrator
 from .config import config
-from .logging_config import get_logger, log_event, async_operation_context
+from ksi_common import get_logger, log_event, async_operation_context
 from .event_taxonomy import CLAUDE_EVENTS, format_claude_event
 
 # Import claude_cli_litellm_provider to ensure provider registration

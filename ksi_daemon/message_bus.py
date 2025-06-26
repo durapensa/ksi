@@ -11,7 +11,7 @@ import time
 
 from ksi_common import TimestampManager
 from .config import config
-from .logging_config import get_logger, log_event, agent_context
+from ksi_common import get_logger, log_event, agent_context
 from .event_taxonomy import MESSAGE_BUS_EVENTS, format_agent_event
 
 logger = get_logger(__name__)
