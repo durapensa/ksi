@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class DebugClient(AdminBaseClient):
     """Client for debugging and troubleshooting."""
     
-    def __init__(self, socket_path: str = "var/run/daemon.sock"):
+    def __init__(self, socket_path: str = None):
         """Initialize debug client."""
         super().__init__(role="debug", socket_path=socket_path)
     

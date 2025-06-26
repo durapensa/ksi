@@ -25,7 +25,7 @@ class MonitorClient(AdminBaseClient):
     passively observes all events, messages, and state changes.
     """
     
-    def __init__(self, socket_path: str = "var/run/daemon.sock"):
+    def __init__(self, socket_path: str = None):
         """Initialize monitor client."""
         super().__init__(role="monitor", socket_path=socket_path)
         

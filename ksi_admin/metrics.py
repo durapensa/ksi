@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 class MetricsClient(AdminBaseClient):
     """Client for collecting system metrics and telemetry."""
     
-    def __init__(self, socket_path: str = "var/run/daemon.sock"):
+    def __init__(self, socket_path: str = None):
         """Initialize metrics client."""
         super().__init__(role="metrics", socket_path=socket_path)
     

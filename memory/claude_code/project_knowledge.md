@@ -284,6 +284,59 @@ The discovery plugin enables autonomous agent operation:
 - **Declarative Deployment**: Kubernetes-like manifests for agents
 - **Agent Federation**: Cross-cluster agent migration and communication
 
+### Dependency Analysis
+
+See `docs/dependency-analysis.md` for comprehensive analysis of potential additional dependencies. Key recommendations:
+- **attrs** - 25-35% reduction in class boilerplate
+- **msgspec** - 10-50x performance improvement for JSON operations
+- **rich** - Enhanced debugging and system understanding
+- **result** - Explicit error handling patterns
+- **hypothesis** - Property-based testing for edge cases
+
+### ksi_common Enhancements Completed
+
+#### 1. **pydantic-settings Integration** ✅
+- Created `KSIBaseConfig` in ksi_common/config.py
+- Environment variable support with KSI_ prefix
+- All components can now share same configuration
+- Works with `export KSI_SOCKET_PATH=/custom/path` 
+- Supports .env files
+- chat_textual.py migrated to use shared config
+- See `docs/config-migration-strategy.md` for migration plan
+
+#### 2. **structlog Foundation**
+- Consistent structured logging across all components
+- Automatic correlation ID propagation
+- JSON or console output based on configuration
+- Rich debugging with structured context
+
+#### 3. **Pydantic Models for Protocol**
+- Type-safe message validation
+- Automatic JSON schema generation
+- Clear API contracts between components
+- Validated event messages and responses
+
+#### 4. **tenacity Retry Strategies**
+- Pre-configured retry patterns for different operations
+- Socket connections, completions, state operations
+- Consistent exponential backoff across components
+
+#### 5. **Enhanced Async Utilities**
+- Timeout decorators and context managers
+- Connection lifecycle management
+- Async iterator helpers
+- Resource cleanup patterns
+
+#### 6. **Rich CLI Utilities**
+- Shared click decorators for common options
+- Consistent CLI argument handling
+- Environment variable integration
+
+#### 7. **Advanced Timestamp Handling**
+- python-dateutil for flexible parsing
+- Human-readable time deltas
+- Timezone handling improvements
+
 ### Important Technical Patterns
 
 #### Client Usage Patterns

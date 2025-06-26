@@ -10,6 +10,7 @@ __version__ = "0.1.0"
 # Core utilities
 from .timestamps import TimestampManager
 from .paths import KSIPaths
+from .config import KSIBaseConfig, get_config, reload_config, config
 from .constants import (
     DEFAULT_SOCKET_PATH,
     DEFAULT_SOCKET_TIMEOUT,
@@ -38,6 +39,12 @@ __all__ = [
     # Core classes
     "TimestampManager",
     "KSIPaths",
+    "KSIBaseConfig",
+    
+    # Config functions
+    "config",
+    "get_config",
+    "reload_config",
     
     # Constants
     "DEFAULT_SOCKET_PATH",

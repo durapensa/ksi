@@ -21,6 +21,8 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from collections import defaultdict
 
+from ksi_common import config
+
 logger = logging.getLogger('ksi_client.event_client')
 
 
@@ -49,7 +51,7 @@ class EventBasedClient:
     the new daemon's event-driven design.
     """
     
-    def __init__(self, client_id: str = None, socket_path: str = "var/run/daemon.sock"):
+    def __init__(self, client_id: str = None, socket_path: str = None):
         """
         Initialize event-based client.
         
@@ -58,7 +60,7 @@ class EventBasedClient:
             socket_path: Path to daemon socket
         """
         self.client_id = client_id or f"event_client_{uuid.uuid4().hex[:8]}"
-        self.socket_path = Path(socket_path)
+        self.socket_path = Path(socket_path) if socket_path else config.socket_path
         
         # Connection state
         self.reader: Optional[asyncio.StreamReader] = None
@@ -474,7 +476,7 @@ class EventChatClient(EventBasedClient):
     For multi-agent coordination, use MultiAgentClient instead.
     """
     
-    def __init__(self, client_id: str = None, socket_path: str = "var/run/daemon.sock"):
+    def __init__(self, client_id: str = None, socket_path: str = None):
         super().__init__(client_id, socket_path)
         self.current_session_id: Optional[str] = None
     
@@ -520,7 +522,7 @@ class MultiAgentClient(EventBasedClient):
     state is primarily used for agent coordination.
     """
     
-    def __init__(self, client_id: str = None, socket_path: str = "var/run/daemon.sock"):
+    def __init__(self, client_id: str = None, socket_path: str = None):
         super().__init__(client_id, socket_path)
         self.agent_id: Optional[str] = None
         self.conversation_id: Optional[str] = None

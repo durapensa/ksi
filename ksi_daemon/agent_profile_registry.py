@@ -12,7 +12,7 @@ from typing import Dict, Any, Optional, List
 from pathlib import Path
 from .manager_framework import BaseManager, with_error_handling, log_operation
 from .file_operations import FileOperations, LogEntry
-from .timestamp_utils import TimestampManager
+from ksi_common import TimestampManager
 from .config import config
 
 class AgentProfileRegistry(BaseManager):

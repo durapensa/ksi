@@ -20,7 +20,7 @@ from typing import Dict, List, Optional, Any
 
 import litellm
 
-from .timestamp_utils import TimestampManager
+from ksi_common import TimestampManager
 from .agent_orchestrator import AgentOrchestrator
 from .config import config
 from .logging_config import get_logger, log_event, async_operation_context

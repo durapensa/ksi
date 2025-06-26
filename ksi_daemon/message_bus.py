@@ -9,7 +9,7 @@ from typing import Dict, List, Set, Optional, Any
 from collections import defaultdict
 import time
 
-from .timestamp_utils import TimestampManager
+from ksi_common import TimestampManager
 from .config import config
 from .logging_config import get_logger, log_event, agent_context
 from .event_taxonomy import MESSAGE_BUS_EVENTS, format_agent_event

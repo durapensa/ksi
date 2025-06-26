@@ -6,7 +6,7 @@ Multi-Claude Conversation Monitor - Textual TUI for real-time observation
 import asyncio
 import json
 from datetime import datetime
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Any
 from pathlib import Path
 import re
 import sys

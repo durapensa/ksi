@@ -200,7 +200,8 @@ async def main():
     print("=================================")
     
     # Check if daemon is running
-    socket_path = Path("/tmp/ksi/admin.sock")
+    from ksi_common import config
+    socket_path = config.socket_path
     if not socket_path.exists():
         print("\n⚠️  Daemon socket not found!")
         print("Please start the daemon with: ./daemon_control.sh start")

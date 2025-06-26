@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from ksi_common import config as ksi_config
 from .protocols import AdminMessage, EventNamespace
 
 logger = logging.getLogger(__name__)
@@ -34,17 +35,17 @@ class AdminBaseClient:
     All admin clients inherit from this base.
     """
     
-    def __init__(self, role: str, socket_path: str = "var/run/daemon.sock"):
+    def __init__(self, role: str, socket_path: str = None):
         """
         Initialize admin client.
         
         Args:
             role: Admin role (monitor, control, metrics, debug)
-            socket_path: Path to daemon Unix socket
+            socket_path: Path to daemon Unix socket (uses ksi_config if not provided)
         """
         self.role = role
         self.client_id = f"admin:{role}:{uuid.uuid4().hex[:8]}"
-        self.socket_path = Path(socket_path)
+        self.socket_path = Path(socket_path) if socket_path else ksi_config.socket_path
         
         # Connection state
         self.reader: Optional[asyncio.StreamReader] = None

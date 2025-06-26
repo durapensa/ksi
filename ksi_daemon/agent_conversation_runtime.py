@@ -15,7 +15,7 @@ from typing import Optional, Dict, Any, List
 from .config import config
 
 import litellm
-from .timestamp_utils import TimestampManager
+from ksi_common import TimestampManager
 
 # Add path for prompt composer  
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

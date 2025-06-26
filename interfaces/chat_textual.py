@@ -17,16 +17,13 @@ from typing import Optional, Dict, List, Tuple, Any
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ksi_client import EventChatClient, MultiAgentClient
-from ksi_common import TimestampManager, KSIPaths
+from ksi_common import TimestampManager, config
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
 from textual.widgets import Header, Footer, Static, Label, Input, RichLog, Button, ListView, ListItem, Tree
 from textual.binding import Binding
 from textual import events, work
-
-# Use KSIPaths for configuration
-config = KSIPaths()
 
 
 class ChatInput(Input):
@@ -308,7 +305,7 @@ class ChatInterface(App):
     def load_profile(self) -> None:
         """Load the specified profile"""
         profile_name = self.args.profile
-        profile_path = config.agent_profiles_dir / f'{profile_name}.json'
+        profile_path = config.paths.agent_profiles_dir / f'{profile_name}.json'
         
         if not profile_path.exists():
             self.log_message("System", f"Profile {profile_name} not found, using default behavior")
@@ -1322,7 +1319,7 @@ def main():
     
     # Configure logging to file BEFORE any TUI operations to prevent screen corruption
     log_file = config.log_dir / 'chat_textual.log'
-    config.ensure_dir(log_file.parent)
+    log_file.parent.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -1360,7 +1357,7 @@ def main():
     args = parser.parse_args()
     
     # Ensure additional directories exist
-    config.ensure_dir(config.session_logs_dir)
+    config.ensure_directories()
     
     # Handle non-TUI modes
     if (args.test_connection or args.send_message or args.list_conversations or 
