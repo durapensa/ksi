@@ -64,23 +64,16 @@ class MonitorClient(AdminBaseClient):
         if event_types is None:
             event_types = MonitorEventTypes.all_events()
         
-        # First, connect as monitor agent
-        await self.request_event("agent:connect", {
-            "agent_id": self.client_id,
-            "role": "monitor",
-            "profile": "monitor"
-        })
-        
-        # Subscribe to message bus events for comprehensive monitoring
+        # Skip agent connection - monitors don't need to be agents
+        # Just subscribe to message bus events for comprehensive monitoring
         message_bus_events = [
-            "DIRECT_MESSAGE", "BROADCAST", "CONVERSATION_MESSAGE",
-            "TASK_ASSIGNMENT", "TOOL_CALL", "AGENT_STATUS", 
-            "CONVERSATION_INVITE", "SYSTEM_EVENT"
+            "COMPLETION_RESULT", "DIRECT_MESSAGE", "BROADCAST", 
+            "CONVERSATION_MESSAGE", "TASK_ASSIGNMENT", "TOOL_CALL", 
+            "AGENT_STATUS", "CONVERSATION_INVITE", "SYSTEM_EVENT"
         ]
         
         result = await self.request_event("message:subscribe", {
-            "agent_id": self.client_id,
-            "events": message_bus_events
+            "event_types": message_bus_events
         })
         
         logger.info(f"Monitor subscribed to events: {result}")
@@ -97,16 +90,13 @@ class MonitorClient(AdminBaseClient):
     async def stop_observing(self):
         """Stop observing events."""
         try:
-            # Unsubscribe from message bus
-            await self.request_event("message:unsubscribe", {
-                "agent_id": self.client_id
-            })
+            # Unsubscribe from message bus - try with no parameters first
+            try:
+                await self.request_event("message:unsubscribe", {})
+            except Exception as e:
+                logger.warning(f"Failed to unsubscribe from messages: {e}")
             
-            # Disconnect agent
-            await self.request_event("agent:disconnect", {
-                "agent_id": self.client_id
-            })
-            
+            # Skip agent disconnect - monitors don't need to disconnect as agents
             logger.info("Monitor observation stopped")
             
         except Exception as e:

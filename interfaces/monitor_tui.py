@@ -16,6 +16,7 @@ import logging
 # Add path for ksi_admin
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ksi_admin import MonitorClient
+from ksi_common import config
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
@@ -193,10 +194,11 @@ class MultiClaudeMonitor(App):
         ("d", "debug", "Toggle debug"),
     ]
     
-    def __init__(self, daemon_socket: str = "var/run/daemon.sock"):
+    def __init__(self, daemon_socket: str = None, request_timeout: float = 30.0):
         super().__init__()
-        self.daemon_socket = daemon_socket
-        self.monitor_client = MonitorClient(socket_path=daemon_socket)
+        self.daemon_socket = daemon_socket or str(config.socket_path)
+        self.request_timeout = request_timeout
+        self.monitor_client = MonitorClient(socket_path=self.daemon_socket)
         self.connected = False
         self.paused = False
         self.debug_mode = True  # Start in debug mode for troubleshooting
@@ -536,14 +538,46 @@ class MultiClaudeMonitor(App):
 
 def main():
     """Main entry point"""
-    import sys
+    import argparse
     
-    socket = "var/run/daemon.sock"
-    if len(sys.argv) > 1:
-        socket = sys.argv[1]
+    parser = argparse.ArgumentParser(description="KSI Monitor TUI")
+    parser.add_argument("--socket", default=str(config.socket_path), 
+                       help=f"Daemon socket path (default: {config.socket_path})")
+    parser.add_argument("--debug", action="store_true",
+                       help="Start in debug mode")
+    parser.add_argument("--timeout", type=float, default=30.0,
+                       help="Request timeout in seconds (default: 30)")
+    parser.add_argument("--test-connection", action="store_true",
+                       help="Test daemon connection before starting TUI")
     
-    app = MultiClaudeMonitor(daemon_socket=socket)
+    args = parser.parse_args()
+    
+    app = MultiClaudeMonitor(daemon_socket=args.socket)
+    if args.debug:
+        app.debug_mode = True
+    app.request_timeout = getattr(args, 'timeout', 30.0)
+    
+    if args.test_connection:
+        # Test connection before starting TUI
+        import asyncio
+        from ksi_admin import MonitorClient
+        
+        async def test_connection():
+            client = MonitorClient(socket_path=args.socket)
+            try:
+                await client.connect()
+                print(f"✓ Successfully connected to daemon at {args.socket}")
+                await client.disconnect()
+                return True
+            except Exception as e:
+                print(f"✗ Failed to connect to daemon: {e}")
+                return False
+        
+        if not asyncio.run(test_connection()):
+            return 1
+    
     app.run()
+    return 0
 
 
 if __name__ == "__main__":

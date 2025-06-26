@@ -144,10 +144,20 @@ See `memory/claude_code/project_knowledge.md` for detailed patterns and examples
 When working with the system, you have access to:
 - Task, Bash, Glob, Grep, LS, Read, Edit, MultiEdit, Write, WebFetch, WebSearch
 
-## CRITICAL TUI WARNING
-**NEVER RUN THESE SCRIPTS - They corrupt Claude Code's TUI and force session restart:**
-- **chat_textual.py**: Use `chat.py` instead for command-line interaction with the daemon
-- **monitor_tui.py**: Test monitoring functionality via other means or run in separate terminal session
+## ⚠️ CRITICAL TUI WARNING ⚠️
+**ABSOLUTELY NEVER RUN THESE INTERACTIVE PROGRAMS FROM CLAUDE CODE - THEY CORRUPT THE TUI AND FORCE SESSION RESTART:**
+
+### ❌ FORBIDDEN IN CLAUDE CODE:
+- **`python3 interfaces/chat_textual.py`** - Corrupts Claude Code interface
+- **`python3 interfaces/monitor_tui.py`** - Corrupts Claude Code interface  
+- **ANY interactive TUI/terminal program** - Will break Claude Code session
+
+### ✅ SAFE ALTERNATIVES:
+- **chat_textual.py**: Use `chat.py` instead for command-line interaction
+- **monitor_tui.py**: Test in separate terminal OR use daemon health/status commands
+- **Testing TUI**: Add `--test-connection` flag instead of running full interface
+
+**IMPORTANT**: These programs use terminal control sequences that conflict with Claude Code's TUI, causing interface corruption and requiring session restart.
 
 ## Extending the System
 
@@ -202,8 +212,8 @@ When working with the system, you have access to:
 # Start chatting (requires daemon to be running)
 python3 chat.py
 
-# Monitor the system (run in separate terminal - not from Claude Code!)
-python3 interfaces/monitor_tui.py
+# ⚠️ NEVER RUN FROM CLAUDE CODE - Use separate terminal only!
+# python3 interfaces/monitor_tui.py
 
 # Stop daemon when done
 ./daemon_control.sh stop
