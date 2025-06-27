@@ -87,7 +87,7 @@ ksi/
 
 ### Active Plugins
 - **transport/unix_socket.py** - Unix socket transport using NDJSON protocol
-- **completion/completion_service.py** - Completion request handling
+- **completion/completion_service.py** - Completion request handling (v2 available with queue support)
 - **completion/litellm.py** - LiteLLM provider for Claude CLI
 - **agent/agent_service.py** - Agent lifecycle, profiles, and messaging
 - **state/state_service.py** - SQLite-backed persistent state management
@@ -95,6 +95,13 @@ ksi/
 - **core/health.py** - Health check endpoint
 - **core/shutdown.py** - Graceful shutdown handling
 - **core/monitor.py** - Event log API endpoints for monitoring
+
+#### NEW: Async Completion Queue System
+- **completion/completion_queue.py** - Priority-based completion queue with conversation locks
+- **injection/injection_router.py** - Routes completion results via system-reminder injection
+- **injection/circuit_breakers.py** - Prevents runaway chains and context poisoning
+- **conversation/conversation_lock.py** - Prevents conversation forking
+- **completion/completion_service_v2.py** - Enhanced service integrating all above components
 
 ## Monitoring Architecture
 
