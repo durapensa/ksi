@@ -18,7 +18,7 @@ import json
 import heapq
 
 from ...plugin_utils import get_logger, plugin_metadata
-from ksi_common import create_timestamp
+from ksi_common import TimestampManager
 from ..injection.circuit_breakers import check_completion_allowed
 
 # Plugin metadata

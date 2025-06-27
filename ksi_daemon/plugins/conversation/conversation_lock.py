@@ -14,7 +14,7 @@ from typing import Dict, Any, Optional, List, Set, Tuple
 import pluggy
 
 from ...plugin_utils import get_logger, plugin_metadata
-from ksi_common import create_timestamp
+from ksi_common import TimestampManager
 
 # Plugin metadata
 plugin_metadata("conversation_lock", version="1.0.0",

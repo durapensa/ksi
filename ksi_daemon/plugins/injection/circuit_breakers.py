@@ -15,7 +15,7 @@ import hashlib
 import json
 
 from ...plugin_utils import get_logger
-from ksi_common import create_timestamp
+from ksi_common import TimestampManager
 
 logger = get_logger("circuit_breakers")
 

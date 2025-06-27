@@ -15,7 +15,7 @@ import pluggy
 
 from ...plugin_utils import get_logger, plugin_metadata
 from ...config import config
-from ksi_common import create_timestamp
+from ksi_common import TimestampManager
 
 # Plugin metadata
 plugin_metadata("injection_router", version="1.0.0",
@@ -199,7 +199,7 @@ def handle_completion_result(data: Dict[str, Any], context: Dict[str, Any]) -> O
             'content': injection_content,
             'parent_request_id': request_id,
             'is_injection': True,  # Prevent recursive injection
-            'timestamp': create_timestamp()
+            'timestamp': TimestampManager.timestamp_utc()
         }
         
         injection_queue.put(injection_request)
@@ -421,7 +421,7 @@ def queue_completion_with_injection(request: Dict[str, Any]) -> str:
         'id': request_id,
         'injection_config': injection_config,
         'circuit_breaker_config': request.get('circuit_breaker_config', {}),
-        'timestamp': create_timestamp()
+        'timestamp': TimestampManager.timestamp_utc()
     }
     
     store_injection_metadata(request_id, metadata)
