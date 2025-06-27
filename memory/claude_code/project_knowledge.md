@@ -244,12 +244,72 @@ ksi_plugin = True
 - Module-level state management
 - First non-None response wins for event handlers
 
+#### Session Management Architecture (CRITICAL DESIGN)
+**Sessions belong to the daemon, not clients** - essential for federation and multi-device continuity:
+
+**Daemon Responsibilities:**
+- Track active sessions per client_id 
+- Persist session state across client disconnections
+- Provide session discovery/selection APIs
+- Handle session migration in federated scenarios
+- Manage session lifecycle (cleanup, archival)
+
+**Federation Benefits:**
+- User connects to KSI-Node-A → starts conversation
+- Later connects to KSI-Node-B → continues same conversation
+- Cross-device continuity: laptop → phone → web interface
+- Sessions are conversation identifiers, not client state
+
+**Proper API Design:**
+```bash
+# Session management events (future implementation)
+{"event": "session:get_recent", "data": {"client_id": "chat_textual"}}
+{"event": "session:continue", "data": {"session_id": "abc123"}}
+{"event": "session:new", "data": {"client_id": "my_app"}}
+```
+
+**Why Not Client-Side:**
+- Breaks federation (sessions trapped on single node)
+- No cross-device continuity
+- Multiple clients conflict over session files
+- Claude CLI session_ids are conversation identifiers, not client state
+
 #### Event Discovery Architecture
 The discovery plugin enables autonomous agent operation:
 - **system:discover**: Returns all events with parameters and descriptions
 - **GET_COMMANDS equivalent**: Agents can discover capabilities without hardcoding
 - **Self-documenting**: Uses docstrings and introspection
 - **Event namespaces**: system, completion, agent, state, message, conversation
+
+#### Provider-Agnostic Completion Architecture
+**Standardized response format** wraps all provider responses with KSI metadata:
+
+**Response Structure:**
+```json
+{
+  "ksi": {
+    "provider": "claude-cli",
+    "request_id": "uuid",
+    "timestamp": "2025-06-26T20:58:11.206908Z",
+    "duration_ms": 5030,
+    "client_id": "chat_textual_ksi-developer"
+  },
+  "response": {
+    // Raw provider response (Claude CLI, OpenAI, etc.)
+  }
+}
+```
+
+**Key Benefits:**
+- **Provider independence**: Switch between Claude CLI, OpenAI, Anthropic APIs
+- **Unified logging**: All responses stored in `var/logs/responses/` with same format
+- **Metadata preservation**: Request tracing, performance metrics, client identification
+- **Response persistence**: Session files automatically saved for conversation continuity
+
+**Implementation:**
+- `ksi_common/completion_format.py`: Core wrapper and parsing utilities
+- `ksi_daemon/plugins/completion/completion_service.py`: Auto-wrap all completions
+- Session files: `var/logs/responses/{session_id}.jsonl` (replaces old sessions directory)
 
 #### Conversation Plugin Pattern
 - Cache-based metadata scanning for performance

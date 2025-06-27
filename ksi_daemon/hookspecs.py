@@ -54,6 +54,16 @@ def ksi_shutdown() -> None:
     """
 
 
+@hookspec  
+def ksi_plugin_context(context: Dict[str, Any]) -> None:
+    """
+    Pass runtime context to plugins.
+    
+    Args:
+        context: Dictionary with runtime objects like event_router, emit_event
+    """
+
+
 @hookspec
 def ksi_plugin_loaded(plugin_name: str, plugin_instance: Any) -> None:
     """

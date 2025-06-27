@@ -65,7 +65,7 @@ class MonitorClient(AdminBaseClient):
             event_types = MonitorEventTypes.all_events()
         
         # Skip agent connection - monitors don't need to be agents
-        # Just subscribe to message bus events for comprehensive monitoring
+        # Subscribe to message bus events for multi-agent communication
         message_bus_events = [
             "COMPLETION_RESULT", "DIRECT_MESSAGE", "BROADCAST", 
             "CONVERSATION_MESSAGE", "TASK_ASSIGNMENT", "TOOL_CALL", 
@@ -77,14 +77,11 @@ class MonitorClient(AdminBaseClient):
             "event_types": message_bus_events
         })
         
-        logger.info(f"Monitor subscribed to events: {result}")
+        logger.info(f"Monitor subscribed to message bus events: {result}")
         
-        # Also subscribe to all event patterns via our internal routing
-        for event_type in event_types:
-            self.on_event(event_type, self._route_event)
-        
-        # Register wildcard handler for any events not explicitly listed
-        self.on_event("*", self._route_event)
+        # Use pull-based monitoring via event log API instead of direct subscriptions
+        # This is more efficient and doesn't add broadcast overhead to the hot path
+        logger.info("Monitor using pull-based event log API (no direct subscriptions needed)")
         
         logger.info("Monitor observation started")
     
@@ -110,6 +107,34 @@ class MonitorClient(AdminBaseClient):
             
         except Exception as e:
             logger.error(f"Error stopping observation: {e}")
+    
+    async def get_recent_events(self, event_patterns: List[str] = None,
+                               client_id: Optional[str] = None,
+                               limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        Get recent events using pull-based event log API.
+        
+        Args:
+            event_patterns: List of event patterns to filter (e.g., ["completion:*"])
+            client_id: Filter by specific client
+            limit: Maximum number of events
+            
+        Returns:
+            List of recent events
+        """
+        try:
+            result = await self.request_event("monitor:get_events", {
+                "event_patterns": event_patterns,
+                "client_id": client_id,
+                "limit": limit,
+                "reverse": True  # Newest first
+            })
+            
+            return result.get("events", [])
+            
+        except Exception as e:
+            logger.error(f"Failed to get recent events: {e}")
+            return []
     
     async def get_system_snapshot(self) -> Dict[str, Any]:
         """
@@ -161,6 +186,9 @@ class MonitorClient(AdminBaseClient):
         
         elif event_name.startswith("system:") or msg_type == "SYSTEM_EVENT":
             await self._handle_system_event(event_name, event_data)
+            
+        elif event_name.startswith("completion:"):
+            await self._handle_completion_event(event_name, event_data)
         
         # Always try to extract and track agent/conversation data
         await self._update_tracking_data(event_name, event_data)

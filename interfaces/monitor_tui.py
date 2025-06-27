@@ -277,15 +277,11 @@ class MultiClaudeMonitor(App):
             self.monitor_client.on_tool_usage(self.handle_tool_event)
             self.monitor_client.on_system_event(self.handle_system_event)
             
-            # Also register a catch-all handler for debug mode
-            if self.debug_mode:
-                self.monitor_client.on_any_activity(self.handle_debug_event)
+            # Start pull-based monitoring using event log
+            asyncio.create_task(self.poll_event_log())
             
-            # Start observing all events
-            await self.monitor_client.observe_all()
-            
-            self.notify("Connected to daemon and monitoring all events", severity="information")
-            event_log.write(f"[green]Monitor connected at {datetime.now().strftime('%H:%M:%S')}[/]")
+            self.notify("Connected to daemon and monitoring via event log", severity="information")
+            event_log.write(f"[green]Monitor connected at {datetime.now().strftime('%H:%M:%S')} (pull-based)[/]")
             
         except Exception as e:
             self.notify(f"Failed to connect: {e}", severity="error")
@@ -297,6 +293,84 @@ class MultiClaudeMonitor(App):
         if self.debug_mode and not self.paused:
             event_log = self.query_one("#event_log", RichLog)
             event_log.write(f"[dim]{datetime.now().strftime('%H:%M:%S')} {event_name}[/] {json.dumps(event_data, indent=2)}")
+    
+    async def poll_event_log(self) -> None:
+        """Poll event log periodically for new events (pull-based monitoring)"""
+        last_timestamp = 0.0
+        
+        while self.connected and not self.paused:
+            try:
+                # Get recent events since last poll
+                events = await self.monitor_client.get_recent_events(
+                    event_patterns=["*"],  # All events
+                    limit=50
+                )
+                
+                # Filter for new events since last poll
+                new_events = [
+                    event for event in events 
+                    if event.get("timestamp", 0) > last_timestamp
+                ]
+                
+                # Process new events in chronological order (oldest first)
+                if new_events:
+                    new_events.sort(key=lambda e: e.get("timestamp", 0))
+                    
+                    for event in new_events:
+                        await self._process_event_from_log(event)
+                        last_timestamp = max(last_timestamp, event.get("timestamp", 0))
+                
+                # Poll every 0.5 seconds for responsive monitoring
+                await asyncio.sleep(0.5)
+                
+            except Exception as e:
+                if self.debug_mode:
+                    event_log = self.query_one("#event_log", RichLog)
+                    event_log.write(f"[red]Poll error: {e}[/]")
+                
+                # Back off on errors
+                await asyncio.sleep(2.0)
+    
+    async def _process_event_from_log(self, event: Dict[str, Any]) -> None:
+        """Process an event from the event log"""
+        event_name = event.get("event_name", "unknown")
+        event_data = event.get("data", {})
+        
+        # Route to existing handlers
+        if event_name.startswith("completion:"):
+            await self._handle_completion_event(event_name, event_data, event)
+        elif event_name.startswith("transport:"):
+            await self._handle_transport_event(event_name, event_data, event)
+        
+        # Always show in debug/event log
+        if self.debug_mode:
+            event_log = self.query_one("#event_log", RichLog)
+            timestamp = datetime.fromtimestamp(event.get("timestamp", 0)).strftime('%H:%M:%S')
+            client_id = event.get("client_id", "unknown")
+            event_log.write(f"[dim]{timestamp} {event_name}[/] [cyan]{client_id}[/] {json.dumps(event_data, indent=2)}")
+    
+    async def _handle_completion_event(self, event_name: str, event_data: Dict[str, Any], event: Dict[str, Any]) -> None:
+        """Handle completion events from event log"""
+        client_id = event.get("client_id", "unknown")
+        prompt = event_data.get("prompt", "")[:50] + "..." if len(event_data.get("prompt", "")) > 50 else event_data.get("prompt", "")
+        
+        # Update conversation log
+        conv_log = self.query_one("#conversation_log", RichLog)
+        timestamp = datetime.fromtimestamp(event.get("timestamp", 0)).strftime('%H:%M:%S')
+        conv_log.write(f"[green]{timestamp} {client_id}[/]: {prompt}")
+        
+        # Update metrics
+        self.metrics['messages'] += 1
+        self.message_times.append(datetime.fromtimestamp(event.get("timestamp", 0)))
+    
+    async def _handle_transport_event(self, event_name: str, event_data: Dict[str, Any], event: Dict[str, Any]) -> None:
+        """Handle transport events from event log"""
+        if event_data.get("action") == "connect":
+            client_id = event_data.get("client_id", "unknown")
+            timestamp = datetime.fromtimestamp(event.get("timestamp", 0)).strftime('%H:%M:%S')
+            
+            conv_log = self.query_one("#conversation_log", RichLog)
+            conv_log.write(f"[blue]{timestamp} Client connected: {client_id}[/]")
     
     async def handle_message_event(self, event_name: str, event_data: Dict[str, Any]) -> None:
         """Handle message events from MonitorClient"""

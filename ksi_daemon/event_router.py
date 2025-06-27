@@ -13,6 +13,8 @@ from typing import Dict, Any, Optional, Callable, List, Set
 from collections import defaultdict
 import fnmatch
 
+from .event_log import DaemonEventLog
+
 logger = logging.getLogger(__name__)
 
 
@@ -37,6 +39,9 @@ class SimpleEventRouter:
         # Direct event routing without intermediate subscriptions
         self.pending_requests: Dict[str, asyncio.Future] = {}
         self.request_timeout = 30.0
+        
+        # Event log for pull-based monitoring
+        self.event_log = DaemonEventLog(max_size=10000)
         
         # Statistics
         self.stats = {
@@ -72,6 +77,16 @@ class SimpleEventRouter:
                 "timestamp": time.time(),
                 "correlation_id": correlation_id
             }
+        
+        # Log event for monitoring (minimal overhead)
+        client_id = data.get("client_id") or context.get("client_id")
+        self.event_log.log_event(
+            event_name=event_name,
+            data=data,
+            client_id=client_id,
+            correlation_id=correlation_id,
+            event_id=context.get("event_id")
+        )
         
         responses = []
         handlers_called = 0

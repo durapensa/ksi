@@ -65,6 +65,21 @@ class SimpleDaemonCore:
             if result:
                 logger.info("Startup result", result=result)
         
+        # Pass context to plugins (including event_router for monitoring)
+        plugin_context = {
+            "event_router": self.event_router,
+            "emit_event": None  # Could be added later for real-time events
+        }
+        
+        try:
+            self.plugin_loader.pm.hook.ksi_plugin_context(
+                context=plugin_context
+            )
+            logger.info("Plugin context passed to all plugins")
+        except Exception as e:
+            logger.warning(f"Failed to pass plugin context: {e}")
+            # Don't fail startup - this is optional
+        
         # Initialize transports
         await self.event_router.initialize_transports({
             "transports": {
