@@ -4,250 +4,96 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Session Start Instructions
 
-**MANDATORY FIRST STEP**: At the beginning of every session, read:
-1. **`memory/claude_code/project_knowledge.md`** - Contains critical project-specific knowledge, architecture decisions, and recent changes
-2. **This file (CLAUDE.md)** - For current development guidelines and practices
+**MANDATORY FIRST STEP**: Read `memory/claude_code/project_knowledge.md` for critical project knowledge, then this file for development guidelines.
 
-## Memory System Integration
+## Core Development Principles
 
-**PROJECT KNOWLEDGE STRUCTURE**:
-- **`memory/README.md`** - Overview of the memory system organization
-- **`memory/claude_code/project_knowledge.md`** - **[READ EVERY SESSION]** Technical details, issues, fixes, and architectural decisions
-- **`memory/human/`** - Human audience documentation (if you need background context)
+### Work Practices
+- **Task Completion**: A task is NOT complete until it's fully tested and deployed. Creating code is only step 1.
+- **Workflow**: Continue working systematically through tasks - don't exit early with summaries
+- **Honesty**: DO NOT claim success when things are failing. Be honest about actual status.
+- **Todo Tracking**: Always update your todo list when receiving updated instructions
+- **Version Control**: Git contains all backups - no need for manual file backups during development
 
-## Project Overview
-Minimal daemon system for managing Claude processes with conversation continuity.
+### Documentation Standards
+- **Session work belongs in git commits**, not in project documentation files
+- **Avoid creating**: ISSUE.md, TODO.md, FINDINGS.md, STATUS.md (use TodoWrite instead)
+- **DO document**: Architecture, APIs, troubleshooting patterns, essential working knowledge
+- **DO NOT document**: Timestamps, PIDs, session details, "Recent work done", commit-style entries
 
-## Quick Start
-```bash
-# Start system
-python3 daemon.py
-python3 chat.py
+### File Operations
+- **Deletion Policy**: Always confirm with user before deleting files (especially claude_logs/, data files, configs)
+- **Organization**: Place tests in `tests/`, tools in `tools/`, clean up temporary files promptly
+- **Memory System**: See `memory/claude_code/project_knowledge.md` for detailed technical knowledge
 
-# Run tests  
-python3 tests/test_daemon_protocol.py
+## Design Philosophy
 
-# Monitor system (Command Center interface)
-python3 interfaces/monitor_textual.py
+### System Architecture
+- **Event-Driven Only**: No polling, timers, or wait loops
+- **Fail Fast**: Let the system fail loudly rather than masking problems with fallbacks
+- **Component Ownership**: Trust upstream components (e.g., claude-cli owns session_id generation)
+- **Research Software**: Breaking changes are welcome - prioritize clean architecture over compatibility
 
-# Or basic monitor
-python3 interfaces/monitor_tui.py
-```
+### Libraries
+- **ksi_client/**: For agents participating in the system
+- **ksi_admin/**: For monitoring and controlling the system
+- **Independent**: No cross-dependencies between libraries
 
-## File Organization Standards
-
-### Directory Structure
-- `tests/` - Test files
-- `tools/` - Development utilities  
-- `logs/` - System logs
-- `memory/` - Knowledge management system
-- `autonomous_experiments/` - Autonomous agent outputs
-- `cognitive_data/` - Analysis input data
-
-### Development Conventions
-- Place test files in `tests/` directory
-- Place development tools in `tools/` directory
-- Clean up temporary files promptly
-- Organize files by purpose and audience
-
-### Documentation Practices
-**CRITICAL**: Keep project documentation free of session-specific details
-- **Session work belongs in git commits** - NOT in project files
-- **Do NOT add to docs**: Timestamps, PIDs, specific session counts, "Recent work done", commit-style entries
-- **DO add to docs**: Architecture, APIs, troubleshooting patterns, essential working knowledge
-- **Use TodoWrite tool** for tracking issues, tasks, and findings during sessions
-- **Update existing docs** (CLAUDE.md, memory/, README.md) for permanent knowledge only
-- **Avoid creating files like**: ISSUE.md, TODO.md, FINDINGS.md, STATUS.md
-- **If you must create a doc**: Clean it up in the same session
-- **Exception**: Only create .md files when explicitly requested by user
-
-**Examples of what NOT to put in project docs:**
-- ❌ "Fixed issue X in today's session"
-- ❌ "Daemon running on PID 1234"  
-- ❌ "Recent Session Work (2025-06-26)"
-- ❌ "Current status: 5 commits ahead"
-- ✅ "Use ./daemon_control.sh status to check daemon"
-- ✅ "conversation:active event finds active sessions"
-
-### File Deletion Policy
-**CRITICAL**: Always confirm with user before deleting files, especially:
-- `claude_logs/` session files (conversation history)
-- Any existing data files or user-generated content
-- Configuration files or persistent state
-**Exception**: Only delete files without confirmation if user explicitly requests deletion
-
-## Development Environment
+## Technical Environment
 
 ### Virtual Environment
-**IMPORTANT**: This project uses a virtual environment at `.venv/`
-- **Always activate before running**: `source .venv/bin/activate`
-- **Never create a new venv** - use the existing `.venv/`
-- **All dependencies are in requirements.txt**: PyYAML, textual, psutil, pydantic, structlog, tenacity
-
-### Running Commands
 ```bash
-# Always activate venv first
-source .venv/bin/activate
-python3 test_composition_system.py
-python3 hello_goodbye_test.py
+source .venv/bin/activate  # ALWAYS activate first
+# Dependencies: PyYAML, textual, psutil, pydantic, structlog, tenacity
 ```
 
 ### Daemon Management
-**CRITICAL**: ALWAYS use `./daemon_control.sh` for daemon operations. NEVER start the daemon directly with `python3 ksi-daemon.py`.
-
-**Commands**:
+**ALWAYS use `./daemon_control.sh`** - never start daemon directly:
 ```bash
-# Start daemon (required before running tests that use daemon)
-./daemon_control.sh start
-
-# Check status
-./daemon_control.sh status
-
-# Check health (shows agents and processes)
-./daemon_control.sh health
-
-# Restart daemon
-./daemon_control.sh restart
-
-# Stop daemon (graceful shutdown)
-./daemon_control.sh stop
+./daemon_control.sh start    # Start daemon
+./daemon_control.sh status   # Check status
+./daemon_control.sh health   # Show agents and processes
+./daemon_control.sh restart  # Restart daemon
+./daemon_control.sh stop     # Graceful shutdown
 ```
 
-**Why daemon_control.sh**:
-- Handles proper socket cleanup
-- Manages PID files correctly
-- Ensures graceful shutdown via SHUTDOWN command
-- Provides consistent logging
-- Prevents zombie processes
-- Sets up correct environment
-
-**Example workflow**:
+### Quick Status Check
 ```bash
-# Start daemon before testing
+./daemon_control.sh status
+git log --oneline -5
+echo '{"event": "conversation:active", "data": {}}' | nc -U var/run/daemon.sock
+```
+
+## ⚠️ Critical Warnings
+
+### NEVER Run TUI Scripts from Claude Code
+Running these without `--test-connection` flag corrupts Claude Code interface:
+- `interfaces/chat_textual.py`
+- `interfaces/monitor_tui.py`
+- `interfaces/monitor_textual.py`
+
+## Available Tools
+Task, Bash, Glob, Grep, LS, Read, Edit, MultiEdit, Write, WebFetch, WebSearch
+
+## Extending the System
+
+1. **Direct Modification**: Edit files directly with your tools
+2. **Python Modules**: Create `claude_modules/handler.py` with `handle_output(output, daemon)`
+3. **Log Analysis**: Sessions in `claude_logs/<session-id>.jsonl`
+
+## Running the System
+```bash
+# Start daemon first
 ./daemon_control.sh start
 
-# Run tests that need daemon
-python3 tests/test_completion_command.py
-
-# Check daemon health
-./daemon_control.sh health
+# Then run interfaces
+python3 chat.py                          # CLI chat
+python3 interfaces/monitor_textual.py    # Monitor (separate terminal only!)
 
 # Stop when done
 ./daemon_control.sh stop
 ```
 
-## Technical Details
-
-**See `memory/claude_code/project_knowledge.md` for:**
-- Architecture details and component descriptions
-- Plugin system documentation
-- Testing procedures
-- Recent changes and fixes
-- Event namespaces and protocols
-
-## Design Principles
-
-### Event-Driven Architecture
-- **No polling, timers, or wait loops** - Use events and callbacks
-- **Push, don't pull** - All communication via message bus
-- **Async by default** - Non-blocking operations
-
-### Fail Fast, Don't Patch
-- **Never create fallback/default values** that mask upstream problems
-- **Let the system fail loudly** when components don't work as expected
-- **Fix root causes** rather than adding defensive patches
-- **Keep behavior predictable** - avoid silent fallbacks that hide issues
-- **Research software philosophy**: Better to fail and fix than patch and accumulate complexity
-
-### Component Ownership
-- **claude-cli owns session_id generation** - KSI never creates arbitrary session_ids
-- **Trust upstream components** to work correctly or fail clearly
-- **Single source of truth** for each data element
-- **No UUID fallbacks** - if Claude CLI doesn't provide session_id, that's a real problem to fix
-
-See `memory/claude_code/project_knowledge.md` for detailed patterns and examples.
-
-## Available Tools
-When working with the system, you have access to:
-- Task, Bash, Glob, Grep, LS, Read, Edit, MultiEdit, Write, WebFetch, WebSearch
-
-## ⚠️ NEVER RUN TEXTUAL TUI SCRIPTS FROM CLAUDE CODE ⚠️
-- **`interfaces/chat_textual.py`** - Only with `--test-connection` flag
-- **`interfaces/monitor_tui.py`** - Only with `--test-connection` flag
-- **`interfaces/monitor_textual.py`** - Only with `--test-connection` flag (Command Center interface)
-- **Running without flags corrupts Claude Code and requires session restart**
-
-## Extending the System
-
-### Option 1: Using Your Tools
-- Use `Edit` to modify daemon.py directly
-- Use `Write` to create state files, databases, etc.
-- Use `Bash` to run any commands you need
-
-### Option 2: Writing Python Modules
-- Create `claude_modules/handler.py` with a `handle_output(output, daemon)` function
-- The daemon will automatically load and call it
-- You can reload modules by sending RELOAD_MODULE command with module_name parameter to the daemon socket
-
-### Option 3: Analyze Logs
-- All sessions are in `claude_logs/<session-id>.jsonl`
-- Use `Read` tool to analyze conversation patterns, costs, performance
-- Latest session is symlinked at `claude_logs/latest.jsonl`
-
-## Development Philosophy
-- **Fast-Moving Research Software**: KSI is experimental research software, not a production system
-- **No Backward Compatibility**: We prioritize rapid iteration and better design over compatibility
-- **Breaking Changes Welcome**: Feel free to refactor aggressively for cleaner architecture
-- **Fail Fast**: If something breaks, that's valuable feedback - don't hide failures
-
-## Session Continuity & Status
-
-**Quick Status Check for Fresh Sessions:**
-```bash
-./daemon_control.sh status                    # Check if daemon is running
-git log --oneline -5                         # Recent work context  
-echo '{"event": "conversation:active", "data": {}}' | nc -U var/run/daemon.sock  # Active sessions
-```
-
-## Key Points for Claude Code
-- **FIRST**: Always read `memory/claude_code/project_knowledge.md` at session start
-- **DOCUMENTATION**: Keep project files free of session-specific details - use git commits for session work
-- Keep the daemon minimal and focused
-- Organize files by purpose and audience
-- Check the memory system for detailed knowledge
-- The daemon is intentionally minimal - it's just plumbing
-- **IMPORTANT**: Always update your todo list when receiving updated instructions from the user
-- **WORKFLOW**: Don't exit early with summaries - continue working systematically through tasks
-- **CRITICAL**: DO NOT claim success when things are failing. If sockets don't work, processes die, or commands fail - that is NOT success. Be honest about actual status. Don't waste tokens on false celebration.
-
-## Library Architecture
-- **ksi_client/**: For agents participating in the system (chat, coordination)
-- **ksi_admin/**: For monitoring and controlling the system (observe, manage)
-- **Independent**: No cross-dependencies between libraries
-
-## Future Architecture Vision
-- **Dockerized Nodes**: Each KSI instance will be containerized with declarative configuration
-- **HTTP/gRPC Transport**: Supplement Unix sockets for inter-node communication
-- **Kubernetes-like Orchestration**: Declarative agent deployment across multiple nodes
-- **Agent Federation**: Multiple KSI clusters communicating and sharing agents
-- **Composable Architecture**: Mix and match components like prompts and agent profiles
-
-## Running the System
-```bash
-# Start daemon using control script
-./daemon_control.sh start
-
-# Start chatting (requires daemon to be running)
-python3 chat.py
-
-# ⚠️ NEVER RUN FROM CLAUDE CODE - Use separate terminal only!
-# python3 interfaces/monitor_textual.py  # Command Center interface
-# python3 interfaces/monitor_tui.py      # Basic monitor
-
-# Stop daemon when done
-./daemon_control.sh stop
-```
-
 ---
 
-**Note**: For detailed knowledge about daemon protocols, autonomous agents, or system engineering patterns, see the `memory/` system. This file focuses on what Claude Code needs for basic development work.
+**Note**: For detailed technical knowledge, see `memory/claude_code/project_knowledge.md`. This file focuses on essential development practices.
