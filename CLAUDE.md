@@ -27,8 +27,11 @@ python3 chat.py
 # Run tests  
 python3 tests/test_daemon_protocol.py
 
-# Monitor system
-./tools/monitor_autonomous.py
+# Monitor system (Command Center interface)
+python3 interfaces/monitor_textual.py
+
+# Or basic monitor
+python3 interfaces/monitor_tui.py
 ```
 
 ## File Organization Standards
@@ -170,7 +173,8 @@ When working with the system, you have access to:
 
 ## ⚠️ NEVER RUN TEXTUAL TUI SCRIPTS FROM CLAUDE CODE ⚠️
 - **`interfaces/chat_textual.py`** - Only with `--test-connection` flag
-- **`interfaces/monitor_tui.py`** - Only with `--test-connection` flag  
+- **`interfaces/monitor_tui.py`** - Only with `--test-connection` flag
+- **`interfaces/monitor_textual.py`** - Only with `--test-connection` flag (Command Center interface)
 - **Running without flags corrupts Claude Code and requires session restart**
 
 ## Extending the System
@@ -237,7 +241,8 @@ echo '{"event": "conversation:active", "data": {}}' | nc -U var/run/daemon.sock 
 python3 chat.py
 
 # ⚠️ NEVER RUN FROM CLAUDE CODE - Use separate terminal only!
-# python3 interfaces/monitor_tui.py
+# python3 interfaces/monitor_textual.py  # Command Center interface
+# python3 interfaces/monitor_tui.py      # Basic monitor
 
 # Stop daemon when done
 ./daemon_control.sh stop

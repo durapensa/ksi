@@ -1,5 +1,5 @@
 {
-  "timestamp": 1750967921.3642712,
+  "timestamp": 1750975364.324836,
   "tests_passed": 1,
   "tests_total": 4,
   "results": [
@@ -7,25 +7,25 @@
       "test": "socket_connection",
       "success": true,
       "message": "Successfully connected to daemon socket",
-      "timestamp": 1750967921.362815
+      "timestamp": 1750975364.324224
     },
     {
       "test": "json_spawn_format",
       "success": false,
       "message": "Got JSON response, request_id present: False",
-      "timestamp": 1750967921.3631349
+      "timestamp": 1750975364.324497
     },
     {
       "test": "health_check",
       "success": false,
       "message": "Daemon health status: unhealthy",
-      "timestamp": 1750967921.3632882
+      "timestamp": 1750975364.324634
     },
     {
       "test": "invalid_command",
       "success": false,
       "message": "Couldn't parse response JSON",
-      "timestamp": 1750967921.363428
+      "timestamp": 1750975364.3247511
     }
   ]
 }

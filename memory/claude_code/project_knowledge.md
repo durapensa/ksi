@@ -41,7 +41,8 @@ KSI (Knowledge System Interface) is a minimal daemon system for managing Claude 
 ### User Interfaces
 - `chat.py` - Simple CLI chat interface
 - `interfaces/orchestrate.py` - Multi-Claude orchestration with composition modes
-- `interfaces/monitor_tui.py` - Real-time TUI monitor (now uses ksi_admin.MonitorClient)
+- `interfaces/monitor_tui.py` - Basic TUI monitor using pull-based event log system
+- `interfaces/monitor_textual.py` - **Command Center monitoring interface** with modern Textual design
 - `interfaces/chat_textual.py` - Enhanced TUI chat with 10-100x faster conversation loading (AVOID running - corrupts Claude Code TUI)
 - `example_orchestration.py` - Example of multi-Claude orchestration via ksi_client
 
@@ -93,6 +94,95 @@ ksi/
 - **messaging/message_bus.py** - Pub/sub messaging for inter-agent communication
 - **core/health.py** - Health check endpoint
 - **core/shutdown.py** - Graceful shutdown handling
+- **core/monitor.py** - Event log API endpoints for monitoring
+
+## Monitoring Architecture
+
+### Event Log System
+**Pull-Based Architecture**: Efficient monitoring without broadcast overhead to production event flow.
+
+**Components:**
+- `ksi_daemon/event_log.py` - Ring buffer with 10k event capacity for memory efficiency
+- `ksi_daemon/plugins/core/monitor.py` - API endpoints (`monitor:get_events`, `monitor:get_stats`)
+- Integration via `event_router.py` - Automatic logging of all events with minimal overhead
+
+**Event Log Features:**
+- **Pattern-based filtering**: Wildcard support (`completion:*`, `agent:*`)
+- **Time-range queries**: `since`/`until` parameters with flexible parsing
+- **Client filtering**: Events by specific client_id
+- **Correlation tracking**: Request correlation and event chaining
+- **Efficient storage**: Ring buffer prevents memory bloat
+
+### Command Center Interface (`monitor_textual.py`)
+**Modern monitoring interface** using event-first architecture and Textual best practices.
+
+**Design Pattern:**
+- **MVC Architecture**: Clean separation of Model (EventLogModel), View (UI components), Controller (MonitorController)
+- **4-Pane Layout**: Live Events, Active Sessions, System Health, Event Details
+- **Real-time Updates**: 500ms polling with intelligent caching and batched UI updates
+- **Event-Specific Formatting**: Rich display for completion, agent, transport, and system events
+
+**Key Components:**
+- `LiveEventsPane` - Real-time event stream with structured formatting
+- `ActiveSessionsPane` - Session tracking with duration, cost, and message counts
+- `SystemHealthPane` - Health indicators with progress bars for CPU/disk/network
+- `EventDetailsPane` - Detailed inspection with structured data display
+
+**Performance Features:**
+- **Smart Caching**: 2-second cache timeout with LRU eviction
+- **Batched Updates**: Debounced UI updates to prevent flicker
+- **Efficient Queries**: Timestamp-based incremental fetching
+
+### Monitor API Endpoints
+**Event Queries:**
+```bash
+# Get recent events with filtering
+{"event": "monitor:get_events", "data": {
+  "event_patterns": ["completion:*", "agent:*"],
+  "client_id": "specific_client",
+  "limit": 100,
+  "since": "1h ago",
+  "reverse": true
+}}
+
+# Get system statistics
+{"event": "monitor:get_stats", "data": {}}
+
+# Clear event log (admin only)
+{"event": "monitor:clear_log", "data": {}}
+```
+
+**Response Format:**
+```json
+{
+  "events": [
+    {
+      "timestamp": 1750986604.889725,
+      "event_name": "completion:request",
+      "data": {"prompt": "...", "model": "claude-3-5-sonnet"},
+      "client_id": "chat_client",
+      "correlation_id": "uuid",
+      "event_id": "uuid"
+    }
+  ],
+  "count": 50,
+  "total_events": 1247,
+  "query": {...}
+}
+```
+
+### Monitoring Integration Patterns
+**ksi_admin.MonitorClient Extensions:**
+- `get_recent_events()` - Pull-based event fetching with caching
+- `get_system_snapshot()` - Active agents, sessions, and metrics
+- `get_active_sessions()` - Session tracking from event analysis
+- **No broadcast subscription needed** - Pure pull-based architecture
+
+**Event Router Integration:**
+- Automatic event logging in `event_router.py`
+- Minimal overhead design (microseconds per event)
+- Context preservation (client_id, correlation_id, event_id)
+- Plugin context sharing via `ksi_plugin_context` hook
 
 ## Testing Framework
 
@@ -137,6 +227,7 @@ python3 tests/test_daemon_protocol.py
 - **state**: get, set, delete, list
 - **message**: subscribe, publish, unsubscribe
 - **conversation**: list, search, get, export, stats, active
+- **monitor**: get_events, get_stats, clear_log
 
 ## Core Functionality
 
@@ -174,7 +265,10 @@ python3 chat.py
 # Multi-Claude orchestration (via ksi_client)
 python3 example_orchestration.py
 
-# Monitor in real-time
+# Monitor in real-time (Command Center interface)
+python3 interfaces/monitor_textual.py
+
+# Or basic monitor
 python3 interfaces/monitor_tui.py
 
 # Stop daemon (graceful)

@@ -626,6 +626,8 @@ class ChatInterface(App):
                 # Update session ID if we got a new one
                 if new_session_id:
                     self.session_id = new_session_id
+                    # Persist session for continuity across instances
+                    self._save_session_id(new_session_id)
                 
                 # Display response
                 self.log_message("Claude", response)

@@ -516,7 +516,6 @@ class EventChatClient(EventBasedClient):
         self.current_session_id = response_session_id
         
         return response_text, response_session_id
-    
 
 
 class MultiAgentClient(EventBasedClient):
