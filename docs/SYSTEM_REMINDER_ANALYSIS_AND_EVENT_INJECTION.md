@@ -17,6 +17,7 @@
 8. [Event Injection Applications for KSI](#event-injection-applications-for-ksi)
 9. [Implementation Recommendations](#implementation-recommendations)
 10. [Future Research Directions](#future-research-directions)
+11. [Async Completion Queue with Event-Driven Injection](#async-completion-queue-with-event-driven-injection)
 
 ## Executive Summary
 
@@ -1599,6 +1600,392 @@ class InjectionAwareStateService:
 - Cross-system injection for federated AI organizations
 - Injection standards for interoperable AI coordination systems
 
-This comprehensive analysis reveals that system reminders demonstrate sophisticated event-driven context injection that could serve as a foundation for advanced AI coordination systems. The patterns observed—timing, content generation, behavioral adaptation, and seamless integration—provide a roadmap for implementing similar systems in KSI to enable the AI-native organizational patterns we've explored.
+## Async Completion Queue with Event-Driven Injection
 
-The key insight is that effective AI coordination may rely less on explicit communication and more on sophisticated context injection systems that provide agents with seamless awareness of organizational state, coordination opportunities, and emergent capabilities—much like the system reminder patterns that enhance AI behavior without disrupting user experience.
+### Architectural Overview
+
+Building on the dual-phase injection patterns discovered, KSI can implement an **async completion queue system with event-triggered result injection** that enables autonomous agent coordination through completion chains.
+
+#### Core Components
+
+1. **Async Completion Queue**: Manages prioritized completion requests with injection metadata
+2. **Generic Injection Router Plugin**: Routes completion results to appropriate agents via system-reminder injection
+3. **Circuit Breaker System**: Prevents context poisoning and runaway ideation chains
+4. **Prompt Composition Integration**: Stores injection boilerplate as reusable components
+
+### Async Completion Queue Architecture
+
+```python
+class AsyncCompletionQueueWithInjection:
+    def __init__(self):
+        self.completion_queue = PriorityQueue()
+        self.injection_metadata_store = InjectionMetadataStore()
+        self.circuit_breaker = CompletionCircuitBreaker()
+        
+    def queue_completion_with_injection(self, request):
+        """Queue async completion that will trigger injection on result."""
+        
+        # Validate circuit breaker constraints
+        if not self.circuit_breaker.check_allowed(request):
+            raise CircuitBreakerTrippedException(
+                f"Request blocked: {self.circuit_breaker.get_block_reason(request)}"
+            )
+        
+        # Create completion request with injection metadata
+        completion_id = generate_request_id()
+        
+        completion_request = {
+            'id': completion_id,
+            'prompt': request.prompt,
+            'model': request.model,
+            'priority': request.priority or 'normal',
+            'timestamp': time.time(),
+            'injection_config': {
+                'enabled': True,
+                'target_sessions': request.target_sessions or ['originating'],
+                'trigger_type': request.trigger_type or 'general',
+                'subscribed_attributes': request.attributes or [],
+                'follow_up_guidance': request.follow_up_guidance,
+                'composition_template': request.composition_template or 'async_completion_result'
+            },
+            'circuit_breaker_config': {
+                'max_depth': request.max_depth or 5,
+                'token_budget': request.token_budget or 50000,
+                'time_window': request.time_window or 3600,
+                'parent_request_id': request.parent_id
+            }
+        }
+        
+        # Store injection metadata
+        self.injection_metadata_store.store(completion_id, completion_request)
+        
+        # Queue for processing
+        self.completion_queue.put(
+            (self.calculate_priority(completion_request), completion_request)
+        )
+        
+        return completion_id
+```
+
+### Generic Injection Router Plugin
+
+```python
+# ksi_daemon/plugins/injection_router.py
+
+from ksi_common.plugin_base import PluginBase
+from pluggy import HookimplMarker
+
+hookimpl = HookimplMarker("ksi")
+
+class InjectionRouterPlugin(PluginBase):
+    """Routes async completion results through system-reminder injection."""
+    
+    def __init__(self):
+        super().__init__()
+        self.composer = PromptComposer()
+        self.injection_queue = Queue()
+        self.circuit_breaker = InjectionCircuitBreaker()
+        
+    @hookimpl
+    def ksi_startup(self, config):
+        """Initialize injection routing system."""
+        self.config = config
+        self.injection_config = config.get('injection_router', {})
+        logger.info("Injection router initialized")
+        return {'injection_router': 'initialized'}
+    
+    @hookimpl
+    def ksi_handle_event(self, event_name, data, context):
+        """Handle completion results for injection routing."""
+        
+        if event_name == "completion:result":
+            return self.handle_completion_result(data, context)
+            
+        elif event_name == "injection:execute":
+            return self.execute_injection(data, context)
+            
+        return None
+    
+    def handle_completion_result(self, data, context):
+        """Process completion result and queue injection if configured."""
+        
+        request_id = data.get('request_id')
+        completion_text = data.get('completion_text')
+        
+        # Retrieve injection metadata
+        injection_metadata = self.get_injection_metadata(request_id)
+        
+        if not injection_metadata or not injection_metadata.get('injection_config', {}).get('enabled'):
+            return None
+            
+        # Check circuit breakers
+        if not self.circuit_breaker.check_injection_allowed(injection_metadata):
+            logger.warning(f"Injection blocked by circuit breaker for {request_id}")
+            return {'injection:blocked': {'request_id': request_id}}
+        
+        # Compose injection content using prompt system
+        injection_content = self.compose_injection_content(
+            completion_text, data, injection_metadata
+        )
+        
+        # Queue injection for each target session
+        for session_id in injection_metadata['injection_config']['target_sessions']:
+            injection_request = {
+                'session_id': session_id,
+                'content': injection_content,
+                'parent_request_id': request_id,
+                'is_injection': True,  # Prevent recursive injection
+                'timestamp': time.time()
+            }
+            
+            self.injection_queue.put(injection_request)
+            
+        return {'injection:queued': {'request_id': request_id, 'target_count': len(injection_metadata['injection_config']['target_sessions'])}}
+    
+    def compose_injection_content(self, completion_text, result_data, metadata):
+        """Compose injection content using prompt composition system."""
+        
+        injection_config = metadata['injection_config']
+        circuit_breaker_config = metadata['circuit_breaker_config']
+        
+        # Calculate circuit breaker status
+        cb_status = self.circuit_breaker.get_status(
+            metadata['circuit_breaker_config']['parent_request_id']
+        )
+        
+        # Use prompt composition system for injection
+        composition_context = {
+            'completion_result': completion_text,
+            'completion_attributes': result_data.get('attributes', {}),
+            'trigger_type': injection_config['trigger_type'],
+            'follow_up_guidance': injection_config.get('follow_up_guidance'),
+            'circuit_breaker_status': cb_status,
+            'pending_completion_result': True
+        }
+        
+        # Compose using specified template
+        template_name = injection_config.get('composition_template', 'async_completion_result')
+        
+        try:
+            injection_prompt = self.composer.compose_injection(
+                template_name, composition_context
+            )
+            
+            # Wrap in system-reminder tags
+            return f"<system-reminder>\n{injection_prompt}\n</system-reminder>"
+            
+        except Exception as e:
+            logger.error(f"Failed to compose injection: {e}")
+            # Fallback to simple format
+            return f"""<system-reminder>
+Async completion result: {completion_text}
+
+Consider if this requires any follow-up actions.
+</system-reminder>"""
+
+ksi_plugin = True  # Module marker
+```
+
+### Circuit Breaker Implementation
+
+```python
+class CompletionCircuitBreaker:
+    """Prevents runaway completion chains and context poisoning."""
+    
+    def __init__(self):
+        self.request_tracker = RequestTracker()
+        self.pattern_detector = ContextPoisoningDetector()
+        self.token_tracker = TokenBudgetTracker()
+        self.ideation_depth_tracker = IdeationDepthTracker()
+        
+    def check_allowed(self, request):
+        """Check if request passes all circuit breaker conditions."""
+        
+        checks = [
+            self.check_ideation_depth(request),
+            self.check_token_budget(request),
+            self.check_time_window(request),
+            self.check_circular_patterns(request),
+            self.check_context_poisoning_risk(request)
+        ]
+        
+        return all(checks)
+    
+    def check_ideation_depth(self, request):
+        """Prevent excessively deep completion chains."""
+        
+        current_depth = self.ideation_depth_tracker.calculate_depth(
+            request.get('circuit_breaker_config', {}).get('parent_request_id')
+        )
+        
+        max_depth = request.get('circuit_breaker_config', {}).get('max_depth', 5)
+        
+        if current_depth >= max_depth:
+            logger.warning(f"Ideation depth {current_depth} exceeds max {max_depth}")
+            return False
+            
+        return True
+    
+    def check_context_poisoning_risk(self, request):
+        """Detect patterns that indicate context poisoning."""
+        
+        # Get completion chain history
+        chain_history = self.request_tracker.get_completion_chain(
+            request.get('circuit_breaker_config', {}).get('parent_request_id')
+        )
+        
+        # Analyze for poisoning patterns
+        risk_indicators = self.pattern_detector.analyze_chain(chain_history)
+        
+        if risk_indicators['risk_score'] > 0.7:
+            logger.warning(f"High context poisoning risk: {risk_indicators}")
+            return False
+            
+        return True
+
+class ContextPoisoningDetector:
+    """Detects patterns indicating context poisoning or degradation."""
+    
+    def __init__(self):
+        self.patterns = {
+            'recursive_self_reference': self.detect_recursive_references,
+            'hallucination_cascade': self.detect_hallucination_patterns,
+            'topic_drift': self.detect_excessive_drift,
+            'coherence_degradation': self.detect_coherence_loss,
+            'infinite_elaboration': self.detect_elaboration_loops
+        }
+    
+    def analyze_chain(self, completion_chain):
+        """Analyze completion chain for poisoning indicators."""
+        
+        if not completion_chain or len(completion_chain) < 2:
+            return {'risk_score': 0, 'indicators': []}
+        
+        risk_score = 0
+        indicators = []
+        
+        for pattern_name, detector in self.patterns.items():
+            if result := detector(completion_chain):
+                risk_score += result['weight']
+                indicators.append({
+                    'pattern': pattern_name,
+                    'confidence': result['confidence'],
+                    'details': result['details']
+                })
+        
+        return {
+            'risk_score': min(risk_score, 1.0),
+            'indicators': indicators,
+            'chain_length': len(completion_chain)
+        }
+```
+
+### Prompt Composition Integration
+
+The system leverages KSI's prompt composition system for flexible injection templates:
+
+#### Injection Component Structure
+```
+var/prompts/components/injections/
+├── async_completion_result.md      # Base completion result injection
+├── trigger_boilerplates.md         # Reusable trigger patterns
+├── circuit_breaker_status.md       # Circuit breaker status display
+├── mcp_tool_access.md             # Future MCP tool injection
+├── coordination_guidance.md        # Multi-agent coordination triggers
+└── memory_integration.md          # Collective memory triggers
+```
+
+#### Composition Templates
+```yaml
+# var/prompts/compositions/injection_templates.yaml
+name: "injection_templates"
+version: "1.0"
+description: "Reusable injection templates for async results"
+
+injection_types:
+  basic_result:
+    components: ["async_completion_result"]
+    minimal: true
+    
+  coordination_result:
+    components: [
+      "async_completion_result",
+      "coordination_guidance",
+      "circuit_breaker_status"
+    ]
+    trigger_type: "coordination"
+    
+  research_result:
+    components: [
+      "async_completion_result",
+      "memory_integration",
+      "trigger_boilerplates"
+    ]
+    trigger_type: "research"
+    
+  tool_result:
+    components: [
+      "async_completion_result",
+      "mcp_tool_access",  # Future MCP support
+      "circuit_breaker_status"
+    ]
+    trigger_type: "tool_completion"
+```
+
+### Future Extensibility
+
+This architecture provides a foundation for:
+
+1. **MCP Integration**: When MCP is implemented, tools can use the same injection system
+2. **Custom Async Tools**: Any new async tool can leverage the injection framework
+3. **Advanced Coordination Patterns**: Complex multi-agent workflows through injection chains
+4. **Autonomous Agent Networks**: Self-organizing behaviors through event-driven injection
+
+#### Example: Future MCP Tool Integration
+```python
+# Future MCP tool usage (preparatory architecture)
+class MCPToolBridge:
+    async def execute_mcp_tool(self, tool_name, params, agent_context):
+        """Execute MCP tool with injection support."""
+        
+        # Queue completion with MCP-specific injection config
+        request = {
+            'prompt': f"Execute MCP tool: {tool_name}",
+            'tool_params': params,
+            'injection_config': {
+                'composition_template': 'tool_result',
+                'trigger_type': 'tool_completion',
+                'attributes': ['tool_name', 'execution_time', 'resource_usage'],
+                'follow_up_guidance': 'Consider if tool results require further processing'
+            },
+            'circuit_breaker_config': {
+                'max_depth': 3,  # Limit tool chain depth
+                'token_budget': 10000  # Limit tokens for tool chains
+            }
+        }
+        
+        # The injection system handles the rest
+        return await self.queue_completion_with_injection(request)
+```
+
+### Implementation Benefits
+
+1. **Unified Architecture**: All async operations use the same injection pattern
+2. **Safety by Design**: Circuit breakers prevent dangerous autonomous behaviors
+3. **Composable Templates**: Injection boilerplate managed through prompt system
+4. **Future-Proof**: Ready for MCP and other async tool integrations
+5. **Event-Driven**: Fits naturally with KSI's event-driven architecture
+
+This async completion queue with injection support creates a powerful foundation for autonomous agent coordination while maintaining safety through comprehensive circuit breaker controls.
+
+This comprehensive analysis reveals that system reminders demonstrate sophisticated event-driven context injection that could serve as a foundation for advanced AI coordination systems. The patterns observed—dual-phase injection, timing precision, content generation, behavioral adaptation, and seamless integration—provide a roadmap for implementing similar systems in KSI.
+
+**Key Architectural Contributions:**
+
+1. **Dual-Phase Injection Discovery**: Input-driven proactive injection combined with tool-based reactive injection creates a complete context awareness system
+2. **Async Completion Queue Architecture**: Event-triggered result injection enables autonomous agent coordination through completion chains
+3. **Circuit Breaker Patterns**: Comprehensive safety mechanisms prevent context poisoning and runaway ideation
+4. **Prompt Composition Integration**: Reusable injection templates stored in the prompt system enable flexible and maintainable injection patterns
+5. **Future Extensibility**: Foundation ready for MCP integration and custom async tools
+
+The key insight is that effective AI coordination may rely less on explicit communication and more on sophisticated context injection systems that provide agents with seamless awareness of organizational state, coordination opportunities, and emergent capabilities. By implementing an async completion queue with event-driven injection, protected by circuit breakers and powered by composable templates, KSI can enable truly autonomous agent networks while maintaining safety and control.
