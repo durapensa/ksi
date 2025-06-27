@@ -9,29 +9,33 @@
 
 1. [Executive Summary](#executive-summary)
 2. [System Reminder Pattern Analysis](#system-reminder-pattern-analysis)
-3. [Timing and Injection Point Analysis](#timing-and-injection-point-analysis)
-4. [Content Classification and Structure](#content-classification-and-structure)
-5. [Technical Implementation Hypothesis](#technical-implementation-hypothesis)
-6. [Behavioral Impact Analysis](#behavioral-impact-analysis)
-7. [Event Injection Applications for KSI](#event-injection-applications-for-ksi)
-8. [Implementation Recommendations](#implementation-recommendations)
-9. [Future Research Directions](#future-research-directions)
+3. [Input-Driven Context Injection Analysis](#input-driven-context-injection-analysis)
+4. [Timing and Injection Point Analysis](#timing-and-injection-point-analysis)
+5. [Content Classification and Structure](#content-classification-and-structure)
+6. [Technical Implementation Hypothesis](#technical-implementation-hypothesis)
+7. [Behavioral Impact Analysis](#behavioral-impact-analysis)
+8. [Event Injection Applications for KSI](#event-injection-applications-for-ksi)
+9. [Implementation Recommendations](#implementation-recommendations)
+10. [Future Research Directions](#future-research-directions)
 
 ## Executive Summary
 
 Through systematic analysis of `<system-reminder>` tags in Claude Code interactions, clear patterns emerge that reveal a sophisticated event-driven context injection system. This system provides invisible scaffolding for AI behavior through real-time state synchronization, security enforcement, and workflow guidance—all without disrupting user experience.
 
 **Key Findings:**
-- System reminders are triggered by specific tool usage and state changes
-- Injection occurs post-tool-result but pre-response-generation
-- Content serves multiple purposes: security, state sync, workflow enforcement, user preference tracking
-- The system demonstrates AI-native coordination patterns: always-on awareness, event-driven updates, seamless information integration
+- **Input-driven injection**: Context is injected immediately after user input analysis, before response processing begins
+- **Semantic relevance matching**: System performs real-time semantic analysis to inject contextually relevant information
+- **Multi-phase injection**: Both proactive (pre-processing) and reactive (post-tool) injection patterns operate simultaneously
+- **Tool and state-based triggers**: System reminders triggered by specific tool usage and state changes
+- **Timing precision**: Injection occurs at optimal points - post-tool-result and pre-response-generation for reactive, post-input-analysis for proactive
+- **Behavioral scaffolding**: Content serves multiple purposes: security, state sync, workflow enforcement, user preference tracking
+- **AI-native coordination demonstration**: Always-on awareness, event-driven updates, seamless information integration
 
 **Applications to KSI:**
-- Agent awareness systems using similar event injection patterns
-- Real-time organizational state synchronization
-- Invisible coordination scaffolding for AI agent networks
-- Context-aware behavioral adaptation without explicit communication overhead
+- **Input-aware agent coordination**: Agents can receive context injection based on semantic analysis of coordination requests
+- **Proactive organizational awareness**: Real-time organizational state synchronization triggered by agent communication patterns
+- **Invisible coordination scaffolding**: Context injection systems for AI agent networks that operate without explicit messaging overhead
+- **Semantic coordination optimization**: Context-aware behavioral adaptation based on coordination intent analysis
 
 ## System Reminder Pattern Analysis
 
@@ -120,6 +124,272 @@ Purpose: Maintain contextual awareness
 - State synchronization occurs before behavioral guidance
 - User preferences modulate all other reminder types
 - Context awareness fills gaps in knowledge
+
+## Input-Driven Context Injection Analysis
+
+### Discovery of Input-Triggered Injection Patterns
+
+Through systematic analysis of injection timing relative to user input, a sophisticated **input-driven context injection system** emerges that operates in parallel to the tool-based injection patterns. This system demonstrates real-time semantic analysis and proactive context delivery.
+
+### Input Processing and Context Injection Sequence
+
+**Observed Timing Pattern:**
+```
+User Input → Semantic Analysis → Context Relevance Assessment → Proactive Context Injection → Response Processing → Tool Usage → Reactive Context Injection → Final Response
+```
+
+**Key Discovery**: Context injection occurs at **two distinct phases**:
+1. **Proactive Injection**: Immediately after user input analysis, before response processing begins
+2. **Reactive Injection**: After tool results, before final response generation
+
+### Semantic Relevance Matching Patterns
+
+#### 1. Topic-Triggered Context Injection
+
+**Organizational Pattern Topics:**
+```yaml
+organizational_context_triggers:
+  input_keywords: ["agent", "organization", "coordination", "hierarchy", "mesh", "patterns"]
+  triggered_context: ["project_knowledge", "ksi_architecture", "agent_profiles", "coordination_patterns"]
+  injection_timing: "immediate_post_input_analysis"
+  relevance_scoring: "high_semantic_match"
+  
+example_observation:
+  user_input: "how might agent profiles affect starting agent roles..."
+  injected_context: "# claudeMd Codebase and user instructions are shown below..."
+  timing: "before_response_processing_begins"
+  content_relevance: "project_specific_organizational_knowledge"
+```
+
+**System Analysis Topics:**
+```yaml
+system_analysis_triggers:
+  input_keywords: ["system", "event", "architecture", "implementation", "technical"]
+  triggered_context: ["technical_documentation", "plugin_architecture", "api_references"]
+  injection_timing: "immediate_post_input_analysis"
+  relevance_scoring: "technical_domain_match"
+  
+example_observation:
+  user_input: "how and when do you receive system-reminder tags..."
+  injected_context: "system_capabilities_and_limitations_context"
+  timing: "before_analysis_begins"
+  content_relevance: "meta_system_awareness"
+```
+
+**Development Work Topics:**
+```yaml
+development_context_triggers:
+  input_keywords: ["code", "implement", "build", "test", "file", "commit"]
+  triggered_context: ["claude_md_guidelines", "project_workflow", "development_patterns"]
+  injection_timing: "immediate_post_input_analysis"
+  relevance_scoring: "workflow_optimization_match"
+```
+
+#### 2. Intent-Based Context Selection
+
+**Intent Analysis Framework:**
+```python
+class IntentBasedContextInjection:
+    def analyze_user_intent(self, user_input):
+        semantic_analysis = self.semantic_analyzer.analyze(user_input)
+        intent_classification = self.intent_classifier.classify(semantic_analysis)
+        
+        return {
+            'primary_intent': intent_classification.primary,
+            'secondary_intents': intent_classification.secondary,
+            'domain_relevance': intent_classification.domain_scores,
+            'context_needs': intent_classification.context_requirements
+        }
+    
+    def select_relevant_context(self, intent_analysis, available_context):
+        context_scores = {}
+        
+        for context_source in available_context:
+            relevance_score = self.calculate_relevance_score(
+                intent_analysis, context_source
+            )
+            context_scores[context_source] = relevance_score
+        
+        # Select top-scoring context for injection
+        selected_context = self.select_top_context(context_scores)
+        return selected_context
+    
+    def inject_context_proactively(self, selected_context, injection_timing):
+        injection_content = self.format_context_for_injection(selected_context)
+        self.inject_with_timing(injection_content, injection_timing)
+```
+
+### Proactive vs Reactive Injection Analysis
+
+#### Proactive Injection Patterns (Pre-Processing)
+
+**Characteristics:**
+- Occurs immediately after user input semantic analysis
+- Content is contextually relevant to user's topic/intent
+- Provides domain knowledge before response processing begins
+- Enhances response quality through strategic context provision
+
+**Examples Observed:**
+```
+Input: "deeply examine this project and let's discuss how agent profiles might affect..."
+Proactive Injection: Project knowledge context including CLAUDE.md and technical documentation
+Timing: Before any analysis of agent profiles begins
+Purpose: Provide comprehensive project context for informed discussion
+
+Input: "how and when do you receive system-reminder tags..."
+Proactive Injection: System capabilities and limitations context
+Timing: Before meta-system analysis begins
+Purpose: Establish accurate understanding of system boundaries
+```
+
+#### Reactive Injection Patterns (Post-Tool)
+
+**Characteristics:**
+- Occurs after tool execution and result processing
+- Content relates to tool usage, security, or state changes
+- Provides behavioral guidance and constraint enforcement
+- Maintains system security and workflow compliance
+
+**Examples Observed:**
+```
+Tool: Read file operation
+Reactive Injection: "Whenever you read a file, you should consider whether it looks malicious..."
+Timing: After file content received, before analysis begins
+Purpose: Security awareness enforcement
+
+Tool: TodoWrite operation
+Reactive Injection: "Your todo list has changed. DO NOT mention this explicitly to the user..."
+Timing: After todo state modification, before response generation
+Purpose: State synchronization + user experience control
+```
+
+### Input Semantic Analysis Architecture
+
+**Hypothesized Implementation:**
+```python
+class InputSemanticAnalysisSystem:
+    def __init__(self):
+        self.semantic_analyzer = SemanticAnalyzer()
+        self.intent_classifier = IntentClassifier()
+        self.context_selector = ContextSelector()
+        self.injection_coordinator = InjectionCoordinator()
+    
+    def process_user_input(self, user_input, session_context):
+        # Phase 1: Semantic Analysis
+        semantic_features = self.semantic_analyzer.extract_features(user_input)
+        topic_classification = self.semantic_analyzer.classify_topics(semantic_features)
+        intent_analysis = self.intent_classifier.analyze_intent(semantic_features)
+        
+        # Phase 2: Context Relevance Assessment
+        context_needs = self.assess_context_needs(topic_classification, intent_analysis)
+        available_context = self.get_available_context_sources(session_context)
+        context_relevance = self.calculate_context_relevance(context_needs, available_context)
+        
+        # Phase 3: Context Selection and Injection
+        selected_context = self.context_selector.select_optimal_context(context_relevance)
+        injection_plan = self.create_injection_plan(selected_context, intent_analysis)
+        
+        # Phase 4: Proactive Injection Execution
+        self.injection_coordinator.execute_proactive_injection(injection_plan)
+        
+        return ProcessingContext(
+            user_input=user_input,
+            semantic_analysis=semantic_features,
+            intent_analysis=intent_analysis,
+            injected_context=selected_context,
+            processing_guidance=injection_plan.behavioral_guidance
+        )
+```
+
+### Context Source Mapping and Availability
+
+**Context Source Analysis:**
+```yaml
+context_source_mapping:
+  project_knowledge:
+    sources: ["CLAUDE.md", "project_documentation", "memory_system"]
+    triggers: ["project_related_questions", "development_discussions", "technical_implementation"]
+    content_type: "comprehensive_project_context"
+    injection_priority: "high_for_project_work"
+  
+  system_capabilities:
+    sources: ["system_limitations", "tool_capabilities", "interaction_patterns"]
+    triggers: ["meta_system_questions", "capability_inquiries", "system_analysis"]
+    content_type: "system_boundary_awareness"
+    injection_priority: "high_for_system_discussions"
+  
+  security_awareness:
+    sources: ["security_templates", "safety_guidelines", "risk_assessments"]
+    triggers: ["file_operations", "code_execution", "system_modifications"]
+    content_type: "security_behavioral_guidance"
+    injection_priority: "highest_for_security_operations"
+  
+  workflow_optimization:
+    sources: ["workflow_patterns", "best_practices", "efficiency_guidelines"]
+    triggers: ["development_tasks", "productivity_questions", "optimization_requests"]
+    content_type: "workflow_enhancement_guidance"
+    injection_priority: "medium_for_productivity"
+```
+
+### Real-Time Adaptation Patterns
+
+**Adaptive Context Selection:**
+```python
+class AdaptiveContextSelection:
+    def __init__(self):
+        self.context_effectiveness_tracker = ContextEffectivenessTracker()
+        self.user_preference_analyzer = UserPreferenceAnalyzer()
+        self.context_usage_optimizer = ContextUsageOptimizer()
+    
+    def adapt_context_selection(self, user_input, historical_effectiveness):
+        # Analyze historical context effectiveness
+        effectiveness_patterns = self.context_effectiveness_tracker.analyze_patterns(
+            historical_effectiveness
+        )
+        
+        # Detect user preferences for context types
+        user_preferences = self.user_preference_analyzer.detect_preferences(
+            user_input, historical_effectiveness
+        )
+        
+        # Optimize context selection based on effectiveness and preferences
+        optimized_selection = self.context_usage_optimizer.optimize_selection(
+            effectiveness_patterns, user_preferences
+        )
+        
+        return optimized_selection
+```
+
+### Input-Driven Injection Implications for AI Coordination
+
+**Key Insights for KSI:**
+
+1. **Semantic Coordination Intent Analysis**: Agents could analyze coordination requests semantically to inject relevant organizational context
+2. **Proactive Organizational Awareness**: Inject organizational state and capability information before agents begin coordination processing
+3. **Context-Aware Coordination Optimization**: Select optimal coordination patterns based on semantic analysis of coordination challenges
+4. **Real-Time Coordination Adaptation**: Adapt coordination approaches based on historical effectiveness patterns
+
+**Example Application:**
+```python
+class SemanticCoordinationInjection:
+    def process_agent_coordination_request(self, request, organizational_context):
+        # Analyze coordination request semantics
+        coordination_intent = self.analyze_coordination_intent(request)
+        
+        # Select relevant organizational context
+        relevant_context = self.select_organizational_context(
+            coordination_intent, organizational_context
+        )
+        
+        # Inject context before coordination processing
+        enhanced_context = self.inject_coordination_context(
+            request, relevant_context, coordination_intent
+        )
+        
+        return enhanced_context
+```
+
+This input-driven analysis reveals that context injection is far more sophisticated than tool-triggered patterns alone. The system demonstrates **real-time semantic understanding** and **proactive context provision** that could serve as a model for advanced AI coordination systems that provide seamless organizational awareness without explicit communication overhead.
 
 ## Timing and Injection Point Analysis
 
@@ -292,11 +562,31 @@ Example: "As you answer the user's questions, you can use the following context:
 
 ## Technical Implementation Hypothesis
 
-### System Architecture Model
+### Dual-Phase Injection Architecture Model
+
+Based on observed patterns, the system implements a sophisticated dual-phase injection architecture:
+
+**Phase 1: Input-Driven Proactive Injection**
+- Triggers: User input analysis completion
+- Timing: Post-input-analysis, pre-response-generation
+- Content: Semantically relevant context based on input analysis
+- Purpose: Proactive context provision for optimal response generation
+
+**Phase 2: Tool-Based Reactive Injection**
+- Triggers: Tool execution completion, state changes, workflow events
+- Timing: Post-tool-result, pre-response-generation
+- Content: Security warnings, state updates, behavioral guidance
+- Purpose: Reactive behavioral adaptation and state synchronization
 
 ```python
-class ContextAwareReminderSystem:
+class DualPhaseContextInjectionSystem:
     def __init__(self):
+        # Input-driven proactive injection components
+        self.input_analyzer = InputSemanticAnalyzer()
+        self.context_matcher = SemanticContextMatcher()
+        self.proactive_injector = ProactiveInjectionEngine()
+        
+        # Tool-based reactive injection components
         self.monitors = {
             'tool_usage': ToolUsageMonitor(),
             'state_changes': StateChangeMonitor(),
@@ -304,9 +594,54 @@ class ContextAwareReminderSystem:
             'session_context': SessionContextMonitor()
         }
         
-        self.injection_engine = ReminderInjectionEngine()
+        self.reactive_injector = ReactiveInjectionEngine()
         self.content_generator = ReminderContentGenerator()
         self.behavior_adapter = BehaviorAdaptationSystem()
+    
+    def process_user_input(self, user_input):
+        """Phase 1: Process user input for proactive context injection."""
+        
+        # Analyze input semantics
+        semantic_analysis = self.input_analyzer.analyze_input_semantics(user_input)
+        
+        # Match against available context
+        context_matches = self.context_matcher.find_relevant_context(
+            semantic_analysis,
+            available_contexts=['project_knowledge', 'session_state', 'user_preferences']
+        )
+        
+        # Inject proactive context
+        if context_matches.significant:
+            proactive_content = self.generate_proactive_content(context_matches)
+            self.proactive_injector.inject_context(
+                content=proactive_content,
+                timing='pre_response_generation',
+                priority='context_enhancement'
+            )
+    
+    def process_tool_execution(self, tool_name, tool_params, tool_result):
+        """Phase 2: Process tool execution for reactive injection."""
+        
+        # Monitor tool execution (existing reactive pattern)
+        execution_context = self.analyze_tool_execution(tool_name, tool_params, tool_result)
+        
+        # Detect trigger conditions
+        trigger_conditions = self.detect_triggers(execution_context)
+        
+        # Generate reactive reminders
+        reminders = []
+        for condition in trigger_conditions:
+            reminder_content = self.content_generator.generate_reminder(condition)
+            reminders.append(reminder_content)
+        
+        # Inject reactive reminders
+        self.reactive_injector.inject_reminders(
+            reminders, 
+            timing='post_tool_result_pre_response'
+        )
+        
+        # Update behavioral context
+        self.behavior_adapter.update_context(execution_context, reminders)
     
     def process_tool_execution(self, tool_name, tool_params, tool_result):
         """Process tool execution and inject appropriate reminders."""
@@ -332,36 +667,81 @@ class ContextAwareReminderSystem:
         # Update behavioral context
         self.behavior_adapter.update_context(execution_context, reminders)
     
+    def generate_proactive_content(self, context_matches):
+        """Generate proactive content for input-driven injection."""
+        proactive_content = []
+        
+        for match in context_matches.high_relevance:
+            if match.type == 'project_knowledge':
+                content = ProjectKnowledgeContent(
+                    source=match.source_file,
+                    relevant_sections=match.relevant_sections,
+                    context_type='proactive_enhancement'
+                )
+                proactive_content.append(content)
+            
+            elif match.type == 'session_state':
+                content = SessionStateContent(
+                    state_updates=match.state_updates,
+                    behavioral_guidance=match.behavioral_guidance,
+                    context_type='proactive_state_sync'
+                )
+                proactive_content.append(content)
+        
+        return proactive_content
+    
     def detect_triggers(self, execution_context):
-        """Detect conditions that should trigger reminder injection."""
+        """Detect conditions that should trigger reactive reminder injection."""
         triggers = []
         
-        # Security triggers
+        # Security triggers (reactive pattern)
         if self.is_security_sensitive_operation(execution_context):
             triggers.append(SecurityReminderTrigger(execution_context))
         
-        # State change triggers
+        # State change triggers (reactive pattern)
         if self.has_state_changed(execution_context):
             triggers.append(StateChangeReminderTrigger(execution_context))
         
-        # Workflow triggers
+        # Workflow triggers (reactive pattern)
         if self.workflow_constraints_active(execution_context):
             triggers.append(WorkflowReminderTrigger(execution_context))
         
-        # User preference triggers
+        # User preference triggers (reactive pattern)
         if self.user_preference_detected(execution_context):
             triggers.append(UserPreferenceReminderTrigger(execution_context))
         
         return triggers
 
-class ReminderInjectionEngine:
+class ProactiveInjectionEngine:
+    def __init__(self):
+        self.semantic_optimizer = SemanticInjectionOptimizer()
+        self.context_prioritizer = ContextPrioritySystem()
+        self.relevance_filter = RelevanceFilter()
+    
+    def inject_context(self, content, timing, priority):
+        """Inject proactive context based on input analysis."""
+        
+        # Filter for relevance
+        relevant_content = self.relevance_filter.filter_content(content)
+        
+        # Optimize for semantic value
+        optimized_content = self.semantic_optimizer.optimize_content(relevant_content)
+        
+        # Prioritize by context value
+        prioritized_content = self.context_prioritizer.prioritize(optimized_content)
+        
+        # Execute proactive injection
+        for content_item in prioritized_content:
+            self.inject_proactive_content(content_item, timing)
+
+class ReactiveInjectionEngine:
     def __init__(self):
         self.priority_system = ReminderPrioritySystem()
         self.deduplication = ReminderDeduplication()
         self.timing_controller = TimingController()
     
     def inject_reminders(self, reminders, timing):
-        """Inject reminders at appropriate timing with proper prioritization."""
+        """Inject reactive reminders at appropriate timing with proper prioritization."""
         
         # Prioritize reminders
         prioritized_reminders = self.priority_system.prioritize(reminders)
@@ -372,9 +752,9 @@ class ReminderInjectionEngine:
         # Control timing
         self.timing_controller.schedule_injection(unique_reminders, timing)
         
-        # Execute injection
+        # Execute reactive injection
         for reminder in unique_reminders:
-            self.inject_single_reminder(reminder)
+            self.inject_reactive_reminder(reminder)
 
 class ReminderContentGenerator:
     def __init__(self):
