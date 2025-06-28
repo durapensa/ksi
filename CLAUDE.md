@@ -32,6 +32,8 @@ Essential development practices for Claude Code when working with KSI.
 - **Trace execution paths** - ensure all code is reachable and used
 - **Refactor boldly** - improve structure without preserving old patterns
 - **Delete confidently** - if it's not used, remove it
+- **Complete transitions** - when moving files/features, verify functionality then remove old locations
+- **System integrity** - ensure system functions as designed after cleanup
 
 ## Critical Warnings
 ⚠️ **NEVER run TUI scripts** without `--test-connection` flag:
