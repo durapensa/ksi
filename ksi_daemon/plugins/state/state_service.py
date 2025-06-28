@@ -26,6 +26,18 @@ hookimpl = pluggy.HookimplMarker("ksi")
 logger = get_logger("state_service")
 state_manager: Optional[SessionAndSharedStateManager] = None
 
+# Plugin info
+PLUGIN_INFO = {
+    "name": "state_service",
+    "version": "3.0.0",
+    "description": "SQLite-backed persistent state management"
+}
+
+# Reload configuration
+_reloadable = True
+_reload_strategy = "stateful"
+_state_hooks = ["serialize_state", "deserialize_state"]
+
 
 # Hook implementations
 @hookimpl(tryfirst=True)  # Initialize early - other plugins depend on state service
@@ -304,6 +316,48 @@ def ksi_shutdown():
     return {
         "status": "state_service_stopped"
     }
+
+
+@hookimpl
+def ksi_serialize_state():
+    """Serialize state for reload."""
+    if not state_manager:
+        return None
+    
+    logger.info("Serializing state service state")
+    
+    # Get current state
+    return {
+        "sessions": state_manager.sessions.copy(),
+        "db_path": str(state_manager.db_path),
+        "identities": getattr(state_manager, 'identities', {})
+    }
+
+
+@hookimpl
+def ksi_deserialize_state(state):
+    """Restore state after reload."""
+    if not state_manager or not state:
+        return
+    
+    logger.info("Restoring state service state")
+    
+    # Restore sessions
+    if "sessions" in state:
+        state_manager.sessions = state["sessions"]
+        logger.info(f"Restored {len(state_manager.sessions)} sessions")
+    
+    # DB path should already match from init
+    # Identities if any
+    if "identities" in state:
+        setattr(state_manager, 'identities', state["identities"])
+
+
+@hookimpl
+def ksi_validate_reload():
+    """Validate if state service can be reloaded."""
+    # State service can always be reloaded since SQLite handles persistence
+    return {"valid": True}
 
 
 # Module-level marker for plugin discovery

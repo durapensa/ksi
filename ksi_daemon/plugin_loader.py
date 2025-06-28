@@ -46,6 +46,8 @@ class PluginLoader:
         # Track loaded plugins
         self.loaded_plugins: Dict[str, PluginInfo] = {}
         self.plugin_instances: Dict[str, Any] = {}
+        self.plugin_modules: Dict[str, Any] = {}  # Track modules for reloading
+        self.plugin_paths: Dict[str, Path] = {}  # Track file paths for reloading
         
         # Plugin namespaces
         self.namespaces: Dict[str, str] = {}  # namespace -> plugin_name
@@ -295,6 +297,8 @@ class PluginLoader:
             if plugin_info:
                 self.loaded_plugins[plugin_name] = plugin_info
                 self.plugin_instances[plugin_name] = plugin_instance
+                self.plugin_modules[plugin_name] = module
+                self.plugin_paths[plugin_name] = plugin_path
                 
                 # Register namespaces
                 for namespace in plugin_info.namespaces:
@@ -456,3 +460,176 @@ class PluginLoader:
                     hooks[name] = implementers
         
         return hooks
+    
+    def get_plugin_metadata(self, plugin_name: str) -> Dict[str, Any]:
+        """
+        Get plugin metadata including reload info.
+        
+        Args:
+            plugin_name: Name of the plugin
+            
+        Returns:
+            Dict with plugin metadata
+        """
+        plugin = self.plugin_instances.get(plugin_name)
+        module = self.plugin_modules.get(plugin_name)
+        
+        if not plugin and not module:
+            return {}
+        
+        # Check for PLUGIN_INFO in various locations
+        metadata = {}
+        
+        # Try module level PLUGIN_INFO
+        if module and hasattr(module, "PLUGIN_INFO"):
+            metadata.update(module.PLUGIN_INFO)
+        
+        # Try plugin instance PLUGIN_INFO
+        if plugin and hasattr(plugin, "PLUGIN_INFO"):
+            metadata.update(plugin.PLUGIN_INFO)
+        
+        # Check for individual attributes
+        if plugin:
+            if hasattr(plugin, "_reloadable"):
+                metadata["reloadable"] = plugin._reloadable
+            if hasattr(plugin, "_reload_strategy"):
+                metadata["reload_strategy"] = plugin._reload_strategy
+            if hasattr(plugin, "_reload_reason"):
+                metadata["reason"] = plugin._reload_reason
+            if hasattr(plugin, "_state_hooks"):
+                metadata["state_hooks"] = plugin._state_hooks
+        
+        # Also check module level attributes
+        if module:
+            if hasattr(module, "_reloadable"):
+                metadata["reloadable"] = module._reloadable
+            if hasattr(module, "_reload_strategy"):
+                metadata["reload_strategy"] = module._reload_strategy
+            if hasattr(module, "_reload_reason"):
+                metadata["reason"] = module._reload_reason
+            if hasattr(module, "_state_hooks"):
+                metadata["state_hooks"] = module._state_hooks
+        
+        # Default values
+        metadata.setdefault("reloadable", False)
+        metadata.setdefault("name", plugin_name)
+        
+        return metadata
+    
+    def can_reload_plugin(self, plugin_name: str) -> bool:
+        """
+        Check if a plugin can be reloaded.
+        
+        Args:
+            plugin_name: Name of the plugin
+            
+        Returns:
+            True if plugin is reloadable
+        """
+        metadata = self.get_plugin_metadata(plugin_name)
+        return metadata.get("reloadable", False)
+    
+    def reload_plugin(self, plugin_name: str, force: bool = False) -> Dict[str, Any]:
+        """
+        Reload a plugin with state preservation.
+        
+        Args:
+            plugin_name: Name of plugin to reload
+            force: Force reload even if not marked reloadable
+            
+        Returns:
+            Dict with reload status and any errors
+        """
+        # Check if plugin exists
+        if plugin_name not in self.loaded_plugins:
+            return {"error": f"Plugin {plugin_name} not found"}
+        
+        # Check if reloadable
+        if not force and not self.can_reload_plugin(plugin_name):
+            metadata = self.get_plugin_metadata(plugin_name)
+            return {
+                "error": f"Plugin {plugin_name} is not reloadable",
+                "reason": metadata.get("reason", "Not marked as reloadable")
+            }
+        
+        # Validate reload
+        plugin_instance = self.plugin_instances.get(plugin_name)
+        if plugin_instance:
+            validate_results = self.pm.hook.ksi_validate_reload()
+            for result in validate_results:
+                if result and not result.get("valid", True):
+                    return {
+                        "error": f"Plugin {plugin_name} cannot be reloaded",
+                        "reason": result.get("reason", "Validation failed")
+                    }
+        
+        try:
+            # 1. Serialize state
+            state = None
+            if plugin_instance:
+                state_results = self.pm.hook.ksi_serialize_state()
+                # Find state from this specific plugin
+                for i, result in enumerate(state_results):
+                    impl = self.pm.hook.ksi_serialize_state.get_hookimpls()[i]
+                    if impl.plugin_name == plugin_name:
+                        state = result
+                        break
+            
+            # 2. Unregister plugin
+            if plugin_instance:
+                self.pm.unregister(plugin_instance)
+            
+            # 3. Clear from tracking
+            del self.loaded_plugins[plugin_name]
+            del self.plugin_instances[plugin_name]
+            
+            # 4. Clear module from Python cache
+            module_name = None
+            if plugin_name in self.plugin_modules:
+                module = self.plugin_modules[plugin_name]
+                module_name = module.__name__
+                
+                # Clear the module and any submodules
+                modules_to_clear = []
+                for name in sys.modules:
+                    if name == module_name or name.startswith(f"{module_name}."):
+                        modules_to_clear.append(name)
+                
+                for name in modules_to_clear:
+                    del sys.modules[name]
+                
+                del self.plugin_modules[plugin_name]
+            
+            # 5. Reload the plugin
+            plugin_path = self.plugin_paths.get(plugin_name)
+            if not plugin_path:
+                return {"error": f"Cannot find plugin path for {plugin_name}"}
+            
+            new_name = self.load_plugin(plugin_path)
+            if not new_name:
+                return {"error": f"Failed to reload plugin {plugin_name}"}
+            
+            # 6. Restore state
+            if state is not None:
+                new_instance = self.plugin_instances.get(new_name)
+                if new_instance:
+                    # Call deserialize on the specific plugin
+                    if hasattr(new_instance, "ksi_deserialize_state"):
+                        new_instance.ksi_deserialize_state(state)
+                    else:
+                        # Try calling through plugin manager
+                        self.pm.hook.ksi_deserialize_state(state=state)
+            
+            logger.info(f"Successfully reloaded plugin {plugin_name}")
+            
+            return {
+                "status": "reloaded",
+                "plugin_name": new_name,
+                "had_state": state is not None
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to reload plugin {plugin_name}: {e}", exc_info=True)
+            return {
+                "error": f"Reload failed: {str(e)}"
+            }

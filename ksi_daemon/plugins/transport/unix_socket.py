@@ -29,6 +29,17 @@ server = None
 event_emitter: Optional[Callable] = None
 client_connections = {}
 
+# Plugin info
+PLUGIN_INFO = {
+    "name": "unix_socket_transport",
+    "version": "2.0.0",
+    "description": "Unix domain socket transport layer"
+}
+
+# NOT reloadable due to active connections
+_reloadable = False
+_reload_reason = "Active socket connections would be disrupted"
+
 
 class UnixSocketTransport:
     """Simple Unix socket transport implementation."""

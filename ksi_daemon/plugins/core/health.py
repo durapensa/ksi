@@ -18,6 +18,10 @@ PLUGIN_INFO = {
     "description": "Simple health check provider"
 }
 
+# Reload configuration
+_reloadable = True
+_reload_strategy = "stateless"
+
 # Track startup time
 startup_time = None
 

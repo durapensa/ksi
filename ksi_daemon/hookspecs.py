@@ -275,6 +275,43 @@ def ksi_agent_disconnected(agent_id: str, reason: Optional[str]) -> None:
 
 
 # =============================================================================
+# Plugin Lifecycle Extension Hooks
+# =============================================================================
+
+@hookspec
+def ksi_serialize_state() -> Optional[Dict[str, Any]]:
+    """
+    Serialize plugin state for reload or hot-swap.
+    Called before plugin is unloaded.
+    
+    Returns:
+        Dict containing plugin state or None if stateless
+    """
+
+
+@hookspec  
+def ksi_deserialize_state(state: Dict[str, Any]) -> None:
+    """
+    Restore plugin state after reload.
+    Called after plugin is reloaded.
+    
+    Args:
+        state: Previously serialized state from ksi_serialize_state
+    """
+
+
+@hookspec
+def ksi_validate_reload() -> Dict[str, Any]:
+    """
+    Validate if plugin can be safely reloaded.
+    Plugin can veto its own reload.
+    
+    Returns:
+        Dict with 'valid' bool and optional 'reason' string
+    """
+
+
+# =============================================================================
 # Extension Hooks
 # =============================================================================
 
