@@ -101,18 +101,14 @@ class TestPluginIntegration:
         """Test agent management lifecycle."""
         event_bus = daemon.event_bus
         
-        # Create a test profile first
-        profile_result = await event_bus.emit("agent:save_profile", {
-            "profile_name": "test_agent",
-            "profile_data": {
-                "role": "analyst",
-                "capabilities": ["analysis", "reporting"],
-                "prompt_template": "You are a test agent. Task: {task}"
-            }
+        # Verify test profile exists in composition system
+        profile_result = await event_bus.emit("composition:profile", {
+            "name": "claude_agent_default"  # Use existing migrated profile
         })
         
         assert profile_result is not None
-        assert profile_result.get("status") == "saved"
+        assert profile_result.get("status") == "success"
+        assert "profile" in profile_result
         
         # Create agent identity
         identity_result = await event_bus.emit("agent:create_identity", {

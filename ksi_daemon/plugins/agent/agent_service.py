@@ -31,12 +31,9 @@ hookimpl = pluggy.HookimplMarker("ksi")
 logger = get_logger("agent_service")
 agents: Dict[str, Dict[str, Any]] = {}  # agent_id -> agent_info
 identities: Dict[str, Dict[str, Any]] = {}  # agent_id -> identity_info
-profiles: Dict[str, Dict[str, Any]] = {}  # profile_name -> profile_data
 agent_threads: Dict[str, asyncio.Task] = {}  # agent_id -> task
 
 # Storage paths
-agent_profiles_dir = Path(config.agent_profiles_dir)
-agent_profiles_dir.mkdir(parents=True, exist_ok=True)
 identity_storage_path = config.identity_storage_path
 
 # Event emitter reference (set during context)
@@ -44,19 +41,6 @@ event_emitter = None
 
 
 # Helper functions
-def load_profiles():
-    """Load agent profiles from disk."""
-    for profile_file in agent_profiles_dir.glob("*.json"):
-        try:
-            profile_data = FileOperations.read_json_file(profile_file)
-            if profile_data:
-                profile_name = profile_file.stem
-                profiles[profile_name] = profile_data
-                logger.info(f"Loaded profile: {profile_name}")
-        except Exception as e:
-            logger.error(f"Failed to load profile {profile_file}: {e}")
-
-
 def load_identities():
     """Load agent identities from disk."""
     if identity_storage_path.exists():
@@ -82,16 +66,14 @@ def save_identities():
 @hookimpl
 def ksi_startup(config):
     """Initialize agent service on startup."""
-    load_profiles()
     load_identities()
     
     logger.info(f"Agent service started - agents: {len(agents)}, "
-                f"profiles: {len(profiles)}, identities: {len(identities)}")
+                f"identities: {len(identities)}")
     
     return {
         "status": "agent_service_ready",
         "agents": len(agents),
-        "profiles": len(profiles),
         "identities": len(identities)
     }
 
@@ -119,16 +101,6 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
     
     elif event_name == "agent:list":
         return handle_list_agents(data)
-    
-    # Profile events
-    elif event_name == "agent:load_profile":
-        return handle_load_profile(data)
-    
-    elif event_name == "agent:save_profile":
-        return handle_save_profile(data)
-    
-    elif event_name == "agent:list_profiles":
-        return handle_list_profiles(data)
     
     # Identity events  
     elif event_name == "agent:create_identity":

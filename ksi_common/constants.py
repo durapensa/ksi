@@ -19,8 +19,6 @@ DEFAULT_SESSION_LOG_DIR = "var/logs/responses"
 DEFAULT_DAEMON_LOG_DIR = "var/logs/daemon"
 DEFAULT_STATE_DIR = "var/state"
 DEFAULT_DB_DIR = "var/db"
-DEFAULT_AGENT_PROFILES_DIR = "var/agent_profiles"
-DEFAULT_PROMPTS_DIR = "var/prompts"
 DEFAULT_RUN_DIR = "var/run"
 DEFAULT_EXPORT_DIR = "var/state/exports"
 

@@ -8,6 +8,8 @@ Handles both conversation sessions and agent coordination state
 from typing import Dict, Any, Optional, List
 import sqlite3
 import json
+import hashlib
+import yaml
 from pathlib import Path
 from .manager_framework import BaseManager, with_error_handling, log_operation
 from ksi_common import TimestampManager
@@ -29,6 +31,9 @@ class SessionAndSharedStateManager(BaseManager):
         
         # Initialize SQLite database
         self._init_sqlite()
+        
+        # Initialize composition index
+        self._init_composition_index()
     
     def _init_sqlite(self):
         """Initialize SQLite database for agent shared state"""
@@ -52,6 +57,7 @@ class SessionAndSharedStateManager(BaseManager):
     def _create_schema(self):
         """Create schema inline if schema file not available"""
         with sqlite3.connect(self.db_path) as conn:
+            # Existing agent shared state schema
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS agent_shared_state (
                     key TEXT PRIMARY KEY,
@@ -67,6 +73,49 @@ class SessionAndSharedStateManager(BaseManager):
             conn.execute('CREATE INDEX IF NOT EXISTS idx_namespace ON agent_shared_state(namespace)')
             conn.execute('CREATE INDEX IF NOT EXISTS idx_owner ON agent_shared_state(owner_agent_id)')
             conn.execute('CREATE INDEX IF NOT EXISTS idx_expires ON agent_shared_state(expires_at)')
+            
+            # Composition index schema extension
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS composition_repositories (
+                    id TEXT PRIMARY KEY,
+                    type TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    last_sync_at TEXT,
+                    metadata TEXT,
+                    created_at TEXT NOT NULL
+                )
+            ''')
+            
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS composition_index (
+                    full_name TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    type TEXT NOT NULL,
+                    repository_id TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    file_hash TEXT,
+                    version TEXT,
+                    description TEXT,
+                    author TEXT,
+                    extends TEXT,
+                    tags TEXT,
+                    capabilities TEXT,
+                    dependencies TEXT,
+                    loading_strategy TEXT,
+                    mutable BOOLEAN DEFAULT FALSE,
+                    ephemeral BOOLEAN DEFAULT FALSE,
+                    indexed_at TEXT NOT NULL,
+                    FOREIGN KEY (repository_id) REFERENCES composition_repositories(id)
+                )
+            ''')
+            
+            # Composition index optimizations
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_comp_type ON composition_index(type)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_comp_repo ON composition_index(repository_id)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_comp_name ON composition_index(name)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_comp_extends ON composition_index(extends)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_comp_strategy ON composition_index(loading_strategy)')
     
     def _extract_namespace(self, key: str) -> Optional[str]:
         """Extract namespace from key using agent_id.purpose.detail convention"""
@@ -228,3 +277,206 @@ class SessionAndSharedStateManager(BaseManager):
                 self.logger.info(f"SQLite shared state contains {count} entries")
         except Exception as e:
             self.logger.warning(f"Could not access SQLite database {self.db_path}: {e}")
+    
+    # ========================================
+    # Composition Index Methods
+    # ========================================
+    
+    def _init_composition_index(self):
+        """Initialize local repository and index if needed"""
+        with sqlite3.connect(self.db_path) as conn:
+            # Ensure local repository exists
+            conn.execute('''
+                INSERT OR IGNORE INTO composition_repositories 
+                (id, type, path, status, created_at) 
+                VALUES ('local', 'local', 'var/lib/compositions', 'active', ?)
+            ''', (TimestampManager.format_for_logging(),))
+    
+    @log_operation()
+    def index_composition_file(self, file_path: Path) -> bool:
+        """Index a single composition file"""
+        try:
+            if not file_path.exists() or file_path.suffix != '.yaml':
+                return False
+                
+            # Calculate file hash for change detection
+            content = file_path.read_text()
+            file_hash = hashlib.sha256(content.encode()).hexdigest()
+            
+            # Parse YAML metadata
+            try:
+                comp_data = yaml.safe_load(content)
+            except yaml.YAMLError as e:
+                self.logger.warning(f"Invalid YAML in {file_path}: {e}")
+                return False
+            
+            if not isinstance(comp_data, dict):
+                return False
+                
+            # Extract metadata
+            name = comp_data.get('name', file_path.stem)
+            comp_type = comp_data.get('type', 'unknown')
+            full_name = f"local:{name}"
+            
+            # Extract loading strategy from metadata
+            metadata = comp_data.get('metadata', {})
+            loading_strategy = metadata.get('loading_strategy', 'single')
+            
+            # Index entry
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute('''
+                    INSERT OR REPLACE INTO composition_index
+                    (full_name, name, type, repository_id, file_path, file_hash, 
+                     version, description, author, extends, tags, capabilities, 
+                     dependencies, loading_strategy, mutable, ephemeral, indexed_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    full_name, name, comp_type, 'local', str(file_path), file_hash,
+                    comp_data.get('version', ''),
+                    comp_data.get('description', ''),
+                    comp_data.get('author', ''),
+                    comp_data.get('extends', ''),
+                    json.dumps(comp_data.get('tags', [])),
+                    json.dumps(metadata.get('capabilities', [])),
+                    json.dumps(comp_data.get('dependencies', [])),
+                    loading_strategy,
+                    metadata.get('mutable', False),
+                    metadata.get('ephemeral', False),
+                    TimestampManager.format_for_logging()
+                ))
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to index {file_path}: {e}")
+            return False
+    
+    @log_operation()
+    def rebuild_composition_index(self, repository_id: str = 'local') -> int:
+        """Rebuild composition index for a repository"""
+        if repository_id != 'local':
+            # Future: support other repositories
+            return 0
+            
+        # Clear existing index for this repository
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute('DELETE FROM composition_index WHERE repository_id = ?', (repository_id,))
+        
+        # Scan composition directory
+        compositions_dir = Path('var/lib/compositions')
+        if not compositions_dir.exists():
+            return 0
+            
+        indexed_count = 0
+        for yaml_file in compositions_dir.rglob('*.yaml'):
+            if self.index_composition_file(yaml_file):
+                indexed_count += 1
+                
+        self.logger.info(f"Indexed {indexed_count} compositions")
+        return indexed_count
+    
+    @log_operation()
+    def discover_compositions(self, query: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Universal composition discovery - query index only"""
+        # Build SQL query from parameters
+        conditions = []
+        params = []
+        
+        if 'type' in query:
+            conditions.append('type = ?')
+            params.append(query['type'])
+            
+        if 'name' in query:
+            conditions.append('name LIKE ?')
+            params.append(f"%{query['name']}%")
+            
+        if 'capabilities' in query:
+            # JSON search for capabilities
+            for cap in query['capabilities']:
+                conditions.append('capabilities LIKE ?')
+                params.append(f'%"{cap}"%')
+                
+        if 'tags' in query:
+            # JSON search for tags
+            for tag in query['tags']:
+                conditions.append('tags LIKE ?')
+                params.append(f'%"{tag}"%')
+                
+        if 'loading_strategy' in query:
+            conditions.append('loading_strategy = ?')
+            params.append(query['loading_strategy'])
+        
+        # Build final query
+        where_clause = ' AND '.join(conditions) if conditions else '1=1'
+        sql = f"""
+            SELECT full_name, name, type, description, version, author, 
+                   tags, capabilities, loading_strategy, file_path
+            FROM composition_index 
+            WHERE {where_clause}
+            ORDER BY name
+        """
+        
+        results = []
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(sql, params)
+                for row in cursor.fetchall():
+                    results.append({
+                        'full_name': row[0],
+                        'name': row[1], 
+                        'type': row[2],
+                        'description': row[3],
+                        'version': row[4],
+                        'author': row[5],
+                        'tags': json.loads(row[6] or '[]'),
+                        'capabilities': json.loads(row[7] or '[]'),
+                        'loading_strategy': row[8],
+                        'file_path': row[9]
+                    })
+        except Exception as e:
+            self.logger.error(f"Composition discovery failed: {e}")
+            
+        return results
+    
+    @log_operation()
+    def get_composition_path(self, full_name: str) -> Optional[Path]:
+        """Get file path for a composition"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(
+                    'SELECT file_path FROM composition_index WHERE full_name = ?', 
+                    (full_name,)
+                )
+                row = cursor.fetchone()
+                return Path(row[0]) if row else None
+        except Exception as e:
+            self.logger.error(f"Failed to get path for {full_name}: {e}")
+            return None
+    
+    @log_operation()
+    def get_composition_metadata(self, full_name: str) -> Optional[Dict[str, Any]]:
+        """Get composition metadata from index"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute('''
+                    SELECT name, type, description, version, author, extends,
+                           tags, capabilities, dependencies, loading_strategy
+                    FROM composition_index WHERE full_name = ?
+                ''', (full_name,))
+                row = cursor.fetchone()
+                if row:
+                    return {
+                        'name': row[0],
+                        'type': row[1], 
+                        'description': row[2],
+                        'version': row[3],
+                        'author': row[4],
+                        'extends': row[5],
+                        'tags': json.loads(row[6] or '[]'),
+                        'capabilities': json.loads(row[7] or '[]'), 
+                        'dependencies': json.loads(row[8] or '[]'),
+                        'loading_strategy': row[9]
+                    }
+        except Exception as e:
+            self.logger.error(f"Failed to get metadata for {full_name}: {e}")
+        return None

@@ -13,8 +13,6 @@ from .constants import (
     DEFAULT_DAEMON_LOG_DIR,
     DEFAULT_STATE_DIR,
     DEFAULT_DB_DIR,
-    DEFAULT_AGENT_PROFILES_DIR,
-    DEFAULT_PROMPTS_DIR,
     DEFAULT_RUN_DIR,
     DEFAULT_EXPORT_DIR,
     DEFAULT_SOCKET_PATH,
@@ -85,16 +83,6 @@ class KSIPaths:
     def db_dir(self) -> Path:
         """Get database directory path."""
         return self.base_dir / DEFAULT_DB_DIR
-    
-    @property
-    def agent_profiles_dir(self) -> Path:
-        """Get agent profiles directory path."""
-        return self.base_dir / DEFAULT_AGENT_PROFILES_DIR
-    
-    @property
-    def prompts_dir(self) -> Path:
-        """Get prompts directory path."""
-        return self.base_dir / DEFAULT_PROMPTS_DIR
     
     @property
     def run_dir(self) -> Path:

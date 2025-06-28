@@ -28,8 +28,6 @@ class KSIDaemonConfig(KSIBaseConfig):
     # Database and storage (daemon-specific)
     db_path: Path = Path("var/db/agent_shared_state.db")
     identity_storage_path: Path = Path("var/db/identities.json")
-    agent_profiles_dir: Path = Path("var/agent_profiles")
-    prompts_dir: Path = Path("var/prompts")
     
     # Daemon-specific logging
     daemon_log_dir: Path = Path("var/logs/daemon")
@@ -65,8 +63,6 @@ class KSIDaemonConfig(KSIBaseConfig):
             self.identity_storage_path.parent,  # var/db
             self.daemon_log_dir,         # var/logs/daemon
             self.tmp_dir,                # var/tmp
-            self.agent_profiles_dir,     # var/agent_profiles
-            self.prompts_dir,            # var/prompts
         ]
         
         for directory in daemon_dirs:

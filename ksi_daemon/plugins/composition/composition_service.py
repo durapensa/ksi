@@ -29,16 +29,13 @@ hookimpl = pluggy.HookimplMarker("ksi")
 
 # Module state
 logger = get_logger("composition_service")
+state_manager = None  # Will be set during startup
 
-# Base path for compositions
+# Base path for compositions (still used for file operations)
 VAR_DIR = Path("var")  # Relative to project root
 COMPOSITIONS_BASE = VAR_DIR / "lib/compositions"
 FRAGMENTS_BASE = VAR_DIR / "lib/fragments"
 SCHEMAS_BASE = VAR_DIR / "lib/schemas"
-
-# Cache for loaded compositions
-composition_cache: Dict[str, 'Composition'] = {}
-fragment_cache: Dict[str, str] = {}
 
 
 @dataclass
@@ -169,58 +166,27 @@ def evaluate_conditions(conditions: Dict[str, List[str]], variables: Dict[str, A
 
 
 async def load_composition(name: str, comp_type: Optional[str] = None) -> Composition:
-    """Load a composition by name and optional type."""
-    cache_key = f"{comp_type or 'any'}:{name}"
+    """Load a composition by name using index."""
+    if not state_manager:
+        raise RuntimeError("Composition index not available")
+        
+    # Determine full name
+    full_name = f"local:{name}" if ':' not in name else name
     
-    if cache_key in composition_cache:
-        return composition_cache[cache_key]
+    # Get file path from index
+    file_path = state_manager.get_composition_path(full_name)
+    if not file_path or not file_path.exists():
+        raise FileNotFoundError(f"Composition not found: {name}")
     
-    # Search for composition file
-    search_paths = []
-    if comp_type:
-        if comp_type == "profile":
-            search_paths.extend([
-                COMPOSITIONS_BASE / "profiles" / "agents" / f"{name}.yaml",
-                COMPOSITIONS_BASE / "profiles" / "base" / f"{name}.yaml"
-            ])
-        elif comp_type == "prompt":
-            search_paths.extend([
-                COMPOSITIONS_BASE / "prompts" / "templates" / f"{name}.yaml",
-                COMPOSITIONS_BASE / "prompts" / "components" / f"{name}.yaml"
-            ])
-        else:
-            search_paths.append(COMPOSITIONS_BASE / comp_type / f"{name}.yaml")
-    else:
-        # Search all types
-        for type_dir in ["profiles/agents", "profiles/base", "prompts/templates", 
-                        "prompts/components", "system"]:
-            search_paths.append(COMPOSITIONS_BASE / type_dir / f"{name}.yaml")
+    # Load directly from file (no cache)
+    logger.debug(f"Loading composition from {file_path}")
+    data = yaml.safe_load(file_path.read_text())
     
-    # Also check legacy locations
-    search_paths.extend([
-        VAR_DIR / "prompts/compositions" / f"{name}.yaml",
-        VAR_DIR / "agent_profiles" / f"{name}.yaml"
-    ])
+    # Validate type if specified
+    if comp_type and data.get('type') != comp_type:
+        raise ValueError(f"Composition {name} is type {data.get('type')}, expected {comp_type}")
     
-    for path in search_paths:
-        if path.exists():
-            logger.debug(f"Loading composition from {path}")
-            data = yaml.safe_load(path.read_text())
-            
-            # Add type if not specified
-            if 'type' not in data:
-                if 'profiles' in str(path):
-                    data['type'] = 'profile'
-                elif 'prompts' in str(path):
-                    data['type'] = 'prompt'
-                else:
-                    data['type'] = 'system'
-            
-            composition = Composition.from_yaml(data)
-            composition_cache[cache_key] = composition
-            return composition
-    
-    raise FileNotFoundError(f"Composition not found: {name}")
+    return Composition.from_yaml(data)
 
 
 async def resolve_composition(
@@ -386,6 +352,14 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
         # Reload compositions from disk
         return handle_reload(data)
     
+    elif event_name == "composition:load_tree":
+        # Universal tree loading based on declared strategy
+        return handle_load_tree(data)
+    
+    elif event_name == "composition:load_bulk":
+        # Universal bulk loading for agent efficiency
+        return handle_load_bulk(data)
+    
     return None
 
 
@@ -492,57 +466,12 @@ async def handle_validate(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def handle_discover(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Discover available compositions matching criteria."""
-    comp_type = data.get('type')
-    tags = data.get('tags', [])
-    capabilities = data.get('capabilities', [])
+    """Discover available compositions using index."""
+    if not state_manager:
+        return {'error': 'Composition index not available'}
     
-    discovered = []
-    
-    # Search all composition directories
-    search_dirs = []
-    if comp_type == 'profile':
-        search_dirs = [
-            COMPOSITIONS_BASE / "profiles" / "agents",
-            COMPOSITIONS_BASE / "profiles" / "base"
-        ]
-    elif comp_type == 'prompt':
-        search_dirs = [
-            COMPOSITIONS_BASE / "prompts" / "templates",
-            COMPOSITIONS_BASE / "prompts" / "components"
-        ]
-    else:
-        search_dirs = [COMPOSITIONS_BASE]
-    
-    for search_dir in search_dirs:
-        if not search_dir.exists():
-            continue
-            
-        for yaml_file in search_dir.rglob("*.yaml"):
-            try:
-                comp = await load_composition(yaml_file.stem, comp_type)
-                
-                # Check filters
-                if tags:
-                    comp_tags = comp.metadata.get('tags', [])
-                    if not any(tag in comp_tags for tag in tags):
-                        continue
-                
-                if capabilities:
-                    comp_caps = comp.metadata.get('capabilities_required', [])
-                    if not all(cap in capabilities for cap in comp_caps):
-                        continue
-                
-                discovered.append({
-                    'name': comp.name,
-                    'type': comp.type,
-                    'description': comp.description,
-                    'version': comp.version,
-                    'metadata': comp.metadata
-                })
-                
-            except Exception as e:
-                logger.warning(f"Failed to load {yaml_file}: {e}")
+    # Use index for fast discovery
+    discovered = state_manager.discover_compositions(data)
     
     return {
         'status': 'success',
@@ -616,24 +545,140 @@ async def handle_get(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def handle_reload(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Reload compositions from disk."""
-    # Clear caches
-    composition_cache.clear()
-    fragment_cache.clear()
+    """Reload compositions by rebuilding index."""
+    if not state_manager:
+        return {'error': 'Composition index not available'}
     
-    logger.info("Cleared composition and fragment caches")
+    # Rebuild index from filesystem
+    indexed_count = state_manager.rebuild_composition_index()
+    
+    logger.info(f"Rebuilt composition index - {indexed_count} compositions")
     
     return {
         'status': 'success',
-        'message': 'Caches cleared, compositions will be reloaded on next access'
+        'indexed_count': indexed_count,
+        'message': f'Reindexed {indexed_count} compositions'
     }
+
+
+async def handle_load_tree(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Universal tree loading based on composition's declared strategy."""
+    if not state_manager:
+        return {'error': 'Composition index not available'}
+    
+    name = data.get('name')
+    max_depth = data.get('max_depth', 5)
+    
+    if not name:
+        return {'error': 'Composition name required'}
+    
+    try:
+        # Get composition metadata to check loading strategy
+        metadata = state_manager.get_composition_metadata(f"local:{name}")
+        if not metadata:
+            return {'error': f'Composition not found: {name}'}
+        
+        loading_strategy = metadata.get('loading_strategy', 'single')
+        
+        if loading_strategy == 'single':
+            # Just load the one composition
+            composition = await load_composition(name)
+            return {
+                'status': 'success',
+                'strategy': 'single',
+                'compositions': {name: composition}
+            }
+        
+        elif loading_strategy == 'tree':
+            # Load composition + dependencies recursively
+            tree = {}
+            to_load = [(name, 0)]
+            
+            while to_load:
+                comp_name, depth = to_load.pop(0)
+                if depth > max_depth or comp_name in tree:
+                    continue
+                
+                comp = await load_composition(comp_name)
+                tree[comp_name] = comp
+                
+                # Add dependencies to load queue
+                for dep in comp.dependencies or []:
+                    to_load.append((dep, depth + 1))
+                    
+                # Add extends parent
+                if comp.extends:
+                    to_load.append((comp.extends, depth + 1))
+            
+            return {
+                'status': 'success', 
+                'strategy': 'tree',
+                'compositions': tree,
+                'loaded_count': len(tree)
+            }
+        
+        else:
+            return {'error': f'Unknown loading strategy: {loading_strategy}'}
+            
+    except Exception as e:
+        return {'error': str(e)}
+
+
+async def handle_load_bulk(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Universal bulk loading for agent efficiency."""
+    if not state_manager:
+        return {'error': 'Composition index not available'}
+    
+    names = data.get('names', [])
+    if not names:
+        return {'error': 'Composition names list required'}
+    
+    try:
+        # Load all compositions in parallel
+        compositions = {}
+        failed = {}
+        
+        for name in names:
+            try:
+                comp = await load_composition(name)
+                compositions[name] = comp
+            except Exception as e:
+                failed[name] = str(e)
+        
+        return {
+            'status': 'success',
+            'compositions': compositions,
+            'failed': failed,
+            'loaded_count': len(compositions),
+            'failed_count': len(failed)
+        }
+        
+    except Exception as e:
+        return {'error': str(e)}
 
 
 # Plugin lifecycle
 @hookimpl
 def ksi_startup(config):
     """Initialize composition service on startup."""
-    logger.info("Composition service started")
+    global state_manager
+    
+    # Get state manager reference from state service
+    try:
+        # Import the state service to get its manager instance
+        from ksi_daemon.plugins.state import state_service
+        state_manager = state_service.state_manager
+        
+        if state_manager:
+            # Rebuild composition index on startup
+            indexed_count = state_manager.rebuild_composition_index()
+            logger.info(f"Composition service started - indexed {indexed_count} compositions")
+        else:
+            logger.error("State manager not available from state service")
+        
+    except Exception as e:
+        logger.error(f"Failed to initialize composition index: {e}")
+        state_manager = None
     
     # Ensure directories exist
     COMPOSITIONS_BASE.mkdir(parents=True, exist_ok=True)
