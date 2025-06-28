@@ -46,6 +46,23 @@ Essential development practices for Claude Code when working with KSI.
 - **Complete transitions** - when moving files/features, verify functionality then remove old locations
 - **System integrity** - ensure system functions as designed after cleanup
 
+## Project Organization
+
+### Directory Structure
+- **`var/`** - All runtime data (logs, state, experiments, exports)
+  - `var/experiments/` - Experimental data (cognitive observations, results)
+  - `var/lib/` - Compositions, profiles, fragments, schemas
+  - `var/logs/` - All system logs
+  - `var/state/` - Runtime state (including last_session_id)
+- **`experiments/`** - Experimental code and modules
+- **`memory/`** - Project knowledge and session compacts
+- **NO legacy directories** - All migrated to proper locations
+
+### Key File Locations
+- `daemon_control.py` - Primary daemon control (not .sh)
+- `interfaces/chat.py` - Basic chat interface
+- `ksi_daemon/plugins/completion/claude_cli_litellm_provider.py` - Provider
+
 ## Critical Warnings
 ⚠️ **NEVER run TUI scripts** without `--test-connection` flag:
 - `interfaces/chat_textual.py`
@@ -55,9 +72,10 @@ Essential development practices for Claude Code when working with KSI.
 ## Quick Reference
 ```bash
 source .venv/bin/activate          # Always first
-./daemon_control.sh start          # Start daemon
-./daemon_control.sh status         # Check status
-./daemon_control.sh stop           # Stop daemon
+./daemon_control.py start          # Start daemon
+./daemon_control.py status         # Check status
+./daemon_control.py stop           # Stop daemon
+./daemon_control.py restart        # Restart daemon
 
 # Common operations
 echo '{"event": "system:health", "data": {}}' | nc -U var/run/daemon.sock
