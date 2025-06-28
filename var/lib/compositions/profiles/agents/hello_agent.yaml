@@ -1,0 +1,19 @@
+name: hello_agent
+type: profile
+version: 1.0.0
+description: Migrated responder profile
+author: migration-script
+extends: base_agent
+components:
+- name: agent_config
+  inline:
+    role: responder
+    model: sonnet
+- name: prompt
+  composition: simple_hello_goodbye
+  vars:
+    enable_tools: false
+metadata:
+  tags:
+  - migrated
+  original_format: json

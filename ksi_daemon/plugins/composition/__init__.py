@@ -1,0 +1,1 @@
+"""Composition plugin package."""

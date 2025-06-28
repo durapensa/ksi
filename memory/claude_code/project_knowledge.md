@@ -244,5 +244,11 @@ Verifies: sync/async completion, queue status, conversation locks, priorities
 - Circuit breakers prevent runaway chains
 - Full backward compatibility maintained
 
+### Unified Composition Architecture (2025-06-28)
+- Design document: `/Users/dp/projects/ksi/docs/UNIFIED_COMPOSITION_ARCHITECTURE.md`
+- Everything as declarative YAML compositions (profiles, prompts, system configs)
+- Moving to var/lib/ structure for all compositions
+- No legacy backward compatibility - clean implementation
+
 ---
 *For development practices, see `/Users/dp/projects/ksi/CLAUDE.md`*

@@ -26,6 +26,13 @@ Essential development practices for Claude Code when working with KSI.
 - **Fail fast** - don't mask problems with fallbacks
 - **Trust upstream** - e.g., claude-cli owns session_id
 
+### Code Hygiene
+- **Clean as you go** - remove dead code immediately when found
+- **No legacy handlers** - don't keep backward compatibility cruft
+- **Trace execution paths** - ensure all code is reachable and used
+- **Refactor boldly** - improve structure without preserving old patterns
+- **Delete confidently** - if it's not used, remove it
+
 ## Critical Warnings
 ⚠️ **NEVER run TUI scripts** without `--test-connection` flag:
 - `interfaces/chat_textual.py`

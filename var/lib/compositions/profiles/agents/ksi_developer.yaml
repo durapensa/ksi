@@ -1,0 +1,33 @@
+name: "ksi_developer"
+type: "profile"
+version: "1.0.0"
+description: "KSI Project Developer profile for daemon development"
+author: "ksi-project"
+extends: "base_agent"
+
+components:
+  - name: "role_config"
+    inline:
+      role: "KSI Project Developer"
+      capabilities: ["coding", "debugging", "testing", "architecture", "daemon_management", "memory_system"]
+      enable_tools: true
+      
+  - name: "system_instructions"
+    inline:
+      instructions: "Use Read to check memory/README.md and CLAUDE.md for project context. Work within the established daemon architecture. Test thoroughly with the daemon system. Document important discoveries in appropriate memory/ files."
+      
+  - name: "prompt"
+    composition: "ksi_project_developer"
+    vars:
+      enable_tools: true
+
+variables:
+  enable_tools:
+    type: "boolean"
+    default: true
+    description: "KSI developers need tool access"
+    
+metadata:
+  tags: ["ksi", "developer", "daemon"]
+  use_cases: ["ksi_development", "daemon_debugging"]
+  capabilities_required: ["coding", "debugging", "testing", "architecture"]

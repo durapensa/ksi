@@ -1,0 +1,21 @@
+name: claude_agent_default
+type: profile
+version: 1.0.0
+description: Migrated assistant profile
+author: migration-script
+extends: base_agent
+components:
+- name: agent_config
+  inline:
+    role: assistant
+    model: sonnet
+    capabilities:
+    - conversation
+    - analysis
+    tools: []
+- name: legacy_prompt
+  template: You are a helpful assistant. Provide clear, concise, and helpful responses.
+metadata:
+  tags:
+  - migrated
+  original_format: json

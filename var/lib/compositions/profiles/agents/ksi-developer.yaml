@@ -1,0 +1,32 @@
+name: ksi-developer
+type: profile
+version: 1.0.0
+description: Migrated KSI Project Developer profile
+author: migration-script
+extends: base_agent
+components:
+- name: agent_config
+  inline:
+    role: KSI Project Developer
+    model: sonnet
+    capabilities:
+    - coding
+    - debugging
+    - testing
+    - architecture
+    - daemon_management
+    - memory_system
+    enable_tools: true
+- name: system_instructions
+  inline:
+    instructions: Use Read to check memory/README.md and CLAUDE.md for project context.
+      Work within the established daemon architecture. Test thoroughly with the daemon
+      system. Document important discoveries in appropriate memory/ files.
+- name: prompt
+  composition: ksi_project_developer
+  vars:
+    enable_tools: true
+metadata:
+  tags:
+  - migrated
+  original_format: json

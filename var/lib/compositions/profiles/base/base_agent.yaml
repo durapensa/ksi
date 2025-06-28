@@ -1,0 +1,23 @@
+name: "base_agent"
+type: "profile"
+version: "1.0.0"
+description: "Base agent profile with common settings"
+author: "ksi-system"
+
+components:
+  - name: "agent_config"
+    inline:
+      model: "sonnet"
+      capabilities: ["conversation", "analysis"]
+      message_queue_size: 100
+      priority: "normal"
+      
+variables:
+  enable_tools:
+    type: "boolean"
+    default: false
+    description: "Whether the agent has access to tools"
+    
+metadata:
+  tags: ["base", "foundation"]
+  use_cases: ["all"]

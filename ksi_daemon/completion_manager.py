@@ -179,9 +179,6 @@ class CompletionManager:
                 with open(session_file, 'w') as f:
                     f.write(new_session_id)
             
-            # TODO: Call cognitive observer if loaded
-            # This functionality was in utils_manager which has been removed
-            # Consider implementing through extension module system
             
             # Log successful completion
             log_event(logger, "claude.completion_completed",

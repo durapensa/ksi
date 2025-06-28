@@ -1,0 +1,19 @@
+name: goodbye_agent
+type: profile
+version: 1.0.0
+description: Migrated initiator profile
+author: migration-script
+extends: base_agent
+components:
+- name: agent_config
+  inline:
+    role: initiator
+    model: sonnet
+- name: prompt
+  composition: simple_hello_goodbye
+  vars:
+    enable_tools: false
+metadata:
+  tags:
+  - migrated
+  original_format: json
