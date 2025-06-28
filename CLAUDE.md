@@ -7,6 +7,12 @@ Essential development practices for Claude Code when working with KSI.
 
 ## Core Principles
 
+### Configuration Management
+- **Use ksi_common/config.py** - Always import config from `ksi_common.config`
+- **Import pattern**: `from ksi_common.config import config` or for daemon plugins: `from ...config import config`
+- **Path handling**: Use relative paths like `Path("var") / "lib"` for project directories
+- **Never use get_config()** - The config is a global instance, just use `config` directly
+
 ### Task Management
 - **Completion = Code + Test + Deploy + Verify** (not just code creation)
 - **Always update TodoWrite** when receiving new instructions
