@@ -39,7 +39,7 @@ except ImportError:
     client_available = False
 
 try:
-    import claude_cli_litellm_provider
+    from ksi_daemon.plugins.completion import claude_cli_litellm_provider
     provider_available = True
 except ImportError:
     provider_available = False

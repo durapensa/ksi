@@ -18,7 +18,7 @@ import os
 # Add path for ksi_client
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ksi_client import AsyncClient, EventBuilder, ResponseHandler
-from ksi_common import config
+from ksi_common.config import config
 from prompts.discovery import CompositionDiscovery
 from prompts.composition_selector import CompositionSelector, SelectionContext
 
@@ -216,8 +216,9 @@ class MultiClaudeOrchestratorV3:
         
         # Save temporary profile
         profile_name = f'temp_{mode}_{agent_index}'
-        profile_path = config.agent_profiles_dir / f'{profile_name}.json'
-        profile_path.parent.mkdir(parents=True, exist_ok=True)
+        temp_profiles_dir = Path("var/tmp/agent_profiles")
+        temp_profiles_dir.mkdir(parents=True, exist_ok=True)
+        profile_path = temp_profiles_dir / f'{profile_name}.json'
         
         with open(profile_path, 'w') as f:
             json.dump(profile, f, indent=2)
@@ -335,11 +336,13 @@ class MultiClaudeOrchestratorV3:
         await asyncio.sleep(2)
         
         # Clean up temporary profiles
-        for profile_path in config.agent_profiles_dir.glob('temp_*'):
-            try:
-                profile_path.unlink()
-            except:
-                pass
+        temp_profiles_dir = Path("var/tmp/agent_profiles")
+        if temp_profiles_dir.exists():
+            for profile_path in temp_profiles_dir.glob('temp_*'):
+                try:
+                    profile_path.unlink()
+                except:
+                    pass
 
 
 async def main():

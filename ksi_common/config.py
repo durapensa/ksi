@@ -73,6 +73,9 @@ class KSIBaseConfig(BaseSettings):
             self.session_log_dir,    # var/logs/responses
             self.response_log_dir,   # var/logs/responses
             self.state_dir,          # var/state
+            self.experiments_cognitive_dir,  # var/experiments/cognitive
+            self.experiments_results_dir,    # var/experiments/results
+            self.experiments_workspaces_dir, # var/experiments/workspaces
         ]
         
         for directory in directories:
@@ -105,6 +108,31 @@ class KSIBaseConfig(BaseSettings):
     def responses_dir(self) -> Path:
         """Get provider-agnostic response logs directory."""
         return self.response_log_dir
+    
+    @property
+    def last_session_id_file(self) -> Path:
+        """Get path to last session ID file."""
+        return self.state_dir / "last_session_id"
+    
+    @property
+    def experiments_dir(self) -> Path:
+        """Get experiments data directory."""
+        return Path("var/experiments")
+    
+    @property
+    def experiments_cognitive_dir(self) -> Path:
+        """Get cognitive experiments data directory."""
+        return self.experiments_dir / "cognitive"
+    
+    @property
+    def experiments_results_dir(self) -> Path:
+        """Get experiments results directory."""
+        return self.experiments_dir / "results"
+    
+    @property
+    def experiments_workspaces_dir(self) -> Path:
+        """Get experiments workspaces directory."""
+        return self.experiments_dir / "workspaces"
     
     def __str__(self) -> str:
         """String representation for debugging."""

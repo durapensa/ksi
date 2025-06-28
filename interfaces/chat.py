@@ -11,9 +11,12 @@ import os
 import argparse
 from pathlib import Path
 
+# Add parent directory to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 # Import the new event-based client
 from ksi_client import EventChatClient
-from ksi_daemon.config import config
+from ksi_common.config import config
 
 SOCKET_PATH = os.environ.get('KSI_DAEMON_SOCKET', str(config.socket_path))
 
@@ -68,7 +71,7 @@ async def send_prompt(prompt: str, session_id: str = None) -> tuple:
 def get_last_session_id() -> str:
     """Try multiple methods to find last session ID"""
     # Method 1: Check persistent file
-    session_file = Path('sockets/last_session_id')
+    session_file = config.last_session_id_file
     if session_file.exists():
         try:
             session_id = session_file.read_text().strip()
@@ -97,7 +100,7 @@ def save_session_id(session_id: str):
     """Save session ID for next time"""
     if session_id:
         try:
-            session_file = Path('sockets/last_session_id')
+            session_file = config.last_session_id_file
             session_file.parent.mkdir(exist_ok=True)
             session_file.write_text(session_id)
         except:

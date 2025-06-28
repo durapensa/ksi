@@ -87,10 +87,7 @@ class Composition:
 
 
 def load_fragment(path: str) -> str:
-    """Load a text fragment from disk with caching."""
-    if path in fragment_cache:
-        return fragment_cache[path]
-    
+    """Load a text fragment from disk (no caching)."""
     fragment_path = FRAGMENTS_BASE / path
     if not fragment_path.exists():
         # Try legacy location
@@ -100,9 +97,7 @@ def load_fragment(path: str) -> str:
         else:
             raise FileNotFoundError(f"Fragment not found: {path}")
     
-    content = fragment_path.read_text()
-    fragment_cache[path] = content
-    return content
+    return fragment_path.read_text()
 
 
 def substitute_variables(text: str, variables: Dict[str, Any]) -> str:

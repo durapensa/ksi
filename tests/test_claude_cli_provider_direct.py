@@ -31,7 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from test_result_logger import TestStatus, start_test, finish_test, skip_test
 
 # Import the provider (this registers it with LiteLLM)
-import claude_cli_litellm_provider
+from ksi_daemon.plugins.completion import claude_cli_litellm_provider
 import litellm
 
 

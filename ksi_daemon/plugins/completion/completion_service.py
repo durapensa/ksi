@@ -38,7 +38,7 @@ from ..injection.injection_router import queue_completion_with_injection
 from ..injection.circuit_breakers import check_completion_allowed
 
 # Import claude_cli_litellm_provider to ensure provider registration
-import claude_cli_litellm_provider
+from . import claude_cli_litellm_provider
 
 # Plugin metadata
 plugin_metadata("completion_service", version="3.0.0",

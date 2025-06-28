@@ -41,7 +41,7 @@ source .venv/bin/activate
 ./daemon_control.sh start
 
 # Chat with Claude
-python3 chat.py
+python3 interfaces/chat.py
 
 # Check daemon health
 ./daemon_control.sh health
@@ -137,7 +137,7 @@ See [ksi_daemon/PLUGIN_DEVELOPMENT_GUIDE.md](ksi_daemon/PLUGIN_DEVELOPMENT_GUIDE
 
 ## Available Interfaces
 
-- `chat.py` - Simple CLI chat
+- `interfaces/chat.py` - Simple CLI chat
 - `interfaces/orchestrate.py` - Multi-Claude orchestration
 - `interfaces/monitor_tui.py` - Real-time monitoring
 - ~~`interfaces/chat_textual.py`~~ - (Avoid - corrupts Claude Code TUI)

@@ -45,8 +45,8 @@ class SelectionResult:
 class CompositionSelector:
     """Intelligent selector for prompt compositions"""
     
-    def __init__(self, socket_path: str = 'sockets/claude_daemon.sock'):
-        self.discovery = CompositionDiscovery(socket_path)
+    def __init__(self):
+        self.discovery = CompositionDiscovery()
         self._cache = {}
         self._cache_ttl = 300  # 5 minutes
         

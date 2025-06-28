@@ -14,7 +14,7 @@ from typing import Dict, Any, Optional
 import pluggy
 
 # Import claude_cli_litellm_provider to ensure provider registration
-import claude_cli_litellm_provider
+from . import claude_cli_litellm_provider
 import litellm
 
 # Hook implementation marker

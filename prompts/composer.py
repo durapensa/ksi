@@ -56,18 +56,15 @@ class PromptComposer:
     """Compose prompts from YAML compositions and Markdown components"""
     
     def __init__(self, base_path: str = None):
-        # Use config.prompts_dir as default, fallback to "prompts" for backward compatibility
+        # Use new composition path structure
         if base_path is None:
-            try:
-                self.base_path = config.prompts_dir
-            except:
-                # Fallback if config is not available
-                self.base_path = Path("prompts")
+            # Use the new unified composition location
+            self.base_path = Path("var/lib/compositions/prompts")
         else:
             self.base_path = Path(base_path)
         
         self.components_path = self.base_path / "components"
-        self.compositions_path = self.base_path / "compositions"
+        self.compositions_path = self.base_path / "templates"
         
         # Ensure directories exist
         self.components_path.mkdir(parents=True, exist_ok=True)

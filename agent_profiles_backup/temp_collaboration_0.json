@@ -1,6 +1,0 @@
-{
-  "model": "sonnet",
-  "role": "collaborator",
-  "composition": "conversation_collaboration",
-  "enable_tools": false
-}
