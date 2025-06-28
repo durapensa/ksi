@@ -951,6 +951,10 @@ experimental_design:
 
 ## Incremental Development Path
 
+## Update: Declarative Orchestration Implementation
+
+As of 2025-06-28, KSI is implementing these concepts through a Declarative Orchestration Architecture. See [DECLARATIVE_ORCHESTRATION_ARCHITECTURE.md](./DECLARATIVE_ORCHESTRATION_ARCHITECTURE.md) for the technical implementation that enables these AI-native organizational patterns through YAML-based compositions.
+
 ### Implementation Roadmap
 
 **Phase 1 Foundation (Weeks 1-4): Memory Systems**
