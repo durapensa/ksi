@@ -167,44 +167,113 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
 def handle_spawn_agent(data: Dict[str, Any]) -> Dict[str, Any]:
     """Spawn a new agent thread with optional profile."""
     agent_id = data.get("agent_id") or f"agent_{uuid.uuid4().hex[:8]}"
-    profile_name = data.get("profile")
+    profile_name = data.get("profile") or data.get("profile_name")
+    composition_name = data.get("composition")  # Direct composition reference
     session_id = data.get("session_id")
     
-    # Load profile if specified
-    agent_config = {}
-    if profile_name and profile_name in profiles:
-        agent_config = profiles[profile_name].copy()
+    # Create coroutine to handle async composition
+    async def _spawn_with_composition():
+        # Determine what to compose
+        if composition_name:
+            # Direct composition reference
+            compose_name = composition_name
+        elif profile_name:
+            # Use specified profile
+            compose_name = profile_name
+        else:
+            # No profile specified - fail fast
+            return {
+                "error": "No profile or composition specified",
+                "status": "failed"
+            }
+        
+        # Compose profile using composition service
+        agent_config = {}
+        composed_prompt = None
+        
+        if event_emitter:
+            logger.debug(f"Using composition service to compose profile: {compose_name}")
+            # Prepare variables for composition
+            comp_vars = {
+                "agent_id": agent_id,
+                "enable_tools": data.get("enable_tools", False)
+            }
+            
+            # Add any additional context from data
+            if "context" in data:
+                comp_vars.update(data["context"])
+            
+            # Try to compose profile
+            compose_result = await event_emitter("composition:profile", {
+                "name": compose_name,
+                "variables": comp_vars
+            }, {})
+            
+            if compose_result and compose_result.get("status") == "success":
+                profile = compose_result["profile"]
+                # Extract config from composed profile
+                agent_config = {
+                    "model": profile.get("model", "sonnet"),
+                    "capabilities": profile.get("capabilities", []),
+                    "role": profile.get("role", "assistant"),
+                    "enable_tools": profile.get("enable_tools", False),
+                    "tools": profile.get("tools", [])
+                }
+                composed_prompt = profile.get("composed_prompt")
+            else:
+                # Fail fast - no fallbacks
+                error_msg = compose_result.get("error", f"Failed to compose profile: {compose_name}")
+                logger.error(error_msg)
+                return {
+                    "error": error_msg,
+                    "status": "failed",
+                    "requested_profile": compose_name
+                }
+        else:
+            # No composition service available
+            logger.error(f"Composition service not available - event_emitter is None")
+            return {
+                "error": "Composition service not available - event system not initialized",
+                "status": "failed"
+            }
+        
+        # Override with provided config
+        if "config" in data:
+            agent_config.update(data["config"])
+        
+        # Create agent info
+        agent_info = {
+            "agent_id": agent_id,
+            "profile": profile_name or compose_name,
+            "composition": composition_name or compose_name,
+            "config": agent_config,
+            "composed_prompt": composed_prompt,
+            "status": "initializing",
+            "created_at": TimestampManager.format_for_logging(),
+            "session_id": session_id,
+            "message_queue": asyncio.Queue()
+        }
+        
+        # Register agent
+        agents[agent_id] = agent_info
+        
+        # Start agent thread
+        agent_task = asyncio.create_task(run_agent_thread(agent_id))
+        agent_threads[agent_id] = agent_task
+        
+        logger.info(f"Created agent thread {agent_id} with composition {compose_name}")
+        
+        return {
+            "agent_id": agent_id,
+            "status": "created",
+            "profile": profile_name,
+            "composition": compose_name,
+            "session_id": session_id,
+            "config": agent_config
+        }
     
-    # Override with provided config
-    if "config" in data:
-        agent_config.update(data["config"])
-    
-    # Create agent info
-    agent_info = {
-        "agent_id": agent_id,
-        "profile": profile_name,
-        "config": agent_config,
-        "status": "initializing",
-        "created_at": TimestampManager.format_for_logging(),
-        "session_id": session_id,
-        "message_queue": asyncio.Queue()
-    }
-    
-    # Register agent
-    agents[agent_id] = agent_info
-    
-    # Start agent thread
-    agent_task = asyncio.create_task(run_agent_thread(agent_id))
-    agent_threads[agent_id] = agent_task
-    
-    logger.info(f"Created agent thread {agent_id} with profile {profile_name}")
-    
-    return {
-        "agent_id": agent_id,
-        "status": "created",
-        "profile": profile_name,
-        "session_id": session_id
-    }
+    # Return the coroutine for the daemon to await
+    return _spawn_with_composition()
 
 
 def handle_terminate_agent(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -640,6 +709,7 @@ def ksi_plugin_context(context):
     """Receive plugin context with event emitter."""
     global event_emitter
     event_emitter = context.get("emit_event")
+    logger.info(f"Agent service received plugin context, event_emitter: {event_emitter is not None}")
 
 
 @hookimpl

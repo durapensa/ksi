@@ -68,7 +68,7 @@ class SimpleDaemonCore:
         # Pass context to plugins (including event_router for monitoring)
         plugin_context = {
             "event_router": self.event_router,
-            "emit_event": None  # Could be added later for real-time events
+            "emit_event": self.event_router.route_event  # Allow plugins to emit events
         }
         
         try:

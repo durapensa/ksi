@@ -197,6 +197,10 @@ cython_debug/
 sockets/
 !sockets/.gitkeep
 
+# Track composition library
+!var/lib/
+!var/lib/**
+
 # Claude session logs (comment out to track some logs)
 claude_logs/
 !claude_logs/.gitkeep
