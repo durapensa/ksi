@@ -1,6 +1,6 @@
 # KSI Technical Knowledge
 
-Comprehensive technical reference for KSI (Knowledge System Interface) - a minimal daemon system for managing Claude AI processes with conversation continuity and multi-agent orchestration.
+Core technical reference for KSI (Knowledge System Interface) - a minimal daemon system for managing Claude AI processes with conversation continuity and multi-agent orchestration.
 
 ## System Architecture
 
@@ -9,6 +9,7 @@ Comprehensive technical reference for KSI (Knowledge System Interface) - a minim
 - **Single Socket**: Unix socket at `var/run/daemon.sock` 
 - **Protocol**: Newline-delimited JSON (NDJSON)
 - **Process Management**: `ksi-daemon.py` wrapper using python-daemon
+- **Cross-Plugin Communication**: Plugins emit events via shared event router
 
 ### Directory Structure
 ```
@@ -24,7 +25,11 @@ ksi/
 │   ├── run/           # PID file and daemon socket
 │   ├── logs/          # Daemon and session logs
 │   ├── db/            # SQLite database
-│   └── prompts/       # Prompt templates
+│   ├── prompts/       # Legacy prompt templates
+│   └── lib/           # Unified compositions
+│       ├── compositions/   # All declarative configs
+│       ├── fragments/      # Reusable text fragments
+│       └── schemas/        # YAML validation schemas
 └── memory/             # Knowledge management
 ```
 
@@ -42,9 +47,10 @@ ksi/
 - **completion/litellm.py** - LiteLLM provider
 
 ### Agent & State Management
-- **agent/agent_service.py** - Agent lifecycle and profiles
+- **agent/agent_service.py** - Agent lifecycle with composition integration
 - **state/state_service.py** - SQLite-backed persistence
 - **messaging/message_bus.py** - Inter-agent pub/sub
+- **composition/composition_service.py** - Unified YAML composition system
 
 ### Async Queue Infrastructure
 - **injection/injection_router.py** - Routes completion results via injection
@@ -75,6 +81,7 @@ ksi/
 - **message**: subscribe, publish, unsubscribe
 - **conversation**: list, search, active, acquire_lock, release_lock
 - **monitor**: get_events, get_stats, clear_log
+- **composition**: compose, profile, prompt, validate, discover, list, reload
 
 ### Event Discovery
 ```bash
@@ -150,6 +157,12 @@ def ksi_handle_event(event_name, data, context):
         return handle_my_event(data)
     return None
 
+@hookimpl
+def ksi_plugin_context(context):
+    """Receive plugin context with event emitter."""
+    global event_emitter
+    event_emitter = context.get("emit_event")
+
 # Module marker
 ksi_plugin = True
 ```
@@ -159,6 +172,7 @@ ksi_plugin = True
 - First non-None response wins
 - Use absolute imports
 - Add module marker
+- Access `emit_event` for cross-plugin communication
 
 ## Testing
 
@@ -236,19 +250,35 @@ Verifies: sync/async completion, queue status, conversation locks, priorities
 - Kubernetes-like agent deployment
 - Cross-cluster federation
 
-## Recent Updates
+## Recent Architecture Enhancements
 
-### Completion Service v2 (2025-06-27)
-- Integrated async queue with conversation locks
-- Added injection router for autonomous coordination
-- Circuit breakers prevent runaway chains
-- Full backward compatibility maintained
+### Unified Composition System
+- **Architecture**: All configurations (profiles, prompts) use YAML compositions
+- **Location**: `var/lib/compositions/` with organized subdirectories
+- **Features**: Inheritance, mixins, variable substitution, conditional assembly
+- **Integration**: Agent spawning uses composition service for profile resolution
+- **Documentation**: `/Users/dp/projects/ksi/docs/UNIFIED_COMPOSITION_ARCHITECTURE.md`
 
-### Unified Composition Architecture (2025-06-28)
-- Design document: `/Users/dp/projects/ksi/docs/UNIFIED_COMPOSITION_ARCHITECTURE.md`
-- Everything as declarative YAML compositions (profiles, prompts, system configs)
-- Moving to var/lib/ structure for all compositions
-- No legacy backward compatibility - clean implementation
+### Agent Spawning Enhancement
+- **Fail-Fast**: No fallbacks - explicit profile/composition required
+- **Composition Integration**: `agent:spawn` resolves profiles via composition service
+- **Cross-Plugin Events**: Plugins communicate via shared `emit_event` function
+
+### Event System Enhancement
+- **Plugin Context**: All plugins receive `emit_event` for cross-plugin communication
+- **Event Routing**: Central event router handles all plugin interactions
+- **Async Support**: Coroutine results properly awaited by daemon
+
+## Pending Work
+
+### Cleanup Tasks
+- Remove empty `ksi_daemon/plugins/completion/backups/` directory
+- Remove async completion methods from `completion_manager.py`
+
+### Next Features
+- **Correlation ID**: Design event tracing across async operations
+- **Metrics Collection**: Implement MetricsClient in ksi_admin
+- **Control Operations**: Implement ControlClient for lifecycle management
 
 ---
 *For development practices, see `/Users/dp/projects/ksi/CLAUDE.md`*
