@@ -196,8 +196,8 @@ async def test_targeted_delivery():
         
         # Send concurrently
         response_a, response_b = await asyncio.gather(
-            client_a.create_completion(prompt_a),
-            client_b.create_completion(prompt_b)
+            client_a.create_completion_sync(prompt_a),
+            client_b.create_completion_sync(prompt_b)
         )
         
         # Give a moment for any stray events

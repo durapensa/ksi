@@ -181,7 +181,7 @@ async def test_completion_flow():
         
         try:
             print("Creating completion...")
-            result = await client.create_completion(
+            result = await client.create_completion_sync(
                 prompt="Say 'Hello from the event-based client!'",
                 timeout=30.0
             )

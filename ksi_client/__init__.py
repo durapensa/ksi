@@ -24,8 +24,8 @@ Usage:
         # Health check via event
         health = await client.emit_event("system:health")
         
-        # Create completion via event
-        response = await client.create_completion("Explain quantum computing")
+        # Create completion via event (sync interface)
+        response = await client.create_completion_sync("Explain quantum computing")
         
         await client.disconnect()
 """

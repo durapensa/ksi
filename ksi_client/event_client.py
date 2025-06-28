@@ -247,6 +247,60 @@ class EventBasedClient:
                     TimeoutError(f"Request {correlation_id} timed out after {timeout}s")
                 )
     
+    async def send_async_wait_result(self, request_event: str, request_data: Dict[str, Any],
+                                    result_event: str, timeout: float = 30.0,
+                                    result_id_field: str = "request_id") -> Dict[str, Any]:
+        """
+        Send an async event and wait synchronously for matching result.
+        
+        This is a generic pattern for async operations that need a sync interface.
+        It handles request ID generation, event subscription, timeout, and cleanup.
+        
+        Args:
+            request_event: Event to send (e.g., "completion:async")
+            request_data: Data for request (request_id will be added if not present)
+            result_event: Event to wait for (e.g., "completion:result")
+            timeout: How long to wait for result
+            result_id_field: Field name to match results (default: "request_id")
+            
+        Returns:
+            Result data from the matching result event
+            
+        Raises:
+            TimeoutError: If no matching result within timeout
+        """
+        # Generate request ID if not provided
+        request_id = request_data.get(result_id_field)
+        if not request_id:
+            request_id = f"{self.client_id}_{uuid.uuid4().hex[:8]}"
+            request_data[result_id_field] = request_id
+        
+        # Create future for result
+        result_future = asyncio.Future()
+        
+        # Handler for results
+        async def handle_result(event_name: str, event_data: Dict[str, Any]):
+            if event_data.get(result_id_field) == request_id:
+                if not result_future.done():
+                    result_future.set_result(event_data)
+        
+        # Subscribe to result events
+        self.subscribe(result_event, handle_result)
+        
+        try:
+            # Send async request
+            await self.emit_event(request_event, request_data)
+            
+            # Wait for result with timeout
+            return await asyncio.wait_for(result_future, timeout=timeout)
+            
+        except asyncio.TimeoutError:
+            raise TimeoutError(f"Request {request_id} timed out after {timeout}s waiting for {result_event}")
+            
+        finally:
+            # Always unsubscribe handler
+            self.unsubscribe(result_event, handle_result)
+    
     def subscribe(self, event_pattern: str, handler: Callable,
                   filter_fn: Optional[Callable] = None):
         """
@@ -405,11 +459,52 @@ class EventBasedClient:
         
         return dict(capabilities)
     
-    async def create_completion(self, prompt: str, model: str = "sonnet",
-                               session_id: Optional[str] = None,
-                               timeout: float = 900.0) -> Dict[str, Any]:
+    async def create_completion_async(self, prompt: str, model: str = "sonnet",
+                                     session_id: Optional[str] = None,
+                                     priority: str = "normal",
+                                     injection_config: Optional[Dict[str, Any]] = None) -> str:
         """
-        Create a completion using event API.
+        Create an async completion request and return immediately.
+        
+        Args:
+            prompt: The prompt text
+            model: Model to use
+            session_id: Optional session ID for continuity
+            priority: Request priority (critical, high, normal, low, background)
+            injection_config: Optional injection configuration
+            
+        Returns:
+            Request ID for tracking the completion
+        """
+        request_id = f"{self.client_id}_{uuid.uuid4().hex[:8]}"
+        
+        data = {
+            "request_id": request_id,
+            "prompt": prompt,
+            "model": model,
+            "client_id": self.client_id,
+            "priority": priority
+        }
+        
+        if session_id:
+            data["session_id"] = session_id
+            
+        if injection_config:
+            data["injection_config"] = injection_config
+        
+        # Send async completion event
+        await self.emit_event("completion:async", data)
+        
+        return request_id
+    
+    async def create_completion_sync(self, prompt: str, model: str = "sonnet",
+                                    session_id: Optional[str] = None,
+                                    timeout: float = 900.0) -> Dict[str, Any]:
+        """
+        Create a completion and wait for the result (synchronous interface).
+        
+        This method provides a synchronous-looking interface while using
+        the async completion system internally.
         
         Args:
             prompt: The prompt text
@@ -419,33 +514,35 @@ class EventBasedClient:
             
         Returns:
             Completion result with response text and metadata
+            
+        Raises:
+            ValueError: If completion returns an error
+            TimeoutError: If completion times out
         """
-        data = {
+        # Prepare request data
+        request_data = {
             "prompt": prompt,
             "model": model,
-            "client_id": self.client_id
+            "client_id": self.client_id,
+            "priority": "normal"
         }
         
         if session_id:
-            data["session_id"] = session_id
+            request_data["session_id"] = session_id
         
-        # Use request_event for simple request/response pattern
-        result = await self.request_event("completion:request", data, timeout=timeout)
+        # Use generic helper to send and wait
+        result = await self.send_async_wait_result(
+            request_event="completion:async",
+            request_data=request_data,
+            result_event="completion:result",
+            timeout=timeout
+        )
         
-        # Ensure we have the expected format
-        if isinstance(result, dict):
-            if result.get("status") == "error":
-                raise ValueError(result.get("error", "Completion failed"))
-            return result
-        else:
-            # Fallback for unexpected formats - this should not happen with standardized format
-            # but handle gracefully for debugging
-            return {
-                "response": str(result),
-                "session_id": session_id,  # May be None for new conversations
-                "model": model,
-                "error": "Unexpected completion result format"
-            }
+        # Check for errors
+        if result.get("status") == "error":
+            raise ValueError(result.get("error", "Completion failed"))
+            
+        return result
     
     async def shutdown_daemon(self) -> bool:
         """Request daemon shutdown."""
@@ -501,7 +598,7 @@ class EventChatClient(EventBasedClient):
         # Claude CLI will provide session_id in response
         
         # Get completion
-        result = await self.create_completion(
+        result = await self.create_completion_sync(
             prompt=prompt,
             model=model,
             session_id=session_id

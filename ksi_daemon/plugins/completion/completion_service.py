@@ -110,12 +110,7 @@ def ksi_startup(config):
 def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
     """Handle completion-related events."""
     
-    if event_name == "completion:request":
-        # Synchronous completion - process with locks
-        # Return the coroutine for the daemon to await
-        return handle_completion_request_with_locks(data, context)
-    
-    elif event_name == "completion:async":
+    if event_name == "completion:async":
         # Queue async completion with injection support
         # Create a coroutine wrapper for consistent async handling
         async def _handle_async():
@@ -147,53 +142,6 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
         return get_queue_status()
     
     return None
-
-
-async def handle_completion_request_with_locks(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle synchronous completion request with conversation locks."""
-    
-    request_id = data.get("request_id", str(uuid.uuid4()))
-    session_id = data.get("session_id")
-    
-    # Acquire conversation lock if needed
-    lock_acquired = True
-    if session_id and event_emitter:
-        # Emit lock acquisition event
-        lock_event_data = {
-            "request_id": request_id,
-            "conversation_id": session_id
-        }
-        
-        # The event_emitter should be a callable that returns a coroutine
-        if callable(event_emitter):
-            lock_result = await event_emitter("conversation:acquire_lock", lock_event_data, {})
-        else:
-            logger.error("event_emitter is not callable")
-            lock_result = {'acquired': True}
-        
-        if not lock_result.get('acquired'):
-            return {
-                "error": "Conversation locked",
-                "status": "queued",
-                "position": lock_result.get('position', 'unknown')
-            }
-    
-    try:
-        # Process completion
-        result = await handle_completion_request(data, context)
-        
-        # Check for conversation fork
-        if session_id and result.get('session_id') != session_id:
-            await handle_conversation_fork(request_id, session_id, result['session_id'])
-        
-        return result
-        
-    finally:
-        # Release lock
-        if session_id and lock_acquired and event_emitter and callable(event_emitter):
-            await event_emitter("conversation:release_lock", {
-                "request_id": request_id
-            }, {})
 
 
 async def handle_completion_request(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
@@ -399,18 +347,6 @@ async def process_completion_queue():
             logger.error(f"Queue processor error: {e}", exc_info=True)
             await asyncio.sleep(1)  # Back off on error
 
-
-async def handle_conversation_fork(request_id: str, expected_id: str, actual_id: str):
-    """Handle detected conversation fork."""
-    
-    if event_emitter and callable(event_emitter):
-        fork_result = await event_emitter("conversation:fork_detected", {
-            "request_id": request_id,
-            "expected_conversation_id": expected_id,
-            "actual_conversation_id": actual_id
-        }, {})
-        
-        logger.warning(f"Conversation fork handled: {fork_result}")
 
 
 @hookimpl

@@ -8,7 +8,7 @@ Tests the real CompletionHandler and CompletionParameters from ksi_daemon:
 - Background worker queue and async processing
 - CompletionAcknowledgment immediate responses
 - COMPLETION_RESULT event publication via enhanced message bus
-- Real MultiSocketAsyncClient.create_completion() flow
+- Real MultiSocketAsyncClient.create_completion_sync() flow
 """
 
 import asyncio
@@ -188,11 +188,11 @@ class TestCommandBuilderIntegration:
 
 
 class TestMultiSocketClientCompletion:
-    """Test the real MultiSocketAsyncClient.create_completion() implementation"""
+    """Test the real MultiSocketAsyncClient.create_completion_sync() implementation"""
     
     @pytest.mark.asyncio
     async def test_create_completion_integration(self):
-        """Test create_completion() method with real daemon (if running)"""
+        """Test create_completion_sync() method with real daemon (if running)"""
         
         try:
             client = AsyncClient(client_id="integration_test_client")
@@ -203,7 +203,7 @@ class TestMultiSocketClientCompletion:
             from ksi_daemon.config import config
             test_timeout = config.test_completion_timeout
             
-            response = await client.create_completion(
+            response = await client.create_completion_sync(
                 prompt="What is 1+1? Answer in one word.",
                 model="sonnet",
                 timeout=test_timeout
@@ -222,7 +222,7 @@ class TestMultiSocketClientCompletion:
     
     @pytest.mark.asyncio
     async def test_create_completion_with_session_id(self):
-        """Test create_completion() with session continuity"""
+        """Test create_completion_sync() with session continuity"""
         
         try:
             # Get test timeout from config
@@ -235,14 +235,14 @@ class TestMultiSocketClientCompletion:
             session_id = "test_session_continuity_123"
             
             # First completion
-            response1 = await client.create_completion(
+            response1 = await client.create_completion_sync(
                 prompt="Remember this number: 42",
                 session_id=session_id,
                 timeout=test_timeout
             )
             
             # Second completion with same session
-            response2 = await client.create_completion(
+            response2 = await client.create_completion_sync(
                 prompt="What number did I just tell you to remember?",
                 session_id=session_id,
                 timeout=test_timeout
@@ -273,7 +273,7 @@ class TestMultiSocketClientCompletion:
             
             # Create multiple completion tasks
             tasks = [
-                client.create_completion(f"Count to {i+1}", timeout=test_timeout)
+                client.create_completion_sync(f"Count to {i+1}", timeout=test_timeout)
                 for i in range(3)
             ]
             

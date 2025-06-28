@@ -25,6 +25,11 @@ Essential development practices for Claude Code when working with KSI.
 - **Event-driven only** - no polling or wait loops
 - **Fail fast** - don't mask problems with fallbacks
 - **Trust upstream** - e.g., claude-cli owns session_id
+- **Complete migrations** - When implementing new features:
+  - Migrate entire system to use new feature
+  - Remove ALL old code/implementations
+  - No fallbacks or backward compatibility
+  - Only declare complete after full migration
 
 ### Code Hygiene
 - **Clean as you go** - remove dead code immediately when found
