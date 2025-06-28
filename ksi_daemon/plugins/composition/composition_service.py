@@ -653,18 +653,21 @@ async def handle_load_bulk(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # Plugin lifecycle
-@hookimpl
+@hookimpl(trylast=True)  # Run after state service initializes
 def ksi_startup(config):
     """Initialize composition service on startup."""
     global state_manager
     
+    logger.info("Composition service starting up...")
+    
     # Get state manager reference from state service
     try:
         # Import the state service to get its manager instance
-        from ksi_daemon.plugins.state import state_service
+        from ..state import state_service
         state_manager = state_service.state_manager
         
         if state_manager:
+            logger.info("State manager available, rebuilding composition index...")
             # Rebuild composition index on startup
             indexed_count = state_manager.rebuild_composition_index()
             logger.info(f"Composition service started - indexed {indexed_count} compositions")
@@ -673,6 +676,8 @@ def ksi_startup(config):
         
     except Exception as e:
         logger.error(f"Failed to initialize composition index: {e}")
+        import traceback
+        traceback.print_exc()
         state_manager = None
     
     # Ensure directories exist

@@ -43,16 +43,12 @@ class SessionAndSharedStateManager(BaseManager):
         # Check if database exists and create if not
         if not Path(self.db_path).exists():
             self.logger.info(f"Creating new agent shared state database: {self.db_path}")
-            # Run schema creation
-            schema_path = Path("coordination_schema.sql")
-            if schema_path.exists():
-                import subprocess
-                subprocess.run(['sqlite3', self.db_path], stdin=open(schema_path, 'r'))
-            else:
-                # Create minimal schema inline if schema file not found
-                self._create_schema()
         else:
             self.logger.info(f"Using existing agent shared state database: {self.db_path}")
+        
+        # Always ensure schema is up to date
+        # This will create missing tables without affecting existing ones
+        self._create_schema()
     
     def _create_schema(self):
         """Create schema inline if schema file not available"""
@@ -365,8 +361,9 @@ class SessionAndSharedStateManager(BaseManager):
         # Scan composition directory
         compositions_dir = Path('var/lib/compositions')
         if not compositions_dir.exists():
+            self.logger.warning(f"Compositions directory does not exist: {compositions_dir}")
             return 0
-            
+        
         indexed_count = 0
         for yaml_file in compositions_dir.rglob('*.yaml'):
             if self.index_composition_file(yaml_file):

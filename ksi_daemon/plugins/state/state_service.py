@@ -28,7 +28,7 @@ state_manager: Optional[SessionAndSharedStateManager] = None
 
 
 # Hook implementations
-@hookimpl
+@hookimpl(tryfirst=True)  # Initialize early - other plugins depend on state service
 def ksi_startup(config):
     """Initialize state service on startup."""
     global state_manager
