@@ -15,9 +15,11 @@ Essential development practices for Claude Code when working with KSI.
 
 ### Task Management
 - **Completion = Code + Test + Deploy + Verify** (not just code creation)
+- **Never mark complete until testing demonstrates completeness** - if any related functionality fails during testing, the task remains incomplete
 - **Always update TodoWrite** when receiving new instructions
 - **Continue systematically** - don't exit early with summaries
 - **Be honest** about failures - don't claim false success
+- **Test comprehensively** - implementation without working tests is incomplete work
 
 ### Documentation
 - **Git commits** contain session work (not project docs)

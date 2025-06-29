@@ -128,14 +128,12 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
     
     elif event_name == "completion:status":
         # Get enhanced status including queue
-        async def _get_status():
-            queue_status = await get_queue_status()
-            return {
-                "active_count": len(active_completions),
-                "active_requests": list(active_completions.keys()),
-                "queue_status": queue_status
-            }
-        return _get_status()
+        queue_status = get_queue_status()  # Sync function, no await needed
+        return {
+            "active_count": len(active_completions),
+            "active_requests": list(active_completions.keys()),
+            "queue_status": queue_status
+        }
     
     elif event_name == "completion:queue_status":
         # Detailed queue status - return coroutine
