@@ -2,39 +2,49 @@
 
 These cleanup tasks have been verified as safe to perform without affecting intended functionality.
 
-## Confirmed Safe Cleanups
+## Completed Cleanups (2025-06-29)
 
-### 1. Remove Multi-Socket References
-- **Files**: README.md, tests, documentation
-- **Reason**: System fully migrated to single socket architecture
-- **Safe because**: No code depends on multi-socket patterns
+### 1. ✅ Remove Multi-Socket References
+- **Files**: README.md, tests/test_event_client.py
+- **Changes**: Updated to reflect single socket architecture
+- **Commit**: 3f6b04e
 
-### 2. Update Test Files
+### 2. ✅ Update Test Files
 - **File**: `tests/test_event_client.py`
-- **Task**: Remove "legacy format compatibility" comments
-- **Safe because**: Tests should reflect current architecture
+- **Changes**: Removed legacy compatibility test and references
+- **Commit**: 3f6b04e
 
-### 3. Clean Migration Scripts
+### 3. ✅ Clean Migration Scripts
 - **File**: `tools/migrate_to_unified_compositions.py`
-- **Task**: Move to `tools/archive/` with timestamp
-- **Safe because**: Migration is complete, but preserve for reference
+- **Changes**: Moved to `tools/archive/migrate_to_unified_compositions_20250629.py`
+- **Commit**: 3f6b04e
 
-### 4. Update Placeholder TODOs
+### 4. ✅ Update Placeholder TODOs
 - **File**: `interfaces/monitor_textual.py:76`
-- **Task**: Change "TODO: Get real memory metrics" to documented feature request
-- **Safe because**: It's a future enhancement, not incomplete work
+- **Changes**: Updated TODO to feature request comment
+- **Commit**: 3f6b04e
 
-## Cleanups Requiring Investigation
+### 5. ✅ Remove Legacy JSON Profile Code
+- **Files**: `ksi_common/paths.py`, `ksi_client/profile_loader.py`, `interfaces/chat_textual.py`
+- **Changes**: Removed dead JSON profile loading code
+- **Commit**: 71ae525
 
-### 1. Profile Loader Fallbacks
-- **Investigation needed**: Are JSON profiles still generated anywhere?
-- **If no**: Can remove JSON loading code
-- **If yes**: Document where and why
+### 6. ✅ Remove Legacy Prompt Path Fallback
+- **File**: `ksi_daemon/plugins/composition/composition_service.py`
+- **Changes**: Removed fallback to non-existent var/prompts
+- **Commit**: 71ae525
 
-### 2. Legacy Prompt Paths
-- **Investigation needed**: Do any deployments still have var/prompts?
-- **If no**: Remove fallback code
-- **If yes**: Add migration guide
+## Investigated and Completed
+
+### 1. ✅ Profile Loader Fallbacks
+- **Investigation**: No code generates JSON profiles anymore
+- **Action taken**: Removed all JSON profile loading code
+- **Result**: System fully uses YAML compositions
+
+### 2. ✅ Legacy Prompt Paths
+- **Investigation**: var/prompts directory doesn't exist
+- **Action taken**: Removed fallback code
+- **Result**: All prompts use var/lib/compositions/prompts
 
 ## Cleanups NOT to Perform
 

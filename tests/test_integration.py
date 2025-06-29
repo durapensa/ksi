@@ -37,11 +37,8 @@ try:
 except ImportError:
     provider_tests_available = False
 
-try:
-    from test_completion_service_plugin import run_all_tests as run_service_tests
-    service_tests_available = True
-except ImportError:
-    service_tests_available = False
+# test_completion_service_plugin.py removed - imports non-existent event_bus
+service_tests_available = False
 
 try:
     from test_error_propagation import run_all_tests as run_error_tests
@@ -110,7 +107,6 @@ class EnhancedIntegrationTestSuite:
             # Check test files exist
             test_files = [
                 "test_claude_cli_provider_direct.py",
-                "test_completion_service_plugin.py", 
                 "test_error_propagation.py",
                 "test_agent_messaging_multisocket.py",
                 "test_result_logger.py"
@@ -331,7 +327,7 @@ class EnhancedIntegrationTestSuite:
                 "system_verification": self.system_state,
                 "enhancement_coverage": {
                     "provider_testing": "test_claude_cli_provider_direct.py" in suite_results,
-                    "service_testing": "test_completion_service_plugin.py" in suite_results,
+                    "service_testing": False,  # test_completion_service_plugin.py removed
                     "error_testing": "test_error_propagation.py" in suite_results,
                     "messaging_testing": "test_agent_messaging_multisocket.py" in suite_results,
                     "logging_system": "test_result_logger.py" in suite_results

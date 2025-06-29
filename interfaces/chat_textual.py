@@ -883,7 +883,7 @@ class ChatInterface(App):
             if hasattr(event.item, 'conversation_id'):
                 await self.join_conversation(event.item.conversation_id)
             elif hasattr(event.item, 'agent_id'):
-                # TODO: Join as observer of specific agent
+                # Join as observer of specific agent (not yet implemented)
                 self.log_message("System", f"Agent observation not yet implemented: {event.item.agent_id}")
     
     async def load_past_conversation(self, session_id: str) -> None:

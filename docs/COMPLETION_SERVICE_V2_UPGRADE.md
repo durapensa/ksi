@@ -28,7 +28,7 @@ Completion Service V2 enhances the original completion service with:
 ### 1. Pre-Migration Checklist
 ```bash
 # Stop the daemon
-./daemon_control.sh stop
+./daemon_control.py stop
 
 # Verify new components are installed
 ls -la ksi_daemon/plugins/completion/completion_queue.py
@@ -51,7 +51,7 @@ The tool will:
 ### 3. Start and Test
 ```bash
 # Start daemon with v2 service
-./daemon_control.sh start
+./daemon_control.py start
 
 # Run integration tests
 python3 tests/test_completion_service_v2.py
@@ -60,13 +60,13 @@ python3 tests/test_completion_service_v2.py
 ### 4. Rollback (if needed)
 ```bash
 # Stop daemon
-./daemon_control.sh stop
+./daemon_control.py stop
 
 # Run rollback
 python3 tools/migrate_to_completion_v2.py --rollback
 
 # Restart with v1
-./daemon_control.sh start
+./daemon_control.py start
 ```
 
 ## API Changes

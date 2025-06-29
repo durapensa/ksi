@@ -30,7 +30,7 @@ Agents with tool access are instructed to:
 
 ```bash
 # Start the daemon
-./daemon_control.sh start
+./daemon_control.py start
 
 # Run comprehensive tests
 python3 tests/test_agent_tools.py

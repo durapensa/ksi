@@ -496,7 +496,7 @@ Based on this analysis, **Dramatiq is the recommended choice** for KSI because:
 3. **Phase 3**: Implement `execute_claude_task` actor with subprocess management
 4. **Phase 4**: Add event publishing back to daemon message bus
 5. **Phase 5**: Create `QUEUE_TASK` daemon command for task submission
-6. **Phase 6**: Add worker management to `daemon_control.sh`
+6. **Phase 6**: Add worker management to `daemon_control.py`
 
 ### Example Integration Code
 

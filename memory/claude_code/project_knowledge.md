@@ -223,8 +223,8 @@ Verifies: sync/async completion, queue status, conversation locks, priorities
 
 ### Socket Not Found
 ```bash
-./daemon_control.sh status  # Check if running
-./daemon_control.sh restart # Restart if needed
+./daemon_control.py status  # Check if running
+./daemon_control.py restart # Restart if needed
 ```
 
 ### Plugin Import Errors

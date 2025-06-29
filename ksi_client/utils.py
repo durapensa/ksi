@@ -19,7 +19,7 @@ from ksi_common import get_logger
 
 logger = get_logger(__name__)
 
-# Legacy CommandBuilder removed - use EventBuilder instead
+# CommandBuilder removed - use EventBuilder instead
 
 class ResponseHandler:
     """Handler for JSON Protocol v2.0 responses"""
@@ -143,7 +143,7 @@ class ConnectionManager:
         except Exception as e:
             raise ConnectionError(f"Connection failed: {e}")
 
-# Legacy command convenience functions removed - use event functions instead
+# Command convenience functions removed - use event functions instead
 
 
 class EventBuilder:

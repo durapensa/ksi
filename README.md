@@ -38,16 +38,16 @@ source .venv/bin/activate
 
 ```bash
 # Start the daemon
-./daemon_control.sh start
+./daemon_control.py start
 
 # Chat with Claude
 python3 interfaces/chat.py
 
 # Check daemon health
-./daemon_control.sh health
+./daemon_control.py health
 
 # Stop daemon gracefully
-./daemon_control.sh stop
+./daemon_control.py stop
 ```
 
 ### Multi-Claude Conversations

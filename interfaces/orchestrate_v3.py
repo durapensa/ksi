@@ -138,7 +138,7 @@ class MultiClaudeOrchestratorV3:
             return health.get("status") == "healthy"
         except Exception as e:
             logger.error(f"Daemon is not running or accessible: {e}")
-            logger.error("Start with: ./daemon_control.sh start")
+            logger.error("Start with: ./daemon_control.py start")
             return False
     
     async def _send_event(self, event_name: str, data: dict = None) -> dict:

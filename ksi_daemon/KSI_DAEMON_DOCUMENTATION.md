@@ -149,7 +149,7 @@ async def main():
 
 ```bash
 # Using control script (recommended)
-./daemon_control.sh start
+./daemon_control.py start
 
 # Direct execution
 python ksi-daemon.py
@@ -159,16 +159,16 @@ python ksi-daemon.py
 
 ```bash
 # Check status
-./daemon_control.sh status
+./daemon_control.py status
 
 # Check health
-./daemon_control.sh health
+./daemon_control.py health
 
 # Stop daemon
-./daemon_control.sh stop
+./daemon_control.py stop
 
 # View logs
-./daemon_control.sh logs
+./daemon_control.py logs
 ```
 
 ## Migration from Legacy Architecture
@@ -187,7 +187,7 @@ The daemon has been fully migrated from a command-based multi-socket architectur
 ### Common Issues
 
 1. **Socket Connection Failed**
-   - Ensure daemon is running: `./daemon_control.sh status`
+   - Ensure daemon is running: `./daemon_control.py status`
    - Check socket exists: `ls -la /tmp/ksi/daemon.sock`
    - Check permissions on socket directory
 

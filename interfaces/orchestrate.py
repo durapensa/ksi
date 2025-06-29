@@ -111,7 +111,7 @@ class MultiClaudeOrchestrator:
                     return False
             return False
         except:
-            logger.error("Daemon is not running. Start with: ./daemon_control.sh start")
+            logger.error("Daemon is not running. Start with: ./daemon_control.py start")
             return False
     
     async def _send_event(self, event_name: str, data: dict = None) -> dict:

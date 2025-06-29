@@ -228,7 +228,7 @@ def main():
     # Check if daemon is running
     if not Path(SOCKET_PATH).exists():
         print("\nERROR: Daemon socket not found. Is the daemon running?")
-        print("Start with: ./daemon_control.sh start")
+        print("Start with: ./daemon_control.py start")
         return
     
     try:

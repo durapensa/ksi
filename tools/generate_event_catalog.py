@@ -32,7 +32,7 @@ class EventCatalogGenerator:
             return True
         except Exception as e:
             print(f"Failed to connect to daemon: {e}")
-            print("Please ensure daemon is running: ./daemon_control.sh start")
+            print("Please ensure daemon is running: ./daemon_control.py start")
             return False
     
     async def discover_events(self) -> Dict[str, List[Dict[str, Any]]]:

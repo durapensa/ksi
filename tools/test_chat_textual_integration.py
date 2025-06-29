@@ -121,7 +121,7 @@ async def test_integration():
 async def main():
     """Run the integration test."""
     print("Note: This tests the conversation plugin integration.")
-    print("Ensure daemon is running with ./daemon_control.sh start")
+    print("Ensure daemon is running with ./daemon_control.py start")
     print()
     
     success = await test_integration()

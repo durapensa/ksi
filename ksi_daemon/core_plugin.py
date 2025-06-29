@@ -30,7 +30,7 @@ class SimpleDaemonCore:
         """Initialize the daemon core."""
         # Use provided config or default
         if config_dict:
-            # TODO: Update config from dict if needed
+            # Update config from dict if needed (future enhancement)
             self.config = config
         else:
             self.config = config

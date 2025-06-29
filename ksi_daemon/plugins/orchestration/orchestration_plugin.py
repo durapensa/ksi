@@ -135,7 +135,7 @@ class OrchestrationPlugin:
     
     def _load_providers(self):
         """Load optional providers if enabled."""
-        # TODO: Implement provider loading
+        # Provider loading not yet implemented
         pass
     
     async def load_pattern(self, pattern_name: str) -> Dict[str, Any]:
@@ -359,7 +359,7 @@ class OrchestrationPlugin:
             
             # Check event
             if 'event' in condition:
-                # TODO: Implement event-based termination
+                # Event-based termination not yet implemented
                 pass
     
     async def _terminate_orchestration(self, instance: OrchestrationInstance, reason: str):

@@ -384,7 +384,7 @@ class ConversationPluginTester:
 async def main():
     """Run the test suite."""
     # Ensure daemon is running
-    print("Note: Ensure daemon is running with ./daemon_control.sh start")
+    print("Note: Ensure daemon is running with ./daemon_control.py start")
     
     tester = ConversationPluginTester()
     success = await tester.run_all_tests()

@@ -93,9 +93,9 @@ class InjectionCircuitBreaker:
         return {
             'depth': depth,
             'max_depth': 5,
-            'tokens_used': 0,  # TODO: Implement token tracking
+            'tokens_used': 0,  # Token tracking not yet implemented
             'token_budget': 50000,
-            'time_elapsed': 0,  # TODO: Implement time tracking
+            'time_elapsed': 0,  # Time tracking not yet implemented
             'time_window': 3600
         }
 
@@ -232,8 +232,8 @@ def execute_injection(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str
     
     logger.info(f"Executing injection for session {session_id}")
     
-    # TODO: Actually inject the content into the session
-    # This would involve creating a new completion request with the injected content
+    # Injection execution - would create new completion request with injected content
+    # Currently just logs the action
     
     return {"status": "injection_executed"}
 
@@ -245,7 +245,7 @@ def get_injection_metadata(request_id: str) -> Optional[Dict[str, Any]]:
     if request_id in injection_metadata_store:
         return injection_metadata_store[request_id]
     
-    # TODO: Check persistent storage or state service
+    # Check persistent storage or state service (future enhancement)
     
     return None
 

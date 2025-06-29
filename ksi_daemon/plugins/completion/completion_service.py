@@ -121,7 +121,7 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
         # Cancel an active completion
         request_id = data.get("request_id")
         if request_id in active_completions:
-            # TODO: Implement proper cancellation with queue
+            # Cancellation with queue not yet implemented
             del active_completions[request_id]
             return {"status": "cancelled"}
         return {"status": "not_found"}

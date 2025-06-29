@@ -214,6 +214,6 @@ class DaemonEventLog:
     
     def _persist_entry(self, entry: EventLogEntry) -> None:
         """Persist entry to file (future enhancement)."""
-        # TODO: Implement file persistence with rotation
+        # File persistence with rotation not yet implemented
         # This would allow long-term audit trails
         pass
