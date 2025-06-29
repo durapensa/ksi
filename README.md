@@ -5,7 +5,7 @@ A plugin-based daemon system for managing Claude AI processes with conversation 
 ## Features
 
 - 🔌 **Plugin Architecture** - Event-driven system built on pluggy (pytest's plugin framework)
-- 🚀 **Multi-Socket Design** - Separate Unix sockets for admin, agents, messaging, state, and completions
+- 🚀 **Single Socket Architecture** - Unified Unix socket for all communication
 - 💬 **Conversation Continuity** - Maintains context across Claude interactions using sessionId
 - 🤖 **Multi-Agent Orchestration** - Multiple Claude instances conversing autonomously
 - 📊 **Real-time Monitoring** - Beautiful TUI for observing conversations and metrics
@@ -68,14 +68,14 @@ KSI uses a plugin-based architecture where the core daemon is a minimal event ro
 
 - **Event-Driven**: Everything is an event - no polling or timers
 - **Plugin-First**: Core only routes events, all logic in plugins
-- **Multi-Socket**: Clean separation of concerns via dedicated sockets
+- **Single Socket**: Simple, unified communication via one Unix socket
 - **Async Native**: Built on asyncio for maximum performance
 
 ### Key Components
 
 | Component | Description |
 |-----------|-------------|
-| `daemon_control.sh` | Start/stop/restart daemon operations |
+| `daemon_control.py` | Start/stop/restart daemon operations |
 | `ksi-daemon.py` | Main daemon wrapper using python-daemon |
 | `ksi_client/` | Client libraries (AsyncClient, EventBasedClient) |
 | `ksi_daemon/plugins/` | Plugin implementations |

@@ -34,7 +34,6 @@ async def test_basic_connection():
             print(f"Health check: {health}")
         except Exception as e:
             print(f"Health check failed: {e}")
-            print("Note: This might fail if daemon is using legacy format")
 
 
 async def test_event_subscriptions():
@@ -60,48 +59,6 @@ async def test_event_subscriptions():
         print(f"Received {len(events_received)} events")
 
 
-async def test_legacy_compatibility():
-    """Test legacy command compatibility."""
-    print("\n=== Testing Legacy Command Compatibility ===")
-    
-    client = EventBasedClient()
-    await client.connect()
-    
-    try:
-        # Send a legacy-style command directly
-        legacy_cmd = {
-            "command": "HEALTH_CHECK",
-            "parameters": {}
-        }
-        
-        # Write directly to test legacy format
-        cmd_str = json.dumps(legacy_cmd) + '\n'
-        client.writer.write(cmd_str.encode())
-        await client.writer.drain()
-        
-        # Read response
-        response_data = await asyncio.wait_for(
-            client.reader.readline(), 
-            timeout=5.0
-        )
-        
-        if response_data:
-            response = json.loads(response_data.decode().strip())
-            print(f"Legacy command response: {response}")
-            
-            if response.get("status") == "success":
-                print("✓ Legacy command compatibility working")
-            else:
-                print("✗ Legacy command failed")
-        else:
-            print("✗ No response received")
-            
-    except asyncio.TimeoutError:
-        print("✗ Legacy command timed out")
-    except Exception as e:
-        print(f"✗ Legacy command error: {e}")
-    finally:
-        await client.disconnect()
 
 
 async def test_plugin_discovery():
@@ -204,14 +161,13 @@ async def main():
     socket_path = config.socket_path
     if not socket_path.exists():
         print("\n⚠️  Daemon socket not found!")
-        print("Please start the daemon with: ./daemon_control.sh start")
+        print("Please start the daemon with: ./daemon_control.py start")
         return
     
     # Run tests
     tests = [
         test_basic_connection,
         test_event_subscriptions,
-        test_legacy_compatibility,
         test_plugin_discovery,
         test_chat_client,
         test_completion_flow

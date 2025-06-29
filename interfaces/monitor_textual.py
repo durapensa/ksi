@@ -73,7 +73,7 @@ class EventLogModel:
                 "status": "healthy",
                 "active_agents": len(self.active_agents),
                 "conversations": len(self.conversations),
-                "memory_usage": "45MB",  # TODO: Get real metrics
+                "memory_usage": "45MB",  # Feature request: Implement actual memory metrics via system:health event
                 "cpu_usage": 90,
                 "disk_usage": 60,
                 "network_usage": 100
