@@ -132,6 +132,16 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
     elif event_name == "agent:broadcast":
         return handle_broadcast(data)
     
+    # Dynamic composition events
+    elif event_name == "agent:update_composition":
+        return handle_update_composition(data)
+    
+    elif event_name == "agent:discover_peers":
+        return handle_discover_peers(data)
+    
+    elif event_name == "agent:negotiate_roles":
+        return handle_negotiate_roles(data)
+    
     return None
 
 
@@ -145,9 +155,43 @@ def handle_spawn_agent(data: Dict[str, Any]) -> Dict[str, Any]:
     
     # Create coroutine to handle async composition
     async def _spawn_with_composition():
+        # Check for dynamic spawn mode
+        spawn_mode = data.get("spawn_mode", "fixed")
+        selection_context = data.get("selection_context", {})
+        
         # Determine what to compose
-        if composition_name:
-            # Direct composition reference
+        if spawn_mode == "dynamic" and event_emitter:
+            # Use composition selection service
+            logger.debug("Using dynamic composition selection")
+            
+            select_result = await event_emitter("composition:select", {
+                "agent_id": agent_id,
+                "role": selection_context.get("role"),
+                "capabilities": selection_context.get("required_capabilities", []),
+                "task": data.get("task"),
+                "context": selection_context,
+                "max_suggestions": 3
+            }, {})
+            
+            if select_result and select_result.get("status") == "success":
+                compose_name = select_result["selected"]
+                logger.info(f"Dynamically selected composition: {compose_name} (score: {select_result['score']})")
+                
+                # Store selection metadata
+                data["_composition_selection"] = {
+                    "selected": compose_name,
+                    "score": select_result["score"],
+                    "reasons": select_result["reasons"],
+                    "suggestions": select_result.get("suggestions", [])
+                }
+            else:
+                return {
+                    "error": f"Dynamic composition selection failed: {select_result.get('error', 'Unknown error')}",
+                    "status": "failed"
+                }
+                
+        elif composition_name:
+            # Direct composition reference (hint mode)
             compose_name = composition_name
         elif profile_name:
             # Use specified profile
@@ -749,6 +793,188 @@ def handle_broadcast(data: Dict[str, Any]) -> Dict[str, Any]:
         "status": "broadcast",
         "agents_reached": sent_count,
         "total_agents": len(agents)
+    }
+
+
+# Dynamic composition handlers
+def handle_update_composition(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle agent composition update request."""
+    agent_id = data.get("agent_id")
+    new_composition = data.get("new_composition")
+    reason = data.get("reason", "Adaptation required")
+    
+    if not agent_id:
+        return {"error": "agent_id required"}
+    
+    if not new_composition:
+        return {"error": "new_composition required"}
+    
+    if agent_id not in agents:
+        return {"error": f"Agent {agent_id} not found"}
+    
+    # Check if agent can self-modify
+    agent_info = agents[agent_id]
+    current_config = agent_info.get("config", {})
+    
+    # Create async function to handle composition update
+    async def _update_composition():
+        if not event_emitter:
+            return {"error": "Event emitter not available"}
+        
+        # First, check if current composition allows modification
+        current_comp = agent_info.get("composition", agent_info.get("profile"))
+        if current_comp:
+            # Get composition metadata
+            comp_result = await event_emitter("composition:get", {
+                "name": current_comp
+            }, {})
+            
+            if comp_result and comp_result.get("status") == "success":
+                metadata = comp_result["composition"].get("metadata", {})
+                if not metadata.get("self_modifiable", False):
+                    return {
+                        "error": "Current composition does not allow self-modification",
+                        "status": "denied"
+                    }
+        
+        # Compose new profile
+        compose_result = await event_emitter("composition:profile", {
+            "name": new_composition,
+            "variables": {
+                "agent_id": agent_id,
+                "previous_role": current_config.get("role"),
+                "adaptation_reason": reason
+            }
+        }, {})
+        
+        if compose_result and compose_result.get("status") == "success":
+            new_profile = compose_result["profile"]
+            
+            # Update agent configuration
+            agent_info["config"] = {
+                "model": new_profile.get("model", "sonnet"),
+                "capabilities": new_profile.get("capabilities", []),
+                "role": new_profile.get("role", "assistant"),
+                "enable_tools": new_profile.get("enable_tools", False),
+                "tools": new_profile.get("tools", [])
+            }
+            agent_info["composition"] = new_composition
+            agent_info["composition_history"] = agent_info.get("composition_history", [])
+            agent_info["composition_history"].append({
+                "timestamp": TimestampManager.format_for_logging(),
+                "from": current_comp,
+                "to": new_composition,
+                "reason": reason
+            })
+            
+            # Notify agent of update via message queue
+            queue = agent_info.get("message_queue")
+            if queue:
+                await queue.put({
+                    "type": "composition_updated",
+                    "new_composition": new_composition,
+                    "new_config": agent_info["config"],
+                    "prompt": new_profile.get("composed_prompt")
+                })
+            
+            logger.info(f"Agent {agent_id} updated composition to {new_composition}")
+            
+            return {
+                "status": "updated",
+                "agent_id": agent_id,
+                "new_composition": new_composition,
+                "new_capabilities": agent_info["config"]["capabilities"]
+            }
+        else:
+            return {
+                "error": f"Failed to compose new profile: {compose_result.get('error', 'Unknown error')}",
+                "status": "failed"
+            }
+    
+    # Run async function
+    return asyncio.run(_update_composition())
+
+
+def handle_discover_peers(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Discover other agents and their capabilities."""
+    requesting_agent = data.get("agent_id")
+    capability_filter = data.get("capabilities", [])
+    role_filter = data.get("roles", [])
+    
+    discovered = []
+    
+    for agent_id, agent_info in agents.items():
+        if agent_id == requesting_agent:
+            continue  # Skip self
+        
+        agent_config = agent_info.get("config", {})
+        agent_caps = agent_config.get("capabilities", [])
+        agent_role = agent_config.get("role")
+        
+        # Apply filters
+        if capability_filter:
+            if not any(cap in agent_caps for cap in capability_filter):
+                continue
+        
+        if role_filter:
+            if agent_role not in role_filter:
+                continue
+        
+        discovered.append({
+            "agent_id": agent_id,
+            "role": agent_role,
+            "capabilities": agent_caps,
+            "composition": agent_info.get("composition"),
+            "status": agent_info.get("status", "active")
+        })
+    
+    return {
+        "status": "success",
+        "requesting_agent": requesting_agent,
+        "discovered_count": len(discovered),
+        "peers": discovered
+    }
+
+
+def handle_negotiate_roles(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Coordinate role negotiation between agents."""
+    participants = data.get("participants", [])
+    negotiation_type = data.get("type", "collaborative")
+    context = data.get("context", {})
+    
+    if not participants or len(participants) < 2:
+        return {"error": "At least 2 participants required for negotiation"}
+    
+    # Verify all participants exist
+    for agent_id in participants:
+        if agent_id not in agents:
+            return {"error": f"Agent {agent_id} not found"}
+    
+    # Create negotiation session
+    negotiation_id = f"neg_{uuid.uuid4().hex[:8]}"
+    
+    # Send negotiation request to all participants
+    for agent_id in participants:
+        agent_info = agents[agent_id]
+        queue = agent_info.get("message_queue")
+        if queue:
+            asyncio.create_task(queue.put({
+                "type": "role_negotiation",
+                "negotiation_id": negotiation_id,
+                "participants": participants,
+                "negotiation_type": negotiation_type,
+                "context": context,
+                "your_current_role": agent_info.get("config", {}).get("role"),
+                "your_capabilities": agent_info.get("config", {}).get("capabilities", [])
+            }))
+    
+    logger.info(f"Started role negotiation {negotiation_id} with {len(participants)} agents")
+    
+    return {
+        "status": "initiated",
+        "negotiation_id": negotiation_id,
+        "participants": participants,
+        "type": negotiation_type
     }
 
 

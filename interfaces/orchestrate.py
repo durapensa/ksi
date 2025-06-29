@@ -17,7 +17,7 @@ import os
 
 # Add path for ksi_client
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from ksi_client import AsyncClient, EventBuilder, ResponseHandler
+from ksi_client import EventBasedClient
 from ksi_common import config
 
 # Set up logging only if not already configured
@@ -83,16 +83,18 @@ class MultiClaudeOrchestrator:
     """Orchestrate conversations between multiple Claude agents"""
     
     def __init__(self):
-        self.daemon_socket = Path("sockets/claude_daemon.sock")
+        self.daemon_socket = config.daemon_socket_path
         self.conversation_id = None
         self.mode_manager = ConversationModeManager()
+        self.client = None
+        self.connected = False
         
     async def ensure_daemon_running(self) -> bool:
         """Check if daemon is running and accessible"""
         try:
             reader, writer = await asyncio.open_unix_connection(str(self.daemon_socket))
             # Use JSON protocol for health check
-            health_cmd = CommandBuilder.build_command("HEALTH_CHECK")
+            health_cmd = {"event": "system:health", "data": {}}
             command_str = json.dumps(health_cmd) + '\n'
             writer.write(command_str.encode())
             await writer.drain()
@@ -104,8 +106,7 @@ class MultiClaudeOrchestrator:
             if response:
                 try:
                     result = json.loads(response.decode().strip())
-                    return ResponseHandler.check_success(result) and \
-                           ResponseHandler.get_result_data(result).get("status") == "healthy"
+                    return result.get("status") == "healthy"
                 except:
                     return False
             return False
@@ -120,7 +121,7 @@ class MultiClaudeOrchestrator:
                 await self.client.connect()
                 self.connected = True
             
-            return await self.client.request_event(event_name, data or {})
+            return await self.client.request(event_name, data or {})
         except Exception as e:
             logger.error(f"Failed to send event: {e}")
             return {"error": str(e)}
@@ -143,28 +144,43 @@ class MultiClaudeOrchestrator:
         # Default fallback
         return 'participant', 'claude_agent_default'
     
-    def create_agent_profile(self, mode_name: str, agent_index: int) -> Dict:
-        """Create agent profile for composition-based system"""
-        role, composition = self.determine_agent_role(mode_name, agent_index)
-        
-        profile = {
-            'model': 'sonnet',
-            'role': role,
-            'composition': composition,
-            'enable_tools': False  # Conversation agents don't need tools
+    def get_composition_name(self, mode_name: str, agent_index: int) -> str:
+        """Get composition name based on mode and agent index"""
+        # Map modes to existing compositions
+        if mode_name == 'debate':
+            return 'debater'
+        elif mode_name == 'collaboration':
+            return 'collaborator'
+        elif mode_name == 'teaching':
+            role, _ = self.determine_agent_role(mode_name, agent_index)
+            return 'teacher' if role == 'teacher' else 'student'
+        elif mode_name == 'brainstorm':
+            role, _ = self.determine_agent_role(mode_name, agent_index)
+            return 'creative' if role == 'creative' else 'critic'
+        elif mode_name == 'analysis':
+            # Use base_agent for analysis mode until specific compositions are created
+            return 'base_agent'
+        elif mode_name == 'qa':
+            # For Q&A mode, alternate between roles
+            return 'debater'  # Use debater as a conversationalist for now
+        else:
+            return 'base_agent'
+    
+    def _get_mode_capabilities(self, mode: str) -> List[str]:
+        """Get required capabilities for a conversation mode."""
+        mode_capabilities = {
+            'debate': ['argumentation', 'critical_thinking', 'persuasion'],
+            'collaboration': ['cooperation', 'synthesis', 'information_sharing'],
+            'teaching': ['explanation', 'patience', 'adaptation'],
+            'brainstorm': ['creativity', 'innovation', 'lateral_thinking'],
+            'analysis': ['data_analysis', 'pattern_recognition', 'synthesis'],
+            'qa': ['questioning', 'answering', 'clarification']
         }
-        
-        # Save profile
-        profile_path = config.agent_profiles_dir / f'temp_{mode_name}_{agent_index}.json'
-        profile_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        with open(profile_path, 'w') as f:
-            json.dump(profile, f, indent=2)
-        
-        return profile
+        return mode_capabilities.get(mode, ['general_conversation'])
     
     async def start_conversation(self, topic: str, mode: str = 'collaboration', 
-                               num_agents: int = 2, human_observer: bool = True):
+                               num_agents: int = 2, human_observer: bool = True,
+                               spawn_mode: str = 'fixed'):
         """Start a multi-Claude conversation using compositions"""
         
         # Get conversation mode
@@ -192,18 +208,17 @@ class MultiClaudeOrchestrator:
         logger.info(f"Starting {mode} conversation: '{topic}' with {num_agents} agents")
         logger.info(f"Using composition: {mode_config['composition']}")
         
-        # Create agent profiles and spawn agents
+        # Create agents using compositions
         agent_ids = []
         for i in range(num_agents):
-            profile = self.create_agent_profile(mode, i)
+            composition_name = self.get_composition_name(mode, i)
             agent_id = f"{mode}_{i+1}"
-            profile_name = f'temp_{mode}_{i}'
             agent_ids.append(agent_id)
             
             # Determine agent-specific context
             role, _ = self.determine_agent_role(mode, i)
             
-            # Use SPAWN_AGENT with composition-aware profile
+            # Use composition-based spawning
             initial_task = f"Join {mode} conversation about: {topic}"
             context = json.dumps({
                 'conversation_mode': mode,
@@ -212,13 +227,35 @@ class MultiClaudeOrchestrator:
                 'agent_role': role
             })
             
-            # Spawn agent via event
+            # Build spawn params based on spawn mode
             spawn_params = {
-                "profile_name": profile_name,
+                "agent_id": agent_id,
                 "task": initial_task,
-                "context": context,
-                "agent_id": agent_id
+                "context": context
             }
+            
+            if spawn_mode == 'dynamic':
+                # Use dynamic selection
+                spawn_params["spawn_mode"] = "dynamic"
+                spawn_params["selection_context"] = {
+                    "role": role,
+                    "task": f"{mode} conversation about {topic}",
+                    "existing_agents": agent_ids[:i],  # Already spawned agents
+                    "required_capabilities": self._get_mode_capabilities(mode)
+                }
+                # Composition is a hint
+                spawn_params["composition"] = composition_name
+            elif spawn_mode == 'emergent':
+                # Agents will self-organize
+                spawn_params["spawn_mode"] = "dynamic"
+                spawn_params["selection_context"] = {
+                    "task": f"{mode} conversation about {topic}",
+                    "existing_agents": agent_ids[:i],
+                    "allow_self_organization": True
+                }
+            else:
+                # Fixed mode - use predetermined composition
+                spawn_params["composition"] = composition_name
             
             result = await self._send_event("agent:spawn", spawn_params)
             
@@ -226,7 +263,10 @@ class MultiClaudeOrchestrator:
                 logger.error(f"Failed to start agent {agent_id}: {result['error']}")
                 return False
             elif result.get('process_id'):
-                logger.info(f"Started {role} agent {agent_id} (process_id: {result['process_id']})")
+                actual_composition = composition_name
+                if spawn_mode != 'fixed' and '_composition_selection' in result:
+                    actual_composition = result['_composition_selection']['selected']
+                logger.info(f"Started {role} agent {agent_id} using composition '{actual_composition}' (process_id: {result['process_id']})")
             
         # Give agents time to connect and subscribe
         logger.info("Waiting for agents to initialize...")
@@ -289,6 +329,9 @@ async def main():
     parser.add_argument("--mode", default="collaboration", 
                        help="Conversation mode (debate, collaboration, teaching, brainstorm, analysis)")
     parser.add_argument("--agents", type=int, default=2, help="Number of agents")
+    parser.add_argument("--spawn-mode", default="fixed", 
+                       choices=["fixed", "dynamic", "emergent"],
+                       help="Agent spawning mode: fixed, dynamic, or emergent")
     parser.add_argument("--no-wait", action="store_true", 
                        help="Don't wait (for programmatic use)")
     
@@ -310,7 +353,8 @@ async def main():
             topic=args.topic,
             mode=args.mode,
             num_agents=args.agents,
-            human_observer=not args.no_wait
+            human_observer=not args.no_wait,
+            spawn_mode=args.spawn_mode
         )
         
         if not success:
@@ -320,7 +364,7 @@ async def main():
         logger.info("\nConversation interrupted")
     finally:
         await orchestrator.stop_conversation()
-        if orchestrator.connected:
+        if orchestrator.connected and orchestrator.client:
             await orchestrator.client.disconnect()
 
 

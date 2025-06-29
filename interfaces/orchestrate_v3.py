@@ -17,7 +17,7 @@ import os
 
 # Add path for ksi_client
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from ksi_client import AsyncClient, EventBuilder, ResponseHandler
+from ksi_client import EventBasedClient
 from ksi_common.config import config
 from prompts.discovery import CompositionDiscovery
 from prompts.composition_selector import CompositionSelector, SelectionContext
@@ -193,37 +193,41 @@ class MultiClaudeOrchestratorV3:
             role_index = agent_index % len(roles)
             return roles[role_index]
     
-    async def create_agent_profile(self, mode: str, agent_index: int, topic: str) -> Dict:
-        """Create dynamic agent profile with appropriate composition"""
+    async def get_composition_for_agent(self, mode: str, agent_index: int, topic: str) -> str:
+        """Get appropriate composition for agent based on mode and role"""
         role, capabilities = self.determine_agent_role(mode, agent_index)
         
-        # Select composition dynamically
-        composition = await self.mode_manager.select_composition_for_agent(
-            mode, role, topic, capabilities
-        )
-        
-        profile = {
-            'model': 'sonnet',
-            'role': role,
-            'capabilities': capabilities,
-            'composition': composition,
-            'metadata': {
-                'conversation_mode': mode,
-                'topic': topic,
-                'dynamic_selection': True
-            }
+        # Map roles to existing compositions
+        role_to_composition = {
+            # Debate roles
+            'proponent': 'debater',
+            'opponent': 'debater',
+            'moderator': 'base_agent',
+            'judge': 'critic',
+            # Collaboration roles
+            'researcher': 'base_agent',
+            'analyst': 'base_agent',
+            'strategist': 'base_agent',
+            'coordinator': 'collaborator',
+            # Teaching roles
+            'teacher': 'teacher',
+            'student': 'student',
+            'assistant': 'base_agent',
+            # Brainstorm roles
+            'ideator': 'creative',
+            'developer': 'creative',
+            'critic': 'critic',
+            # Analysis roles
+            'data_analyst': 'base_agent',
+            'domain_expert': 'base_agent',
+            'synthesizer': 'base_agent',
+            # Default
+            'participant': 'base_agent'
         }
         
-        # Save temporary profile
-        profile_name = f'temp_{mode}_{agent_index}'
-        temp_profiles_dir = Path("var/tmp/agent_profiles")
-        temp_profiles_dir.mkdir(parents=True, exist_ok=True)
-        profile_path = temp_profiles_dir / f'{profile_name}.json'
-        
-        with open(profile_path, 'w') as f:
-            json.dump(profile, f, indent=2)
-        
-        return profile_name
+        composition = role_to_composition.get(role, 'base_agent')
+        logger.info(f"Selected composition '{composition}' for role '{role}'")
+        return composition
     
     async def start_conversation(self, topic: str, mode: str = "collaboration", 
                                num_agents: int = 2, human_observer: bool = True) -> bool:
@@ -251,7 +255,7 @@ class MultiClaudeOrchestratorV3:
         # Start agents with dynamically selected compositions
         agent_ids = []
         for i in range(num_agents):
-            profile_name = await self.create_agent_profile(mode, i, topic)
+            composition_name = await self.get_composition_for_agent(mode, i, topic)
             agent_id = f"{mode}_{i+1}"
             agent_ids.append(agent_id)
             
@@ -267,9 +271,9 @@ class MultiClaudeOrchestratorV3:
                 'agent_role': role
             })
             
-            # Build JSON SPAWN_AGENT command
+            # Build spawn params with composition
             spawn_params = {
-                "profile_name": profile_name,
+                "composition": composition_name,
                 "task": initial_task,
                 "context": context,
                 "agent_id": agent_id

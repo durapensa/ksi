@@ -355,6 +355,14 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
         # Universal bulk loading for agent efficiency
         return handle_load_bulk(data)
     
+    elif event_name == "composition:select":
+        # Dynamic composition selection
+        return handle_select_composition(data)
+    
+    elif event_name == "composition:create":
+        # Runtime composition creation
+        return handle_create_composition(data)
+    
     return None
 
 
@@ -649,6 +657,128 @@ async def handle_load_bulk(data: Dict[str, Any]) -> Dict[str, Any]:
         }
         
     except Exception as e:
+        return {'error': str(e)}
+
+
+async def handle_select_composition(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle dynamic composition selection based on context."""
+    try:
+        # Import selector dynamically to avoid circular imports
+        from prompts.composition_selector import CompositionSelector, SelectionContext
+        
+        # Build selection context
+        context = SelectionContext(
+            agent_id=data.get('agent_id', 'unknown'),
+            role=data.get('role'),
+            capabilities=data.get('capabilities', []),
+            task_description=data.get('task'),
+            preferred_style=data.get('style'),
+            context_variables=data.get('context', {})
+        )
+        
+        # Use selector to find best composition
+        selector = CompositionSelector()
+        result = await selector.select_composition(context)
+        
+        # Get additional suggestions if requested
+        max_suggestions = data.get('max_suggestions', 1)
+        suggestions = []
+        
+        if max_suggestions > 1:
+            # Get all scored compositions from selector
+            all_compositions = await selector.get_scored_compositions(context)
+            suggestions = [
+                {
+                    'name': name,
+                    'score': score,
+                    'reasons': reasons
+                }
+                for name, score, reasons in all_compositions[:max_suggestions]
+            ]
+        
+        return {
+            'status': 'success',
+            'selected': result.composition_name,
+            'score': result.score,
+            'reasons': result.reasons,
+            'suggestions': suggestions,
+            'fallback_used': result.fallback_used
+        }
+        
+    except Exception as e:
+        logger.error(f"Composition selection failed: {e}")
+        return {'error': str(e)}
+
+
+async def handle_create_composition(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle runtime composition creation."""
+    try:
+        name = data.get('name')
+        if not name:
+            # Generate unique name
+            import uuid
+            name = f"dynamic_{uuid.uuid4().hex[:8]}"
+        
+        comp_type = data.get('type', 'profile')
+        base_composition = data.get('extends', 'base_agent')
+        
+        # Build composition structure
+        composition = {
+            'name': name,
+            'type': comp_type,
+            'version': '1.0.0',
+            'description': data.get('description', f'Dynamically created {comp_type}'),
+            'author': data.get('author', 'dynamic_agent'),
+            'extends': base_composition,
+            'components': [],
+            'metadata': data.get('metadata', {})
+        }
+        
+        # Add components
+        if 'components' in data:
+            composition['components'] = data['components']
+        else:
+            # Default components based on type
+            if comp_type == 'profile':
+                composition['components'] = [
+                    {
+                        'name': 'agent_config',
+                        'inline': data.get('config', {
+                            'role': data.get('role', 'assistant'),
+                            'model': data.get('model', 'sonnet'),
+                            'capabilities': data.get('capabilities', []),
+                            'tools': data.get('tools', [])
+                        })
+                    }
+                ]
+                if 'prompt' in data:
+                    composition['components'].append({
+                        'name': 'prompt',
+                        'template': data['prompt']
+                    })
+        
+        # Add metadata for dynamic composition
+        composition['metadata'].update({
+            'dynamic': True,
+            'created_at': TimestampManager.format_for_logging(),
+            'parent_agent': data.get('agent_id')
+        })
+        
+        # Save to temporary location (in-memory cache)
+        # In production, could save to disk or state service
+        dynamic_cache_key = f"dynamic_composition:{name}"
+        if state_manager:
+            state_manager.set_state(dynamic_cache_key, composition)
+        
+        return {
+            'status': 'success',
+            'name': name,
+            'composition': composition,
+            'message': f'Created dynamic composition: {name}'
+        }
+        
+    except Exception as e:
+        logger.error(f"Dynamic composition creation failed: {e}")
         return {'error': str(e)}
 
 

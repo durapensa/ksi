@@ -49,6 +49,7 @@ class CompositionSelector:
         self.discovery = CompositionDiscovery()
         self._cache = {}
         self._cache_ttl = 300  # 5 minutes
+        self._last_scored = []  # Store last scoring results
         
     async def select_composition(self, context: SelectionContext) -> SelectionResult:
         """
@@ -98,6 +99,9 @@ class CompositionSelector:
             self._cache[cache_key] = (result, datetime.now())
             
             logger.info(f"Selected composition '{best_name}' for {context.agent_id} (score: {best_score:.2f})")
+            
+            # Store scored list for potential reuse
+            self._last_scored = scored_compositions
             return result
         else:
             logger.warning(f"No suitable composition found for {context.agent_id}, using fallback")
@@ -250,7 +254,31 @@ class CompositionSelector:
     def clear_cache(self):
         """Clear the selection cache"""
         self._cache.clear()
+        self._last_scored = []
         logger.info("Composition selection cache cleared")
+    
+    async def get_scored_compositions(self, context: SelectionContext) -> List[Tuple[str, float, List[str]]]:
+        """Get all compositions with their scores for the given context."""
+        # If we just scored, return cached results
+        if self._last_scored:
+            return self._last_scored
+        
+        # Otherwise, perform scoring
+        try:
+            all_compositions = await self.discovery.get_all_compositions(include_metadata=True)
+        except Exception as e:
+            logger.error(f"Failed to get compositions: {e}")
+            return []
+        
+        scored_compositions = []
+        for name, comp_info in all_compositions.items():
+            score, reasons = await self._score_composition(comp_info, context)
+            if score > 0:
+                scored_compositions.append((name, score, reasons))
+        
+        scored_compositions.sort(key=lambda x: x[1], reverse=True)
+        self._last_scored = scored_compositions
+        return scored_compositions
 
 
 # Convenience functions

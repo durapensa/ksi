@@ -15,10 +15,8 @@ Core technical reference for KSI (Knowledge System Interface) - a minimal daemon
 ```
 ksi/
 ├── ksi_daemon/          # Core daemon code
-│   ├── plugins/        # Plugin implementations
-│   └── protocols/      # Protocol definitions
-├── ksi_client/         # Participant client library
-├── ksi_admin/          # Administrative client library
+│   └── plugins/        # Plugin implementations
+├── ksi_client/         # Unified client library (participants + admin)
 ├── tests/              # Test suite
 ├── interfaces/         # User interfaces
 ├── var/                # Runtime data (gitignored)
@@ -60,22 +58,19 @@ ksi/
 
 ## Client Libraries
 
-### ksi_client (Participants)
-- `EventChatClient` - Chat operations
-- `MultiAgentClient` - Agent coordination
-- `AsyncClient` - Full event interface
-
-### ksi_admin (Operators)
-- `MonitorClient` - System monitoring
-- `MetricsClient` - Performance metrics (planned)
-- `ControlClient` - Lifecycle management (planned)
-- **No dependencies on ksi_client**
+### Unified ksi_client Architecture
+- `EventBasedClient` - Core event communication with correlation IDs
+- `EventChatClient` - High-level chat operations 
+- `MultiAgentClient` - Agent coordination and state management
+- **Single Architecture**: All clients use EventBasedClient foundation
+- **Real-time Events**: Event subscriptions replace polling patterns
+- **Request-Response**: Correlation ID support for async operations
 
 ## Event System
 
 ### Available Namespaces
 - **system**: health, shutdown, discover, help
-- **completion**: request, async, queue_status
+- **completion**: async, queue_status, result, status
 - **agent**: spawn, terminate, list, send_message
 - **state**: get, set, delete, list
 - **message**: subscribe, publish, unsubscribe
@@ -99,16 +94,19 @@ Returns all available events with parameters and descriptions.
 
 ### Usage
 ```bash
-# Sync completion (backward compatible)
-{"event": "completion:request", "data": {
+# Async completion (unified interface)
+{"event": "completion:async", "data": {
   "prompt": "Hello",
   "model": "claude-cli/sonnet",
-  "session_id": "optional"
+  "session_id": "optional",
+  "client_id": "my_client",
+  "request_id": "req_12345",
+  "priority": "normal"
 }}
 
-# Async with priority and injection
+# High-priority with injection
 {"event": "completion:async", "data": {
-  "prompt": "Research task",
+  "prompt": "Research task", 
   "priority": "high",
   "injection_config": {
     "enabled": true,
@@ -126,10 +124,11 @@ Returns all available events with parameters and descriptions.
 - Time-range queries with flexible parsing
 - Pull-based architecture (no broadcast overhead)
 
-### Command Center Interface
-- **File**: `interfaces/monitor_textual.py`
-- **Architecture**: MVC pattern with Textual
-- **Features**: Live events, active sessions, health metrics
+### Monitoring Interfaces
+- **File**: `interfaces/monitor_textual.py` (Command Center)
+- **File**: `interfaces/monitor_tui.py` (Conversation Timeline)
+- **Architecture**: EventBasedClient with real-time subscriptions
+- **Features**: Live events, active sessions, health metrics, agent status
 
 ### API Examples
 ```bash
@@ -237,18 +236,51 @@ Verifies: sync/async completion, queue status, conversation locks, priorities
 - Claude CLI: `sonnet` or `opus` only (not `haiku`)
 - Always prefix: `claude-cli/sonnet`
 
-## Future Roadmap
+## Future Architectural Directions
 
-### Near Term
-- Correlation ID implementation
-- Enhanced monitoring displays
+### Correlation ID Implementation (Near Term)
+- **Purpose**: Trace complex event chains across async operations
+- **Design**: Hierarchical span IDs (root.span.depth) for parent-child tracking
+- **Scope**: Request-level ephemeral tracing (not session continuity)
+- **Key Features**:
+  - Automatic context propagation through plugins
+  - Chain depth limiting to prevent infinite loops
+  - Trace visualization for debugging complex flows
+  - Performance analysis of multi-hop operations
+- **Documentation**: `/Users/dp/projects/ksi/docs/CORRELATION_ID_DESIGN.md`
+- **Use Cases**: Completion injection chains, agent coordination flows, error root cause analysis
+
+### Session Management & Multi-Agent Coordination (Medium Term)
+- **Purpose**: Robust conversation continuity and natural agent interactions
+- **Design**: SQLite-backed session registry with fork prevention
+- **Scope**: Conversation-level persistence (complementary to correlation IDs)
+- **Key Features**:
+  - Linear consistency per agent (no global ordering)
+  - Natural from/to/cc message routing patterns
+  - Flexible event delivery modes (immediate vs queued)
+  - Multicast completions with aggregation strategies
+  - Emergency broadcast override system
+- **Documentation**: `/Users/dp/projects/tool-work/docs/ksi_session_management_design.md`
+- **Use Cases**: Multi-agent collaborations, long-running conversations, coordinated analysis
+
+### Integration Strategy
+- **Session + Correlation**: Sessions track conversations, correlations track operations
+- **Unified Context**: Both session_id and trace_context in event metadata
+- **Query Patterns**: 
+  - By session: All events in a conversation
+  - By correlation: All events from one request
+  - By trace: Full chain of cascading operations
+
+### Other Near Term
+- Enhanced system history presentation for monitors
 - Performance metrics extraction
+- Interface updates for composition system
 
-### Long Term
-- Distributed KSI clusters
-- HTTP/gRPC transport
-- Kubernetes-like agent deployment
-- Cross-cluster federation
+### Long Term Vision
+- Distributed KSI clusters with session federation
+- HTTP/gRPC transport with trace context headers
+- Kubernetes-like agent deployment with delivery preferences
+- Cross-cluster event routing with trace preservation
 
 ## Recent Architecture Enhancements
 
@@ -262,6 +294,8 @@ Verifies: sync/async completion, queue status, conversation locks, priorities
 ### Agent Spawning Enhancement
 - **Fail-Fast**: No fallbacks - explicit profile/composition required
 - **Composition Integration**: `agent:spawn` resolves profiles via composition service
+- **Dynamic Spawning**: Three modes - `fixed`, `dynamic`, `emergent`
+- **Runtime Selection**: `composition:select` event for intelligent composition choice
 - **Cross-Plugin Events**: Plugins communicate via shared `emit_event` function
 
 ### Event System Enhancement
@@ -269,16 +303,64 @@ Verifies: sync/async completion, queue status, conversation locks, priorities
 - **Event Routing**: Central event router handles all plugin interactions
 - **Async Support**: Coroutine results properly awaited by daemon
 
-## Pending Work
+### Dynamic Composition System (Implemented)
+- **Selection Service**: `composition:select` chooses best composition based on context
+- **Runtime Creation**: `composition:create` for on-the-fly composition generation
+- **Self-Modification**: `agent:update_composition` allows agents to adapt
+- **Peer Discovery**: `agent:discover_peers` finds agents by capabilities
+- **Role Negotiation**: `agent:negotiate_roles` enables multi-agent coordination
+- **Enhanced Metadata**: Compositions declare capabilities, permissions, compatibility
 
-### Cleanup Tasks
-- Remove empty `ksi_daemon/plugins/completion/backups/` directory
-- Remove async completion methods from `completion_manager.py`
+## Recent Dynamic Agent System Implementation
 
-### Next Features
-- **Correlation ID**: Design event tracing across async operations
-- **Metrics Collection**: Implement MetricsClient in ksi_admin
-- **Control Operations**: Implement ControlClient for lifecycle management
+### Phase 1: Enhanced Composition Service ✓
+- Added `composition:select` event for intelligent composition selection
+- Added `composition:create` for runtime composition generation
+- Extended metadata: capabilities_provided/required, spawns_agents, self_modifiable
+- Created adaptive_researcher.yaml as example self-modifying composition
+
+### Phase 2: Agent Self-Modification ✓
+- Implemented `agent:update_composition` for runtime adaptation
+- Added `agent:discover_peers` for capability-based peer discovery
+- Added `agent:negotiate_roles` for dynamic role assignment
+- Composition history tracking per agent
+
+### Interface Updates ✓
+- Added `--spawn-mode` flag to orchestrate.py (fixed/dynamic/emergent)
+- Dynamic mode uses composition selection service
+- Emergent mode enables self-organization
+- Compositions now treated as hints, not requirements
+
+## Implementation Priorities
+
+### Immediate (This Week)
+1. **Correlation ID Infrastructure**
+   - Core TraceContext class and span generation
+   - EventRouter enhancement for context propagation
+   - Critical plugin updates (completion, injection, agent services)
+   - Basic trace query API
+
+2. **Architecture Cleanup**
+   - Remove remaining multi-socket references
+   - Update interfaces to use composition system
+   - Clean up test files using old patterns
+
+### Next Sprint
+1. **Session Management Phase 1**
+   - Session registry with SQLite persistence
+   - Fork prevention implementation
+   - Basic lifecycle management
+
+2. **Enhanced Monitoring**
+   - Trace visualization in monitor interfaces
+   - System history presentation
+   - Performance metrics extraction
+
+### Future Sprints
+- Message routing enhancements (from/to/cc patterns)
+- Flexible event delivery modes
+- Multicast completion implementation
+- Emergency broadcast system
 
 ---
 *For development practices, see `/Users/dp/projects/ksi/CLAUDE.md`*
