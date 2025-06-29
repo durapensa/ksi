@@ -12,7 +12,6 @@ Categories:
 - agent: Agent lifecycle and operations
 - claude: Claude process management
 - message_bus: Event-driven messaging
-- hot_reload: Zero-downtime reloading
 """
 
 from typing import Dict, List, Set
@@ -27,7 +26,6 @@ class EventCategory(str, Enum):
     AGENT = "agent"
     CLAUDE = "claude"
     MESSAGE_BUS = "message_bus"
-    HOT_RELOAD = "hot_reload"
 
 
 # Daemon Lifecycle Events
@@ -95,15 +93,6 @@ MESSAGE_BUS_EVENTS = {
     "message_bus.stats_collected": "Message bus statistics gathered",
 }
 
-# Hot Reload Events
-HOT_RELOAD_EVENTS = {
-    "hot_reload.initiated": "Hot reload process started",
-    "hot_reload.state_serialized": "Daemon state serialized for transfer",
-    "hot_reload.state_transferred": "State transferred to new daemon",
-    "hot_reload.completed": "Hot reload process completed",
-    "hot_reload.failed": "Hot reload process failed",
-    "hot_reload.new_daemon_spawned": "New daemon instance spawned",
-}
 
 # All events combined
 ALL_EVENTS: Dict[str, str] = {
@@ -113,7 +102,6 @@ ALL_EVENTS: Dict[str, str] = {
     **AGENT_EVENTS,
     **CLAUDE_EVENTS,
     **MESSAGE_BUS_EVENTS,
-    **HOT_RELOAD_EVENTS,
 }
 
 

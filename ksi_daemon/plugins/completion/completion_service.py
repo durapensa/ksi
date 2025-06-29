@@ -19,6 +19,7 @@ from typing import Dict, Any, Optional, List
 import logging
 import pluggy
 
+import anyio
 import litellm
 
 from ksi_daemon.plugin_utils import get_logger, plugin_metadata
@@ -26,14 +27,7 @@ from ksi_common import TimestampManager, create_completion_response, parse_compl
 from ksi_daemon.config import config
 from ksi_daemon.event_taxonomy import CLAUDE_EVENTS, format_claude_event
 
-# Import new queue and injection systems
-from ksi_daemon.plugins.completion.completion_queue import (
-    enqueue_completion, 
-    get_next_completion,
-    mark_completion_done,
-    get_queue_status,
-    Priority
-)
+# Import injection systems
 from ksi_daemon.plugins.injection.injection_router import queue_completion_with_injection
 from ksi_daemon.plugins.injection.circuit_breakers import check_completion_allowed
 
@@ -51,8 +45,23 @@ hookimpl = pluggy.HookimplMarker("ksi")
 logger = get_logger("completion_service")
 active_completions: Dict[str, Dict[str, Any]] = {}
 
+# Per-session queue management for fork prevention
+session_processors: Dict[str, asyncio.Queue] = {}  # session_id -> Queue
+active_sessions: set = set()  # Currently processing sessions
+
+# Structured concurrency with anyio - created on demand
+completion_task_group = None
+task_group_context = None
+
 # Event emitter reference (set during startup)
 event_emitter = None
+
+
+def get_completion_task_group():
+    """Get the completion task group (must be called after service startup)."""
+    if completion_task_group is None:
+        raise RuntimeError("Completion service not ready - task group not available")
+    return completion_task_group
 
 
 def ensure_directories():
@@ -98,35 +107,47 @@ def save_completion_response(response_data: Dict[str, Any]) -> None:
 def ksi_startup(config):
     """Initialize completion service on startup."""
     ensure_directories()
-    logger.info("Completion service v3 started with queue and injection support")
-    return {"status": "completion_service_v3_ready"}
+    logger.info("Smart hybrid completion service with anyio structured concurrency - event-driven with per-session fork prevention")
+    return {"status": "completion_service_anyio_smart_hybrid_ready"}
+
+
+
+async def manage_completion_service():
+    """Long-running service to manage anyio task group for completions."""
+    global completion_task_group, task_group_context
+    
+    try:
+        # Create and enter the task group context
+        async with anyio.create_task_group() as tg:
+            completion_task_group = tg
+            logger.info("Completion service ready")
+            
+            # Keep the service running until cancelled
+            await anyio.sleep_forever()
+            
+    except anyio.get_cancelled_exc_class():
+        raise
+    except Exception as e:
+        logger.error(f"Completion service error: {e}", exc_info=True)
+        raise
+    finally:
+        completion_task_group = None
 
 
 @hookimpl
 def ksi_ready():
-    """Called when daemon is ready - return async tasks to be started."""
-    logger.warning("COMPLETION SERVICE ksi_ready CALLED - DEBUG")
+    """Return the completion service manager task."""
+    logger.info("Completion service requesting service manager task")
     
-    # Create the coroutine
-    try:
-        queue_coroutine = process_completion_queue()
-        logger.warning(f"COMPLETION SERVICE created coroutine: {queue_coroutine}")
-        
-        # Return the coroutine that should be started as a task
-        result = {
-            "service": "completion_service", 
-            "tasks": [
-                {
-                    "name": "queue_processor",
-                    "coroutine": queue_coroutine
-                }
-            ]
-        }
-        logger.warning(f"COMPLETION SERVICE returning: {result}")
-        return result
-    except Exception as e:
-        logger.error(f"COMPLETION SERVICE error in ksi_ready: {e}", exc_info=True)
-        return None
+    return {
+        "service": "completion_service",
+        "tasks": [
+            {
+                "name": "service_manager",
+                "coroutine": manage_completion_service()
+            }
+        ]
+    }
 
 
 
@@ -136,10 +157,10 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
     """Handle completion-related events."""
     
     if event_name == "completion:async":
-        # Queue async completion with injection support
+        # Smart hybrid: event-driven + per-session fork prevention
         # Create a coroutine wrapper for consistent async handling
         async def _handle_async():
-            return await handle_async_completion_queued(data, context)
+            return await handle_async_completion_smart(data, context)
         return _handle_async()
     
     elif event_name == "completion:cancel":
@@ -152,17 +173,32 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
         return {"status": "not_found"}
     
     elif event_name == "completion:status":
-        # Get enhanced status including queue
-        queue_status = get_queue_status()  # Sync function, no await needed
+        # anyio smart hybrid architecture status
         return {
+            "architecture": "anyio_smart_hybrid",
+            "task_group_active": completion_task_group is not None,
             "active_count": len(active_completions),
             "active_requests": list(active_completions.keys()),
-            "queue_status": queue_status
+            "active_sessions": list(active_sessions),
+            "session_queues": {
+                session_id: queue.qsize() 
+                for session_id, queue in session_processors.items()
+            },
+            "session_queue_count": len(session_processors)
         }
     
-    elif event_name == "completion:queue_status":
-        # Detailed queue status - return coroutine
-        return get_queue_status()
+    elif event_name == "completion:session_status":
+        # Detailed per-session status
+        session_id = data.get("session_id")
+        if not session_id:
+            return {"error": "session_id required"}
+            
+        return {
+            "session_id": session_id,
+            "active": session_id in active_sessions,
+            "queued": session_processors.get(session_id, asyncio.Queue()).qsize() if session_id in session_processors else 0,
+            "has_queue": session_id in session_processors
+        }
     
     return None
 
@@ -277,99 +313,170 @@ async def handle_completion_request(data: Dict[str, Any], context: Dict[str, Any
         return result
 
 
-async def handle_async_completion_queued(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle async completion request with queue and injection support."""
+async def handle_async_completion_smart(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+    """Smart hybrid completion handling - event-driven + per-session fork prevention."""
     
-    # Extract priority
-    priority_str = data.get("priority", "normal")
-    priority_map = {
-        'critical': Priority.CRITICAL,
-        'high': Priority.HIGH,
-        'normal': Priority.NORMAL,
-        'low': Priority.LOW,
-        'background': Priority.BACKGROUND
-    }
-    priority = priority_map.get(priority_str.lower(), Priority.NORMAL)
+    # Generate request ID if not provided
+    request_id = data.get('request_id', str(uuid.uuid4()))
+    data['request_id'] = request_id
+    session_id = data.get('session_id')
     
     # Check if injection is requested
     injection_config = data.get("injection_config")
     if injection_config and injection_config.get('enabled'):
-        # Store injection metadata
+        # Store injection metadata with injection router
         request_id = queue_completion_with_injection(data)
         data['request_id'] = request_id
     
-    # Queue the request
-    queue_result = await enqueue_completion(data, priority_str)
+    # Smart routing based on session state
+    if not session_id:
+        # No session ID = no fork risk = immediate processing
+        task_group = get_completion_task_group()
+        task_group.start_soon(process_single_completion, data, context)
+        logger.info(f"Processing sessionless completion {request_id} immediately")
+        
+        return {
+            "request_id": request_id,
+            "status": "processing",
+            "reason": "no_session",
+            "message": "Processing immediately - no fork risk"
+        }
     
-    return queue_result
+    elif session_id in active_sessions:
+        # Session busy = queue to prevent fork
+        if session_id not in session_processors:
+            # Create per-session queue on demand
+            session_processors[session_id] = asyncio.Queue()
+            task_group = get_completion_task_group()
+            task_group.start_soon(process_session_queue, session_id)
+            logger.info(f"Created queue processor for session {session_id}")
+        
+        # Queue the request
+        await session_processors[session_id].put(data)
+        logger.info(f"Queued completion {request_id} for busy session {session_id}")
+        
+        return {
+            "request_id": request_id,
+            "status": "queued",
+            "reason": "session_busy",
+            "session_id": session_id,
+            "message": "Queued to prevent conversation fork"
+        }
+    
+    else:
+        # Session free = immediate processing with lock
+        task_group = get_completion_task_group()
+        task_group.start_soon(process_completion_with_session_lock, data, context)
+        logger.info(f"Processing completion {request_id} for free session {session_id}")
+        
+        return {
+            "request_id": request_id,
+            "status": "processing", 
+            "session_id": session_id,
+            "message": "Processing immediately"
+        }
 
 
-async def process_completion_queue():
-    """Background task to process queued completions."""
+async def process_session_queue(session_id: str) -> None:
+    """Process queued requests for a specific session - prevents forks."""
     
-    # Use warning level to ensure it appears in logs
-    logger.warning("STARTING COMPLETION QUEUE PROCESSOR - DEBUG")
+    logger.info(f"Starting session queue processor for {session_id}")
+    queue = session_processors[session_id]
     
-    iteration_count = 0
-    while True:
-        try:
-            iteration_count += 1
-            if iteration_count % 10 == 1:  # Log every 10th iteration
-                logger.warning(f"Queue processor iteration {iteration_count}")
+    try:
+        while True:
+            # Wait for next request for this session
+            request_data = await queue.get()
             
-            # Get next completion from queue
-            next_request = await get_next_completion()
+            logger.info(f"Processing queued request for session {session_id}")
             
-            if not next_request:
-                # No requests ready, wait a bit
-                await asyncio.sleep(0.1)
-                continue
+            # Process with session lock
+            await process_completion_with_session_lock(request_data, {})
             
-            request_id = next_request['request_id']
-            request_data = next_request['data']
+            # Mark task done
+            queue.task_done()
             
-            logger.info(f"Processing queued completion {request_id}")
+    except asyncio.CancelledError:
+        logger.info(f"Session queue processor for {session_id} cancelled")
+        raise
+    except Exception as e:
+        logger.error(f"Session queue error for {session_id}: {e}", exc_info=True)
+        # Continue processing queue
+    finally:
+        # Cleanup session queue when done
+        if session_id in session_processors:
+            del session_processors[session_id]
+        logger.info(f"Session queue processor for {session_id} stopped")
+
+
+async def process_completion_with_session_lock(data: Dict[str, Any], context: Dict[str, Any]) -> None:
+    """Process completion with session locking to prevent forks."""
+    
+    session_id = data.get('session_id')
+    request_id = data.get('request_id', str(uuid.uuid4()))
+    
+    try:
+        # Acquire session lock
+        if session_id:
+            active_sessions.add(session_id)
+            logger.debug(f"Acquired session lock for {session_id}")
             
-            # Store as active
-            active_completions[request_id] = {
-                "data": request_data,
-                "started_at": TimestampManager.timestamp_utc()
-            }
-            
-            # Emit progress event
-            if event_emitter and callable(event_emitter):
-                await event_emitter("completion:progress", {
-                    "request_id": request_id,
-                    "status": "processing",
-                    "message": "Processing completion"
-                }, {})
-            
-            # Process the completion
-            result = await handle_completion_request(request_data, {})
-            
-            # Add request ID to result
-            result["request_id"] = request_id
-            
-            # Mark completion done in queue (handles lock release and fork detection)
-            queue_complete_result = await mark_completion_done(request_id, result)
-            
-            # Handle fork if detected
-            if queue_complete_result.get('fork_info'):
-                fork_info = queue_complete_result['fork_info']
-                logger.warning(f"Fork detected: {fork_info}")
-                result['fork_detected'] = True
-                result['fork_info'] = fork_info
-            
-            # Emit result event (will trigger injection router)
-            if event_emitter and callable(event_emitter):
-                await event_emitter("completion:result", result, {})
-            
-            # Clean up
-            active_completions.pop(request_id, None)
-            
-        except Exception as e:
-            logger.error(f"Queue processor error: {e}", exc_info=True)
-            await asyncio.sleep(1)  # Back off on error
+        # Process the completion
+        await process_single_completion(data, context)
+        
+    finally:
+        # Always release session lock
+        if session_id:
+            active_sessions.discard(session_id)
+            logger.debug(f"Released session lock for {session_id}")
+
+
+async def process_single_completion(data: Dict[str, Any], context: Dict[str, Any]) -> None:
+    """Process a single completion request - core logic."""
+    
+    request_id = data.get('request_id', str(uuid.uuid4()))
+    
+    logger.info(f"Processing completion request {request_id}")
+    
+    try:
+        # Store as active
+        active_completions[request_id] = {
+            "data": data,
+            "started_at": TimestampManager.timestamp_utc()
+        }
+        
+        # Emit progress event
+        if event_emitter and callable(event_emitter):
+            await event_emitter("completion:progress", {
+                "request_id": request_id,
+                "status": "processing",
+                "message": "Processing completion"
+            }, {})
+        
+        # Process the completion
+        result = await handle_completion_request(data, context)
+        
+        # Add request ID to result
+        result["request_id"] = request_id
+        
+        # Emit result event (will trigger injection router)
+        if event_emitter and callable(event_emitter):
+            await event_emitter("completion:result", result, {})
+        
+        logger.info(f"Completed request {request_id}")
+        
+    except Exception as e:
+        logger.error(f"Completion error for {request_id}: {e}", exc_info=True)
+        # Emit error event
+        if event_emitter and callable(event_emitter):
+            await event_emitter("completion:error", {
+                "request_id": request_id,
+                "error": str(e)
+            }, {})
+    
+    finally:
+        # Clean up
+        active_completions.pop(request_id, None)
 
 
 
@@ -383,15 +490,13 @@ def ksi_plugin_context(context):
 @hookimpl
 def ksi_shutdown():
     """Clean up on shutdown."""
-    logger.info(f"Completion service v3 stopped - {len(active_completions)} active completions")
-    
-    # Get queue status synchronously (it's not actually async)
-    queue_status = get_queue_status()
+    logger.info(f"anyio smart hybrid completion service stopped - {len(active_completions)} active tasks, {len(session_processors)} session queues")
     
     return {
-        "status": "completion_service_v3_stopped",
-        "active_completions": len(active_completions),
-        "queue_status": queue_status
+        "status": "completion_service_anyio_smart_hybrid_stopped",
+        "active_tasks": len(active_completions),
+        "session_queues": len(session_processors),
+        "architecture": "anyio_smart_hybrid"
     }
 
 

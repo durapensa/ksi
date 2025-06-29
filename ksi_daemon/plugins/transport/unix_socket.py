@@ -188,12 +188,64 @@ async def send_response(writer, response: Dict[str, Any]):
         logger.error(f"Error sending response: {e}")
 
 
+# Global transport instance
+transport_instance = None
+
 # Hook implementations
 @hookimpl
 def ksi_startup(config):
     """Initialize transport on startup."""
+    global transport_instance
+    
+    # Create transport instance
+    socket_path = str(config.socket_path) if hasattr(config, 'socket_path') else 'var/run/daemon.sock'
+    transport_instance = UnixSocketTransport(socket_path)
+    
     logger.info("Unix socket transport plugin starting")
     return {"plugin.unix_socket_transport": {"loaded": True}}
+
+@hookimpl
+def ksi_ready():
+    """Return long-running server task to keep daemon alive."""
+    global transport_instance
+    
+    if transport_instance:
+        logger.info("Starting Unix socket server task")
+        
+        async def run_server():
+            """Run the Unix socket server - keeps daemon alive."""
+            await transport_instance.start()
+            
+            # Keep server running until cancelled
+            try:
+                await asyncio.Future()  # Wait forever until cancelled
+            except asyncio.CancelledError:
+                logger.info("Server task cancelled - shutting down")
+                await transport_instance.stop()
+                raise
+        
+        return {
+            "service": "unix_socket_transport",
+            "tasks": [
+                {
+                    "name": "socket_server", 
+                    "coroutine": run_server()
+                }
+            ]
+        }
+    
+    return None
+
+
+@hookimpl
+def ksi_plugin_context(context):
+    """Receive context including event emitter."""
+    global transport_instance, event_emitter
+    
+    event_emitter = context.get("emit_event")
+    if transport_instance and event_emitter:
+        transport_instance.set_event_emitter(event_emitter)
+        logger.info("Transport configured with event emitter")
 
 
 @hookimpl

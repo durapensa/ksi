@@ -64,6 +64,27 @@ Essential development practices for Claude Code when working with KSI.
   - List hooks: `echo '{"event": "plugin:hooks", "data": {}}' | nc -U var/run/daemon.sock`
   - Inspect plugin: `echo '{"event": "plugin:inspect", "data": {"plugin_name": "..."}}' | nc -U var/run/daemon.sock`
 
+### Session ID Management (Critical)
+- **NEVER invent session IDs** - claude-cli only accepts session IDs it has generated
+- **No session ID = clean context** - omit session_id for new conversations
+- **Session continuation** - only use session_id values returned by previous claude-cli responses
+- **Claude-cli returns NEW session_id from EVERY request** - even continuation requests get new session_id
+- **Log filename pattern** - response files are named by the NEW session_id returned by claude-cli
+- **Conversation tracking** - use session_id from previous response as input, expect new session_id in response
+- **Testing pattern**: Always test without session_id first, then use returned session_id for continuation
+- **Example**:
+  ```bash
+  # First request - no session_id (clean context)
+  echo '{"event": "completion:async", "data": {"prompt": "Say OK", "model": "claude-cli/sonnet"}}' | nc -U var/run/daemon.sock
+  # Returns: request_id "abc123", creates file: var/logs/responses/NEW-SESSION-ID-1.jsonl
+  
+  # Continue conversation using session_id from previous response
+  echo '{"event": "completion:async", "data": {"prompt": "What did I ask?", "model": "claude-cli/sonnet", "session_id": "NEW-SESSION-ID-1"}}' | nc -U var/run/daemon.sock  
+  # Returns: request_id "def456", creates file: var/logs/responses/NEW-SESSION-ID-2.jsonl
+  
+  # Each response contains a DIFFERENT session_id for the next request
+  ```
+
 ### Code Hygiene
 - **Clean as you go** - remove dead code immediately when found
 - **No legacy handlers** - don't keep backward compatibility cruft

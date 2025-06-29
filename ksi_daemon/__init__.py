@@ -27,7 +27,6 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--socket-dir', 
                        help='Override socket directory (creates all sockets in this dir)')
-    parser.add_argument('--hot-reload-from', help='Socket path to reload from')
     return parser.parse_args()
 
 def setup_logging():
@@ -90,7 +89,7 @@ def setup_signal_handlers(shutdown_event, loop):
             logger.warning(f"Could not register asyncio signal handler for {sig}: {e}")
             signal.signal(sig, lambda signum, frame: signal_handler(signal.Signals(signum).name))
 
-async def create_plugin_daemon(socket_dir: str = None, hot_reload_from: str = None):
+async def create_plugin_daemon(socket_dir: str = None):
     """Create plugin-based daemon"""
     
     # Build configuration
@@ -109,10 +108,6 @@ async def create_plugin_daemon(socket_dir: str = None, hot_reload_from: str = No
         }
     }
     
-    # Hot reload not yet supported in plugin architecture
-    if hot_reload_from:
-        logger.warning("Hot reload not yet supported in plugin architecture")
-    
     # Create and initialize plugin daemon
     daemon = PluginDaemon(config_dict)
     await daemon.initialize()
@@ -128,7 +123,7 @@ async def main():
     ensure_var_directories()
     
     # Create plugin-based daemon
-    daemon = await create_plugin_daemon(args.socket_dir, args.hot_reload_from)
+    daemon = await create_plugin_daemon(args.socket_dir)
     
     # Get the current event loop
     loop = asyncio.get_running_loop()

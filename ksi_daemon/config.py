@@ -50,9 +50,6 @@ class KSIDaemonConfig(KSIBaseConfig):
     # Test timeouts (in seconds)
     test_completion_timeout: int = 120     # 2 minutes for tests
     
-    # Optional hot reload socket
-    hot_reload_socket: Optional[Path] = None
-    
     def ensure_directories(self) -> None:
         """Ensure all daemon directories exist."""
         # First ensure base directories
