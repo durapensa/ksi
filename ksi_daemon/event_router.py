@@ -14,6 +14,7 @@ from collections import defaultdict
 import fnmatch
 
 from .event_log import DaemonEventLog
+from .correlation import start_trace, complete_trace, ensure_correlation_id, get_correlation_logger
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ class SimpleEventRouter:
                          correlation_id: Optional[str] = None,
                          context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         """
-        Route an event directly to plugin hooks.
+        Route an event directly to plugin hooks with correlation tracing.
         
         Args:
             event_name: Name of the event
@@ -70,13 +71,27 @@ class SimpleEventRouter:
         """
         self.stats["events_routed"] += 1
         
+        # Ensure correlation ID and start trace
+        trace_correlation_id = ensure_correlation_id(correlation_id)
+        trace_id = start_trace(
+            event_name=event_name,
+            data=data,
+            correlation_id=trace_correlation_id
+        )
+        
+        # Get correlation-aware logger
+        trace_logger = get_correlation_logger(__name__)
+        
         # Create context if not provided
         if context is None:
             context = {
                 "event_id": str(uuid.uuid4()),
                 "timestamp": time.time(),
-                "correlation_id": correlation_id
+                "correlation_id": trace_correlation_id
             }
+        else:
+            # Update context with trace correlation ID
+            context["correlation_id"] = trace_correlation_id
         
         # Log event for monitoring (minimal overhead)
         client_id = data.get("client_id") or context.get("client_id")
@@ -84,7 +99,7 @@ class SimpleEventRouter:
             event_name=event_name,
             data=data,
             client_id=client_id,
-            correlation_id=correlation_id,
+            correlation_id=trace_correlation_id,
             event_id=context.get("event_id")
         )
         
@@ -119,6 +134,9 @@ class SimpleEventRouter:
             if len(responses) == 1:
                 response = responses[0]
                 
+                # Complete trace with success
+                complete_trace(trace_id, result={"response_count": 1, "handlers": handlers_called})
+                
                 # Handle correlation responses
                 if correlation_id and correlation_id in self.pending_requests:
                     future = self.pending_requests[correlation_id]
@@ -129,8 +147,11 @@ class SimpleEventRouter:
             
             # For multiple responses, combine them
             elif len(responses) > 1:
-                logger.debug(f"Multiple responses for {event_name}: {responses}")
+                trace_logger.debug(f"Multiple responses for {event_name}: {len(responses)} responses")
                 combined = {"responses": responses}
+                
+                # Complete trace with success
+                complete_trace(trace_id, result={"response_count": len(responses), "handlers": handlers_called})
                 
                 # Handle correlation
                 if correlation_id and correlation_id in self.pending_requests:
@@ -140,10 +161,14 @@ class SimpleEventRouter:
                 
                 return combined
             
+            # No responses - complete trace with no result
+            complete_trace(trace_id, result={"response_count": 0, "handlers": handlers_called})
             return None
             
         except Exception as e:
-            logger.error(f"Error routing event {event_name}: {e}", exc_info=True)
+            # Complete trace with error
+            complete_trace(trace_id, error=str(e))
+            trace_logger.error(f"Error routing event {event_name}: {e}", exc_info=True)
             self.stats["events_failed"] += 1
             return None
     
