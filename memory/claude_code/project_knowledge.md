@@ -19,13 +19,15 @@ ksi/
 ├── ksi_client/         # Unified client library (participants + admin)
 ├── tests/              # Test suite
 ├── interfaces/         # User interfaces
-├── var/                # Runtime data (gitignored)
+├── var/                # Runtime data
 │   ├── run/           # PID file and daemon socket
-│   ├── logs/          # Daemon and session logs
-│   ├── db/            # SQLite database
-│   ├── prompts/       # Legacy prompt templates
-│   └── lib/           # Unified compositions
-│       ├── compositions/   # All declarative configs
+│   ├── logs/          # Structured logging (see Dynamic Storage below)
+│   │   ├── responses/sessions/  # Completion logs (source of truth)
+│   │   ├── events/     # Non-completion events
+│   │   └── index/      # SQLite navigation indexes
+│   ├── db/            # Persistent state
+│   └── lib/           # Tracked compositions
+│       ├── compositions/   # Agent profiles, prompts, orchestrations
 │       ├── fragments/      # Reusable text fragments
 │       └── schemas/        # YAML validation schemas
 └── memory/             # Knowledge management
@@ -282,89 +284,88 @@ Verifies: sync/async completion, queue status, conversation locks, priorities
 - Kubernetes-like agent deployment with delivery preferences
 - Cross-cluster event routing with trace preservation
 
-## Recent Architecture Enhancements
+## Completed Architecture
 
-### Unified Composition System
-- **Architecture**: All configurations (profiles, prompts) use YAML compositions
-- **Location**: `var/lib/compositions/` with organized subdirectories
-- **Features**: Inheritance, mixins, variable substitution, conditional assembly
-- **Integration**: Agent spawning uses composition service for profile resolution
-- **Documentation**: `/Users/dp/projects/ksi/docs/UNIFIED_COMPOSITION_ARCHITECTURE.md`
+### Unified Composition System ✅
+- All configurations use YAML compositions (`var/lib/compositions/`)
+- Inheritance, mixins, variable substitution, conditional assembly
+- Agent spawning integrated with composition service
 
-### Agent Spawning Enhancement
-- **Fail-Fast**: No fallbacks - explicit profile/composition required
-- **Composition Integration**: `agent:spawn` resolves profiles via composition service
-- **Dynamic Spawning**: Three modes - `fixed`, `dynamic`, `emergent`
-- **Runtime Selection**: `composition:select` event for intelligent composition choice
-- **Cross-Plugin Events**: Plugins communicate via shared `emit_event` function
-
-### Event System Enhancement
-- **Plugin Context**: All plugins receive `emit_event` for cross-plugin communication
-- **Event Routing**: Central event router handles all plugin interactions
-- **Async Support**: Coroutine results properly awaited by daemon
-
-### Dynamic Composition System (Implemented)
-- **Selection Service**: `composition:select` chooses best composition based on context
-- **Runtime Creation**: `composition:create` for on-the-fly composition generation
-- **Self-Modification**: `agent:update_composition` allows agents to adapt
+### Dynamic Agent System ✅
+- **Selection Service**: `composition:select` chooses compositions by context
+- **Self-Modification**: `agent:update_composition` enables runtime adaptation
 - **Peer Discovery**: `agent:discover_peers` finds agents by capabilities
-- **Role Negotiation**: `agent:negotiate_roles` enables multi-agent coordination
-- **Enhanced Metadata**: Compositions declare capabilities, permissions, compatibility
+- **Three Spawn Modes**: fixed/dynamic/emergent in `orchestrate.py`
+- **Runtime Creation**: `composition:create` for on-the-fly generation
 
-## Recent Dynamic Agent System Implementation
-
-### Phase 1: Enhanced Composition Service ✓
-- Added `composition:select` event for intelligent composition selection
-- Added `composition:create` for runtime composition generation
-- Extended metadata: capabilities_provided/required, spawns_agents, self_modifiable
-- Created adaptive_researcher.yaml as example self-modifying composition
-
-### Phase 2: Agent Self-Modification ✓
-- Implemented `agent:update_composition` for runtime adaptation
-- Added `agent:discover_peers` for capability-based peer discovery
-- Added `agent:negotiate_roles` for dynamic role assignment
-- Composition history tracking per agent
-
-### Interface Updates ✓
-- Added `--spawn-mode` flag to orchestrate.py (fixed/dynamic/emergent)
-- Dynamic mode uses composition selection service
-- Emergent mode enables self-organization
-- Compositions now treated as hints, not requirements
+### Event System ✅
+- Plugin context with shared `emit_event` for cross-plugin communication
+- Central event router handling all plugin interactions
+- Async coroutine support properly awaited
 
 ## Implementation Priorities
 
-### Immediate (This Week)
-1. **Correlation ID Infrastructure**
-   - Core TraceContext class and span generation
-   - EventRouter enhancement for context propagation
-   - Critical plugin updates (completion, injection, agent services)
-   - Basic trace query API
+### Critical Path (Complete Async Pipeline)
+1. **Injection System Implementation** (1-2 days)
+   - Execute actual injection in `injection_router.py:235-238`
+   - Complete end-to-end async completion flows
+   - Enable true multi-agent coordination
+   - **Blocker**: Final step of mostly-complete system
 
-2. **Architecture Cleanup**
-   - Remove remaining multi-socket references
-   - Update interfaces to use composition system
-   - Clean up test files using old patterns
+2. **Correlation ID Infrastructure** (3-5 days)
+   - TraceContext class and span generation
+   - EventRouter context propagation
+   - Debug complex event chains (injection → agent → response)
+   - **Impact**: Essential for production troubleshooting
 
-### Next Sprint
-1. **Session Management Phase 1**
-   - Session registry with SQLite persistence
-   - Fork prevention implementation
-   - Basic lifecycle management
+### Production Readiness
+3. **Completion Queue Cancellation** (1-2 days)
+   - Wire LiteLLM cancellation to daemon shutdown
+   - Fix graceful shutdown blocking on long completions
+   - **Blocker**: Development workflow (faster restarts)
 
-2. **Enhanced Monitoring**
-   - Trace visualization in monitor interfaces
-   - System history presentation
-   - Performance metrics extraction
+4. **Circuit Breaker Enhancements** (2-3 days)
+   - Token/time tracking (currently returns zeros)
+   - Prevent runaway completion chains
+   - Resource management and cost control
 
-### Future Sprints
-- Message routing enhancements (from/to/cc patterns)
-- Flexible event delivery modes
-- Multicast completion implementation
-- Emergency broadcast system
+### Foundation for Scale
+5. **Dynamic Storage Architecture** (1 week)
+   - Session-based write contention solution
+   - Minimal duplication storage model
+   - Support for peer-to-peer agent patterns
+   - **Impact**: Scalable multi-agent coordination
 
-## Composition Library Reorganization (In Progress)
+## Dynamic Storage Architecture
 
-### var/lib Structure
+### Core Principles
+- **Single Source of Truth**: `var/logs/responses/sessions/` for all completion data
+- **Write Contention Solution**: Session ownership with daemon-serialized writes
+- **Dynamic Agent Support**: No fixed hierarchy assumptions, peer-to-peer capable
+- **Minimal Duplication**: SQL indexes point to JSONL files, don't duplicate content
+
+### Storage Structure
+```
+var/logs/
+├── responses/sessions/          # JSONL completion logs (source of truth)
+│   ├── sess_{uuid1}.jsonl      # Each session owned by initiating agent
+│   └── sess_{uuid2}.jsonl
+├── events/                     # Non-completion events only
+│   └── {date}/
+│       ├── evt_*.json          # Agent lifecycle, state changes
+└── index/daily/                # SQLite navigation indexes
+    └── {date}.db               # File pointers + minimal metadata
+```
+
+### Session Management
+- **Ownership Model**: Each session has single initiating agent (prevents write conflicts)
+- **Participation**: Other agents join via event system, not direct writes
+- **Dynamic Roles**: Agents can shift roles (peer → coordinator → peer)
+- **Communication Patterns**: peer_to_peer, broadcast, team_formation, emergent
+
+## Composition Library
+
+### var/lib Structure (Tracked in Git)
 ```
 var/lib/
 ├── compositions/
@@ -390,45 +391,51 @@ var/lib/
 - **Composition Signing**: For trusted exchange (deferred)
 - **Performance Hints**: After experimentation (deferred)
 
-## Incomplete Refactors & Intended Functionality
+## Critical Incomplete Features
 
-### Profile Loading System
-- **Legacy JSON loading**: Still present in `profile_loader.py` for edge cases
-- **Status**: Intended fallback, not fully removed
-- **Reason**: Some tools may still generate JSON profiles
+### Injection System (90% Complete)
+- **Missing**: Final execution step in `injection_router.py:235-238`
+- **Status**: Content composition and queuing works, execution is just a TODO
+- **Impact**: Blocks end-to-end async completion flows and agent coordination
+- **Effort**: Low - mostly implemented, needs final wiring
 
-### Injection System  
-- **TODO in injection_router.py**: "Actually inject content into session"
-- **Status**: Scaffold implemented, injection logic pending
-- **Purpose**: Critical for async completion flows and agent coordination
+### Completion Cancellation (Needed for Production)
+- **Missing**: Actual LiteLLM request cancellation in `completion_service.py:124`
+- **Status**: Event removes from dict but doesn't cancel running requests
+- **Impact**: Daemon shutdown hangs on long completions
+- **Need**: Graceful shutdown and resource management
 
-### Session Management
-- **Legacy method names**: e.g., "track_session_output" 
-- **Status**: Basic implementation, awaiting full session federation design
-- **Purpose**: Foundation for cross-device conversation continuity
+### Circuit Breaker Resource Tracking
+- **Missing**: Token/time tracking returns zeros in injection circuit breaker
+- **Status**: Framework implemented, resource counting not implemented
+- **Impact**: Can't prevent runaway completion chains or manage costs
+- **Need**: Production resource management
 
+### Session Management Foundation
+- **Missing**: Basic session registry and federation framework
+- **Status**: Conversation service provides search/export, not true sessions
+- **Impact**: No cross-device conversation continuity
+- **Need**: Foundation for future distributed deployment
 
-### TODOs to Preserve
-- Event log file persistence with rotation (planned feature)
-- Completion queue cancellation (needed for graceful shutdown)
-- Token/time tracking in injection (for resource management)
-- Memory metrics in monitor (awaiting implementation)
+### Event Log Persistence
+- **Missing**: File persistence with rotation for event log
+- **Status**: In-memory ring buffer only
+- **Impact**: Limited debugging and monitoring capabilities
+- **Need**: Production observability
 
-## Completed Refactors with Legacy Code to Remove
+## Technical Debt Cleanup ✅
 
-### JSON Profile Migration (Completed)
-- **Migration**: All JSON profiles migrated to YAML compositions
-- **Legacy code locations**:
-  - `profile_loader.py`: JSON loading fallback (no longer needed)
-  - `agent_service.py`: Dead profile handlers (never registered)
-  - `chat_textual.py`: References to non-existent var/agent_profiles
-- **Status**: Safe to remove - no code generates JSON profiles
+### Legacy Code Removed
+- Multi-socket references updated to single-socket architecture
+- Dead JSON profile loading code removed (system uses YAML compositions)
+- Broken test files importing non-existent modules removed
+- Legacy prompt path fallbacks removed (var/prompts → var/lib/compositions/prompts)
+- Outdated daemon_control.sh references updated to daemon_control.py
 
-### Prompt Path Migration (Completed)
-- **Migration**: All prompts moved from var/prompts to var/lib/compositions/prompts
-- **Legacy code location**:
-  - `composition_service.py` lines 93-96: Fallback to non-existent var/prompts
-- **Status**: Safe to remove - directory doesn't exist, migration complete
+### Documentation Updated
+- SAFE_CLEANUP_TASKS.md documents completed cleanups
+- Cleanup philosophy documented: distinguish legacy vs incomplete
+- All changes committed atomically with proper documentation
 
 ---
 *For development practices, see `/Users/dp/projects/ksi/CLAUDE.md`*
