@@ -43,16 +43,16 @@ ksi/
    - `ksi_ready()` - Request async tasks (sync, returns task specs)
    - `ksi_shutdown()` - Cleanup (sync)
 
-2. **Async Task Management**:
+2. **Async Task Management** (anyio Structured Concurrency):
    ```python
    @hookimpl
    def ksi_ready():
        return {
            "service": "completion_service",
-           "tasks": [{"name": "queue_processor", "coroutine": process_queue()}]
+           "tasks": [{"name": "service_manager", "coroutine": manage_completion_service()}]
        }
    ```
-   Core daemon creates and manages async tasks in proper event loop context.
+   Core daemon uses anyio task groups for proper structured concurrency.
 
 3. **Import Pattern**: All plugins use absolute imports:
    ```python
@@ -69,10 +69,10 @@ ksi/
 - **core/shutdown.py** - Graceful shutdown
 - **core/monitor.py** - Event log API
 
-### Completion System (v2 Deployed)
-- **completion/completion_service.py** - Main service with queue integration
-- **completion/completion_queue.py** - Priority-based request queue
+### Completion System (v3 - Smart Hybrid)
+- **completion/completion_service.py** - anyio-based smart hybrid architecture
 - **completion/litellm.py** - LiteLLM provider
+- **completion/claude_cli_litellm_provider.py** - Claude CLI integration
 
 ### Agent & State Management
 - **agent/agent_service.py** - Agent lifecycle with composition integration
@@ -85,6 +85,8 @@ ksi/
 - **injection/circuit_breakers.py** - Prevents runaway chains
 - **conversation/conversation_lock.py** - Prevents conversation forking
 - **conversation/conversation_service.py** - Session tracking
+- **messaging/message_bus.py** - Consolidated pub/sub messaging (v2.0.0)
+- **core/correlation.py** - Correlation ID tracing infrastructure
 
 ## Client Libraries
 
@@ -114,13 +116,18 @@ ksi/
 ```
 Returns all available events with parameters and descriptions.
 
-## Completion Service v2
+## Completion Service v3 (Smart Hybrid)
 
-### Features
-- Priority queue (CRITICAL → BACKGROUND)
-- Conversation locks prevent forking
-- Event-driven injection support
-- Circuit breaker protection
+### Architecture
+- **anyio Structured Concurrency**: Replaced broken asyncio.gather with anyio task groups
+- **Smart Hybrid Routing**: Immediate processing for sessionless/free sessions, queuing for busy
+- **Per-Session Fork Prevention**: Dynamic per-session queues only when needed
+- **Event-Driven**: No polling, pure event-based processing
+
+### Session ID Management
+- **Claude-cli returns NEW session_id from EVERY request** (even continuations)
+- **Log filenames**: `var/logs/responses/{session_id}.jsonl` (not request_id)
+- **Conversation flow**: Use previous response's session_id as input → get new session_id
 
 ### Usage
 ```bash
@@ -268,17 +275,18 @@ Verifies: sync/async completion, queue status, conversation locks, priorities
 
 ## Future Architectural Directions
 
-### Correlation ID Implementation (Near Term)
+### Correlation ID Implementation ✅ (COMPLETED)
 - **Purpose**: Trace complex event chains across async operations
-- **Design**: Hierarchical span IDs (root.span.depth) for parent-child tracking
+- **Implementation**: Thread-safe ContextVar with hierarchical parent-child relationships
 - **Scope**: Request-level ephemeral tracing (not session continuity)
 - **Key Features**:
-  - Automatic context propagation through plugins
-  - Chain depth limiting to prevent infinite loops
-  - Trace visualization for debugging complex flows
-  - Performance analysis of multi-hop operations
-- **Documentation**: `/Users/dp/projects/ksi/docs/CORRELATION_ID_DESIGN.md`
-- **Use Cases**: Completion injection chains, agent coordination flows, error root cause analysis
+  - Automatic context propagation through event router
+  - Full trace chains and trees for debugging
+  - Data sanitization (redacts passwords, tokens, secrets)
+  - Performance metrics and automatic cleanup
+  - @trace_event decorator for function tracing
+- **APIs**: correlation:trace, correlation:chain, correlation:tree, correlation:stats
+- **Integration**: Event router automatically traces all events with correlation IDs
 
 ### Session Management & Multi-Agent Coordination (Medium Term)
 - **Purpose**: Robust conversation continuity and natural agent interactions
@@ -334,17 +342,11 @@ Verifies: sync/async completion, queue status, conversation locks, priorities
 ## Implementation Priorities
 
 ### Critical Path (Complete Async Pipeline)
-1. **Injection System Implementation** (1-2 days)
+1. **Injection System Implementation** (1-2 days) - REMAINING
    - Execute actual injection in `injection_router.py:235-238`
    - Complete end-to-end async completion flows
    - Enable true multi-agent coordination
    - **Blocker**: Final step of mostly-complete system
-
-2. **Correlation ID Infrastructure** (3-5 days)
-   - TraceContext class and span generation
-   - EventRouter context propagation
-   - Debug complex event chains (injection → agent → response)
-   - **Impact**: Essential for production troubleshooting
 
 ### Production Readiness
 3. **Completion Queue Cancellation** (1-2 days)
@@ -453,16 +455,19 @@ var/lib/
 
 ## Technical Debt Cleanup ✅
 
-### Legacy Code Removed
-- Multi-socket references updated to single-socket architecture
-- Dead JSON profile loading code removed (system uses YAML compositions)
-- Broken test files importing non-existent modules removed
-- Legacy prompt path fallbacks removed (var/prompts → var/lib/compositions/prompts)
-- Outdated daemon_control.sh references updated to daemon_control.py
+### anyio Migration (COMPLETED)
+- Replaced broken asyncio.gather with anyio structured concurrency
+- Smart hybrid completion system with per-session fork prevention
+- Proper pluggy best practices: sync plugin loading → async task execution
 
-### Documentation Updated
-- SAFE_CLEANUP_TASKS.md documents completed cleanups
-- Cleanup philosophy documented: distinguish legacy vs incomplete
+### Wrapper Consolidation (COMPLETED)
+- Consolidated message_bus.py into messaging plugin (348 lines → self-contained)
+- Removed obsolete files: core_plugin_backup.py, plugin_loader_old.py, completion_queue.py
+- Removed hot_reload functionality (contradicted CLAUDE.md directives)
+
+### Documentation & Patterns (COMPLETED)
+- Critical session ID pattern documented in CLAUDE.md
+- Cleanup philosophy: distinguish legacy vs incomplete functionality
 - All changes committed atomically with proper documentation
 
 ---
