@@ -33,6 +33,34 @@ ksi/
 └── memory/             # Knowledge management
 ```
 
+### Plugin Architecture
+
+**Pluggy Best Practices**: KSI follows standard pluggy patterns with clean separation of sync/async:
+
+1. **Sync Plugin Lifecycle**: 
+   - `ksi_startup(config)` - Initialize plugin (sync)
+   - `ksi_plugin_context(context)` - Receive runtime objects (sync)
+   - `ksi_ready()` - Request async tasks (sync, returns task specs)
+   - `ksi_shutdown()` - Cleanup (sync)
+
+2. **Async Task Management**:
+   ```python
+   @hookimpl
+   def ksi_ready():
+       return {
+           "service": "completion_service",
+           "tasks": [{"name": "queue_processor", "coroutine": process_queue()}]
+       }
+   ```
+   Core daemon creates and manages async tasks in proper event loop context.
+
+3. **Import Pattern**: All plugins use absolute imports:
+   ```python
+   from ksi_daemon.plugins.completion.queue import enqueue_completion
+   ```
+
+4. **Shutdown Order**: Cancel async tasks → sync plugin cleanup (reverse of startup)
+
 ## Active Plugins
 
 ### Core Services

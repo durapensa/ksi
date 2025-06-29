@@ -9,7 +9,8 @@ Essential development practices for Claude Code when working with KSI.
 
 ### Configuration Management
 - **Use ksi_common/config.py** - Always import config from `ksi_common.config`
-- **Import pattern**: `from ksi_common.config import config` or for daemon plugins: `from ...config import config`
+- **Import pattern**: `from ksi_common.config import config` (for all code including plugins)
+- **Plugin imports**: Use absolute imports like `from ksi_daemon.config import config`
 - **Path handling**: Use relative paths like `Path("var") / "lib"` for project directories
 - **Never use get_config()** - The config is a global instance, just use `config` directly
 
@@ -33,11 +34,35 @@ Essential development practices for Claude Code when working with KSI.
 - **Event-driven only** - no polling or wait loops
 - **Fail fast** - don't mask problems with fallbacks
 - **Trust upstream** - e.g., claude-cli owns session_id
+- **Inspect before implementing** - When needing new functionality:
+  - First thoroughly inspect the module's source code
+  - Look for existing classes, methods, or utilities
+  - Check for related functionality that could be adapted
+  - Only write new code if nothing suitable exists
 - **Complete migrations** - When implementing new features:
   - Migrate entire system to use new feature
   - Remove ALL old code/implementations
   - No fallbacks or backward compatibility
   - Only declare complete after full migration
+
+### Plugin System (Simplified)
+- **Follows pluggy best practices** - plugins are just objects with hooks
+- **No hot reloading** - restart daemon to reload plugins (simpler, more reliable)
+- **Absolute imports** - all plugins use `from ksi_daemon.X import Y`
+- **Centralized sys.path** - ksi_common ensures project root is on Python path
+- **Async task pattern**: Plugins request async tasks via ksi_ready hook:
+  ```python
+  @hookimpl
+  def ksi_ready():
+      return {
+          "service": "my_service",
+          "tasks": [{"name": "background_task", "coroutine": my_async_function()}]
+      }
+  ```
+- **Plugin introspection available**:
+  - List plugins: `echo '{"event": "plugin:list", "data": {}}' | nc -U var/run/daemon.sock`
+  - List hooks: `echo '{"event": "plugin:hooks", "data": {}}' | nc -U var/run/daemon.sock`
+  - Inspect plugin: `echo '{"event": "plugin:inspect", "data": {"plugin_name": "..."}}' | nc -U var/run/daemon.sock`
 
 ### Code Hygiene
 - **Clean as you go** - remove dead code immediately when found
@@ -91,6 +116,10 @@ source .venv/bin/activate          # Always first
 ./daemon_control.py status         # Check status
 ./daemon_control.py stop           # Stop daemon
 ./daemon_control.py restart        # Restart daemon
+
+# Plugin introspection
+echo '{"event": "plugin:list", "data": {}}' | nc -U var/run/daemon.sock
+echo '{"event": "plugin:hooks", "data": {}}' | nc -U var/run/daemon.sock
 
 # Common operations
 echo '{"event": "system:health", "data": {}}' | nc -U var/run/daemon.sock
