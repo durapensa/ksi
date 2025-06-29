@@ -17,9 +17,9 @@ from typing import Dict, Any, Optional, List, Set, Tuple
 import json
 import heapq
 
-from ...plugin_utils import get_logger, plugin_metadata
+from ksi_daemon.plugin_utils import get_logger, plugin_metadata
 from ksi_common import TimestampManager
-from ..injection.circuit_breakers import check_completion_allowed
+from ksi_daemon.plugins.injection.circuit_breakers import check_completion_allowed
 
 # Plugin metadata
 plugin_metadata("completion_queue", version="1.0.0",

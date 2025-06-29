@@ -16,9 +16,9 @@ from dataclasses import dataclass, field
 import logging
 import pluggy
 
-from ...plugin_utils import get_logger, plugin_metadata
+from ksi_daemon.plugin_utils import get_logger, plugin_metadata
 from ksi_common import TimestampManager
-from ...config import config
+from ksi_daemon.config import config
 
 # Plugin metadata
 plugin_metadata("composition_service", version="1.0.0",
@@ -788,7 +788,7 @@ def ksi_startup(config):
     # Get state manager reference from state service
     try:
         # Import the state service to get its manager instance
-        from ..state import state_service
+        from ksi_daemon.plugins.state import state_service
         state_manager = state_service.state_manager
         
         if state_manager:

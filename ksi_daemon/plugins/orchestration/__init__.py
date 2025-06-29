@@ -5,6 +5,6 @@ Orchestration Plugin for KSI
 Provides declarative multi-agent orchestration patterns through YAML compositions.
 """
 
-from .orchestration_plugin import ksi_plugin
+from ksi_daemon.plugins.orchestration.orchestration_plugin import ksi_plugin
 
 __all__ = ['ksi_plugin']

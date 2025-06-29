@@ -13,8 +13,8 @@ from queue import Queue
 from typing import Dict, Any, Optional
 import pluggy
 
-from ...plugin_utils import get_logger, plugin_metadata
-from ...config import config
+from ksi_daemon.plugin_utils import get_logger, plugin_metadata
+from ksi_daemon.config import config
 from ksi_common import TimestampManager
 
 # Plugin metadata

@@ -21,24 +21,24 @@ import pluggy
 
 import litellm
 
-from ...plugin_utils import get_logger, plugin_metadata
+from ksi_daemon.plugin_utils import get_logger, plugin_metadata
 from ksi_common import TimestampManager, create_completion_response, parse_completion_response
-from ...config import config
-from ...event_taxonomy import CLAUDE_EVENTS, format_claude_event
+from ksi_daemon.config import config
+from ksi_daemon.event_taxonomy import CLAUDE_EVENTS, format_claude_event
 
 # Import new queue and injection systems
-from .completion_queue import (
+from ksi_daemon.plugins.completion.completion_queue import (
     enqueue_completion, 
     get_next_completion,
     mark_completion_done,
     get_queue_status,
     Priority
 )
-from ..injection.injection_router import queue_completion_with_injection
-from ..injection.circuit_breakers import check_completion_allowed
+from ksi_daemon.plugins.injection.injection_router import queue_completion_with_injection
+from ksi_daemon.plugins.injection.circuit_breakers import check_completion_allowed
 
 # Import claude_cli_litellm_provider to ensure provider registration
-from . import claude_cli_litellm_provider
+from ksi_daemon.plugins.completion import claude_cli_litellm_provider
 
 # Plugin metadata
 plugin_metadata("completion_service", version="3.0.0",
@@ -94,16 +94,31 @@ def save_completion_response(response_data: Dict[str, Any]) -> None:
 
 
 # Hook implementations
-@hookimpl
+@hookimpl(trylast=True)  # Run after core services are ready  
 def ksi_startup(config):
     """Initialize completion service on startup."""
     ensure_directories()
     logger.info("Completion service v3 started with queue and injection support")
-    
-    # Start queue processor task
-    asyncio.create_task(process_completion_queue())
-    
     return {"status": "completion_service_v3_ready"}
+
+
+@hookimpl
+def ksi_ready():
+    """Called when daemon is ready - return async tasks to be started."""
+    logger.info("Completion service ready - requesting async task startup")
+    
+    # Return the coroutine that should be started as a task
+    return {
+        "service": "completion_service", 
+        "tasks": [
+            {
+                "name": "queue_processor",
+                "coroutine": process_completion_queue()
+            }
+        ]
+    }
+
+
 
 
 @hookimpl
@@ -164,12 +179,7 @@ async def handle_completion_request(data: Dict[str, Any], context: Dict[str, Any
         if not messages and prompt:
             messages = [{"role": "user", "content": prompt}]
         
-        # Ensure model is prefixed for claude-cli provider
-        if model in ["sonnet", "haiku", "opus"]:
-            model = f"claude-cli/{model}"
-        elif model.startswith("claude_cli/"):
-            model = model.replace("claude_cli/", "claude-cli/")
-        
+        # Just pass model through - no mapping
         # Prepare litellm parameters
         completion_params = {
             "model": model,
@@ -287,7 +297,8 @@ async def handle_async_completion_queued(data: Dict[str, Any], context: Dict[str
 async def process_completion_queue():
     """Background task to process queued completions."""
     
-    logger.info("Starting completion queue processor")
+    # Use warning level to ensure it appears in logs
+    logger.warning("STARTING COMPLETION QUEUE PROCESSOR - DEBUG")
     
     while True:
         try:

@@ -14,7 +14,7 @@ from typing import Dict, Any, Optional
 import pluggy
 
 # Import claude_cli_litellm_provider to ensure provider registration
-from . import claude_cli_litellm_provider
+from ksi_daemon.plugins.completion import claude_cli_litellm_provider
 import litellm
 
 # Hook implementation marker
@@ -129,15 +129,7 @@ def ksi_handle_event(event_name, data, context):
             "request_id": request_id
         }
     
-    # Ensure model is prefixed for claude-cli provider
-    if model in ["sonnet", "haiku", "opus"]:
-        model = f"claude-cli/{model}"
-    elif not model.startswith("claude-cli/"):
-        # Replace claude_cli with claude-cli if present
-        if model.startswith("claude_cli/"):
-            model = model.replace("claude_cli/", "claude-cli/")
-        else:
-            model = f"claude-cli/{model}"
+    # Just pass model through - no mapping
     
     # Create and return a task if we're in an event loop
     loop = asyncio.get_event_loop()

@@ -15,7 +15,7 @@ import pluggy
 import structlog
 
 from .config import config
-from .plugin_loader import PluginLoader
+from .plugin_loader_simple import SimplePluginLoader
 from .event_router import SimpleEventRouter
 
 logger = structlog.get_logger(__name__)
@@ -38,9 +38,12 @@ class SimpleDaemonCore:
         self.event_router = None
         
         # Initialize plugin system
-        self.plugin_loader = PluginLoader(
+        self.plugin_loader = SimplePluginLoader(
             plugin_dirs=[Path(__file__).parent / "plugins"]
         )
+        
+        # Track async tasks for proper shutdown order  
+        self.async_tasks = []
         
         # Shutdown event for graceful termination
         self.shutdown_event = asyncio.Event()
@@ -106,6 +109,36 @@ class SimpleDaemonCore:
                     sig, lambda s=sig: asyncio.create_task(self._handle_signal(s))
                 )
             
+            # Call ksi_ready hooks - plugins return async tasks to start
+            try:
+                logger.info("About to call ksi_ready hooks")
+                ready_results = self.plugin_loader.pm.hook.ksi_ready()
+                logger.info(f"Plugin daemon ready - ksi_ready called, {len(ready_results) if ready_results else 0} hooks responded")
+                
+                # Start async tasks returned by plugins
+                self.async_tasks = []  # Track tasks for proper shutdown
+                for result in ready_results:
+                    if result and isinstance(result, dict) and "tasks" in result:
+                        service_name = result.get("service", "unknown")
+                        for task_spec in result["tasks"]:
+                            task_name = task_spec.get("name", "unnamed")
+                            coroutine = task_spec.get("coroutine")
+                            if coroutine:
+                                task = asyncio.create_task(coroutine)
+                                task.set_name(f"{service_name}.{task_name}")  # Name for debugging
+                                self.async_tasks.append(task)
+                                logger.info(f"Started async task: {service_name}.{task_name}")
+                
+                if self.async_tasks:
+                    logger.info(f"Started {len(self.async_tasks)} async tasks")
+                else:
+                    logger.info("No async tasks requested by plugins")
+                    
+            except Exception as e:
+                logger.error(f"Error calling ksi_ready hooks: {e}", exc_info=True)
+                import traceback
+                logger.error(f"Full traceback: {traceback.format_exc()}")
+            
             # Wait for shutdown
             await self.shutdown_event.wait()
             
@@ -128,7 +161,23 @@ class SimpleDaemonCore:
         logger.info("Plugin daemon shutting down")
         
         try:
-            # Call shutdown hooks
+            # Step 1: Cancel async tasks (reverse of startup order)
+            if self.async_tasks:
+                logger.info(f"Cancelling {len(self.async_tasks)} async tasks")
+                for task in self.async_tasks:
+                    if not task.done():
+                        task.cancel()
+                        logger.info(f"Cancelled task: {task.get_name()}")
+                
+                # Wait for tasks to finish cancellation
+                if self.async_tasks:
+                    try:
+                        await asyncio.gather(*self.async_tasks, return_exceptions=True)
+                        logger.info("All async tasks cancelled")
+                    except Exception as e:
+                        logger.warning(f"Some tasks had cancellation issues: {e}")
+            
+            # Step 2: Call sync shutdown hooks  
             shutdown_results = self.plugin_loader.pm.hook.ksi_shutdown()
             for result in shutdown_results:
                 if result:

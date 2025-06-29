@@ -7,6 +7,18 @@ any other KSI packages to avoid circular imports.
 
 __version__ = "0.1.0"
 
+# Ensure project root is on sys.path for absolute imports
+import sys
+from pathlib import Path
+
+# Find the project root (parent of ksi_common)
+_ksi_common_dir = Path(__file__).parent
+_project_root = _ksi_common_dir.parent
+
+# Add to sys.path if not already there
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
 # Core utilities
 from .timestamps import TimestampManager
 from .paths import KSIPaths
