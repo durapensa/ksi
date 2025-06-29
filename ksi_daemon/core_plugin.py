@@ -124,10 +124,20 @@ class SimpleDaemonCore:
                             task_name = task_spec.get("name", "unnamed")
                             coroutine = task_spec.get("coroutine")
                             if coroutine:
+                                logger.warning(f"CORE: About to create task for {service_name}.{task_name}, coroutine: {coroutine}")
                                 task = asyncio.create_task(coroutine)
                                 task.set_name(f"{service_name}.{task_name}")  # Name for debugging
                                 self.async_tasks.append(task)
-                                logger.info(f"Started async task: {service_name}.{task_name}")
+                                logger.warning(f"CORE: Started async task: {service_name}.{task_name}, task: {task}")
+                                
+                                # Immediately check if task is running
+                                logger.warning(f"CORE: Task {task.get_name()} done: {task.done()}, cancelled: {task.cancelled()}")
+                                if task.done():
+                                    try:
+                                        result = task.result()
+                                        logger.warning(f"CORE: Task completed with result: {result}")
+                                    except Exception as e:
+                                        logger.error(f"CORE: Task failed immediately: {e}", exc_info=True)
                 
                 if self.async_tasks:
                     logger.info(f"Started {len(self.async_tasks)} async tasks")

@@ -351,7 +351,16 @@ class CompletionQueue:
         Returns None if no requests are ready.
         """
         
-        # First check if any queued requests can now proceed
+        # First check if there are any active requests ready for processing
+        # These were marked as "ready" and put directly in active_requests
+        if self.active_requests:
+            # Get first active request (they're already ready to process)
+            request_id = next(iter(self.active_requests))
+            request = self.active_requests[request_id]
+            # Don't remove from active_requests yet - processor will do that
+            return request
+        
+        # If no active requests, check queued requests that can now proceed
         ready_requests = []
         remaining_queue = []
         

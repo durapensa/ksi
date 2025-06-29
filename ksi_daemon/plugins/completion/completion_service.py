@@ -105,18 +105,28 @@ def ksi_startup(config):
 @hookimpl
 def ksi_ready():
     """Called when daemon is ready - return async tasks to be started."""
-    logger.info("Completion service ready - requesting async task startup")
+    logger.warning("COMPLETION SERVICE ksi_ready CALLED - DEBUG")
     
-    # Return the coroutine that should be started as a task
-    return {
-        "service": "completion_service", 
-        "tasks": [
-            {
-                "name": "queue_processor",
-                "coroutine": process_completion_queue()
-            }
-        ]
-    }
+    # Create the coroutine
+    try:
+        queue_coroutine = process_completion_queue()
+        logger.warning(f"COMPLETION SERVICE created coroutine: {queue_coroutine}")
+        
+        # Return the coroutine that should be started as a task
+        result = {
+            "service": "completion_service", 
+            "tasks": [
+                {
+                    "name": "queue_processor",
+                    "coroutine": queue_coroutine
+                }
+            ]
+        }
+        logger.warning(f"COMPLETION SERVICE returning: {result}")
+        return result
+    except Exception as e:
+        logger.error(f"COMPLETION SERVICE error in ksi_ready: {e}", exc_info=True)
+        return None
 
 
 
@@ -300,8 +310,13 @@ async def process_completion_queue():
     # Use warning level to ensure it appears in logs
     logger.warning("STARTING COMPLETION QUEUE PROCESSOR - DEBUG")
     
+    iteration_count = 0
     while True:
         try:
+            iteration_count += 1
+            if iteration_count % 10 == 1:  # Log every 10th iteration
+                logger.warning(f"Queue processor iteration {iteration_count}")
+            
             # Get next completion from queue
             next_request = await get_next_completion()
             
