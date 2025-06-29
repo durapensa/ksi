@@ -90,12 +90,7 @@ def load_fragment(path: str) -> str:
     """Load a text fragment from disk (no caching)."""
     fragment_path = FRAGMENTS_BASE / path
     if not fragment_path.exists():
-        # Try legacy location
-        legacy_path = VAR_DIR / "prompts" / path
-        if legacy_path.exists():
-            fragment_path = legacy_path
-        else:
-            raise FileNotFoundError(f"Fragment not found: {path}")
+        raise FileNotFoundError(f"Fragment not found: {path}")
     
     return fragment_path.read_text()
 

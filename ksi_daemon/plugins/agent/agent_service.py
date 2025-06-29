@@ -3,7 +3,8 @@
 Agent Service Plugin
 
 Provides agent management without complex inheritance.
-Handles agent lifecycle, profiles, identities, and routing through events.
+Handles agent lifecycle, identities, and routing through events.
+Uses composition service for all profile/configuration needs.
 """
 
 import asyncio
@@ -510,71 +511,6 @@ def handle_list_agents(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-# Profile handlers
-def handle_load_profile(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Load a specific profile."""
-    profile_name = data.get("profile_name")
-    
-    if not profile_name:
-        return {"error": "profile_name required"}
-    
-    profile_path = agent_profiles_dir / f"{profile_name}.json"
-    
-    if not profile_path.exists():
-        return {"error": f"Profile {profile_name} not found"}
-    
-    try:
-        profile_data = FileOperations.read_json_file(profile_path)
-        if profile_data:
-            profiles[profile_name] = profile_data
-            return {
-                "profile_name": profile_name,
-                "profile": profile_data,
-                "status": "loaded"
-            }
-    except Exception as e:
-        return {"error": f"Failed to load profile: {e}"}
-    
-    return {"error": "Failed to load profile"}
-
-
-def handle_save_profile(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Save a profile."""
-    profile_name = data.get("profile_name")
-    profile_data = data.get("profile")
-    
-    if not profile_name or not profile_data:
-        return {"error": "profile_name and profile required"}
-    
-    profile_path = agent_profiles_dir / f"{profile_name}.json"
-    
-    try:
-        FileOperations.write_json_file(profile_path, profile_data)
-        profiles[profile_name] = profile_data
-        logger.info(f"Saved profile {profile_name}")
-        return {"status": "saved", "profile_name": profile_name}
-    except Exception as e:
-        return {"error": f"Failed to save profile: {e}"}
-
-
-def handle_list_profiles(data: Dict[str, Any]) -> Dict[str, Any]:
-    """List available profiles."""
-    profile_list = []
-    
-    for name, profile in profiles.items():
-        profile_list.append({
-            "name": name,
-            "description": profile.get("description", ""),
-            "model": profile.get("model", ""),
-            "capabilities": profile.get("capabilities", [])
-        })
-    
-    return {
-        "profiles": profile_list,
-        "count": len(profile_list)
-    }
-
-
 # Identity handlers
 def handle_create_identity(data: Dict[str, Any]) -> Dict[str, Any]:
     """Create a new agent identity."""
@@ -702,11 +638,9 @@ def handle_get_capabilities(data: Dict[str, Any]) -> Dict[str, Any]:
             return {"error": f"Agent {agent_id} not found"}
         
         agent_info = agents[agent_id]
-        profile_name = agent_info.get("profile")
         
-        capabilities = []
-        if profile_name and profile_name in profiles:
-            capabilities = profiles[profile_name].get("capabilities", [])
+        # Get capabilities from agent config (composed at spawn time)
+        capabilities = agent_info.get("config", {}).get("capabilities", [])
         
         return {
             "agent_id": agent_id,
@@ -716,9 +650,8 @@ def handle_get_capabilities(data: Dict[str, Any]) -> Dict[str, Any]:
     # Return all agent capabilities
     all_capabilities = {}
     for aid, info in agents.items():
-        profile_name = info.get("profile")
-        if profile_name and profile_name in profiles:
-            all_capabilities[aid] = profiles[profile_name].get("capabilities", [])
+        # Get capabilities from agent config (composed at spawn time)
+        all_capabilities[aid] = info.get("config", {}).get("capabilities", [])
     
     return {"capabilities": all_capabilities}
 
@@ -742,12 +675,11 @@ def ksi_shutdown():
     save_identities()
     
     logger.info(f"Agent service stopped - {len(agents)} agents, "
-                f"{len(profiles)} profiles, {len(identities)} identities")
+                f"{len(identities)} identities")
     
     return {
         "status": "agent_service_stopped",
         "agents": len(agents),
-        "profiles": len(profiles),
         "identities": len(identities)
     }
 

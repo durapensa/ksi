@@ -407,16 +407,28 @@ var/lib/
 - **Status**: Basic implementation, awaiting full session federation design
 - **Purpose**: Foundation for cross-device conversation continuity
 
-### Prompt Path Handling
-- **Legacy var/prompts checks**: Fallback for backward compatibility
-- **Status**: Intended for migration period
-- **Purpose**: Support users upgrading from older versions
 
 ### TODOs to Preserve
 - Event log file persistence with rotation (planned feature)
 - Completion queue cancellation (needed for graceful shutdown)
 - Token/time tracking in injection (for resource management)
 - Memory metrics in monitor (awaiting implementation)
+
+## Completed Refactors with Legacy Code to Remove
+
+### JSON Profile Migration (Completed)
+- **Migration**: All JSON profiles migrated to YAML compositions
+- **Legacy code locations**:
+  - `profile_loader.py`: JSON loading fallback (no longer needed)
+  - `agent_service.py`: Dead profile handlers (never registered)
+  - `chat_textual.py`: References to non-existent var/agent_profiles
+- **Status**: Safe to remove - no code generates JSON profiles
+
+### Prompt Path Migration (Completed)
+- **Migration**: All prompts moved from var/prompts to var/lib/compositions/prompts
+- **Legacy code location**:
+  - `composition_service.py` lines 93-96: Fallback to non-existent var/prompts
+- **Status**: Safe to remove - directory doesn't exist, migration complete
 
 ---
 *For development practices, see `/Users/dp/projects/ksi/CLAUDE.md`*

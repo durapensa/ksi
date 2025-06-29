@@ -136,16 +136,6 @@ class KSIPaths:
         """
         return self.session_logs_dir / "message_bus.jsonl"
     
-    def get_agent_profile_path(self, profile_name: str) -> Path:
-        """Get path for a specific agent profile.
-        
-        Args:
-            profile_name: Profile name (without extension)
-            
-        Returns:
-            Path: Full path to agent profile file
-        """
-        return self.agent_profiles_dir / f"{profile_name}.json"
     
     def get_export_path(self, filename: str) -> Path:
         """Get path for an export file.

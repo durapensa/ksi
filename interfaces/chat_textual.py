@@ -226,7 +226,6 @@ class ChatInterface(App):
         self.current_conversation: List[Dict] = []
         self.available_sessions: List[Tuple[str, str, int]] = []  # (session_id, timestamp, message_count)
         self.active_conversations: Dict[str, Dict] = {}  # conversation_id -> info
-        self.profile_data: Optional[Dict] = None
         self.selected_past_session: Optional[str] = None  # For export functionality
         
         # For multi-agent mode
@@ -287,7 +286,6 @@ class ChatInterface(App):
     async def init_app(self) -> None:
         """Initialize the application in background"""
         # Load profile first
-        self.load_profile()
         
         # Initialize chat client for basic operations
         self.chat_client = EventChatClient(
@@ -325,22 +323,6 @@ class ChatInterface(App):
     
     
     
-    def load_profile(self) -> None:
-        """Load the specified profile"""
-        profile_name = self.args.profile
-        profile_path = config.paths.agent_profiles_dir / f'{profile_name}.json'
-        
-        if not profile_path.exists():
-            self.log_message("System", f"Profile {profile_name} not found, using default behavior")
-            return
-        
-        try:
-            with open(profile_path, 'r') as f:
-                self.profile_data = json.load(f)
-            self.log_message("System", f"Loaded profile: {profile_name}")
-        except Exception as e:
-            self.log_message("Error", f"Failed to load profile: {e}")
-            self.profile_data = None
     
     
     async def load_available_sessions(self) -> None:
