@@ -10,8 +10,8 @@ import json
 from typing import Dict, Any, Optional, Set
 import pluggy
 
-from ...message_bus import MessageBus
-from ...plugin_utils import get_logger, plugin_metadata
+from ksi_daemon.message_bus import MessageBus
+from ksi_daemon.plugin_utils import get_logger, plugin_metadata
 from ksi_common import TimestampManager
 
 # Plugin metadata

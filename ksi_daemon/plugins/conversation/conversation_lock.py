@@ -13,7 +13,7 @@ from enum import Enum
 from typing import Dict, Any, Optional, List, Set, Tuple
 import pluggy
 
-from ...plugin_utils import get_logger, plugin_metadata
+from ksi_daemon.plugin_utils import get_logger, plugin_metadata
 from ksi_common import TimestampManager
 
 # Plugin metadata

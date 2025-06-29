@@ -9,7 +9,7 @@ Supports filtering, pagination, and statistics.
 from typing import Dict, Any, List, Optional
 import pluggy
 
-from ...plugin_utils import get_logger, plugin_metadata
+from ksi_daemon.plugin_utils import get_logger, plugin_metadata
 
 # Plugin metadata
 plugin_metadata("monitor", version="1.0.0",

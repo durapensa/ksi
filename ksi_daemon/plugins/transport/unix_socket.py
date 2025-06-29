@@ -13,8 +13,8 @@ import logging
 from typing import Dict, Any, Optional, Callable
 import pluggy
 
-from ...plugin_utils import get_logger, plugin_metadata
-from ...config import config
+from ksi_daemon.plugin_utils import get_logger, plugin_metadata
+from ksi_daemon.config import config
 
 # Plugin metadata
 plugin_metadata("unix_socket_transport", version="2.0.0",
@@ -205,7 +205,7 @@ def ksi_create_transport(transport_type: str, config: Dict[str, Any]):
     logger.info(f"Creating unix socket transport with config: {config}")
     
     # Import daemon config to get default paths
-    from ...config import config as daemon_config
+    from ksi_daemon.config import config as daemon_config
     
     # Get socket path from config or use default
     socket_dir = config.get("socket_dir", str(daemon_config.socket_path.parent))

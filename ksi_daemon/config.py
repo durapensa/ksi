@@ -44,6 +44,8 @@ class KSIDaemonConfig(KSIBaseConfig):
     # Claude CLI progressive timeouts (in seconds)
     claude_timeout_attempts: List[int] = [300, 900, 1800]  # 5min, 15min, 30min
     claude_progress_timeout: int = 300     # 5 minutes without progress
+    claude_max_workers: int = 2            # Max concurrent Claude processes
+    claude_retry_backoff: int = 30         # Seconds between retry attempts
     
     # Test timeouts (in seconds)
     test_completion_timeout: int = 120     # 2 minutes for tests

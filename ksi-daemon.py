@@ -76,9 +76,7 @@ async def daemon_wrapper():
     """Wrapper for existing daemon with shutdown monitoring"""
     global daemon_instance, shutdown_requested
     
-    # Ensure current directory is in Python path (needed in forked process)
-    import sys
-    sys.path.insert(0, str(Path.cwd()))
+    # ksi_common already ensures project root is on sys.path
     
     logger = logging.getLogger('ksi_daemon')
     logger.info("Starting KSI daemon core")

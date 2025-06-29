@@ -16,10 +16,10 @@ from datetime import datetime
 import logging
 import pluggy
 
-from ...plugin_utils import get_logger, plugin_metadata
+from ksi_daemon.plugin_utils import get_logger, plugin_metadata
 from ksi_common import TimestampManager
-from ...config import config
-from ...file_operations import FileOperations
+from ksi_daemon.config import config
+from ksi_daemon.file_operations import FileOperations
 
 # Plugin metadata
 plugin_metadata("agent_service", version="2.0.0",

@@ -14,9 +14,9 @@ import hashlib
 
 import pluggy
 
-from ...config import config
+from ksi_daemon.config import config
 from ksi_common import TimestampManager
-from ...plugin_utils import get_logger, plugin_metadata
+from ksi_daemon.plugin_utils import get_logger, plugin_metadata
 
 # Plugin metadata
 plugin_metadata("conversation", version="1.0.0",

@@ -21,9 +21,9 @@ from dataclasses import dataclass, field
 import re
 import pluggy
 
-from ...plugin_utils import get_logger, plugin_metadata
+from ksi_daemon.plugin_utils import get_logger, plugin_metadata
 from ksi_common import TimestampManager
-from ...config import config
+from ksi_daemon.config import config
 
 # Plugin metadata
 plugin_metadata("orchestration", version="1.0.0",

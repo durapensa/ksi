@@ -61,7 +61,7 @@ def test_basic_completion():
     response = send_event("completion:async", {
         "request_id": request_id,
         "prompt": "What is 2+2?",
-        "model": "claude-cli/haiku",
+        "model": "claude-cli/sonnet",
         "session_id": "test_session_001",
         "client_id": "test_client",
         "priority": "normal",
@@ -86,7 +86,7 @@ def test_async_completion_with_injection():
     response = send_event("completion:async", {
         "request_id": request_id,
         "prompt": "Research the history of Unix sockets and summarize key developments.",
-        "model": "claude-cli/haiku",
+        "model": "claude-cli/sonnet",
         "session_id": "research_session_001",
         "priority": "high",
         "injection_config": {

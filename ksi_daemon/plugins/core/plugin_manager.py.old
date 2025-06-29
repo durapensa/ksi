@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+"""
+Plugin Manager Service
+
+Provides runtime plugin management including reloading.
+"""
+
+import logging
+from typing import Dict, Any, Optional
+import pluggy
+
+from ksi_daemon.plugin_utils import get_logger, plugin_metadata
+
+# Plugin metadata
+plugin_metadata("plugin_manager", version="1.0.0",
+                description="Runtime plugin management and reloading")
+
+# Hook implementation marker
+hookimpl = pluggy.HookimplMarker("ksi")
+
+# Module state
+logger = get_logger("plugin_manager")
+plugin_loader = None  # Will be set during context
+
+# Mark as reloadable - extra fields stored separately
+PLUGIN_INFO = {
+    "name": "plugin_manager",
+    "version": "1.0.0", 
+    "description": "Manages plugin lifecycle including hot reloading"
+}
+
+# Reload configuration (checked by get_plugin_metadata)
+_reloadable = True
+_reload_strategy = "stateless"
+
+
+@hookimpl
+def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
+    """Handle plugin management events."""
+    
+    if event_name == "plugin:reload":
+        return handle_reload(data)
+    
+    elif event_name == "plugin:list":
+        return handle_list(data)
+    
+    elif event_name == "plugin:info":
+        return handle_info(data)
+    
+    return None
+
+
+def handle_reload(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle plugin reload request (not supported in simplified system)."""
+    plugin_name = data.get("plugin_name")
+    return {
+        "error": "Plugin hot reload not supported in simplified plugin system",
+        "plugin_name": plugin_name,
+        "suggestion": "Restart the daemon to reload plugins"
+    }
+
+
+def handle_list(data: Dict[str, Any]) -> Dict[str, Any]:
+    """List registered plugins (simplified for pluggy best practices)."""
+    if not plugin_loader:
+        return {"error": "Plugin loader not available"}
+    
+    # Simple pluggy way: just list registered plugin names
+    plugins = []
+    for name, plugin in plugin_loader.pm.list_name_plugin():
+        plugins.append({
+            "name": name,
+            "reloadable": False,  # Simplified system doesn't support hot reload
+            "description": f"Plugin: {name}"
+        })
+    
+    return {
+        "plugins": plugins,
+        "count": len(plugins)
+    }
+
+
+def handle_info(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Get basic plugin information (simplified for pluggy best practices)."""
+    if not plugin_loader:
+        return {"error": "Plugin loader not available"}
+    
+    plugin_name = data.get("plugin_name")
+    if not plugin_name:
+        return {"error": "plugin_name required"}
+    
+    # Check if plugin is registered
+    registered_plugins = dict(plugin_loader.pm.list_name_plugin())
+    if plugin_name not in registered_plugins:
+        return {"error": f"Plugin {plugin_name} not found"}
+    
+    # Get hooks this plugin implements
+    implemented_hooks = []
+    for hook_name in dir(plugin_loader.pm.hook):
+        if hook_name.startswith("ksi_"):
+            hook = getattr(plugin_loader.pm.hook, hook_name)
+            for impl in hook.get_hookimpls():
+                if impl.plugin_name == plugin_name:
+                    implemented_hooks.append(hook_name)
+                    break
+    
+    return {
+        "name": plugin_name,
+        "hooks": implemented_hooks,
+        "reloadable": False,
+        "description": f"Plugin: {plugin_name}"
+    }
+
+
+@hookimpl
+def ksi_plugin_context(context):
+    """Receive plugin context."""
+    global plugin_loader
+    plugin_loader = context.get("plugin_loader")
+    logger.info(f"Plugin manager received context, loader available: {plugin_loader is not None}")
+
+
+# Module-level marker for plugin discovery
+ksi_plugin = True

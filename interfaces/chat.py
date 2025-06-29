@@ -56,7 +56,7 @@ async def send_prompt(prompt: str, session_id: str = None) -> tuple:
             response_text, new_session_id = await client.send_prompt(
                 prompt=prompt,
                 session_id=session_id,
-                model="sonnet"
+                model="claude-cli/sonnet"
             )
             
             # Display the result
