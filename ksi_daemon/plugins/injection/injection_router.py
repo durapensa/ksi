@@ -115,7 +115,7 @@ def ksi_startup(config):
 def ksi_plugin_context(context):
     """Store event emitter reference."""
     global event_emitter
-    event_emitter = context.get("event_emitter")
+    event_emitter = context.get("emit_event")
 
 
 @hookimpl
@@ -126,6 +126,7 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
         return handle_completion_result(data, context)
     
     elif event_name == "injection:execute":
+        # Return async coroutine for daemon to await
         return execute_injection(data, context)
     
     elif event_name == "injection:status":
@@ -222,20 +223,67 @@ def handle_completion_result(data: Dict[str, Any], context: Dict[str, Any]) -> O
     }
 
 
-def execute_injection(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
-    """Execute a queued injection."""
+async def execute_injection(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+    """Execute a queued injection by creating a new completion request."""
     
-    # This would typically be called by a worker processing the injection queue
-    # For now, we'll just log it
     session_id = data.get('session_id')
     content = data.get('content')
+    request_id = data.get('request_id')
+    target_sessions = data.get('target_sessions', [session_id] if session_id else [])
+    
+    if not content:
+        logger.error("No content provided for injection")
+        return {"status": "error", "error": "No content provided"}
+    
+    if not event_emitter:
+        logger.error("Event emitter not available for injection")
+        return {"status": "error", "error": "Event emitter not available"}
     
     logger.info(f"Executing injection for session {session_id}")
     
-    # Injection execution - would create new completion request with injected content
-    # Currently just logs the action
+    # Create completion requests for each target session
+    results = []
+    for target_session in target_sessions:
+        try:
+            # Construct the completion request
+            completion_data = {
+                "prompt": content,
+                "session_id": target_session,
+                "model": data.get('model', 'claude-cli/sonnet'),  # Default model
+                "client_id": "injection_router",
+                "request_id": f"inj_{request_id}_{target_session}" if request_id else f"inj_{int(time.time() * 1000)}_{target_session}",
+                "priority": data.get('priority', 'normal'),
+                "injection_metadata": {
+                    "source_request": request_id,
+                    "injection_type": data.get('injection_type', 'system_reminder'),
+                    "timestamp": time.time()
+                }
+            }
+            
+            # Emit the completion request
+            result = await event_emitter("completion:async", completion_data)
+            results.append({
+                "target_session": target_session,
+                "status": "queued",
+                "request_id": completion_data["request_id"],
+                "result": result
+            })
+            
+            logger.info(f"Injected completion request {completion_data['request_id']} into session {target_session}")
+            
+        except Exception as e:
+            logger.error(f"Failed to inject into session {target_session}: {e}")
+            results.append({
+                "target_session": target_session,
+                "status": "error",
+                "error": str(e)
+            })
     
-    return {"status": "injection_executed"}
+    return {
+        "status": "injection_executed",
+        "target_count": len(target_sessions),
+        "results": results
+    }
 
 
 def get_injection_metadata(request_id: str) -> Optional[Dict[str, Any]]:
