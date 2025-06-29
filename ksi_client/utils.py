@@ -185,9 +185,9 @@ class EventBuilder:
     @classmethod
     def build_completion_event(cls, prompt: str, model: str = "sonnet",
                              session_id: str = None, client_id: str = None,
-                             correlation_id: str = None) -> Dict[str, Any]:
+                             correlation_id: str = None, priority: str = "normal") -> Dict[str, Any]:
         """
-        Build a completion:request event
+        Build a completion:async event
         
         Args:
             prompt: Text prompt for Claude
@@ -195,13 +195,18 @@ class EventBuilder:
             session_id: Optional session ID for continuity
             client_id: Client identifier for response routing
             correlation_id: Correlation ID for response matching
+            priority: Request priority (critical, high, normal, low, background)
             
         Returns:
             Completion request event dict
         """
+        import uuid
+        
         data = {
             "prompt": prompt,
-            "model": model
+            "model": model,
+            "priority": priority,
+            "request_id": f"{client_id or 'client'}_{uuid.uuid4().hex[:8]}"
         }
         
         if session_id:
@@ -209,7 +214,7 @@ class EventBuilder:
         if client_id:
             data["client_id"] = client_id
             
-        return cls.build_event("completion:request", data, correlation_id, client_id)
+        return cls.build_event("completion:async", data, correlation_id, client_id)
     
     @classmethod
     def build_agent_event(cls, action: str, agent_id: str = None, 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test script for MonitorClient conversation export functionality.
+Test script for conversation export functionality using EventBasedClient.
 """
 
 import asyncio
@@ -9,23 +9,23 @@ from pathlib import Path
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from ksi_admin import MonitorClient
+from ksi_client import EventBasedClient
 
 
 async def test_monitor_export():
     """Test the conversation export functionality."""
-    print("Testing MonitorClient conversation export...")
+    print("Testing conversation export with EventBasedClient...")
     
-    monitor = MonitorClient()
+    client = EventBasedClient()
     
     try:
         # Connect to daemon
-        await monitor.connect()
+        await client.connect()
         print("✓ Connected to daemon")
         
         # List available conversations
         print("\nListing conversations...")
-        conversations = await monitor.list_conversations(limit=5)
+        conversations = await client.request_event("conversation:list", {"limit": 5})
         
         if "conversations" in conversations and conversations["conversations"]:
             print(f"Found {len(conversations['conversations'])} conversations")
@@ -50,7 +50,10 @@ async def test_monitor_export():
                 
                 # Test invalid format
                 try:
-                    await monitor.export_conversation(session_id, format="invalid")
+                    await client.request_event("conversation:export", {
+                        "session_id": session_id,
+                        "format": "invalid"
+                    })
                 except ValueError as e:
                     print(f"✓ Invalid format correctly rejected: {e}")
             else:
@@ -60,12 +63,15 @@ async def test_monitor_export():
         
         # Test conversation search
         print("\nTesting conversation search...")
-        search_results = await monitor.search_conversations("test", limit=5)
+        search_results = await client.request_event("conversation:search", {
+            "query": "test",
+            "limit": 5
+        })
         print(f"Search results: {search_results.get('count', 0)} matches")
         
         # Test conversation stats
         print("\nGetting conversation statistics...")
-        stats = await monitor.get_conversation_stats()
+        stats = await client.request_event("conversation:stats", {})
         print(f"Stats: {stats}")
         
     except Exception as e:
@@ -73,7 +79,7 @@ async def test_monitor_export():
         return False
     
     finally:
-        await monitor.disconnect()
+        await client.disconnect()
         print("\n✓ Disconnected from daemon")
     
     return True

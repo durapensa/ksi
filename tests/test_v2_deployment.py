@@ -53,18 +53,22 @@ def test_completion_service_v2_features():
     """Test all v2 features in one comprehensive test."""
     print("\n=== Testing Completion Service V2 Features ===")
     
-    # Test 1: Basic sync completion
-    print("\n1. Testing basic sync completion...")
-    response = send_event("completion:request", {
+    # Test 1: Basic async completion (replaces old sync interface)
+    print("\n1. Testing basic async completion...")
+    request_id = f"test_req_{uuid.uuid4().hex[:8]}"
+    response = send_event("completion:async", {
+        "request_id": request_id,
         "prompt": "What is 5+5?",
         "model": "claude-cli/sonnet",
+        "client_id": "test_client",
+        "priority": "normal",
         "max_tokens": 50
     })
     
-    if response and 'response' in response:
-        print(f"   ✓ Sync completion works: {response.get('response', {}).get('result', 'No result')}")
+    if response and response.get('status') in ['queued', 'ready']:
+        print(f"   ✓ Async completion accepted: request_id={request_id}")
     else:
-        print(f"   ✗ Sync completion failed: {response}")
+        print(f"   ✗ Async completion failed: {response}")
         return False
     
     # Test 2: Queue status

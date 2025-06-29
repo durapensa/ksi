@@ -1,7 +1,7 @@
 """KSI Common - Shared utilities for all KSI components.
 
 This package contains shared utilities, constants, and protocols used across
-ksi_daemon, ksi_client, ksi_admin, and interfaces. It has no dependencies on
+ksi_daemon, ksi_client, and interfaces. It has no dependencies on
 any other KSI packages to avoid circular imports.
 """
 
@@ -17,14 +17,7 @@ from .constants import (
     DEFAULT_COMPLETION_TIMEOUT,
     EVENT_NAMESPACES,
 )
-from .protocols import (
-    SystemEvents,
-    AgentEvents,
-    CompletionEvents,
-    StateEvents,
-    MessageEvents,
-    ConversationEvents,
-)
+# Protocol imports removed - protocols.py was dead code
 from .exceptions import (
     KSIError,
     ConnectionError as KSIConnectionError,
@@ -70,13 +63,6 @@ __all__ = [
     "DEFAULT_COMPLETION_TIMEOUT",
     "EVENT_NAMESPACES",
     
-    # Protocol events
-    "SystemEvents",
-    "AgentEvents",
-    "CompletionEvents",
-    "StateEvents",
-    "MessageEvents",
-    "ConversationEvents",
     
     # Exceptions
     "KSIError",

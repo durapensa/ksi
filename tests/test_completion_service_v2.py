@@ -53,17 +53,26 @@ def send_event(event_name: str, data: dict):
 
 
 def test_basic_completion():
-    """Test basic synchronous completion."""
+    """Test basic completion using async interface."""
     print("\n=== Testing Basic Completion ===")
     
-    response = send_event("completion:request", {
+    # Use async completion with synchronous-like pattern
+    request_id = f"test_basic_{uuid.uuid4().hex[:8]}"
+    response = send_event("completion:async", {
+        "request_id": request_id,
         "prompt": "What is 2+2?",
         "model": "claude-cli/haiku",
         "session_id": "test_session_001",
+        "client_id": "test_client",
+        "priority": "normal",
         "max_tokens": 100
     })
     
     print(f"Response: {json.dumps(response, indent=2)}")
+    
+    # If we wanted to wait for result, we'd need to:
+    # 1. Listen for completion:result events with matching request_id
+    # 2. Or use the EventBasedClient.create_completion_sync() method
     
     return response
 

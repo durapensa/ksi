@@ -98,8 +98,8 @@ class TestCompletionServicePlugin:
             # Verify capabilities
             assert "/completion" in plugin.capabilities.event_namespaces, \
                 "Plugin should handle /completion namespace"
-            assert "completion:request" in plugin.capabilities.commands, \
-                "Plugin should handle completion:request command"
+            assert "completion:async" in plugin.capabilities.commands, \
+                "Plugin should handle completion:async command"
             assert "completion" in plugin.capabilities.provides_services, \
                 "Plugin should provide completion service"
             
@@ -520,25 +520,22 @@ class TestCompletionServicePlugin:
             unknown_result = plugin.ksi_handle_event("unknown:event", {}, {})
             assert unknown_result is None, "Unknown event should return None"
             
-            # Test completion:request event (sync version)
-            # Mock the async handler to avoid actual LiteLLM call
-            with patch.object(plugin, '_handle_completion_request') as mock_handler:
-                mock_handler.return_value = {"result": "mocked"}
-                
-                # This will call asyncio.run() internally
-                request_result = plugin.ksi_handle_event("completion:request", 
-                                                       {"prompt": "test"}, {})
-                assert request_result == {"result": "mocked"}, \
-                    "Request should return handler result"
-                mock_handler.assert_called_once()
+            # Test completion:async event (the primary interface)
+            # We're testing that it returns a coroutine for async handling
+            async_data = {
+                "prompt": "test async",
+                "model": "sonnet",
+                "client_id": "test_client"
+            }
+            async_result = plugin.ksi_handle_event("completion:async", async_data, {})
             
-            # Test completion:async event
-            async_result = plugin.ksi_handle_event("completion:async", {"prompt": "async test"}, {})
-            assert isinstance(async_result, dict), "Async should return dict"
-            assert "request_id" in async_result, "Async should have request_id"
-            assert "status" in async_result, "Async should have status"
-            assert async_result["status"] == "processing", \
-                f"Expected processing status, got {async_result['status']}"
+            # The result should be a coroutine
+            import inspect
+            assert inspect.iscoroutine(async_result), \
+                "completion:async should return a coroutine for async handling"
+            
+            # Clean up the coroutine to avoid warnings
+            async_result.close()
             
             finish_test(test_result, TestStatus.PASSED,
                        details={

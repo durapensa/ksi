@@ -12,9 +12,7 @@ from pathlib import Path
 import sys
 import os
 
-# Add path for ksi_admin
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from ksi_admin import MonitorClient
+from ksi_client import EventBasedClient
 from ksi_common import config
 
 from textual.app import App, ComposeResult
@@ -32,11 +30,17 @@ from textual.timer import Timer
 class EventLogModel:
     """Pure data layer for event log queries and caching."""
     
-    def __init__(self, monitor_client: MonitorClient):
-        self.monitor_client = monitor_client
+    def __init__(self, event_client: EventBasedClient):
+        self.event_client = event_client
         self.last_update = 0.0
         self._cache = {}
         self._cache_timeout = 2.0  # Cache for 2 seconds
+        
+        # Local state for tracking events (replaces MonitorClient state)
+        self.active_agents = {}
+        self.conversations = {}
+        self.tool_calls = []
+        self.system_events = []
     
     async def get_recent_events(self, limit=100, patterns=None) -> List[Dict[str, Any]]:
         """Fetch recent events with caching."""
@@ -62,12 +66,13 @@ class EventLogModel:
     async def get_system_health(self) -> Dict[str, Any]:
         """Get current system health metrics."""
         try:
-            # Use monitor client's snapshot functionality
-            snapshot = await self.monitor_client.get_system_snapshot()
+            # Get system health directly using event request
+            health_result = await self.event_client.request_event("system:health", {})
+            
             return {
                 "status": "healthy",
-                "active_agents": snapshot.get("active_agents", 0),
-                "conversations": snapshot.get("active_conversations", 0),
+                "active_agents": len(self.active_agents),
+                "conversations": len(self.conversations),
                 "memory_usage": "45MB",  # TODO: Get real metrics
                 "cpu_usage": 90,
                 "disk_usage": 60,
@@ -120,8 +125,11 @@ class EventLogModel:
     async def get_agent_status(self) -> List[Dict[str, Any]]:
         """Get active agent information."""
         try:
-            agents = self.monitor_client.get_active_agents()
-            return agents
+            # Return active agents from local state
+            return [
+                agent for agent in self.active_agents.values()
+                if agent.get("status") == "active"
+            ]
         except Exception as e:
             return []
 
@@ -171,7 +179,7 @@ class LiveEventsPane(Container):
         if len(prompt) > 50:
             prompt = prompt[:50] + "..."
         
-        log.write(f"[green]● {timestamp}[/] [bold]completion:request[/] [cyan]{client_id}[/]")
+        log.write(f"[green]● {timestamp}[/] [bold]completion:async[/] [cyan]{client_id}[/]")
         if prompt:
             log.write(f"   \"{prompt}\"")
     
@@ -524,8 +532,8 @@ class MonitorApp(App):
     def __init__(self, daemon_socket: str = None):
         super().__init__()
         self.daemon_socket = daemon_socket or str(config.socket_path)
-        self.monitor_client = MonitorClient(socket_path=self.daemon_socket)
-        self.model = EventLogModel(self.monitor_client)
+        self.event_client = EventBasedClient(socket_path=self.daemon_socket)
+        self.model = EventLogModel(self.event_client)
         self.controller = MonitorController(self.model)
         self.connected = False
         self.update_timer = None
@@ -558,8 +566,13 @@ class MonitorApp(App):
     async def connect_to_daemon(self) -> None:
         """Connect to the KSI daemon."""
         try:
-            await self.monitor_client.connect()
-            await self.monitor_client.observe_all()
+            await self.event_client.connect()
+            
+            # Subscribe to all events to maintain local state
+            async def handle_event(event_name: str, event_data: dict):
+                await self._update_local_state(event_name, event_data)
+            
+            self.event_client.subscribe("*", handle_event)
             self.connected = True
             self.notify("Connected to daemon", severity="information")
         except Exception as e:
@@ -600,11 +613,60 @@ class MonitorApp(App):
         """Disconnect from daemon."""
         if self.connected:
             try:
-                await self.monitor_client.stop_observing()
-                await self.monitor_client.disconnect()
+                await self.event_client.disconnect()
                 self.connected = False
             except Exception as e:
                 self.notify(f"Disconnect error: {e}", severity="warning")
+    
+    async def _update_local_state(self, event_name: str, event_data: dict) -> None:
+        """Update local state based on incoming events."""
+        try:
+            # Update active agents
+            if event_name.startswith("agent:"):
+                agent_id = event_data.get("agent_id")
+                if agent_id:
+                    if event_name == "agent:connect":
+                        self.model.active_agents[agent_id] = {
+                            "agent_id": agent_id,
+                            "status": "active",
+                            "timestamp": event_data.get("timestamp")
+                        }
+                    elif event_name == "agent:disconnect" and agent_id in self.model.active_agents:
+                        del self.model.active_agents[agent_id]
+            
+            # Update conversations
+            elif event_name.startswith("message:") or event_name.startswith("conversation:"):
+                conv_id = event_data.get("conversation_id")
+                if conv_id:
+                    if conv_id not in self.model.conversations:
+                        self.model.conversations[conv_id] = []
+                    self.model.conversations[conv_id].append(event_data)
+            
+            # Track tool calls
+            elif event_name.startswith("tool:"):
+                self.model.tool_calls.append({
+                    "event": event_name,
+                    "data": event_data,
+                    "timestamp": event_data.get("timestamp")
+                })
+                # Keep only recent tool calls
+                if len(self.model.tool_calls) > 100:
+                    self.model.tool_calls = self.model.tool_calls[-50:]
+            
+            # Track system events
+            elif event_name.startswith("system:"):
+                self.model.system_events.append({
+                    "event": event_name,
+                    "data": event_data,
+                    "timestamp": event_data.get("timestamp")
+                })
+                # Keep only recent system events
+                if len(self.model.system_events) > 100:
+                    self.model.system_events = self.model.system_events[-50:]
+        
+        except Exception as e:
+            # Don't notify errors for every event - just log them
+            pass
     
     def action_refresh(self) -> None:
         """Force refresh of all data."""
@@ -645,13 +707,15 @@ def main():
     if args.test_connection:
         # Test connection
         async def test_connection():
-            client = MonitorClient(socket_path=args.socket)
+            client = EventBasedClient(socket_path=args.socket)
             try:
                 await client.connect()
                 print(f"✓ Successfully connected to daemon at {args.socket}")
-                await client.observe_all()
-                print("✓ Monitor client can observe events")
-                await client.stop_observing()
+                
+                # Test basic event request
+                health = await client.request_event("system:health", {})
+                print("✓ Event communication working")
+                
                 await client.disconnect()
                 return True
             except Exception as e:

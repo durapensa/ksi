@@ -361,14 +361,17 @@ async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
     msg_type = message.get("type")
     
     if msg_type == "completion":
-        # Forward to completion service
+        # Forward to completion service using new async interface
         prompt = message.get("prompt", "")
         if prompt and event_emitter:
-            await event_emitter("completion:request", {
+            await event_emitter("completion:async", {
                 "prompt": prompt,
                 "agent_id": agent_id,
+                "client_id": agent_id,  # Use agent_id as client_id
                 "session_id": agent_info.get("session_id"),
-                "model": agent_info.get("config", {}).get("model", "sonnet")
+                "model": agent_info.get("config", {}).get("model", "sonnet"),
+                "priority": "normal",
+                "request_id": f"{agent_id}_{message.get('request_id', uuid.uuid4().hex[:8])}"
             })
     
     elif msg_type == "direct_message":

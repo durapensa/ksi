@@ -13,9 +13,7 @@ import sys
 import os
 import logging
 
-# Add path for ksi_admin
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from ksi_admin import MonitorClient
+from ksi_client import EventBasedClient
 from ksi_common import config
 
 from textual.app import App, ComposeResult
@@ -198,13 +196,16 @@ class MultiClaudeMonitor(App):
         super().__init__()
         self.daemon_socket = daemon_socket or str(config.socket_path)
         self.request_timeout = request_timeout
-        self.monitor_client = MonitorClient(socket_path=self.daemon_socket)
+        self.event_client = EventBasedClient(socket_path=self.daemon_socket)
         self.connected = False
         self.paused = False
         self.debug_mode = True  # Start in debug mode for troubleshooting
         
-        # Tracking data - MonitorClient maintains these internally
-        # We'll sync from monitor_client as needed
+        # Local state tracking (replaces MonitorClient state)
+        self.active_agents = {}
+        self.conversations = {}
+        self.tool_calls = []
+        self.system_events = []
         self.metrics = {
             'tokens': 0,
             'cost': 0.0,
@@ -267,21 +268,32 @@ class MultiClaudeMonitor(App):
         event_log = self.query_one("#event_log", RichLog)
         
         try:
-            # Connect monitor client
-            await self.monitor_client.connect()
+            # Connect event client
+            await self.event_client.connect()
             self.connected = True
             
-            # Register event handlers
-            self.monitor_client.on_message_flow(self.handle_message_event)
-            self.monitor_client.on_agent_activity(self.handle_agent_event)
-            self.monitor_client.on_tool_usage(self.handle_tool_event)
-            self.monitor_client.on_system_event(self.handle_system_event)
+            # Subscribe to all events with a unified handler
+            async def handle_all_events(event_name: str, event_data: dict):
+                if self.debug_mode and not self.paused:
+                    await self.handle_debug_event(event_name, event_data)
+                
+                # Route events to specific handlers
+                if event_name.startswith("message:") or event_name.startswith("conversation:"):
+                    await self.handle_message_event(event_name, event_data)
+                elif event_name.startswith("agent:"):
+                    await self.handle_agent_event(event_name, event_data)
+                elif event_name.startswith("tool:"):
+                    await self.handle_tool_event(event_name, event_data)
+                elif event_name.startswith("system:"):
+                    await self.handle_system_event(event_name, event_data)
+                
+                # Update local state
+                await self._update_local_state(event_name, event_data)
             
-            # Start pull-based monitoring using event log
-            asyncio.create_task(self.poll_event_log())
+            self.event_client.subscribe("*", handle_all_events)
             
-            self.notify("Connected to daemon and monitoring via event log", severity="information")
-            event_log.write(f"[green]Monitor connected at {datetime.now().strftime('%H:%M:%S')} (pull-based)[/]")
+            self.notify("Connected to daemon and monitoring via events", severity="information")
+            event_log.write(f"[green]Monitor connected at {datetime.now().strftime('%H:%M:%S')} (event-based)[/]")
             
         except Exception as e:
             self.notify(f"Failed to connect: {e}", severity="error")
@@ -294,42 +306,57 @@ class MultiClaudeMonitor(App):
             event_log = self.query_one("#event_log", RichLog)
             event_log.write(f"[dim]{datetime.now().strftime('%H:%M:%S')} {event_name}[/] {json.dumps(event_data, indent=2)}")
     
-    async def poll_event_log(self) -> None:
-        """Poll event log periodically for new events (pull-based monitoring)"""
-        last_timestamp = 0.0
+    async def _update_local_state(self, event_name: str, event_data: dict) -> None:
+        """Update local state based on incoming events."""
+        try:
+            # Update active agents
+            if event_name.startswith("agent:"):
+                agent_id = event_data.get("agent_id")
+                if agent_id:
+                    if event_name == "agent:connect":
+                        self.active_agents[agent_id] = {
+                            "agent_id": agent_id,
+                            "status": "active",
+                            "timestamp": event_data.get("timestamp")
+                        }
+                    elif event_name == "agent:disconnect" and agent_id in self.active_agents:
+                        del self.active_agents[agent_id]
+            
+            # Update conversations
+            elif event_name.startswith("message:") or event_name.startswith("conversation:"):
+                conv_id = event_data.get("conversation_id")
+                if conv_id:
+                    if conv_id not in self.conversations:
+                        self.conversations[conv_id] = []
+                    self.conversations[conv_id].append(event_data)
+            
+            # Track tool calls
+            elif event_name.startswith("tool:"):
+                self.tool_calls.append({
+                    "event": event_name,
+                    "data": event_data,
+                    "timestamp": event_data.get("timestamp")
+                })
+                # Keep only recent tool calls
+                if len(self.tool_calls) > 100:
+                    self.tool_calls = self.tool_calls[-50:]
+            
+            # Track system events
+            elif event_name.startswith("system:"):
+                self.system_events.append({
+                    "event": event_name,
+                    "data": event_data,
+                    "timestamp": event_data.get("timestamp")
+                })
+                # Keep only recent system events
+                if len(self.system_events) > 100:
+                    self.system_events = self.system_events[-50:]
         
-        while self.connected and not self.paused:
-            try:
-                # Get recent events since last poll
-                events = await self.monitor_client.get_recent_events(
-                    event_patterns=["*"],  # All events
-                    limit=50
-                )
-                
-                # Filter for new events since last poll
-                new_events = [
-                    event for event in events 
-                    if event.get("timestamp", 0) > last_timestamp
-                ]
-                
-                # Process new events in chronological order (oldest first)
-                if new_events:
-                    new_events.sort(key=lambda e: e.get("timestamp", 0))
-                    
-                    for event in new_events:
-                        await self._process_event_from_log(event)
-                        last_timestamp = max(last_timestamp, event.get("timestamp", 0))
-                
-                # Poll every 0.5 seconds for responsive monitoring
-                await asyncio.sleep(0.5)
-                
-            except Exception as e:
-                if self.debug_mode:
-                    event_log = self.query_one("#event_log", RichLog)
-                    event_log.write(f"[red]Poll error: {e}[/]")
-                
-                # Back off on errors
-                await asyncio.sleep(2.0)
+        except Exception as e:
+            # Don't notify errors for every event - just log them
+            pass
+    
+    # Removed poll_event_log - now using event subscriptions instead of polling
     
     async def _process_event_from_log(self, event: Dict[str, Any]) -> None:
         """Process an event from the event log"""
@@ -373,7 +400,7 @@ class MultiClaudeMonitor(App):
             conv_log.write(f"[blue]{timestamp} Client connected: {client_id}[/]")
     
     async def handle_message_event(self, event_name: str, event_data: Dict[str, Any]) -> None:
-        """Handle message events from MonitorClient"""
+        """Handle message events"""
         if self.paused:
             return
             
@@ -400,7 +427,7 @@ class MultiClaudeMonitor(App):
             self.metrics['cost'] += tokens * 0.00001  # Rough cost estimate
     
     async def handle_agent_event(self, event_name: str, event_data: Dict[str, Any]) -> None:
-        """Handle agent lifecycle events from MonitorClient"""
+        """Handle agent lifecycle events"""
         if self.paused:
             return
             
@@ -412,14 +439,14 @@ class MultiClaudeMonitor(App):
             await self.handle_agent_status(event_data)
     
     async def handle_tool_event(self, event_name: str, event_data: Dict[str, Any]) -> None:
-        """Handle tool events from MonitorClient"""
+        """Handle tool events"""
         if self.paused:
             return
             
         await self.handle_tool_call(event_data)
     
     async def handle_system_event(self, event_name: str, event_data: Dict[str, Any]) -> None:
-        """Handle system events from MonitorClient"""
+        """Handle system events"""
         if self.paused:
             return
             
@@ -532,21 +559,24 @@ class MultiClaudeMonitor(App):
         tree = self.query_one("#agent_tree", Tree)
         tree.clear()
         
-        # Get agents from monitor client
-        active_agents = self.monitor_client.get_active_agents()
+        # Get agents from local state
+        active_agents = [
+            agent for agent in self.active_agents.values()
+            if agent.get("status") == "active"
+        ]
         
         for agent_info in active_agents:
-            agent_id = agent_info.get('id', 'Unknown')
+            agent_id = agent_info.get('agent_id', 'Unknown')
             role = agent_info.get('role', 'unknown')
             profile = agent_info.get('profile', 'default')
             node = tree.root.add(f"{agent_id} [{role}]")
             node.add_leaf(f"Profile: {profile}")
             
-            # Add conversation participation from monitor client data
-            for conv_id in self.monitor_client.conversations.keys():
-                messages = self.monitor_client.get_conversation_messages(conv_id)
-                if any(m.get('data', {}).get('from') == agent_id or 
-                      m.get('data', {}).get('to') == agent_id for m in messages):
+            # Add conversation participation from local data
+            for conv_id in self.conversations.keys():
+                messages = self.conversations[conv_id]
+                if any(m.get('from') == agent_id or 
+                      m.get('to') == agent_id for m in messages):
                     node.add_leaf(f"In: {conv_id[:20]}...")
     
     def update_metrics(self) -> None:
@@ -559,8 +589,8 @@ class MultiClaudeMonitor(App):
         recent_messages = [t for t in self.message_times if (now - t).seconds < 60]
         msg_rate = len(recent_messages)
         
-        # Get active agent count from monitor client
-        active_count = len(self.monitor_client.get_active_agents())
+        # Get active agent count from local state
+        active_count = len([a for a in self.active_agents.values() if a.get("status") == "active"])
         
         # Update single status line
         status_text = f"Tokens: {self.metrics['tokens']:,} | Cost: ${self.metrics['cost']:.4f} | Msg/min: {msg_rate} | Active: {active_count}"
@@ -579,8 +609,7 @@ class MultiClaudeMonitor(App):
         """Disconnect from daemon"""
         if self.connected:
             try:
-                await self.monitor_client.stop_observing()
-                await self.monitor_client.disconnect()
+                await self.event_client.disconnect()
                 self.connected = False
             except Exception as e:
                 self.notify(f"Error during disconnect: {e}", severity="warning")
@@ -603,9 +632,7 @@ class MultiClaudeMonitor(App):
         self.debug_mode = not self.debug_mode
         status = "enabled" if self.debug_mode else "disabled"
         
-        # Register/unregister debug handler based on mode
-        if self.debug_mode and self.connected:
-            self.monitor_client.on_any_activity(self.handle_debug_event)
+        # Debug handler is automatically managed through event subscriptions
         
         self.notify(f"Debug mode {status}")
 
@@ -636,21 +663,18 @@ def main():
     if args.test_connection or args.test_only:
         # Test connection before starting TUI
         import asyncio
-        from ksi_admin import MonitorClient
         
         async def test_connection():
-            client = MonitorClient(socket_path=args.socket)
+            client = EventBasedClient(socket_path=args.socket)
             try:
                 await client.connect()
                 print(f"✓ Successfully connected to daemon at {args.socket}")
                 
                 # Test basic functionality
-                print("✓ Testing basic monitoring capabilities...")
-                # Just verify the client can start observing
-                await client.observe_all()
-                print("✓ Monitor client can observe events")
+                print("✓ Testing basic event communication...")
+                health = await client.request_event("system:health", {})
+                print("✓ Event communication working")
                 
-                await client.stop_observing()
                 await client.disconnect()
                 return True
             except Exception as e:
