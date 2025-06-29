@@ -390,5 +390,33 @@ var/lib/
 - **Composition Signing**: For trusted exchange (deferred)
 - **Performance Hints**: After experimentation (deferred)
 
+## Incomplete Refactors & Intended Functionality
+
+### Profile Loading System
+- **Legacy JSON loading**: Still present in `profile_loader.py` for edge cases
+- **Status**: Intended fallback, not fully removed
+- **Reason**: Some tools may still generate JSON profiles
+
+### Injection System  
+- **TODO in injection_router.py**: "Actually inject content into session"
+- **Status**: Scaffold implemented, injection logic pending
+- **Purpose**: Critical for async completion flows and agent coordination
+
+### Session Management
+- **Legacy method names**: e.g., "track_session_output" 
+- **Status**: Basic implementation, awaiting full session federation design
+- **Purpose**: Foundation for cross-device conversation continuity
+
+### Prompt Path Handling
+- **Legacy var/prompts checks**: Fallback for backward compatibility
+- **Status**: Intended for migration period
+- **Purpose**: Support users upgrading from older versions
+
+### TODOs to Preserve
+- Event log file persistence with rotation (planned feature)
+- Completion queue cancellation (needed for graceful shutdown)
+- Token/time tracking in injection (for resource management)
+- Memory metrics in monitor (awaiting implementation)
+
 ---
 *For development practices, see `/Users/dp/projects/ksi/CLAUDE.md`*

@@ -46,6 +46,19 @@ Essential development practices for Claude Code when working with KSI.
 - **Complete transitions** - when moving files/features, verify functionality then remove old locations
 - **System integrity** - ensure system functions as designed after cleanup
 
+### Cleanup Philosophy
+- **Distinguish legacy from incomplete** - "Legacy" means truly obsolete; "Incomplete" means work-in-progress
+- **Never remove intended functionality** - Even if it looks unused, it might be part of planned architecture
+- **Document incomplete refactors** - Flag them in project_knowledge.md rather than removing
+- **Preserve partial implementations** - They represent design decisions and future work
+- **When uncertain, investigate** - Trace usage, check git history, understand intent
+- **Update documentation** - When finding incomplete work, document it properly
+- **Examples of intended but incomplete**:
+  - Injection system (partially implemented, needed for async flows)
+  - Session management (basic implementation, awaiting federation)
+  - Circuit breakers (scaffold in place, logic pending)
+  - Profile fallbacks (may be needed for edge cases)
+
 ## Project Organization
 
 ### Directory Structure
