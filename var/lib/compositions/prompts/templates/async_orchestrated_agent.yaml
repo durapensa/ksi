@@ -1,70 +1,70 @@
-name: "async_orchestrated_agent"
-version: "1.0"
-description: "Agent with async completion injection and MCP tool access"
-author: "ksi-project"
-
+name: async_orchestrated_agent
+version: '1.0'
+description: Agent with async completion injection and MCP tool access
+type: prompt
+author: ksi-project
 components:
-  - name: "agent_identity"
-    source: "components/system_identity.md"
-    vars:
-      role: "{{agent_role}}"
-      mission: "{{agent_mission}}"
-      
-  - name: "daemon_commands"
-    source: "components/daemon_commands.md"
-    vars:
-      daemon_commands: "{{daemon_commands}}"
-      
-  - name: "async_completion_injection"
-    source: "components/injections/async_completion_result.md"
-    condition: "{{pending_completion_result}}"
-    vars:
-      completion_result: "{{completion_result}}"
-      attributes: "{{completion_attributes}}"
-      trigger_boilerplate: "{{> components/injections/trigger_boilerplates.md trigger_type=trigger_type}}"
-      follow_up_guidance: "{{follow_up_guidance}}"
-      circuit_breaker_status: "{{circuit_breaker_status}}"
-      
-  - name: "mcp_tools"
-    source: "components/injections/mcp_tool_access.md"
-    condition: "{{enable_mcp}}"
-    vars:
-      mcp_tools: "{{mcp_tools}}"
-      mcp_error_protocol: "{{mcp_error_protocol}}"
-      
-  - name: "conversation_context"
-    source: "components/conversation_context.md"
-    condition: "{{conversation_history}}"
-    vars:
-      conversation_history: "{{conversation_history}}"
-      
-  - name: "organizational_awareness"
-    source: "components/organizational_state.md"
-    condition: "{{organizational_state}}"
-    vars:
-      current_organization: "{{organizational_state}}"
-      coordination_patterns: "{{available_patterns}}"
-
+- name: agent_identity
+  source: components/system_identity.md
+  vars:
+    role: '{{agent_role}}'
+    mission: '{{agent_mission}}'
+- name: daemon_commands
+  source: components/daemon_commands.md
+  vars:
+    daemon_commands: '{{daemon_commands}}'
+- name: async_completion_injection
+  source: components/injections/async_completion_result.md
+  condition: '{{pending_completion_result}}'
+  vars:
+    completion_result: '{{completion_result}}'
+    attributes: '{{completion_attributes}}'
+    trigger_boilerplate: '{{> components/injections/trigger_boilerplates.md trigger_type=trigger_type}}'
+    follow_up_guidance: '{{follow_up_guidance}}'
+    circuit_breaker_status: '{{circuit_breaker_status}}'
+- name: mcp_tools
+  source: components/injections/mcp_tool_access.md
+  condition: '{{enable_mcp}}'
+  vars:
+    mcp_tools: '{{mcp_tools}}'
+    mcp_error_protocol: '{{mcp_error_protocol}}'
+- name: conversation_context
+  source: components/conversation_context.md
+  condition: '{{conversation_history}}'
+  vars:
+    conversation_history: '{{conversation_history}}'
+- name: organizational_awareness
+  source: components/organizational_state.md
+  condition: '{{organizational_state}}'
+  vars:
+    current_organization: '{{organizational_state}}'
+    coordination_patterns: '{{available_patterns}}'
 required_context:
-  agent_role: "string - agent's role in the organization"
-  agent_mission: "string - agent's primary mission"
-  daemon_commands: "object - available daemon commands"
-  enable_mcp: "boolean - whether MCP tools are enabled"
-  
+  agent_role: string - agent's role in the organization
+  agent_mission: string - agent's primary mission
+  daemon_commands: object - available daemon commands
+  enable_mcp: boolean - whether MCP tools are enabled
 optional_context:
-  pending_completion_result: "boolean - whether there's a completion result to inject"
-  completion_result: "string - the async completion result"
-  completion_attributes: "object - additional attributes from completion"
-  trigger_type: "string - type of trigger (antThinking, coordination, research, memory)"
-  follow_up_guidance: "string - specific guidance for handling the result"
-  circuit_breaker_status: "object - current circuit breaker metrics"
-  mcp_tools: "array - available MCP tools"
-  mcp_error_protocol: "string - how to handle MCP errors"
-  conversation_history: "string - conversation context"
-  organizational_state: "object - current organizational structure"
-  available_patterns: "array - available coordination patterns"
-
+  pending_completion_result: boolean - whether there's a completion result to inject
+  completion_result: string - the async completion result
+  completion_attributes: object - additional attributes from completion
+  trigger_type: string - type of trigger (antThinking, coordination, research, memory)
+  follow_up_guidance: string - specific guidance for handling the result
+  circuit_breaker_status: object - current circuit breaker metrics
+  mcp_tools: array - available MCP tools
+  mcp_error_protocol: string - how to handle MCP errors
+  conversation_history: string - conversation context
+  organizational_state: object - current organizational structure
+  available_patterns: array - available coordination patterns
 metadata:
-  tags: ["async", "orchestration", "mcp", "injection", "autonomous"]
-  capabilities_required: ["async_processing", "mcp_client", "injection_handling"]
+  tags:
+  - async
+  - orchestration
+  - mcp
+  - injection
+  - autonomous
+  capabilities_required:
+  - async_processing
+  - mcp_client
+  - injection_handling
   circuit_breaker_aware: true

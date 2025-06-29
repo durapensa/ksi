@@ -1,0 +1,66 @@
+name: "debate"
+type: "orchestration"
+version: "1.0.0"
+description: "Two-agent debate orchestration pattern"
+author: "ksi-system"
+
+# Agent topology
+agents:
+  debater_for:
+    profile: "debater"
+    prompt_template: "conversation_debate"
+    vars:
+      participant_number: 1
+      position: "for"
+  
+  debater_against:
+    profile: "debater"
+    prompt_template: "conversation_debate"
+    vars:
+      participant_number: 2
+      position: "against"
+
+# Message routing
+routing:
+  rules:
+    # Opening statement from first debater
+    - pattern: "debate:opening"
+      from: "debater_for"
+      to: "debater_against"
+    
+    # Responses go to the other debater
+    - pattern: "debate:response"
+      from: "*"
+      to: "!sender"
+    
+    # Conclusions broadcast to all
+    - pattern: "debate:conclusion"
+      from: "*"
+      broadcast: true
+
+# Coordination
+coordination:
+  turn_taking:
+    mode: "strict_alternation"
+    timeout: 60
+    max_silence: 2
+  
+  termination:
+    conditions:
+      - event: "debate:concluded"
+      - rounds: 10
+      - timeout: 600
+
+# Resource limits
+resources:
+  limits:
+    max_tokens_per_agent: 10000
+    max_messages: 20
+
+# Metadata
+metadata:
+  tags: ["debate", "two-agent", "turn-taking"]
+  min_agents: 2
+  max_agents: 2
+  loading_strategy: "tree"  # Load this + all dependencies automatically
+  tree_depth: 3

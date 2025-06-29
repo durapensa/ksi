@@ -1,6 +1,7 @@
 name: "research_specialist"
 version: "1.0"
 description: "Research Specialist for information gathering and analysis"
+type: prompt
 author: "ksi-project"
 
 components:

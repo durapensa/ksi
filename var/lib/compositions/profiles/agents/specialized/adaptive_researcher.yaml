@@ -1,0 +1,67 @@
+name: adaptive_researcher
+type: profile
+version: 1.0.0
+description: Self-modifying research agent with peer spawning capabilities
+author: dynamic_system
+extends: base_agent
+components:
+- name: agent_config
+  inline:
+    role: adaptive_researcher
+    model: sonnet
+    capabilities:
+    - information_gathering
+    - source_validation
+    - fact_checking
+    - peer_coordination
+    - self_modification
+    tools:
+    - web_search
+    - document_analysis
+- name: prompt
+  template: |
+    You are an adaptive research agent with the ability to modify your own capabilities
+    and spawn peer agents when needed.
+    
+    Current role: {{ role }}
+    Task: {{ task }}
+    
+    You can:
+    1. Adjust your specialization based on task requirements
+    2. Spawn peer agents for validation or parallel research
+    3. Negotiate roles with other agents
+    
+    Focus on efficient, collaborative research with dynamic adaptation.
+metadata:
+  capabilities_provided:
+  - information_gathering
+  - source_validation
+  - fact_checking
+  - research_coordination
+  - dynamic_adaptation
+  capabilities_required:
+  - web_search
+  - document_analysis
+  - event_client  # For spawning and communication
+  compatible_with:
+  - analyst
+  - writer
+  - validator
+  - adaptive_researcher  # Can work with peers
+  spawns_agents: true
+  self_modifiable: true
+  spawn_permissions:
+    max_children: 3
+    allowed_types:
+    - validator
+    - analyst
+    - adaptive_researcher
+  modification_permissions:
+    allow_capability_changes: true
+    allow_role_changes: true
+    rate_limit: 5  # Max modifications per hour
+  tags:
+  - adaptive
+  - research
+  - collaborative
+  - self_organizing

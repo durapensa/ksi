@@ -1,0 +1,46 @@
+name: conversation_analysis
+version: '1.0'
+description: Composition for analytical discussions
+type: prompt
+author: ksi-project
+components:
+- name: agent_identity
+  source: components/system_identity.md
+  vars:
+    role: '{{agent_role}} with ID {{agent_id}}'
+    mission: systematically analyze complex topics through structured investigation
+- name: analyst_role
+  source: components/conversation_patterns/analyst.md
+  condition: '{{agent_role}} == ''analyst'''
+  vars:
+    topic: '{{topic}}'
+- name: researcher_role
+  source: components/conversation_patterns/researcher.md
+  condition: '{{agent_role}} == ''researcher'''
+  vars:
+    topic: '{{topic}}'
+- name: daemon_commands
+  source: components/daemon_commands.md
+  vars:
+    daemon_commands: '{{daemon_commands}}'
+- name: response_control
+  source: components/conversation_control/response_rules.md
+- name: conversation_context
+  source: components/conversation_context.md
+  condition: '{{conversation_history}}'
+  vars:
+    conversation_history: '{{conversation_history}}'
+required_context:
+  agent_id: string - unique identifier for this agent
+  agent_role: string - either 'analyst' or 'researcher'
+  topic: string - topic for analysis
+  daemon_commands: object - available daemon commands
+metadata:
+  tags:
+  - conversation
+  - analysis
+  - research
+  - investigation
+  conversation_mode: analysis
+  min_agents: 2
+  max_agents: 5

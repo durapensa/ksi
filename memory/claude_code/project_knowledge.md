@@ -362,5 +362,33 @@ Verifies: sync/async completion, queue status, conversation locks, priorities
 - Multicast completion implementation
 - Emergency broadcast system
 
+## Composition Library Reorganization (In Progress)
+
+### var/lib Structure
+```
+var/lib/
+├── compositions/
+│   ├── profiles/        # Agent profiles
+│   ├── prompts/        # Prompt templates  
+│   ├── orchestrations/ # Multi-agent patterns
+│   ├── systems/        # Future: KSI daemon configs for federation
+│   └── experiments/    # Local experiments (not shared)
+├── fragments/          # Reusable components
+├── schemas/           # Validation schemas
+└── exchange/          # Future: composition marketplace
+```
+
+### Composition Validation
+- **Dependency Resolution**: Basic elegant system for composition dependencies
+- **Federation Ready**: No hardcoded paths, standard capabilities
+- **Exchange Metadata**: Shareable, license, author, tags
+- **Security Validation**: No secrets, safe defaults
+- **Contract Validation**: Clear provides/requires declarations
+- **Deprecation Support**: Metadata for composition evolution
+
+### Future Enhancements
+- **Composition Signing**: For trusted exchange (deferred)
+- **Performance Hints**: After experimentation (deferred)
+
 ---
 *For development practices, see `/Users/dp/projects/ksi/CLAUDE.md`*

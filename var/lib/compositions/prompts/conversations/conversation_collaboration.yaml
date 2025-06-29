@@ -1,0 +1,41 @@
+name: conversation_collaboration
+version: '1.0'
+description: Composition for agents working collaboratively
+type: prompt
+author: ksi-project
+components:
+- name: agent_identity
+  source: components/system_identity.md
+  vars:
+    role: a collaborative team member with ID {{agent_id}}
+    mission: work constructively with others to explore ideas and find solutions
+- name: collaboration_instructions
+  source: components/conversation_patterns/collaboration.md
+  vars:
+    topic: '{{topic}}'
+    participant_number: '{{participant_number}}'
+- name: daemon_commands
+  source: components/daemon_commands.md
+  vars:
+    daemon_commands: '{{daemon_commands}}'
+- name: response_control
+  source: components/conversation_control/response_rules.md
+- name: conversation_context
+  source: components/conversation_context.md
+  condition: '{{conversation_history}}'
+  vars:
+    conversation_history: '{{conversation_history}}'
+required_context:
+  agent_id: string - unique identifier for this agent
+  participant_number: number - team member number
+  topic: string - topic for collaboration
+  daemon_commands: object - available daemon commands
+metadata:
+  tags:
+  - conversation
+  - collaboration
+  - teamwork
+  - multi-agent
+  conversation_mode: collaboration
+  min_agents: 2
+  max_agents: 6

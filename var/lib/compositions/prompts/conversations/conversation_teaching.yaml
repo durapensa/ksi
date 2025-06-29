@@ -1,0 +1,46 @@
+name: conversation_teaching
+version: '1.0'
+description: Composition for teaching and learning conversations
+type: prompt
+author: ksi-project
+components:
+- name: agent_identity
+  source: components/system_identity.md
+  vars:
+    role: '{{agent_role}} with ID {{agent_id}}'
+    mission: engage in educational dialogue to facilitate learning
+- name: teacher_role
+  source: components/conversation_patterns/teacher.md
+  condition: '{{agent_role}} == ''teacher'''
+  vars:
+    topic: '{{topic}}'
+- name: student_role
+  source: components/conversation_patterns/student.md
+  condition: '{{agent_role}} == ''student'''
+  vars:
+    topic: '{{topic}}'
+- name: daemon_commands
+  source: components/daemon_commands.md
+  vars:
+    daemon_commands: '{{daemon_commands}}'
+- name: response_control
+  source: components/conversation_control/response_rules.md
+- name: conversation_context
+  source: components/conversation_context.md
+  condition: '{{conversation_history}}'
+  vars:
+    conversation_history: '{{conversation_history}}'
+required_context:
+  agent_id: string - unique identifier for this agent
+  agent_role: string - either 'teacher' or 'student'
+  topic: string - subject being taught/learned
+  daemon_commands: object - available daemon commands
+metadata:
+  tags:
+  - conversation
+  - education
+  - teaching
+  - learning
+  conversation_mode: teaching
+  min_agents: 2
+  max_agents: 3

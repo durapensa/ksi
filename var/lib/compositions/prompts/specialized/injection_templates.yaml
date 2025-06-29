@@ -1,0 +1,117 @@
+name: injection_templates
+version: '1.0'
+description: Reusable injection templates for async completion results
+type: prompt
+author: ksi-project
+base_templates:
+  async_completion_result:
+    name: async_completion_result
+    description: Basic async completion result injection
+    components:
+    - name: completion_result
+      source: components/injections/async_completion_result.md
+      vars:
+        completion_result: '{{completion_result}}'
+        attributes: '{{completion_attributes}}'
+        trigger_boilerplate: '{{> components/injections/trigger_boilerplates.md trigger_type=trigger_type}}'
+        follow_up_guidance: '{{follow_up_guidance}}'
+        circuit_breaker_status: '{{circuit_breaker_status}}'
+specialized_templates:
+  coordination_result:
+    name: coordination_result
+    description: Completion result with coordination guidance
+    extends: async_completion_result
+    components:
+    - name: coordination
+      source: components/injections/coordination_guidance.md
+      condition: '{{coordination_context}}'
+      vars:
+        coordination_context: '{{coordination_context}}'
+        coordination_actions: '{{coordination_actions}}'
+    - name: circuit_breaker
+      source: components/injections/circuit_breaker_status.md
+      condition: '{{circuit_breaker_status}}'
+      vars:
+        circuit_breaker_status: '{{circuit_breaker_status}}'
+    default_vars:
+      trigger_type: coordination
+      follow_up_guidance: Consider coordination implications and which agents need
+        this information.
+  research_result:
+    name: research_result
+    description: Research completion with memory integration
+    extends: async_completion_result
+    components:
+    - name: memory
+      source: components/injections/memory_integration.md
+      condition: '{{memory_context}}'
+      vars:
+        memory_context: '{{memory_context}}'
+    - name: circuit_breaker
+      source: components/injections/circuit_breaker_status.md
+      condition: '{{circuit_breaker_status}}'
+      vars:
+        circuit_breaker_status: '{{circuit_breaker_status}}'
+    default_vars:
+      trigger_type: research
+      follow_up_guidance: Evaluate findings for storage in collective memory and identify
+        follow-up research paths.
+  tool_result:
+    name: tool_result
+    description: Tool execution result (future MCP support)
+    extends: async_completion_result
+    components:
+    - name: mcp_tools
+      source: components/injections/mcp_tool_access.md
+      condition: '{{mcp_context}}'
+      vars:
+        mcp_tools: '{{mcp_tools}}'
+        mcp_error_protocol: '{{mcp_error_protocol}}'
+    - name: circuit_breaker
+      source: components/injections/circuit_breaker_status.md
+      condition: '{{circuit_breaker_status}}'
+      vars:
+        circuit_breaker_status: '{{circuit_breaker_status}}'
+    default_vars:
+      trigger_type: general
+      follow_up_guidance: Tool execution complete. Consider if results require further
+        tool usage or processing.
+  memory_storage_result:
+    name: memory_storage_result
+    description: Result requiring memory storage consideration
+    extends: research_result
+    default_vars:
+      trigger_type: memory
+      follow_up_guidance: This information appears significant. Consider preserving
+        in collective memory with appropriate indexing.
+      memory_context:
+        storage_recommendation:
+          reason: Completion contains potentially valuable insights
+          tags:
+          - async_result
+          - auto_suggested
+aliases:
+  basic: async_completion_result
+  coordination: coordination_result
+  research: research_result
+  tool: tool_result
+  memory: memory_storage_result
+required_context:
+  completion_result: string - The async completion result text
+optional_context:
+  completion_attributes: object - Additional attributes from completion
+  trigger_type: string - Type of trigger (antThinking, coordination, research, memory,
+    general)
+  follow_up_guidance: string - Specific guidance for handling the result
+  circuit_breaker_status: object - Current circuit breaker metrics
+  coordination_context: object - Multi-agent coordination information
+  memory_context: object - Collective memory context
+  mcp_context: object - MCP tool context (future)
+metadata:
+  tags:
+  - injection
+  - async
+  - completion
+  - coordination
+  - memory
+  version_compatibility: 1.0+
