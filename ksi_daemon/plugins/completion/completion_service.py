@@ -168,9 +168,18 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
         # Cancel an active completion
         request_id = data.get("request_id")
         if request_id in active_completions:
-            # Cancellation with queue not yet implemented
-            del active_completions[request_id]
-            return {"status": "cancelled"}
+            completion_info = active_completions[request_id]
+            task = completion_info.get("task")
+            
+            if task and not task.done():
+                # Actually cancel the running task
+                task.cancel()
+                logger.info(f"Cancelled completion task {request_id}")
+                return {"status": "cancelled", "method": "task_cancelled"}
+            else:
+                # Task not found or already done
+                active_completions.pop(request_id, None)
+                return {"status": "cancelled", "method": "removed_from_tracking"}
         return {"status": "not_found"}
     
     elif event_name == "completion:status":
@@ -395,6 +404,12 @@ async def handle_async_completion_smart(data: Dict[str, Any], context: Dict[str,
     if not session_id:
         # No session ID = no fork risk = immediate processing
         task_group = get_completion_task_group()
+        # Store task handle for cancellation
+        active_completions[request_id] = {
+            "data": data,
+            "started_at": TimestampManager.timestamp_utc(),
+            "task": None  # Will be set by process_single_completion
+        }
         task_group.start_soon(process_single_completion, data, context)
         logger.info(f"Processing sessionless completion {request_id} immediately")
         
@@ -429,6 +444,12 @@ async def handle_async_completion_smart(data: Dict[str, Any], context: Dict[str,
     else:
         # Session free = immediate processing with lock
         task_group = get_completion_task_group()
+        # Store task handle for cancellation
+        active_completions[request_id] = {
+            "data": data,
+            "started_at": TimestampManager.timestamp_utc(),
+            "task": None  # Will be set by process_completion_with_session_lock
+        }
         task_group.start_soon(process_completion_with_session_lock, data, context)
         logger.info(f"Processing completion {request_id} for free session {session_id}")
         
@@ -479,6 +500,17 @@ async def process_completion_with_session_lock(data: Dict[str, Any], context: Di
     request_id = data.get('request_id', str(uuid.uuid4()))
     
     try:
+        # Store current task handle for cancellation
+        current_task = anyio.current_task()
+        if request_id in active_completions:
+            active_completions[request_id]["task"] = current_task
+        else:
+            active_completions[request_id] = {
+                "data": data,
+                "started_at": TimestampManager.timestamp_utc(),
+                "task": current_task
+            }
+            
         # Acquire session lock
         if session_id:
             active_sessions.add(session_id)
@@ -502,11 +534,16 @@ async def process_single_completion(data: Dict[str, Any], context: Dict[str, Any
     logger.info(f"Processing completion request {request_id}")
     
     try:
-        # Store as active
-        active_completions[request_id] = {
-            "data": data,
-            "started_at": TimestampManager.timestamp_utc()
-        }
+        # Store current task handle for cancellation
+        current_task = anyio.current_task()
+        if request_id in active_completions:
+            active_completions[request_id]["task"] = current_task
+        else:
+            active_completions[request_id] = {
+                "data": data,
+                "started_at": TimestampManager.timestamp_utc(),
+                "task": current_task
+            }
         
         # Emit progress event
         if event_emitter and callable(event_emitter):
@@ -527,6 +564,17 @@ async def process_single_completion(data: Dict[str, Any], context: Dict[str, Any
             await event_emitter("completion:result", result, {})
         
         logger.info(f"Completed request {request_id}")
+        
+    except anyio.get_cancelled_exc_class():
+        logger.info(f"Completion request {request_id} was cancelled")
+        
+        # Emit cancellation event
+        if event_emitter and callable(event_emitter):
+            await event_emitter("completion:cancelled", {
+                "request_id": request_id,
+                "message": "Request was cancelled"
+            }, {})
+        raise
         
     except Exception as e:
         logger.error(f"Completion error for {request_id}: {e}", exc_info=True)

@@ -192,6 +192,10 @@ class ClaudeCLIProvider(CustomLLM):
             max_workers=config.claude_max_workers,
             thread_name_prefix="claude-cli"
         )
+        # Track active processes for cleanup on cancellation
+        self.active_processes = {}  # thread_id -> subprocess.Popen
+        self.process_lock = threading.Lock()
+        
         logger.info(
             "Claude CLI provider initialized",
             claude_bin=str(CLAUDE_BIN),
@@ -199,6 +203,19 @@ class ClaudeCLIProvider(CustomLLM):
             timeout_attempts=config.claude_timeout_attempts,
             progress_timeout=config.claude_progress_timeout
         )
+
+    def _cleanup_active_processes(self):
+        """Clean up any active subprocess on cancellation"""
+        with self.process_lock:
+            for thread_id, process in list(self.active_processes.items()):
+                try:
+                    if process.poll() is None:  # Process still running
+                        logger.warning(f"Killing active Claude process (PID: {process.pid}) due to cancellation")
+                        process.kill()
+                        process.wait(timeout=5)
+                except Exception as e:
+                    logger.error(f"Error cleaning up process: {e}")
+            self.active_processes.clear()
 
     # ------------------------- public sync entry-points ---------------------- #
 
@@ -243,7 +260,13 @@ class ClaudeCLIProvider(CustomLLM):
                 "Claude CLI provider does not support streaming. "
                 "KSI uses non-streaming completions only."
             )
-        return await self._acompletion(messages, *args, **kwargs)
+        
+        try:
+            return await self._acompletion(messages, *args, **kwargs)
+        except asyncio.CancelledError:
+            # Clean up any running subprocesses on cancellation
+            self._cleanup_active_processes()
+            raise
 
     async def astreaming(self, messages, *args, **kwargs):
         """Async streaming not supported"""
@@ -259,8 +282,13 @@ class ClaudeCLIProvider(CustomLLM):
         prompt, model_alias = self._extract_prompt_and_model(messages, *args, **kwargs)
         full_model = f"claude-cli/{model_alias}"
         
-        # Get timeouts from KSI config
-        timeouts = config.claude_timeout_attempts  # [300, 900, 1800] = 5min, 15min, 30min
+        # Respect LiteLLM timeout parameter, fall back to config if not provided
+        litellm_timeout = kwargs.get('timeout')
+        if litellm_timeout:
+            timeouts = [float(litellm_timeout)]  # Use LiteLLM timeout
+            logger.debug(f"Using LiteLLM timeout: {litellm_timeout}s")
+        else:
+            timeouts = config.claude_timeout_attempts  # [300, 900, 1800] = 5min, 15min, 30min
         
         logger.info(
             "Starting Claude CLI completion",
@@ -292,15 +320,29 @@ class ClaudeCLIProvider(CustomLLM):
                     session_id=session_id
                 )
                 
-                # Use thread executor for long-running Claude operations
+                # Use thread executor with proper cancellation support
                 loop = asyncio.get_event_loop()
-                result = await loop.run_in_executor(
-                    self.claude_executor,
-                    self._run_claude_sync_with_progress,
-                    cmd,
-                    timeout,
-                    full_model
-                )
+                
+                # Use asyncio.wait_for to ensure proper cancellation
+                try:
+                    result = await asyncio.wait_for(
+                        loop.run_in_executor(
+                            self.claude_executor,
+                            self._run_claude_sync_with_progress,
+                            cmd,
+                            timeout,
+                            full_model
+                        ),
+                        timeout=timeout
+                    )
+                except asyncio.TimeoutError:
+                    # Convert asyncio timeout to LiteLLM Timeout exception
+                    from litellm.exceptions import Timeout
+                    raise Timeout(
+                        message=f"Claude CLI timed out after {timeout}s",
+                        model=full_model,
+                        llm_provider="claude-cli"
+                    )
                 
                 # Success - process the result
                 return self._process_claude_result(result, model_alias, prompt)
@@ -374,6 +416,11 @@ class ClaudeCLIProvider(CustomLLM):
                 cwd=str(project_root),
                 env=os.environ
             )
+            
+            # Register process for cleanup on cancellation
+            thread_id = threading.get_ident()
+            with self.process_lock:
+                self.active_processes[thread_id] = process
             
             # Start reader threads for cross-platform compatibility
             stdout_thread = threading.Thread(
@@ -462,6 +509,11 @@ class ClaudeCLIProvider(CustomLLM):
                 except:
                     pass
             raise
+        finally:
+            # Clean up process tracking
+            thread_id = threading.get_ident()
+            with self.process_lock:
+                self.active_processes.pop(thread_id, None)
     
     def _process_claude_result(self, result, model_alias: str, prompt: str):
         """Process successful Claude CLI result and create LiteLLM response"""
