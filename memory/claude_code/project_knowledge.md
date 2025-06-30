@@ -2,7 +2,7 @@
 
 Core technical reference for KSI (Knowledge System Interface) - a minimal daemon system for managing Claude AI processes with conversation continuity and multi-agent orchestration.
 
-**Latest Update (2025-06-30)**: Completed subprocess cleanup implementation, fixed circuit breaker token estimation, and validated production safety mechanisms. The injection system was already complete (documentation updated). 
+**Current State**: 19 plugins loading successfully. Pure asyncio implementation with event-driven patterns. 
 
 **Critical Lesson Learned**: Previous agent experiments without proper logging and isolation resulted in agents compromising the KSI system itself. Event persistence and security controls are now mandatory prerequisites before any agent activation.
 
@@ -47,7 +47,7 @@ ksi/
    - `ksi_ready()` - Request async tasks (sync, returns task specs)
    - `ksi_shutdown()` - Cleanup (sync)
 
-2. **Async Task Management** (anyio Structured Concurrency):
+2. **Async Task Management** (Pure Asyncio):
    ```python
    @hookimpl
    def ksi_ready():
@@ -56,7 +56,7 @@ ksi/
            "tasks": [{"name": "service_manager", "coroutine": manage_completion_service()}]
        }
    ```
-   Core daemon uses anyio task groups for proper structured concurrency.
+   Core daemon uses Python 3.11+ asyncio.TaskGroup for structured concurrency.
 
 3. **Import Pattern**: All plugins use absolute imports:
    ```python
@@ -73,8 +73,8 @@ ksi/
 - **core/shutdown.py** - Graceful shutdown
 - **core/monitor.py** - Event log API
 
-### Completion System (v3 - Smart Hybrid)
-- **completion/completion_service.py** - anyio-based smart hybrid architecture
+### Completion System (v3 - Pure Asyncio)
+- **completion/completion_service.py** - Pure asyncio with TaskGroup
 - **completion/litellm.py** - LiteLLM provider
 - **completion/claude_cli_litellm_provider.py** - Claude CLI integration
 
@@ -120,13 +120,13 @@ ksi/
 ```
 Returns all available events with parameters and descriptions.
 
-## Completion Service v3 (Smart Hybrid)
+## Completion Service v3 (Pure Asyncio)
 
 ### Architecture
-- **anyio Structured Concurrency**: Replaced broken asyncio.gather with anyio task groups
-- **Smart Hybrid Routing**: Immediate processing for sessionless/free sessions, queuing for busy
+- **Pure Asyncio**: Uses Python 3.11+ asyncio.TaskGroup for structured concurrency
+- **Event-Driven Shutdown**: Monitors shutdown_event instead of sleep_forever() polling
+- **Smart Routing**: Immediate processing for sessionless/free sessions, queuing for busy
 - **Per-Session Fork Prevention**: Dynamic per-session queues only when needed
-- **Event-Driven**: No polling, pure event-based processing
 
 ### Session ID Management
 - **Claude-cli returns NEW session_id from EVERY request** (even continuations)
@@ -448,25 +448,6 @@ var/lib/
 - **Composition Signing**: For trusted exchange (deferred)
 - **Performance Hints**: After experimentation (deferred)
 
-## Recently Completed Features (2025-06-30)
-
-### Injection System ✅ (COMPLETED)
-- **Status**: Fully implemented and functional (was already complete, documentation updated)
-- **Architecture**: Event-driven injection via `completion:async` events (not queue processing)
-- **Features**: Supports both 'direct' (immediate) and 'next' (stored) injection modes
-- **Implementation**: `execute_injection` function creates completion requests via event emission
-
-### Completion Cancellation ✅ (COMPLETED) 
-- **Implementation**: Task cancellation with subprocess cleanup in claude_cli_litellm_provider.py
-- **Features**: Tracks active processes, sends SIGKILL on cancellation
-- **Testing**: Validated no tool-using Claude processes linger after cancellation
-- **Security**: Prevents runaway autonomous Claude sessions
-
-### Circuit Breaker Token Estimation ✅ (COMPLETED)
-- **Implementation**: Improved `estimate_tokens()` function using character + word heuristics
-- **Features**: Accurate token counting with minimum of 1 token for all content
-- **Impact**: Resource tracking now works correctly for cost management
-- **Testing**: Comprehensive test suite validates estimation accuracy
 
 ## Critical Incomplete Features
 
@@ -499,33 +480,14 @@ var/lib/
 - **Impact**: Core multi-agent orchestration capabilities unused
 - **Need**: Demonstrate system value proposition SAFELY
 
-## Technical Debt Cleanup ✅
-
-### anyio Migration (COMPLETED)
-- Replaced broken asyncio.gather with anyio structured concurrency
-- Smart hybrid completion system with per-session fork prevention
-- Proper pluggy best practices: sync plugin loading → async task execution
-
-### Wrapper Consolidation (COMPLETED)
-- Consolidated message_bus.py into messaging plugin (348 lines → self-contained)
-- Removed obsolete files: core_plugin_backup.py, plugin_loader_old.py, completion_queue.py
-- Removed hot_reload functionality (contradicted CLAUDE.md directives)
-
-### Documentation & Patterns (COMPLETED)
-- Critical session ID pattern documented in CLAUDE.md
-- Cleanup philosophy: distinguish legacy vs incomplete functionality
-- All changes committed atomically with proper documentation
 
 ## Current Technical Issues
 
-### Plugin Logging Configuration
-- **Issue**: Plugin loggers don't respect KSI_LOG_LEVEL environment variable
-- **Root Cause**: ksi_common.logging.get_logger() auto-configures structlog with defaults
-- **Impact**: DEBUG logs from plugins don't appear even with KSI_LOG_LEVEL=DEBUG
-- **Attempted Fix**: Configure structlog before plugin imports in daemon __init__.py
-- **Remaining Issue**: get_logger() in ksi_common re-configures with INFO level
-- **Workaround**: Use logger.info() instead of logger.debug() for critical debugging
-- **Proper Fix**: Modify ksi_common.logging.get_logger() to check if already configured
+### Remaining Anti-Patterns (Low Priority)
+- Static classes that should be functions (TimestampManager, FileOperations)
+- Thin wrapper functions (generate_id wrapping uuid)
+- Multiple event loop creation (36 files use asyncio.run)
+- Dead code (orchestrate.py, empty stubs)
 
 ---
 *For development practices, see `/Users/dp/projects/ksi/CLAUDE.md`*
