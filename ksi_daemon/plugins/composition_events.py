@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional
 import pluggy
 
 from ksi_daemon.plugin_utils import plugin_metadata
-from ksi_common.logging import get_logger
+from ksi_common.logging import get_bound_logger
 
 # Plugin metadata
 plugin_metadata("composition_events", version="1.0.0", 
@@ -20,7 +20,7 @@ plugin_metadata("composition_events", version="1.0.0",
 hookimpl = pluggy.HookimplMarker("ksi")
 
 # Module state
-logger = get_logger("composition_events")
+logger = get_bound_logger("composition_events", version="1.0.0")
 composition_index = None
 
 # Plugin info

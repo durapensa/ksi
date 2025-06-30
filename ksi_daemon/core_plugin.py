@@ -7,13 +7,11 @@ Main daemon orchestration without complex inheritance and event layers.
 
 import asyncio
 import signal
-import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
 
 import pluggy
-import structlog
-import anyio
+from ksi_common.logging import get_bound_logger
 
 from ksi_common.config import config
 from .plugin_loader_simple import SimplePluginLoader
@@ -23,7 +21,7 @@ from .event_router import SimpleEventRouter
 from .infrastructure.state import session_state, async_state
 from .infrastructure.composition import index as composition_index
 
-logger = structlog.get_logger(__name__)
+logger = get_bound_logger("core_plugin", version="2.0.0")
 
 
 class SimpleDaemonCore:
@@ -47,7 +45,7 @@ class SimpleDaemonCore:
             plugin_dirs=[Path(__file__).parent / "plugins"]
         )
         
-        # Track async coroutines for anyio structured concurrency
+        # Track async coroutines for asyncio structured concurrency
         self.async_coroutines = []
         
         # Shutdown event for graceful termination
@@ -108,7 +106,7 @@ class SimpleDaemonCore:
                 context=plugin_context
             )
             logger.info("Plugin context passed to all plugins")
-        except Exception as e:
+        except (AttributeError, TypeError) as e:
             logger.warning(f"Failed to pass plugin context: {e}")
             # Don't fail startup - this is optional
         
@@ -131,13 +129,12 @@ class SimpleDaemonCore:
         
         try:
             # PHASE 1: SYNC OPERATIONS (pluggy best practices)
-            # Setup signal handlers - but route through event system
+            # Setup signal handlers - set shutdown event directly for fast response
             loop = asyncio.get_event_loop()
             for sig in (signal.SIGTERM, signal.SIGINT):
                 loop.add_signal_handler(
-                    sig, lambda s=sig: asyncio.create_task(
-                        self.event_router.route_event("system:shutdown", {"signal": s}, {})
-                    )
+                    sig, 
+                    lambda s=sig: self._handle_signal_sync(s)
                 )
             
             # Call ksi_ready hooks - plugins return coroutines to start
@@ -165,32 +162,29 @@ class SimpleDaemonCore:
                 
                 logger.info(f"Plugin daemon ready - collected {len(self.async_coroutines)} async tasks")
                     
-            except Exception as e:
+            except (AttributeError, TypeError, ValueError) as e:
                 logger.error(f"Error calling ksi_ready hooks: {e}", exc_info=True)
             
-            # Start service tasks with anyio structured concurrency
+            # Start service tasks with asyncio structured concurrency
             if self.async_coroutines:
-                async with anyio.create_task_group() as tg:
+                async with asyncio.TaskGroup() as tg:
                     # Start all service coroutines concurrently
                     for coro_spec in self.async_coroutines:
                         coroutine = coro_spec["coroutine"]
                         
-                        # anyio needs a callable, not a coroutine object
-                        def make_coroutine_wrapper(coro_to_run):
-                            async def _run_service_coroutine():
-                                return await coro_to_run
-                            return _run_service_coroutine
-                        
-                        wrapper = make_coroutine_wrapper(coroutine)
-                        tg.start_soon(wrapper)
+                        # Create the task
+                        tg.create_task(coroutine)
                     
                     # Add shutdown monitor as another service task
                     async def shutdown_monitor():
                         await self.shutdown_event.wait()
                         logger.info("Shutdown event received, cancelling services")
-                        tg.cancel_scope.cancel()
+                        # In asyncio.TaskGroup, we cancel all tasks by raising CancelledError
+                        for task in asyncio.all_tasks():
+                            if task is not asyncio.current_task():
+                                task.cancel()
                     
-                    tg.start_soon(shutdown_monitor)
+                    tg.create_task(shutdown_monitor())
                     
                     logger.info("Daemon services running")
                     # Task group runs until services complete or shutdown cancels them
@@ -198,14 +192,15 @@ class SimpleDaemonCore:
                 logger.warning("No async services to run, waiting for shutdown")
                 await self.shutdown_event.wait()
             
-        except Exception as e:
-            logger.error("Daemon error", error=str(e), exc_info=True)
+        except* Exception as eg:
+            # TaskGroup can raise ExceptionGroup when tasks fail
+            logger.error("Daemon task group error", error=str(eg), exc_info=True)
         finally:
             await self.shutdown()
     
-    async def _handle_signal(self, signum: int) -> None:
-        """Handle system signals."""
-        logger.info(f"Received signal {signum}")
+    def _handle_signal_sync(self, signum: int) -> None:
+        """Handle system signals synchronously - called from signal handler."""
+        logger.info(f"Received signal {signum}, setting shutdown event directly")
         self.shutdown_event.set()
     
     async def shutdown(self) -> None:
@@ -217,7 +212,7 @@ class SimpleDaemonCore:
         logger.info("Plugin daemon shutting down")
         
         try:
-            # anyio handles service cancellation automatically
+            # asyncio TaskGroup handles service cancellation automatically
             
             # Call sync shutdown hooks  
             shutdown_results = self.plugin_loader.pm.hook.ksi_shutdown()
@@ -231,7 +226,7 @@ class SimpleDaemonCore:
             
             logger.info("Plugin daemon stopped")
             
-        except Exception as e:
+        except (OSError, RuntimeError) as e:
             logger.error("Error during shutdown", error=str(e), exc_info=True)
 
 
@@ -240,15 +235,8 @@ async def run_daemon():
     # Ensure directories exist
     config.ensure_directories()
     
-    # Configure logging
-    logging.basicConfig(
-        level=config.get_log_level(),
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(config.get_log_file_path()),
-            logging.StreamHandler()
-        ]
-    )
+    # Logging is already configured by daemon entry point
+    # Do NOT add any handlers here - they cause OSError in daemon mode
     
     # Create and run daemon
     daemon = SimpleDaemonCore()

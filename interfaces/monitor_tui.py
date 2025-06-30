@@ -596,7 +596,7 @@ class MultiClaudeMonitor(App):
         status_text = f"Tokens: {self.metrics['tokens']:,} | Cost: ${self.metrics['cost']:.4f} | Msg/min: {msg_rate} | Active: {active_count}"
         try:
             self.query_one("#status-line", Static).update(status_text)
-        except:
+        except (AttributeError, KeyError):
             pass  # Widget might not be ready yet
     
     def action_quit(self) -> None:

@@ -17,11 +17,11 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 from contextlib import contextmanager
 
-from ksi_common.logging import get_logger
+from ksi_common.logging import get_bound_logger
 from ksi_common import TimestampManager
 from ksi_common.config import config
 
-logger = get_logger("composition_index")
+logger = get_bound_logger("composition_index", version="1.0.0")
 
 # Module state
 _db_path: Optional[Path] = None

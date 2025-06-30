@@ -15,7 +15,7 @@ import pluggy
 from ksi_daemon.plugin_utils import plugin_metadata
 from ksi_common import TimestampManager, log_event, agent_context
 from ksi_common.config import config
-from ksi_common.logging import get_logger
+from ksi_common.logging import get_bound_logger
 
 # Plugin metadata
 plugin_metadata("message_bus", version="2.0.0",
@@ -25,7 +25,7 @@ plugin_metadata("message_bus", version="2.0.0",
 hookimpl = pluggy.HookimplMarker("ksi")
 
 # Module state
-logger = get_logger("message_bus")
+logger = get_bound_logger("message_bus", version="1.0.0")
 event_emitter = None
 
 # Track subscriptions per client

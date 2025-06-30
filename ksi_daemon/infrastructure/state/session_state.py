@@ -9,7 +9,7 @@ from typing import Dict, Any, Optional, List
 import sqlite3
 import json
 from pathlib import Path
-from ksi_common.logging import get_logger
+from ksi_common.logging import get_bound_logger
 from ksi_common import TimestampManager
 from ksi_common.config import config
 
@@ -17,7 +17,7 @@ class SessionAndSharedStateManager:
     """Manages session tracking and shared state for agent coordination"""
     
     def __init__(self):
-        self.logger = get_logger("state")
+        self.logger = get_bound_logger("session_state", version="2.0.0")
         self._initialize()
     
     def _initialize(self):

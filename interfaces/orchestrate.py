@@ -107,10 +107,10 @@ class MultiClaudeOrchestrator:
                 try:
                     result = json.loads(response.decode().strip())
                     return result.get("status") == "healthy"
-                except:
+                except (json.JSONDecodeError, ValueError):
                     return False
             return False
-        except:
+        except (OSError, ConnectionError):
             logger.error("Daemon is not running. Start with: ./daemon_control.py start")
             return False
     

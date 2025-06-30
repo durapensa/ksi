@@ -9,11 +9,10 @@ autonomous agent coordination through completion chains.
 import asyncio
 import json
 import time
-from queue import Queue
 from typing import Dict, Any, Optional, List
 import pluggy
 
-from ksi_common.logging import get_logger
+from ksi_common.logging import get_bound_logger
 from ksi_daemon.plugin_utils import plugin_metadata
 from ksi_common.config import config
 from ksi_common import TimestampManager
@@ -33,8 +32,8 @@ plugin_metadata("injection_router", version="1.0.0",
 hookimpl = pluggy.HookimplMarker("ksi")
 
 # Module state
-logger = get_logger("injection_router")
-injection_queue = Queue()
+logger = get_bound_logger("injection_router", version="2.0.0")
+injection_queue = None  # Will be initialized as asyncio.Queue when event loop is available
 injection_metadata_store: Dict[str, Dict[str, Any]] = {}
 
 # Event emitter reference (set during startup)
@@ -129,6 +128,11 @@ def ksi_plugin_context(context):
 @hookimpl
 def ksi_ready():
     """Return async task to process injection queue."""
+    global injection_queue
+    
+    # Initialize asyncio.Queue now that event loop is available
+    injection_queue = asyncio.Queue()
+    
     logger.info("Injection router ksi_ready called - returning queue processor task")
     
     async def process_injection_queue():
@@ -137,10 +141,8 @@ def ksi_ready():
         
         while True:
             try:
-                # Get next injection request (blocking)
-                injection_request = await asyncio.get_event_loop().run_in_executor(
-                    None, injection_queue.get
-                )
+                # Get next injection request (truly async, no polling!)
+                injection_request = await injection_queue.get()
                 
                 if injection_request is None:  # Shutdown signal
                     logger.info("Injection queue processor shutting down")
@@ -156,8 +158,11 @@ def ksi_ready():
                 else:
                     logger.error("Event emitter not available for injection processing")
                     
-            except Exception as e:
-                logger.error(f"Error processing injection: {e}", exc_info=True)
+            except asyncio.CancelledError:
+                logger.info("Injection queue processor cancelled")
+                raise
+            except (KeyError, ValueError, TypeError) as e:
+                logger.error(f"Invalid injection data: {e}", exc_info=True)
                 await asyncio.sleep(1)  # Brief pause on error
         
         logger.info("Injection queue processor stopped")
@@ -187,7 +192,7 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
     
     elif event_name == "injection:status":
         return {
-            "queued_count": injection_queue.qsize(),
+            "queued_count": injection_queue.qsize() if injection_queue else 0,
             "metadata_count": len(injection_metadata_store),
             "blocked_count": len(circuit_breaker.blocked_requests),
             "state_manager_available": state_manager is not None,
@@ -305,7 +310,7 @@ async def handle_completion_result(data: Dict[str, Any], context: Dict[str, Any]
                 'timestamp': TimestampManager.timestamp_utc()
             }
             
-            injection_queue.put(injection_request)
+            await injection_queue.put(injection_request)
             queued_count += 1
             
             # Emit queued event
@@ -493,7 +498,7 @@ async def inject_content(
                 'trigger_type': trigger_type
             }
             
-            injection_queue.put(injection_request)
+            await injection_queue.put(injection_request)
             queued_count += 1
             
             if event_emitter:
@@ -1044,14 +1049,19 @@ async def process_injection(request: InjectionRequest) -> InjectionResult:
 def ksi_shutdown():
     """Clean up on shutdown."""
     # Signal queue processor to stop
-    injection_queue.put(None)
+    if injection_queue:
+        try:
+            injection_queue.put_nowait(None)
+        except asyncio.QueueFull:
+            logger.warning("Injection queue full during shutdown")
     
     # Clear any remaining items
-    while not injection_queue.empty():
-        try:
-            injection_queue.get_nowait()
-        except:
-            break
+    if injection_queue:
+        while not injection_queue.empty():
+            try:
+                injection_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
     
     logger.info("Injection router stopped")
     return {"status": "injection_router_stopped"}

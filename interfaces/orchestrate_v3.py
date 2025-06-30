@@ -121,7 +121,7 @@ class MultiClaudeOrchestratorV3:
     """Orchestrate conversations with dynamic composition discovery"""
     
     def __init__(self):
-        self.client = AsyncClient(client_id="orchestrator_v3")
+        self.client = EventBasedClient(client_id="orchestrator_v3")
         self.conversation_id = None
         self.mode_manager = DynamicConversationModeManager()
         self.connected = False
@@ -345,7 +345,7 @@ class MultiClaudeOrchestratorV3:
             for profile_path in temp_profiles_dir.glob('temp_*'):
                 try:
                     profile_path.unlink()
-                except:
+                except OSError:
                     pass
 
 

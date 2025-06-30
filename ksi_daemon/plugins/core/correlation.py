@@ -11,7 +11,7 @@ import pluggy
 
 from ksi_daemon.plugin_utils import plugin_metadata
 from ksi_daemon import correlation
-from ksi_common.logging import get_logger
+from ksi_common.logging import get_bound_logger
 
 # Plugin metadata
 plugin_metadata("correlation", version="1.0.0",
@@ -21,7 +21,7 @@ plugin_metadata("correlation", version="1.0.0",
 hookimpl = pluggy.HookimplMarker("ksi")
 
 # Module state
-logger = get_logger("correlation")
+logger = get_bound_logger("correlation", version="1.0.0")
 
 # Plugin info
 PLUGIN_INFO = {

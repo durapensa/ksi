@@ -13,7 +13,7 @@ This is the equivalent of the pre-refactor GET_COMMANDS functionality.
 
 import inspect
 import json
-import logging
+from ksi_common.logging import get_bound_logger
 from typing import Dict, List, Any, Optional, Callable
 import pluggy
 
@@ -28,7 +28,7 @@ PLUGIN_INFO = {
 }
 
 # Module state
-logger = logging.getLogger(__name__)
+logger = get_bound_logger("discovery", version="1.0.0")
 event_registry: Dict[str, Dict[str, Any]] = {}
 plugin_manager = None
 
@@ -108,7 +108,7 @@ def extract_event_info_from_handler(handler_func: Callable, event_name: str) -> 
         try:
             example_data = json.loads(example_text)
             examples.append(example_data)
-        except:
+        except (json.JSONDecodeError, ValueError):
             # If not JSON, include as text
             if example_text:
                 examples.append({'example': example_text})

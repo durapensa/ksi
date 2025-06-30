@@ -35,8 +35,8 @@ class AutonomousMonitor:
                 return {"status": "running", "pid": pid, "socket": str(socket_path)}
             else:
                 return {"status": "zombie", "message": "Socket exists but no process"}
-        except:
-            return {"status": "unknown", "message": "Could not check process"}
+        except (subprocess.SubprocessError, OSError) as e:
+            return {"status": "unknown", "message": f"Could not check process: {e}"}
     
     def get_recent_experiments(self, limit=10):
         """Get recent autonomous experiments from log"""
@@ -51,7 +51,7 @@ class AutonomousMonitor:
                 try:
                     exp = json.loads(line.strip())
                     experiments.append(exp)
-                except:
+                except (json.JSONDecodeError, ValueError):
                     continue
                     
         # Return most recent experiments
@@ -119,7 +119,7 @@ class AutonomousMonitor:
                     data = json.load(f)
                     if 'stderr' in data:
                         stderr_found = True
-            except:
+            except (OSError, json.JSONDecodeError, ValueError):
                 pass
         
         return {"stderr_in_last_output": stderr_found}

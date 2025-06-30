@@ -9,13 +9,12 @@ import asyncio
 import json
 import os
 from pathlib import Path
-import logging
 from typing import Dict, Any, Optional, Callable
 import pluggy
 
 from ksi_daemon.plugin_utils import plugin_metadata
 from ksi_common.config import config
-from ksi_common.logging import get_logger
+from ksi_common.logging import get_bound_logger
 
 # Plugin metadata
 plugin_metadata("unix_socket_transport", version="2.0.0",
@@ -25,7 +24,7 @@ plugin_metadata("unix_socket_transport", version="2.0.0",
 hookimpl = pluggy.HookimplMarker("ksi")
 
 # Module state
-logger = get_logger("unix_socket_transport")
+logger = get_bound_logger("unix_socket_transport", version="2.0.0")
 server = None
 event_emitter: Optional[Callable] = None
 client_connections = {}
@@ -219,7 +218,8 @@ def ksi_ready():
             
             # Keep server running until cancelled
             try:
-                await asyncio.Future()  # Wait forever until cancelled
+                # Use the server's serve_forever() method which is properly cancellable
+                await transport_instance.server.serve_forever()
             except asyncio.CancelledError:
                 logger.info("Server task cancelled - shutting down")
                 await transport_instance.stop()

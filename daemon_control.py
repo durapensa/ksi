@@ -26,16 +26,18 @@ from ksi_common.logging import configure_structlog
 log_level = os.environ.get('KSI_LOG_LEVEL', 'INFO')
 log_format = os.environ.get('KSI_LOG_FORMAT', 'console')
 
-# Configure structlog
+# Configure structlog for daemon_control only (daemon will configure separately)
 configure_structlog(
     log_level=log_level,
-    log_format=log_format
+    log_format=log_format,
+    force_disable_console=False  # Allow console for daemon_control itself
 )
 
 # NOW import ksi modules
-from ksi_common import config, get_logger
+from ksi_common import config
+import structlog
 
-logger = get_logger("daemon_control")
+logger = structlog.get_logger("ksi.daemon_control")
 
 class DaemonController:
     """Controls KSI daemon using proper config system."""

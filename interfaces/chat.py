@@ -36,7 +36,7 @@ async def check_daemon_health() -> bool:
         async with EventChatClient(socket_path=SOCKET_PATH) as client:
             health = await client.health_check()
             return health.get("status") == "healthy"
-    except:
+    except (OSError, ConnectionError, asyncio.TimeoutError):
         return False
 
 async def send_cleanup(cleanup_type: str) -> str:
@@ -77,7 +77,7 @@ def get_last_session_id() -> str:
             session_id = session_file.read_text().strip()
             if session_id:
                 return session_id
-        except:
+        except (OSError, IOError):
             pass
     
     # Method 2: Check latest log file  
@@ -91,7 +91,7 @@ def get_last_session_id() -> str:
                 session_id = latest_log.stem
                 if session_id and session_id != 'latest':
                     return session_id
-        except:
+        except (OSError, IOError):
             pass
     
     return None
@@ -103,7 +103,7 @@ def save_session_id(session_id: str):
             session_file = config.last_session_id_file
             session_file.parent.mkdir(exist_ok=True)
             session_file.write_text(session_id)
-        except:
+        except (OSError, IOError):
             pass
 
 async def ensure_daemon_running():

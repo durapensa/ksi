@@ -24,7 +24,7 @@ import pluggy
 from ksi_daemon.plugin_utils import plugin_metadata
 from ksi_common import TimestampManager
 from ksi_common.config import config
-from ksi_common.logging import get_logger
+from ksi_common.logging import get_bound_logger
 
 # Plugin metadata
 plugin_metadata("orchestration", version="1.0.0",
@@ -34,7 +34,7 @@ plugin_metadata("orchestration", version="1.0.0",
 hookimpl = pluggy.HookimplMarker("ksi")
 
 # Module state
-logger = get_logger("orchestration")
+logger = get_bound_logger("orchestration", version="1.0.0")
 orchestrations: Dict[str, 'OrchestrationInstance'] = {}  # Active orchestrations
 event_emitter = None  # Set during plugin context
 

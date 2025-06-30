@@ -15,9 +15,9 @@ import uuid
 from typing import Dict, Any, Optional, Union, List, Tuple
 from datetime import datetime
 
-from ksi_common import get_logger
+import structlog
 
-logger = get_logger(__name__)
+logger = structlog.get_logger("ksi.client.utils")
 
 # CommandBuilder removed - use EventBuilder instead
 

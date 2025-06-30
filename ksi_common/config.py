@@ -23,7 +23,7 @@ Example:
 from pydantic_settings import BaseSettings
 from pathlib import Path
 from typing import Optional, Literal, List
-import logging
+# Note: Removed stdlib logging import - using pure structlog
 
 from .paths import KSIPaths
 
@@ -79,6 +79,11 @@ class KSIBaseConfig(BaseSettings):
     # Daemon-specific settings
     daemon_pid_file: Path = Path("var/run/ksi_daemon.pid")
     daemon_log_dir: Path = Path("var/logs/daemon")
+    
+    @property
+    def daemon_log_file(self) -> Path:
+        """Get the daemon log file path."""
+        return self.daemon_log_dir / "daemon.log"
     daemon_tmp_dir: Path = Path("var/tmp")
     
     # Completion timeouts (in seconds)
@@ -127,9 +132,9 @@ class KSIBaseConfig(BaseSettings):
         for directory in directories:
             directory.mkdir(parents=True, exist_ok=True)
     
-    def get_log_level(self) -> int:
-        """Convert log level string to logging constant."""
-        return getattr(logging, self.log_level.upper(), logging.INFO)
+    def get_log_level(self) -> str:
+        """Get log level string for structlog."""
+        return self.log_level.upper()
     
     @property
     def paths(self) -> KSIPaths:

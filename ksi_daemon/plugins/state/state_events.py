@@ -11,7 +11,7 @@ from typing import Dict, Any, Optional
 import pluggy
 
 from ksi_daemon.plugin_utils import plugin_metadata
-from ksi_common.logging import get_logger
+from ksi_common.logging import get_bound_logger
 
 # Plugin metadata
 plugin_metadata("state_events", version="4.0.0", 
@@ -21,7 +21,7 @@ plugin_metadata("state_events", version="4.0.0",
 hookimpl = pluggy.HookimplMarker("ksi")
 
 # Module state
-logger = get_logger("state_events")
+logger = get_bound_logger("state_events", version="1.0.0")
 state_manager = None
 async_state = None
 

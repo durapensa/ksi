@@ -10,7 +10,7 @@ import pluggy
 from typing import Dict, Any, List
 
 from ksi_daemon.plugin_utils import plugin_metadata
-from ksi_common.logging import get_logger
+from ksi_common.logging import get_bound_logger
 
 # Plugin metadata
 plugin_metadata("plugin_introspection", version="1.0.0",
@@ -20,7 +20,7 @@ plugin_metadata("plugin_introspection", version="1.0.0",
 hookimpl = pluggy.HookimplMarker("ksi")
 
 # Module state
-logger = get_logger("plugin_introspection")
+logger = get_bound_logger("plugin_introspection", version="1.0.0")
 plugin_manager = None  # The pluggy PluginManager instance
 
 # Plugin marker

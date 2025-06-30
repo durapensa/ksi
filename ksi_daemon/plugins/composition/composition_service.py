@@ -13,12 +13,11 @@ import re
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Set
 from dataclasses import dataclass, field
-import logging
 import pluggy
 
 from ksi_daemon.plugin_utils import plugin_metadata
 from ksi_common import TimestampManager
-from ksi_common.logging import get_logger
+from ksi_common.logging import get_bound_logger
 from ksi_common.config import config
 
 # Plugin metadata
@@ -29,7 +28,7 @@ plugin_metadata("composition_service", version="1.0.0",
 hookimpl = pluggy.HookimplMarker("ksi")
 
 # Module state
-logger = get_logger("composition_service")
+logger = get_bound_logger("composition_service", version="2.0.0")
 composition_index = None  # Will be set from context
 state_manager = None  # For shared state operations only
 

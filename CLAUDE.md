@@ -88,6 +88,8 @@ Essential development practices for Claude Code when working with KSI.
   ```
 
 ### Code Hygiene
+- **NO bare except clauses** - Always catch specific exceptions (e.g. `KeyError`, `ValueError`, `asyncio.CancelledError`)
+- **Exception groups** - Use `except*` for `asyncio.TaskGroup` errors
 - **Clean as you go** - remove dead code immediately when found
 - **No legacy handlers** - don't keep backward compatibility cruft
 - **Trace execution paths** - ensure all code is reachable and used
@@ -125,12 +127,9 @@ Essential development practices for Claude Code when working with KSI.
   - Main daemon log: `var/logs/daemon/daemon.log`
   - Response logs: `var/logs/responses/{session_id}.jsonl`
   - Tool usage: `var/logs/daemon/tool_usage.jsonl`
-- **Known issues with plugin logging**:
-  - Plugin loggers may not respect KSI_LOG_LEVEL due to auto-configuration in ksi_common
-  - The get_logger() function in ksi_common auto-configures with default settings
-  - This can override the daemon's logging configuration
-  - **Workaround**: Use print statements or logger.info() for critical plugin debugging
-  - **Fix needed**: Update ksi_common.logging.get_logger() to respect existing configuration
+- **Logging configuration** - The daemon configures logging at startup based on environment variables
+  - Logging is automatically configured when importing from ksi_daemon
+  - Plugins should use `from ksi_daemon.plugin_utils import get_logger` (deprecated) or `from ksi_common.logging import get_logger`
 
 ## Project Organization
 

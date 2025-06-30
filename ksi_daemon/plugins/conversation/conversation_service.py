@@ -6,7 +6,6 @@ Assumes all messages have proper timestamps - drops malformed entries.
 """
 
 import json
-import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Any
@@ -17,7 +16,7 @@ import pluggy
 from ksi_common.config import config
 from ksi_common import TimestampManager
 from ksi_daemon.plugin_utils import plugin_metadata
-from ksi_common.logging import get_logger
+from ksi_common.logging import get_bound_logger
 
 # Plugin metadata
 plugin_metadata("conversation", version="1.0.0",
@@ -27,7 +26,7 @@ plugin_metadata("conversation", version="1.0.0",
 hookimpl = pluggy.HookimplMarker("ksi")
 
 # Module state
-logger = get_logger("conversation")
+logger = get_bound_logger("conversation_service", version="1.0.0")
 
 
 # Module state
@@ -134,7 +133,7 @@ def refresh_conversation_cache() -> None:
                         # Validate timestamp format
                         try:
                             TimestampManager.parse_iso_timestamp(timestamp)
-                        except:
+                        except (ValueError, AttributeError):
                             continue  # Skip malformed timestamps
                         
                         metadata['message_count'] += 1
@@ -157,7 +156,7 @@ def refresh_conversation_cache() -> None:
                             if sender:
                                 metadata['participants'].add(sender)
                                 
-                    except:
+                    except (json.JSONDecodeError, ValueError):
                         # Skip malformed entries
                         continue
                 
@@ -218,7 +217,7 @@ def handle_list_conversations(data: Dict[str, Any], context: Dict[str, Any]) -> 
                             continue
                     
                     filtered.append(conv)
-                except:
+                except (ValueError, AttributeError):
                     continue
             
             conversations = filtered
@@ -322,7 +321,7 @@ def handle_search_conversations(data: Dict[str, Any], context: Dict[str, Any]) -
                                 if len(matches) >= 10:  # Limit matches per conversation
                                     break
                                     
-                        except:
+                        except (json.JSONDecodeError, ValueError):
                             continue
             
             except Exception as e:
@@ -390,7 +389,7 @@ def handle_get_conversation(data: Dict[str, Any], context: Dict[str, Any]) -> Di
                     # Validate timestamp
                     try:
                         TimestampManager.parse_iso_timestamp(timestamp)
-                    except:
+                    except (ValueError, AttributeError):
                         continue
                     
                     # Handle different log formats
@@ -428,7 +427,7 @@ def handle_get_conversation(data: Dict[str, Any], context: Dict[str, Any]) -> Di
                             seen_messages.add(msg_id)
                             messages.append(message)
                             
-                except:
+                except (json.JSONDecodeError, ValueError):
                     continue
         
         # Sort by timestamp (no fallback)
@@ -502,7 +501,7 @@ def get_message_bus_conversation(
                         'type': 'completion_result'
                     })
                     
-            except:
+            except (json.JSONDecodeError, ValueError):
                 continue
     
     # Sort by timestamp
@@ -567,7 +566,7 @@ def handle_export_conversation(data: Dict[str, Any], context: Dict[str, Any]) ->
                     dt = TimestampManager.parse_iso_timestamp(msg_timestamp)
                     local_dt = TimestampManager.utc_to_local(dt)
                     display_time = local_dt.strftime('%Y-%m-%d %H:%M:%S')
-                except:
+                except (ValueError, AttributeError):
                     pass
                 
                 message_data = {
@@ -607,7 +606,7 @@ def handle_export_conversation(data: Dict[str, Any], context: Dict[str, Any]) ->
                     dt = TimestampManager.parse_iso_timestamp(msg_timestamp)
                     local_dt = TimestampManager.utc_to_local(dt)
                     time_str = local_dt.strftime('%Y-%m-%d %H:%M:%S')
-                except:
+                except (ValueError, AttributeError):
                     time_str = msg_timestamp
                 
                 sender = msg.get('sender', 'Unknown')
@@ -730,7 +729,7 @@ def handle_active_conversations(data: Dict[str, Any], context: Dict[str, Any]) -
                         dt = TimestampManager.parse_iso_timestamp(timestamp)
                         if dt.timestamp() < cutoff_time:
                             continue
-                    except:
+                    except (ValueError, AttributeError):
                         continue
                 
                 # Track session activity

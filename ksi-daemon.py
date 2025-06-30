@@ -7,7 +7,6 @@ Eliminates shell script complexity with proper Unix daemonization
 
 import asyncio
 import signal
-import logging
 import sys
 import os
 import argparse
@@ -17,10 +16,24 @@ from pathlib import Path
 import daemon
 import daemon.pidfile
 
-# Import our local daemon modules (path will be set in forked process)
+# CRITICAL: Configure logging BEFORE any ksi imports to ensure correct format
+# This prevents modules from auto-configuring with wrong format
+os.environ.setdefault('KSI_LOG_FORMAT', 'json')  # Ensure JSON format by default
+
+# Now we can safely import and configure
+from ksi_common import configure_structlog
+# Configure immediately before any other imports
+configure_structlog(
+    log_level=os.environ.get('KSI_LOG_LEVEL', 'INFO'),
+    log_format='json',  # Always use JSON in daemon
+    log_file=Path('var/logs/daemon/daemon.log'),
+    force_disable_console=True
+)
+
+# NOW import modules that create loggers
 from ksi_daemon import main as daemon_main
 from ksi_common.config import config
-from ksi_common import configure_structlog
+from ksi_common.logging import get_bound_logger
 
 # Global shutdown coordination
 shutdown_requested = False
@@ -30,7 +43,7 @@ def signal_handler(signum, frame):
     """Handle shutdown signals gracefully"""
     global shutdown_requested, daemon_instance
     
-    logger = logging.getLogger('ksi_daemon')
+    logger = get_bound_logger('daemon_main', version='1.0.0')
     logger.info(f"Received signal {signum}, initiating graceful shutdown")
     
     shutdown_requested = True
@@ -45,32 +58,15 @@ def setup_daemon_logging():
     # Ensure log directory exists
     config.log_dir.mkdir(parents=True, exist_ok=True)
     
-    # Configure structlog first (from ksi_common)
-    daemon_log_file = config.daemon_log_dir / "daemon.log"
-    configure_structlog(
-        log_level=config.log_level,
-        log_format=config.log_format,
-        log_file=daemon_log_file
-    )
+    # Logging already configured at module level, just log that we're ready
+    # No need to reconfigure - we already have JSON format
     
-    # Create file handler for daemon logs
-    handler = logging.FileHandler(daemon_log_file)
-    handler.setLevel(config.get_log_level())
-    handler.setFormatter(logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    ))
-    
-    # Configure root logger
-    logger = logging.getLogger('ksi_daemon')
-    logger.setLevel(config.get_log_level())
-    logger.addHandler(handler)
-    
-    # Also configure the daemon package logger
-    daemon_logger = logging.getLogger('daemon')
-    daemon_logger.addHandler(handler)
-    
+    # Get the configured logger and log startup
+    logger = get_bound_logger('daemon_main', version='1.0.0')
     logger.info("KSI daemon logging configured")
-    return handler
+    
+    # Return file handle for daemon context preservation
+    return open(config.daemon_log_file, 'a')
 
 async def daemon_wrapper():
     """Wrapper for existing daemon with shutdown monitoring"""
@@ -78,7 +74,7 @@ async def daemon_wrapper():
     
     # ksi_common already ensures project root is on sys.path
     
-    logger = logging.getLogger('ksi_daemon')
+    logger = get_bound_logger('daemon_main', version='1.0.0')
     logger.info("Starting KSI daemon core")
     
     try:
@@ -99,16 +95,14 @@ async def daemon_wrapper():
 def run_as_daemon():
     """Run KSI daemon in background (daemonized)"""
     # Set up logging before daemonization
-    log_handler = setup_daemon_logging()
-    logger = logging.getLogger('ksi_daemon')
+    log_file_handle = setup_daemon_logging()
+    logger = get_bound_logger('daemon_main', version='1.0.0')
     
     # Ensure all required directories exist
     config.ensure_directories()
     
     logger.info("Preparing to daemonize KSI daemon")
     
-    # Create daemon context (environment variables are NOT preserved by design in python-daemon)
-    # Virtual environment should be handled by using venv's Python interpreter directly
     context = daemon.DaemonContext(
         # Working directory - stay in project directory
         working_directory=str(Path.cwd()),
@@ -116,8 +110,12 @@ def run_as_daemon():
         # PID file for process management
         pidfile=daemon.pidfile.PIDLockFile(str(config.daemon_pid_file)),
         
+        # Redirect stdout/stderr to daemon log file
+        stdout=log_file_handle,
+        stderr=log_file_handle,
+        
         # Preserve logging file descriptors
-        files_preserve=[log_handler.stream],
+        files_preserve=[log_file_handle],
         
         # Signal handling - let python-daemon handle the basic setup
         # Our daemon code will set up its own asyncio signal handlers
@@ -138,17 +136,29 @@ def run_as_daemon():
     
     # Run the daemon
     with context:
-        logger.info("KSI daemon started in background")
+        # Re-configure logging inside daemon context (file handles change after fork)
+        # Always use JSON format in daemon mode
+        configure_structlog(
+            log_level=config.log_level,
+            log_format='json',  # Always JSON in daemon
+            log_file=config.daemon_log_file,
+            force_disable_console=True
+        )
+        
+        # Get new logger after reconfiguration
+        daemon_logger = get_bound_logger('daemon_main', version='1.0.0')
+        daemon_logger.info("KSI daemon started in background")
+        
         try:
             # Run the async daemon
             asyncio.run(daemon_wrapper())
         except KeyboardInterrupt:
-            logger.info("Daemon interrupted")
+            daemon_logger.info("Daemon interrupted")
         except Exception as e:
-            logger.error(f"Daemon failed: {e}", exc_info=True)
+            daemon_logger.error(f"Daemon failed: {e}", exc_info=True)
             sys.exit(1)
         finally:
-            logger.info("KSI daemon stopped")
+            daemon_logger.info("KSI daemon stopped")
 
 def run_in_foreground():
     """Run KSI daemon in foreground (development mode)"""
@@ -162,7 +172,7 @@ def run_in_foreground():
     # Also configure structlog for development
     configure_structlog()
     
-    logger = logging.getLogger('ksi_daemon')
+    logger = get_bound_logger('daemon_main', version='1.0.0')
     logger.info("Starting KSI daemon in foreground mode (development)")
     
     try:

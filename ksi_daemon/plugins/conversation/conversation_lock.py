@@ -15,7 +15,7 @@ import pluggy
 
 from ksi_daemon.plugin_utils import plugin_metadata
 from ksi_common import TimestampManager
-from ksi_common.logging import get_logger
+from ksi_common.logging import get_bound_logger
 
 # Plugin metadata
 plugin_metadata("conversation_lock", version="1.0.0",
@@ -24,7 +24,7 @@ plugin_metadata("conversation_lock", version="1.0.0",
 # Hook implementation marker
 hookimpl = pluggy.HookimplMarker("ksi")
 
-logger = get_logger("conversation_lock")
+logger = get_bound_logger("conversation_lock", version="1.0.0")
 
 # Event emitter reference (set during startup)
 event_emitter = None

@@ -17,10 +17,11 @@ from pathlib import Path
 import fnmatch
 from contextlib import contextmanager
 
-from ksi_common import TimestampManager, get_logger
+from ksi_common import TimestampManager
+from ksi_common.logging import get_bound_logger
 from ksi_common.config import config
 
-logger = get_logger(__name__)
+logger = get_bound_logger("event_log", version="2.0.0")
 
 
 @dataclass

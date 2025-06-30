@@ -7,7 +7,7 @@ Handles completion requests using LiteLLM with claude_cli provider.
 
 import asyncio
 import json
-import logging
+from ksi_common.logging import get_bound_logger
 import time
 import uuid
 from typing import Dict, Any, Optional
@@ -17,10 +17,18 @@ import pluggy
 from ksi_daemon.plugins.completion import claude_cli_litellm_provider
 import litellm
 
+# Suppress LiteLLM's console logging to maintain JSON format
+import logging
+litellm.suppress_debug_info = True
+litellm.set_verbose = False
+# Disable LiteLLM's internal logging to console
+logging.getLogger("LiteLLM").setLevel(logging.CRITICAL)
+logging.getLogger("litellm").setLevel(logging.CRITICAL)
+
 # Hook implementation marker
 hookimpl = pluggy.HookimplMarker("ksi")
 
-logger = logging.getLogger(__name__)
+logger = get_bound_logger("litellm_provider", version="1.0.0")
 
 # Configuration
 DEFAULT_MODEL = "claude-cli/sonnet"  # Use the correct provider name

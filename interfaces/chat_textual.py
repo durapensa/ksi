@@ -17,7 +17,8 @@ from typing import Optional, Dict, List, Tuple, Any
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ksi_client import EventChatClient, MultiAgentClient
-from ksi_common import TimestampManager, config, get_logger, configure_structlog
+from ksi_common import TimestampManager, config, configure_structlog
+import structlog
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
@@ -26,7 +27,7 @@ from textual.binding import Binding
 from textual import events, work
 
 # Module logger using structured logging
-logger = get_logger(__name__)
+logger = structlog.get_logger("ksi.interface.chat_textual")
 
 
 class ChatInput(Input):
@@ -381,7 +382,7 @@ class ChatInterface(App):
                         message_count = sum(1 for _ in f)
                         
                         self.available_sessions.append((session_id, timestamp, message_count))
-            except:
+            except (OSError, json.JSONDecodeError):
                 continue
     
     def update_past_conversation_list(self) -> None:
@@ -395,7 +396,7 @@ class ChatInterface(App):
                 dt = TimestampManager.parse_iso_timestamp(timestamp)
                 local_dt = TimestampManager.utc_to_local(dt)
                 time_str = local_dt.strftime('%Y-%m-%d %H:%M')
-            except:
+            except (ValueError, TypeError, AttributeError):
                 time_str = timestamp[:19] if len(timestamp) > 19 else timestamp
             
             label = f"{time_str} ({message_count} messages)"
@@ -461,7 +462,7 @@ class ChatInterface(App):
                     dt = TimestampManager.parse_iso_timestamp(conv_info['last_message'])
                     local_dt = TimestampManager.utc_to_local(dt)
                     time_str = f" {local_dt.strftime('%m/%d %H:%M')}"
-                except:
+                except (ValueError, TypeError, AttributeError):
                     # Fallback for malformed timestamps
                     timestamp = conv_info['last_message']
                     if len(timestamp) >= 16:  # Basic ISO format check
@@ -515,7 +516,7 @@ class ChatInterface(App):
                 session_id = session_file.read_text().strip()
                 if session_id:
                     return session_id
-            except:
+            except (OSError, IOError):
                 pass
         
         # Use first session from available sessions
@@ -528,7 +529,7 @@ class ChatInterface(App):
         """Log a message to the conversation view with optional timestamp"""
         try:
             conv_log = self.query_one("#conversation_log", RichLog)
-        except:
+        except Exception:
             # UI not ready yet, just print to console
             print(f"{sender}: {content}")
             return
@@ -540,7 +541,7 @@ class ChatInterface(App):
                 dt = TimestampManager.parse_iso_timestamp(timestamp)
                 local_dt = TimestampManager.utc_to_local(dt)
                 time_str = f" [dim]({local_dt.strftime('%H:%M:%S')})[/]"
-            except:
+            except (ValueError, TypeError, AttributeError):
                 # Fallback if timestamp parsing fails
                 time_str = f" [dim]({timestamp[:8] if len(timestamp) >= 8 else timestamp})[/]"
         
@@ -801,7 +802,7 @@ class ChatInterface(App):
             try:
                 await self.agent_client.leave_conversation()
                 await self.agent_client.unregister_agent()
-            except:
+            except Exception:
                 pass  # Ignore errors during disconnect
             
             self.agent_id = None
@@ -1096,7 +1097,7 @@ class ChatInterface(App):
                                 self.conversation_id = conv_id
                                 conv_log = self.query_one("#conversation_log", RichLog)
                                 conv_log.write(f"\n[dim cyan]--- Conversation: {conv_id} ---[/]\n")
-                    except:
+                    except (json.JSONDecodeError, KeyError, TypeError):
                         continue
         except Exception as e:
             self.log_message("Error", f"Failed to load message bus: {e}")
@@ -1137,7 +1138,7 @@ class ChatInterface(App):
                 await self.chat_client.disconnect()
             if self.agent_client:
                 await self.agent_client.disconnect()
-        except:
+        except Exception:
             pass
         self.exit()
     
@@ -1274,13 +1275,13 @@ class ChatInterface(App):
                                     dt = TimestampManager.parse_iso_timestamp(timestamp)
                                     local_dt = TimestampManager.utc_to_local(dt)
                                     time_str = local_dt.strftime('%Y-%m-%d %H:%M:%S')
-                                except:
+                                except (ValueError, TypeError, AttributeError):
                                     time_str = timestamp
                                 
                                 md_lines.append(f"### {time_str} - {sender} → {to}\n")
                                 md_lines.append(f"{content}\n")
                                 md_lines.append("---\n")
-                        except:
+                        except (json.JSONDecodeError, KeyError, TypeError):
                             continue
             else:
                 # Normal conversation log
@@ -1294,7 +1295,7 @@ class ChatInterface(App):
                             try:
                                 dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
                                 time_str = dt.strftime('%Y-%m-%d %H:%M:%S')
-                            except:
+                            except (ValueError, TypeError, AttributeError):
                                 time_str = timestamp
                             
                             if entry.get('type') in ['user', 'human']:
@@ -1306,7 +1307,7 @@ class ChatInterface(App):
                                 md_lines.append(f"### {time_str} - Claude\n")
                                 md_lines.append(f"{content}\n")
                                 md_lines.append("---\n")
-                        except:
+                        except (json.JSONDecodeError, KeyError, TypeError):
                             continue
             
             # Write to file

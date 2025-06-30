@@ -29,7 +29,7 @@ for file in os.listdir('.'):
                             'cache_read': claude_response.get('usage', {}).get('cache_read_input_tokens', 0)
                         }
                         sessions.append(session_data)
-        except:
+        except (OSError, json.JSONDecodeError, ValueError):
             pass
 
 print('=== SESSIONS BY COST (highest first) ===')

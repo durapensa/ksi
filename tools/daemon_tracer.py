@@ -279,8 +279,8 @@ class DaemonTracer:
             if not success:
                 logger.error("❌ Daemon not responding. Please start daemon first.")
                 return None
-        except:
-            logger.error("❌ Cannot connect to daemon. Please start daemon first.")
+        except (OSError, ConnectionError) as e:
+            logger.error(f"❌ Cannot connect to daemon: {e}. Please start daemon first.")
             return None
         
         logger.info("✅ Daemon connection confirmed")

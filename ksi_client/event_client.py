@@ -21,9 +21,10 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from collections import defaultdict
 
-from ksi_common import config, get_logger, parse_completion_response
+from ksi_common import config, parse_completion_response
+import structlog
 
-logger = get_logger(__name__)
+logger = structlog.get_logger("ksi.client.event")
 
 
 @dataclass

@@ -34,13 +34,21 @@ from litellm.exceptions import (
     ServiceUnavailableError
 )
 
+# Suppress LiteLLM's console logging to maintain JSON format
+import logging
+litellm.suppress_debug_info = True
+litellm.set_verbose = False
+# Disable LiteLLM's internal logging to console
+logging.getLogger("LiteLLM").setLevel(logging.CRITICAL)
+logging.getLogger("litellm").setLevel(logging.CRITICAL)
+
 # Import KSI components
 from ksi_common.config import config
-from ksi_common.logging import get_logger
+from ksi_common.logging import get_bound_logger
 
 
 # Configuration
-logger = get_logger("claude_cli_provider")
+logger = get_bound_logger("claude_cli_provider", version="3.0.0")
 CLAUDE_BIN = Path(os.getenv("CLAUDE_BIN", "claude")).expanduser()
 DEFAULT_CLAUDE_MODEL = "sonnet"  # claude CLI only accepts "sonnet" or "opus"
 
@@ -506,7 +514,7 @@ class ClaudeCLIProvider(CustomLLM):
                 try:
                     process.kill()
                     process.wait()
-                except:
+                except (OSError, subprocess.SubprocessError):
                     pass
             raise
         finally:
@@ -602,9 +610,9 @@ logger.info("Claude CLI provider registered with LiteLLM")
 if __name__ == "__main__":
     import sys
     
-    # Configure basic logging for testing
-    import logging
-    logging.basicConfig(level=logging.DEBUG)
+    # Configure structlog for standalone testing
+    from ksi_common import configure_structlog
+    configure_structlog(log_level="DEBUG", log_format="console")
     
     user_prompt = sys.argv[1] if len(sys.argv) > 1 else "Hello! Please respond with a simple greeting."
     

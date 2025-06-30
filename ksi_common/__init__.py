@@ -37,7 +37,6 @@ from .exceptions import (
     TimeoutError as KSITimeoutError,
 )
 from .logging import (
-    get_logger,
     configure_structlog,
     bind_connection_context,
     clear_context,
@@ -81,7 +80,6 @@ __all__ = [
     "KSITimeoutError",
     
     # Logging utilities
-    "get_logger",
     "configure_structlog",
     "bind_connection_context",
     "clear_context",

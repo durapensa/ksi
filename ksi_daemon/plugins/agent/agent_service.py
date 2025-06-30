@@ -13,14 +13,13 @@ import uuid
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Set
 from datetime import datetime
-import logging
 import pluggy
 
 from ksi_daemon.plugin_utils import plugin_metadata
 from ksi_common import TimestampManager
 from ksi_common.config import config
 from ksi_daemon.file_operations import FileOperations
-from ksi_common.logging import get_logger
+from ksi_common.logging import get_bound_logger
 
 # Plugin metadata
 plugin_metadata("agent_service", version="2.0.0",
@@ -30,7 +29,7 @@ plugin_metadata("agent_service", version="2.0.0",
 hookimpl = pluggy.HookimplMarker("ksi")
 
 # Module state
-logger = get_logger("agent_service")
+logger = get_bound_logger("agent_service", version="2.0.0")
 agents: Dict[str, Dict[str, Any]] = {}  # agent_id -> agent_info
 identities: Dict[str, Dict[str, Any]] = {}  # agent_id -> identity_info
 agent_threads: Dict[str, asyncio.Task] = {}  # agent_id -> task

@@ -13,6 +13,7 @@ from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
 from contextvars import ContextVar
 import structlog
+from ksi_common.logging import get_bound_logger
 
 # Thread-local correlation context
 _correlation_context: ContextVar[Optional[str]] = ContextVar('correlation_id', default=None)
@@ -277,7 +278,7 @@ def get_correlation_logger(name: str) -> structlog.stdlib.BoundLogger:
     Returns:
         A bound logger with correlation context
     """
-    logger = structlog.get_logger(name)
+    logger = get_bound_logger(name, correlation_enabled=True)
     
     # Bind correlation context
     correlation_id = get_current_correlation_id()

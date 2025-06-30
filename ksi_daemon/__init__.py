@@ -7,42 +7,22 @@ Extracted from daemon_clean.py with 100% functionality preservation
 
 import asyncio
 import argparse
-import logging
 import signal
 import os
 from pathlib import Path
 
-# CRITICAL: Configure logging BEFORE ANY ksi imports to ensure all loggers work correctly
-# This must be the very first thing we do after stdlib imports
-import logging as stdlib_logging
-from ksi_common.logging import configure_structlog
+# Logging is configured by the daemon entry point (ksi-daemon.py)
+# This ensures proper daemon-specific configuration (no console handlers)
 
-# Get configuration from environment or defaults
-log_level = os.environ.get('KSI_LOG_LEVEL', 'INFO')
-log_format = os.environ.get('KSI_LOG_FORMAT', 'console')
-log_file = Path(os.environ.get('KSI_LOG_DIR', 'var/logs')) / 'daemon' / 'daemon.log'
-
-# Ensure log directory exists
-log_file.parent.mkdir(parents=True, exist_ok=True)
-
-# Configure structlog with the appropriate level
-# This also configures stdlib logging internally
-configure_structlog(
-    log_level=log_level,
-    log_format=log_format,
-    log_file=log_file
-)
-
-# Debug: Print to verify log level
-print(f"[ksi_daemon.__init__] Configured logging with level: {log_level}")
+# Log level is now configured by daemon entry point
 
 # NOW we can import our modules - logging is configured
 from ksi_common.config import config
 from ksi_daemon.core_plugin import SimpleDaemonCore as PluginDaemon
 
 # Get logger
-import structlog
-logger = structlog.get_logger(__name__)
+from ksi_common.logging import get_bound_logger
+logger = get_bound_logger("daemon_init", version="3.0.0")
 
 def parse_args():
     """Parse command line arguments with config system defaults"""
@@ -56,7 +36,7 @@ def setup_logging():
     Logging is now configured at module import time to ensure plugins get proper configuration.
     This function is kept for compatibility but just returns the logger.
     """
-    return stdlib_logging.getLogger('daemon')
+    return logger  # Use the already configured structlog bound logger
 
 def ensure_var_directories():
     """Ensure all configured directories exist using config system"""

@@ -8,13 +8,13 @@ import json
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
-import structlog
+from ksi_common.logging import get_bound_logger
 from tenacity import retry, stop_after_attempt, wait_exponential
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ksi_common import TimestampManager
 
-logger = structlog.get_logger('daemon.file_operations')
+logger = get_bound_logger('file_operations', version='1.0.0')
 
 
 class FileOperations:

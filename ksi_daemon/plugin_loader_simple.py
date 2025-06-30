@@ -8,7 +8,7 @@ Handles plugin discovery and loading without complex tracking or hot reload.
 
 import importlib
 import importlib.util
-import logging
+from ksi_common.logging import get_bound_logger
 import sys
 from pathlib import Path
 from typing import List, Optional, Set, Dict, Any
@@ -17,7 +17,7 @@ import pluggy
 # Import hookspecs to ensure it's available
 from . import hookspecs
 
-logger = logging.getLogger(__name__)
+logger = get_bound_logger("plugin_loader", version="1.0.0")
 
 
 
@@ -88,7 +88,7 @@ class SimplePluginLoader:
                         content = path.read_text()
                         if "ksi_plugin" not in content:
                             continue
-                    except:
+                    except (OSError, UnicodeDecodeError):
                         continue
                 
                 plugin_files.append(path)
@@ -119,7 +119,7 @@ class SimplePluginLoader:
                     if namespace not in self.namespaces:
                         self.namespaces[namespace] = module_name
                         logger.debug(f"Plugin {module_name} handles namespace: {namespace}")
-            except:
+            except (OSError, TypeError, AttributeError):
                 # If we can't inspect, that's OK - namespace tracking is for convenience
                 pass
     

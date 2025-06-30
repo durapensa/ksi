@@ -10,7 +10,7 @@ from typing import Dict, Any, List, Optional
 import pluggy
 
 from ksi_daemon.plugin_utils import plugin_metadata
-from ksi_common.logging import get_logger
+from ksi_common.logging import get_bound_logger
 
 # Plugin metadata
 plugin_metadata("monitor", version="1.0.0",
@@ -20,13 +20,14 @@ plugin_metadata("monitor", version="1.0.0",
 hookimpl = pluggy.HookimplMarker("ksi")
 
 # Module state
-logger = get_logger("monitor")
+logger = get_bound_logger("monitor", version="1.0.0")
 event_router = None  # Set during startup
 
 
 @hookimpl
 def ksi_startup(config):
     """Initialize monitor plugin."""
+    logger.debug("Monitor ksi_startup hook called")
     logger.info("Monitor plugin started")
     return {"plugin.monitor": {"loaded": True}}
 
@@ -34,6 +35,9 @@ def ksi_startup(config):
 @hookimpl
 def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
     """Handle monitor-related events."""
+    
+    # Test automatic context binding
+    logger.info(f"Handling monitor event: {event_name}")
     
     if event_name == "monitor:get_events":
         return handle_get_events(data)

@@ -16,16 +16,15 @@ import time
 import uuid
 from pathlib import Path
 from typing import Dict, Any, Optional, List
-import logging
 import pluggy
 
-import anyio
+import asyncio
 import litellm
 
-from ksi_common.logging import get_logger
 from ksi_daemon.plugin_utils import plugin_metadata
 from ksi_common import TimestampManager, create_completion_response, parse_completion_response
 from ksi_common.config import config
+from ksi_common.logging import get_bound_logger
 
 # Import injection systems
 from ksi_daemon.plugins.injection.injection_router import queue_completion_with_injection
@@ -42,19 +41,22 @@ plugin_metadata("completion_service", version="3.0.0",
 hookimpl = pluggy.HookimplMarker("ksi")
 
 # Module state
-logger = get_logger("completion_service")
+logger = get_bound_logger("completion_service", version="3.0.0")
 active_completions: Dict[str, Dict[str, Any]] = {}
 
 # Per-session queue management for fork prevention
 session_processors: Dict[str, asyncio.Queue] = {}  # session_id -> Queue
 active_sessions: set = set()  # Currently processing sessions
 
-# Structured concurrency with anyio - created on demand
+# Structured concurrency with asyncio - created on demand
 completion_task_group = None
 task_group_context = None
 
 # Event emitter reference (set during startup)
 event_emitter = None
+
+# Shutdown event reference (set during startup)
+shutdown_event = None
 
 
 def get_completion_task_group():
@@ -107,28 +109,35 @@ def save_completion_response(response_data: Dict[str, Any]) -> None:
 def ksi_startup(config):
     """Initialize completion service on startup."""
     ensure_directories()
-    logger.info("Smart hybrid completion service with anyio structured concurrency - event-driven with per-session fork prevention")
-    return {"status": "completion_service_anyio_smart_hybrid_ready"}
+    logger.info("Completion service started with asyncio structured concurrency")
+    return {"status": "completion_service_ready"}
 
 
 
 async def manage_completion_service():
-    """Long-running service to manage anyio task group for completions."""
-    global completion_task_group, task_group_context
+    """Long-running service to manage asyncio task group for completions."""
+    global completion_task_group
+    
+    if not shutdown_event:
+        logger.error("No shutdown event available - service cannot start properly")
+        raise RuntimeError("Shutdown event not provided via plugin context")
     
     try:
         # Create and enter the task group context
-        async with anyio.create_task_group() as tg:
+        async with asyncio.TaskGroup() as tg:
             completion_task_group = tg
             logger.info("Completion service ready")
             
-            # Keep the service running until cancelled
-            await anyio.sleep_forever()
+            # Keep the service running until shutdown event is set
+            await shutdown_event.wait()
+            logger.info("Shutdown event received, completion service exiting gracefully")
             
-    except anyio.get_cancelled_exc_class():
+    except asyncio.CancelledError:
+        logger.info("Completion service cancelled")
         raise
-    except Exception as e:
-        logger.error(f"Completion service error: {e}", exc_info=True)
+    except ExceptionGroup as eg:
+        # TaskGroup can raise ExceptionGroup when tasks fail
+        logger.error(f"Completion service task group error: {eg}", exc_info=True)
         raise
     finally:
         completion_task_group = None
@@ -182,9 +191,9 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
         return {"status": "not_found"}
     
     elif event_name == "completion:status":
-        # anyio smart hybrid architecture status
+        # asyncio architecture status
         return {
-            "architecture": "anyio_smart_hybrid",
+            "architecture": "asyncio",
             "task_group_active": completion_task_group is not None,
             "active_count": len(active_completions),
             "active_requests": list(active_completions.keys()),
@@ -500,7 +509,7 @@ async def process_completion_with_session_lock(data: Dict[str, Any], context: Di
     
     try:
         # Store current task handle for cancellation
-        current_task = anyio.current_task()
+        current_task = asyncio.current_task()
         if request_id in active_completions:
             active_completions[request_id]["task"] = current_task
         else:
@@ -534,7 +543,7 @@ async def process_single_completion(data: Dict[str, Any], context: Dict[str, Any
     
     try:
         # Store current task handle for cancellation
-        current_task = anyio.current_task()
+        current_task = asyncio.current_task()
         if request_id in active_completions:
             active_completions[request_id]["task"] = current_task
         else:
@@ -564,7 +573,7 @@ async def process_single_completion(data: Dict[str, Any], context: Dict[str, Any
         
         logger.info(f"Completed request {request_id}")
         
-    except anyio.get_cancelled_exc_class():
+    except asyncio.CancelledError:
         logger.info(f"Completion request {request_id} was cancelled")
         
         # Emit cancellation event
@@ -592,21 +601,21 @@ async def process_single_completion(data: Dict[str, Any], context: Dict[str, Any
 
 @hookimpl
 def ksi_plugin_context(context):
-    """Receive plugin context with event emitter."""
-    global event_emitter
+    """Receive plugin context with event emitter and shutdown event."""
+    global event_emitter, shutdown_event
     event_emitter = context.get("emit_event")
+    shutdown_event = context.get("shutdown_event")
 
 
 @hookimpl
 def ksi_shutdown():
     """Clean up on shutdown."""
-    logger.info(f"anyio smart hybrid completion service stopped - {len(active_completions)} active tasks, {len(session_processors)} session queues")
+    logger.info(f"Completion service stopped - {len(active_completions)} active tasks, {len(session_processors)} session queues")
     
     return {
-        "status": "completion_service_anyio_smart_hybrid_stopped",
+        "status": "completion_service_stopped",
         "active_tasks": len(active_completions),
-        "session_queues": len(session_processors),
-        "architecture": "anyio_smart_hybrid"
+        "session_queues": len(session_processors)
     }
 
 

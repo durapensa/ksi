@@ -148,7 +148,7 @@ class PromptComposer:
         try:
             # Simple evaluation - in production, would want safer evaluation
             return eval(condition)
-        except:
+        except (ValueError, TypeError, NameError, SyntaxError):
             logger.warning(f"Could not evaluate condition: {condition}")
             return True
     

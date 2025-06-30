@@ -6,13 +6,13 @@ Handles graceful shutdown of the daemon.
 """
 
 import asyncio
-import logging
+from ksi_common.logging import get_bound_logger
 import pluggy
 
 # Hook implementation marker
 hookimpl = pluggy.HookimplMarker("ksi")
 
-logger = logging.getLogger(__name__)
+logger = get_bound_logger("shutdown", version="1.0.0")
 
 # Module state
 daemon_shutdown_event = None
@@ -21,8 +21,8 @@ daemon_shutdown_event = None
 @hookimpl
 def ksi_startup(config):
     """Initialize shutdown plugin."""
-    logger.info("Simple shutdown plugin started")
-    return {"plugin.simple_shutdown": {"loaded": True}}
+    logger.info("Shutdown plugin started")
+    return {"plugin.shutdown": {"loaded": True}}
 
 
 @hookimpl 
@@ -58,8 +58,8 @@ def ksi_handle_event(event_name, data, context):
 @hookimpl
 def ksi_shutdown():
     """Clean up on shutdown."""
-    logger.info("Simple shutdown plugin stopped")
-    return {"status": "simple_shutdown_stopped"}
+    logger.info("Shutdown plugin stopped")
+    return {"status": "shutdown_stopped"}
 
 
 # Module-level marker for plugin discovery

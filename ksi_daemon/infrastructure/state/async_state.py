@@ -22,10 +22,10 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 from contextlib import contextmanager
 
-from ksi_common.logging import get_logger
+from ksi_common.logging import get_bound_logger
 from ksi_common.config import config
 
-logger = get_logger("async_state")
+logger = get_bound_logger("async_state", version="1.0.0")
 
 # Module state
 _db_path: Optional[Path] = None

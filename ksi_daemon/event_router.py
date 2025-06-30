@@ -6,7 +6,6 @@ Removes unnecessary layers of abstraction and provides direct event routing.
 """
 
 import asyncio
-import logging
 import time
 import uuid
 from typing import Dict, Any, Optional, Callable, List, Set
@@ -15,8 +14,9 @@ import fnmatch
 
 from .event_log import DaemonEventLog, AsyncSQLiteEventLog
 from .correlation import start_trace, complete_trace, ensure_correlation_id, get_correlation_logger
+from ksi_common.logging import bind_request_context, clear_request_context, get_bound_logger
 
-logger = logging.getLogger(__name__)
+logger = get_bound_logger("event_router", version="2.0.0")
 
 
 class SimpleEventRouter:
@@ -107,6 +107,21 @@ class SimpleEventRouter:
         handlers_called = 0
         
         try:
+            # Bind request context for automatic propagation to plugin loggers
+            # Extract common request identifiers from data and context
+            request_id = data.get("request_id") or context.get("request_id")
+            session_id = data.get("session_id") or context.get("session_id")
+            client_id = data.get("client_id") or context.get("client_id")
+            
+            # Bind request context for this execution
+            bind_request_context(
+                request_id=request_id,
+                session_id=session_id,
+                client_id=client_id,
+                correlation_id=trace_correlation_id,
+                event_name=event_name
+            )
+            
             # Call the hook directly - pluggy will handle calling all implementations
             hook_results = self.plugin_manager.hook.ksi_handle_event(
                 event_name=event_name,
@@ -171,6 +186,9 @@ class SimpleEventRouter:
             trace_logger.error(f"Error routing event {event_name}: {e}", exc_info=True)
             self.stats["events_failed"] += 1
             return None
+        finally:
+            # Always clean up request context to prevent leakage between events
+            clear_request_context()
     
     async def request_event(self, event_name: str, data: Dict[str, Any],
                            timeout: Optional[float] = None) -> Optional[Dict[str, Any]]:

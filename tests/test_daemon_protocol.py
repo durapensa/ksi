@@ -133,7 +133,7 @@ class DaemonProtocolTester:
                     is_error = parsed.get('status') == 'error'
                     error_code = parsed.get('error', {}).get('code')
                     self.log_result("invalid_command", is_error, f"Got error response with code: {error_code}")
-                except:
+                except (json.JSONDecodeError, ValueError):
                     self.log_result("invalid_command", False, "Couldn't parse response JSON")
             else:
                 self.log_result("invalid_command", False, "No response received")

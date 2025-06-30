@@ -172,7 +172,7 @@ class CompositionSelector:
             if version >= 2.0:
                 score += 5
                 reasons.append("Recent version")
-        except:
+        except (ValueError, TypeError):
             pass
         
         # Prefer well-documented compositions
