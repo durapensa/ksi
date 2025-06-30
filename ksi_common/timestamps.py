@@ -12,175 +12,191 @@ from datetime import datetime, timezone
 import time
 from typing import Optional, Union
 
-class TimestampManager:
-    """Centralized timestamp management for consistent timezone handling"""
+
+def utc_now() -> datetime:
+    """Get current UTC datetime with timezone awareness"""
+    return datetime.now(timezone.utc)
+
+
+def timestamp_utc() -> str:
+    """
+    Generate ISO 8601 UTC timestamp with 'Z' suffix
+    Standard format for all internal logging and storage
     
-    @staticmethod
-    def utc_now() -> datetime:
-        """Get current UTC datetime with timezone awareness"""
-        return datetime.now(timezone.utc)
+    Returns:
+        str: e.g., "2025-06-20T23:17:27.832348Z"
+    """
+    return datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+
+
+def timestamp_local_iso() -> str:
+    """
+    Generate ISO 8601 local timestamp with timezone offset
+    For backward compatibility where local time is expected
     
-    @staticmethod
-    def timestamp_utc() -> str:
-        """
-        Generate ISO 8601 UTC timestamp with 'Z' suffix
-        Standard format for all internal logging and storage
-        
-        Returns:
-            str: e.g., "2025-06-20T23:17:27.832348Z"
-        """
-        return datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+    Returns:
+        str: e.g., "2025-06-20T19:17:27.832348-04:00"
+    """
+    return datetime.now().astimezone().isoformat()
+
+
+def filename_timestamp(utc: bool = False) -> str:
+    """
+    Generate timestamp suitable for filenames
     
-    @staticmethod
-    def timestamp_local_iso() -> str:
-        """
-        Generate ISO 8601 local timestamp with timezone offset
-        For backward compatibility where local time is expected
+    Args:
+        utc: If True, use UTC time. If False, use local time.
         
-        Returns:
-            str: e.g., "2025-06-20T19:17:27.832348-04:00"
-        """
-        return datetime.now().astimezone().isoformat()
+    Returns:
+        str: e.g., "20250620_191724" or with 'Z' suffix for UTC
+    """
+    dt = datetime.now(timezone.utc) if utc else datetime.now()
+    # Modified to match the version from chat_textual.py
+    return dt.strftime('%Y-%m-%dT%H:%M:%S.%fZ' if utc else '%Y-%m-%d_%H-%M-%S')
+
+
+def display_timestamp(format: str = '%Y-%m-%d %H:%M:%S', utc: bool = False) -> str:
+    """
+    Generate human-readable timestamp for display
     
-    @staticmethod
-    def filename_timestamp(utc: bool = False) -> str:
-        """
-        Generate timestamp suitable for filenames
+    Args:
+        format: strftime format string
+        utc: If True, show UTC time. If False, show local time.
         
-        Args:
-            utc: If True, use UTC time. If False, use local time.
-            
-        Returns:
-            str: e.g., "20250620_191724" or with 'Z' suffix for UTC
-        """
-        dt = datetime.now(timezone.utc) if utc else datetime.now()
-        # Modified to match the version from chat_textual.py
-        return dt.strftime('%Y-%m-%dT%H:%M:%S.%fZ' if utc else '%Y-%m-%d_%H-%M-%S')
+    Returns:
+        str: Formatted timestamp
+    """
+    dt = datetime.now(timezone.utc) if utc else datetime.now()
+    return dt.strftime(format)
+
+
+def parse_iso_timestamp(timestamp_str: str) -> datetime:
+    """
+    Parse ISO 8601 timestamp with proper timezone handling
+    Handles both 'Z' suffix and timezone offsets
     
-    @staticmethod
-    def display_timestamp(format: str = '%Y-%m-%d %H:%M:%S', utc: bool = False) -> str:
-        """
-        Generate human-readable timestamp for display
+    Args:
+        timestamp_str: ISO 8601 timestamp string
         
-        Args:
-            format: strftime format string
-            utc: If True, show UTC time. If False, show local time.
-            
-        Returns:
-            str: Formatted timestamp
-        """
-        dt = datetime.now(timezone.utc) if utc else datetime.now()
-        return dt.strftime(format)
+    Returns:
+        datetime: Timezone-aware datetime object
+    """
+    # Handle 'Z' suffix for UTC
+    if timestamp_str.endswith('Z'):
+        timestamp_str = timestamp_str[:-1] + '+00:00'
     
-    @staticmethod
-    def parse_iso_timestamp(timestamp_str: str) -> datetime:
-        """
-        Parse ISO 8601 timestamp with proper timezone handling
-        Handles both 'Z' suffix and timezone offsets
-        
-        Args:
-            timestamp_str: ISO 8601 timestamp string
-            
-        Returns:
-            datetime: Timezone-aware datetime object
-        """
-        # Handle 'Z' suffix for UTC
-        if timestamp_str.endswith('Z'):
-            timestamp_str = timestamp_str[:-1] + '+00:00'
-        
-        # Parse with timezone
-        try:
-            return datetime.fromisoformat(timestamp_str)
-        except ValueError:
-            # Fallback for timestamps without timezone
-            dt = datetime.fromisoformat(timestamp_str)
-            # Assume local time if no timezone specified
-            return dt.astimezone()
+    # Parse with timezone
+    try:
+        return datetime.fromisoformat(timestamp_str)
+    except ValueError:
+        # Fallback for timestamps without timezone
+        dt = datetime.fromisoformat(timestamp_str)
+        # Assume local time if no timezone specified
+        return dt.astimezone()
+
+
+def utc_to_local(utc_timestamp: Union[str, datetime]) -> datetime:
+    """
+    Convert UTC timestamp to local timezone
     
-    @staticmethod
-    def utc_to_local(utc_timestamp: Union[str, datetime]) -> datetime:
-        """
-        Convert UTC timestamp to local timezone
+    Args:
+        utc_timestamp: UTC datetime or ISO string
         
-        Args:
-            utc_timestamp: UTC datetime or ISO string
-            
-        Returns:
-            datetime: Local timezone datetime
-        """
-        if isinstance(utc_timestamp, str):
-            utc_timestamp = TimestampManager.parse_iso_timestamp(utc_timestamp)
-        
-        # Ensure UTC timezone if not specified
-        if utc_timestamp.tzinfo is None:
-            utc_timestamp = utc_timestamp.replace(tzinfo=timezone.utc)
-        
-        return utc_timestamp.astimezone()
+    Returns:
+        datetime: Local timezone datetime
+    """
+    if isinstance(utc_timestamp, str):
+        utc_timestamp = parse_iso_timestamp(utc_timestamp)
     
-    @staticmethod
-    def local_to_utc(local_timestamp: Union[str, datetime]) -> datetime:
-        """
-        Convert local timestamp to UTC
-        
-        Args:
-            local_timestamp: Local datetime or ISO string
-            
-        Returns:
-            datetime: UTC datetime
-        """
-        if isinstance(local_timestamp, str):
-            local_timestamp = TimestampManager.parse_iso_timestamp(local_timestamp)
-        
-        # Ensure local timezone if not specified
-        if local_timestamp.tzinfo is None:
-            local_timestamp = local_timestamp.astimezone()
-        
-        return local_timestamp.astimezone(timezone.utc)
+    # Ensure UTC timezone if not specified
+    if utc_timestamp.tzinfo is None:
+        utc_timestamp = utc_timestamp.replace(tzinfo=timezone.utc)
     
-    @staticmethod
-    def format_for_logging() -> str:
-        """Standard timestamp format for log entries"""
-        return TimestampManager.timestamp_utc()
+    return utc_timestamp.astimezone()
+
+
+def local_to_utc(local_timestamp: Union[str, datetime]) -> datetime:
+    """
+    Convert local timestamp to UTC
     
-    @staticmethod
-    def format_for_display(include_seconds: bool = True) -> str:
-        """Standard timestamp format for user display"""
-        fmt = '%H:%M:%S' if include_seconds else '%H:%M'
-        return TimestampManager.display_timestamp(fmt)
+    Args:
+        local_timestamp: Local datetime or ISO string
+        
+    Returns:
+        datetime: UTC datetime
+    """
+    if isinstance(local_timestamp, str):
+        local_timestamp = parse_iso_timestamp(local_timestamp)
     
-    @staticmethod
-    def format_for_message_bus() -> str:
-        """Standard timestamp format for message bus"""
-        return TimestampManager.timestamp_utc()
+    # Ensure local timezone if not specified
+    if local_timestamp.tzinfo is None:
+        local_timestamp = local_timestamp.astimezone()
     
-    @staticmethod
-    def get_timezone_offset() -> str:
-        """
-        Get current timezone offset from UTC
-        
-        Returns:
-            str: e.g., "-04:00" for EDT
-        """
-        local_time = datetime.now().astimezone()
-        return local_time.strftime('%z')
+    return local_timestamp.astimezone(timezone.utc)
+
+
+def format_for_logging() -> str:
+    """Standard timestamp format for log entries"""
+    return timestamp_utc()
+
+
+def format_for_display(include_seconds: bool = True) -> str:
+    """Standard timestamp format for user display"""
+    fmt = '%H:%M:%S' if include_seconds else '%H:%M'
+    return display_timestamp(fmt)
+
+
+def format_for_message_bus() -> str:
+    """Standard timestamp format for message bus"""
+    return timestamp_utc()
+
+
+def get_timezone_offset() -> str:
+    """
+    Get current timezone offset from UTC
     
-    @staticmethod
-    def ensure_utc_suffix(timestamp_str: str) -> str:
-        """
-        Ensure timestamp has proper UTC indicator
-        Adds 'Z' if missing and timestamp appears to be UTC
+    Returns:
+        str: e.g., "-04:00" for EDT
+    """
+    local_time = datetime.now().astimezone()
+    return local_time.strftime('%z')
+
+
+def ensure_utc_suffix(timestamp_str: str) -> str:
+    """
+    Ensure timestamp has proper UTC indicator
+    Adds 'Z' if missing and timestamp appears to be UTC
+    
+    Args:
+        timestamp_str: Timestamp string
         
-        Args:
-            timestamp_str: Timestamp string
-            
-        Returns:
-            str: Timestamp with proper UTC indicator
-        """
-        if timestamp_str.endswith('Z') or '+' in timestamp_str or '-' in timestamp_str[-6:]:
-            return timestamp_str
-        
-        # Check if it looks like a UTC timestamp without suffix
-        if 'T' in timestamp_str and timestamp_str.count(':') >= 2:
-            return timestamp_str + 'Z'
-        
+    Returns:
+        str: Timestamp with proper UTC indicator
+    """
+    if timestamp_str.endswith('Z') or '+' in timestamp_str or '-' in timestamp_str[-6:]:
         return timestamp_str
+    
+    # Check if it looks like a UTC timestamp without suffix
+    if 'T' in timestamp_str and timestamp_str.count(':') >= 2:
+        return timestamp_str + 'Z'
+    
+    return timestamp_str
+
+
+# Deprecated: TimestampManager class for backward compatibility
+# TODO: Remove after migrating all usages
+class TimestampManager:
+    """DEPRECATED: Use module-level functions instead"""
+    utc_now = staticmethod(utc_now)
+    timestamp_utc = staticmethod(timestamp_utc)
+    timestamp_local_iso = staticmethod(timestamp_local_iso)
+    filename_timestamp = staticmethod(filename_timestamp)
+    display_timestamp = staticmethod(display_timestamp)
+    parse_iso_timestamp = staticmethod(parse_iso_timestamp)
+    utc_to_local = staticmethod(utc_to_local)
+    local_to_utc = staticmethod(local_to_utc)
+    format_for_logging = staticmethod(format_for_logging)
+    format_for_display = staticmethod(format_for_display)
+    format_for_message_bus = staticmethod(format_for_message_bus)
+    get_timezone_offset = staticmethod(get_timezone_offset)
+    ensure_utc_suffix = staticmethod(ensure_utc_suffix)

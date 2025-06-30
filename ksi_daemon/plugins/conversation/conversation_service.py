@@ -14,7 +14,7 @@ import hashlib
 import pluggy
 
 from ksi_common.config import config
-from ksi_common import TimestampManager
+from ksi_common import parse_iso_timestamp, filename_timestamp, display_timestamp, utc_to_local
 from ksi_daemon.plugin_utils import plugin_metadata
 from ksi_common.logging import get_bound_logger
 
@@ -132,7 +132,7 @@ def refresh_conversation_cache() -> None:
                         
                         # Validate timestamp format
                         try:
-                            TimestampManager.parse_iso_timestamp(timestamp)
+                            parse_iso_timestamp(timestamp)
                         except (ValueError, AttributeError):
                             continue  # Skip malformed timestamps
                         
@@ -204,15 +204,15 @@ def handle_list_conversations(data: Dict[str, Any], context: Dict[str, Any]) -> 
                     continue
                 
                 try:
-                    conv_date = TimestampManager.parse_iso_timestamp(last_ts)
+                    conv_date = parse_iso_timestamp(last_ts)
                     
                     if start_date:
-                        start_dt = TimestampManager.parse_iso_timestamp(start_date)
+                        start_dt = parse_iso_timestamp(start_date)
                         if conv_date < start_dt:
                             continue
                     
                     if end_date:
-                        end_dt = TimestampManager.parse_iso_timestamp(end_date)
+                        end_dt = parse_iso_timestamp(end_date)
                         if conv_date > end_dt:
                             continue
                     
@@ -388,7 +388,7 @@ def handle_get_conversation(data: Dict[str, Any], context: Dict[str, Any]) -> Di
                     
                     # Validate timestamp
                     try:
-                        TimestampManager.parse_iso_timestamp(timestamp)
+                        parse_iso_timestamp(timestamp)
                     except (ValueError, AttributeError):
                         continue
                     
@@ -544,13 +544,13 @@ def handle_export_conversation(data: Dict[str, Any], context: Dict[str, Any]) ->
         messages = conv_result['messages']
         
         # Generate timestamp for filename
-        timestamp = TimestampManager.filename_timestamp(utc=False)
+        timestamp = filename_timestamp(utc=False)
         
         if format_type == 'json':
             # Build JSON content
             export_data = {
                 'session_id': session_id,
-                'exported_at': TimestampManager.display_timestamp('%Y-%m-%d %H:%M:%S', utc=False),
+                'exported_at': display_timestamp('%Y-%m-%d %H:%M:%S', utc=False),
                 'exported_at_iso': datetime.now(timezone.utc).isoformat(),
                 'total_messages': len(messages),
                 'messages': []
@@ -563,8 +563,8 @@ def handle_export_conversation(data: Dict[str, Any], context: Dict[str, Any]) ->
                 # Format timestamp for display
                 display_time = msg_timestamp
                 try:
-                    dt = TimestampManager.parse_iso_timestamp(msg_timestamp)
-                    local_dt = TimestampManager.utc_to_local(dt)
+                    dt = parse_iso_timestamp(msg_timestamp)
+                    local_dt = utc_to_local(dt)
                     display_time = local_dt.strftime('%Y-%m-%d %H:%M:%S')
                 except (ValueError, AttributeError):
                     pass
@@ -593,7 +593,7 @@ def handle_export_conversation(data: Dict[str, Any], context: Dict[str, Any]) ->
         else:  # markdown format
             # Build markdown content
             md_lines = [f"# Conversation Export: {session_id}\n"]
-            md_lines.append(f"*Exported on {TimestampManager.display_timestamp('%Y-%m-%d %H:%M:%S', utc=False)}*\n")
+            md_lines.append(f"*Exported on {display_timestamp('%Y-%m-%d %H:%M:%S', utc=False)}*\n")
             md_lines.append(f"*Total messages: {len(messages)}*\n")
             md_lines.append("---\n")
             
@@ -603,8 +603,8 @@ def handle_export_conversation(data: Dict[str, Any], context: Dict[str, Any]) ->
                 
                 # Format timestamp for display
                 try:
-                    dt = TimestampManager.parse_iso_timestamp(msg_timestamp)
-                    local_dt = TimestampManager.utc_to_local(dt)
+                    dt = parse_iso_timestamp(msg_timestamp)
+                    local_dt = utc_to_local(dt)
                     time_str = local_dt.strftime('%Y-%m-%d %H:%M:%S')
                 except (ValueError, AttributeError):
                     time_str = msg_timestamp
@@ -726,7 +726,7 @@ def handle_active_conversations(data: Dict[str, Any], context: Dict[str, Any]) -
                 timestamp = msg.get('timestamp')
                 if timestamp:
                     try:
-                        dt = TimestampManager.parse_iso_timestamp(timestamp)
+                        dt = parse_iso_timestamp(timestamp)
                         if dt.timestamp() < cutoff_time:
                             continue
                     except (ValueError, AttributeError):

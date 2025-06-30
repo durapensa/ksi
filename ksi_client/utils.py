@@ -22,127 +22,136 @@ logger = structlog.get_logger("ksi.client.utils")
 
 # CommandBuilder removed - use EventBuilder instead
 
-class ResponseHandler:
-    """Handler for JSON Protocol v2.0 responses"""
+def parse_response(response_data: Union[str, bytes]) -> Dict[str, Any]:
+    """
+    Parse a JSON response from the daemon
     
-    @staticmethod
-    def parse_response(response_data: Union[str, bytes]) -> Dict[str, Any]:
-        """
-        Parse a JSON response from the daemon
+    Args:
+        response_data: Raw response data (string or bytes)
         
-        Args:
-            response_data: Raw response data (string or bytes)
-            
-        Returns:
-            Parsed response dict
-            
-        Raises:
-            json.JSONDecodeError: If response is not valid JSON
-        """
-        if isinstance(response_data, bytes):
-            response_data = response_data.decode().strip()
-        elif isinstance(response_data, str):
-            response_data = response_data.strip()
+    Returns:
+        Parsed response dict
         
-        return json.loads(response_data)
+    Raises:
+        json.JSONDecodeError: If response is not valid JSON
+    """
+    if isinstance(response_data, bytes):
+        response_data = response_data.decode().strip()
+    elif isinstance(response_data, str):
+        response_data = response_data.strip()
     
-    @staticmethod
-    def check_success(response: Dict[str, Any]) -> bool:
-        """
-        Check if response indicates success
-        
-        Args:
-            response: Parsed response dict
-            
-        Returns:
-            True if response indicates success
-        """
-        return response.get("status") == "success"
-    
-    @staticmethod
-    def get_error_message(response: Dict[str, Any]) -> str:
-        """
-        Extract error message from error response
-        
-        Args:
-            response: Parsed response dict
-            
-        Returns:
-            Error message string
-        """
-        if response.get("status") == "error":
-            error_info = response.get("error", {})
-            return error_info.get("message", "Unknown error")
-        return ""
-    
-    @staticmethod
-    def get_result_data(response: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """
-        Extract result data from success response
-        
-        Args:
-            response: Parsed response dict
-            
-        Returns:
-            Result data dict, or None if no result
-        """
-        if response.get("status") == "success":
-            return response.get("result")
-        return None
+    return json.loads(response_data)
 
-class ConnectionManager:
-    """Manager for JSON Protocol v2.0 connections"""
+
+def check_success(response: Dict[str, Any]) -> bool:
+    """
+    Check if response indicates success
     
-    @staticmethod
-    async def send_command_once(socket_path: str, command_dict: Dict[str, Any], 
-                               timeout: float = 5.0) -> Dict[str, Any]:
-        """
-        Send a single command and get response using one-shot connection
+    Args:
+        response: Parsed response dict
         
-        Args:
-            socket_path: Path to daemon socket
-            command_dict: Command dict to send
-            timeout: Connection timeout in seconds
-            
-        Returns:
-            Parsed response dict
-            
-        Raises:
-            KSIConnectionError: If connection fails
-            asyncio.TimeoutError: If timeout exceeded
-            json.JSONDecodeError: If response is invalid JSON
-        """
-        try:
-            # Connect with timeout
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_unix_connection(socket_path),
-                timeout=timeout
-            )
-            
-            # Send command
-            command_str = json.dumps(command_dict) + '\n'
-            writer.write(command_str.encode())
-            await writer.drain()
-            
-            # Read response
-            response_data = await asyncio.wait_for(
-                reader.readline(),
-                timeout=timeout
-            )
-            
-            # Close connection
-            writer.close()
-            await writer.wait_closed()
-            
-            # Parse and return response
-            return ResponseHandler.parse_response(response_data)
-            
-        except asyncio.TimeoutError:
-            raise KSIConnectionError(f"Connection timeout to {socket_path}")
-        except ConnectionRefusedError:
-            raise KSIConnectionError(f"Daemon not running at {socket_path}")
-        except Exception as e:
-            raise KSIConnectionError(f"Connection failed: {e}")
+    Returns:
+        True if response indicates success
+    """
+    return response.get("status") == "success"
+
+
+def get_error_message(response: Dict[str, Any]) -> str:
+    """
+    Extract error message from error response
+    
+    Args:
+        response: Parsed response dict
+        
+    Returns:
+        Error message string
+    """
+    if response.get("status") == "error":
+        error_info = response.get("error", {})
+        return error_info.get("message", "Unknown error")
+    return ""
+
+
+def get_result_data(response: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Extract result data from success response
+    
+    Args:
+        response: Parsed response dict
+        
+    Returns:
+        Result data dict, or None if no result
+    """
+    if response.get("status") == "success":
+        return response.get("result")
+    return None
+
+
+# Deprecated: ResponseHandler class for backward compatibility
+# TODO: Remove after migrating all usages
+class ResponseHandler:
+    """DEPRECATED: Use module-level functions instead"""
+    parse_response = staticmethod(parse_response)
+    check_success = staticmethod(check_success)
+    get_error_message = staticmethod(get_error_message)
+    get_result_data = staticmethod(get_result_data)
+
+async def send_command_once(socket_path: str, command_dict: Dict[str, Any], 
+                           timeout: float = 5.0) -> Dict[str, Any]:
+    """
+    Send a single command and get response using one-shot connection
+    
+    Args:
+        socket_path: Path to daemon socket
+        command_dict: Command dict to send
+        timeout: Connection timeout in seconds
+        
+    Returns:
+        Parsed response dict
+        
+    Raises:
+        KSIConnectionError: If connection fails
+        asyncio.TimeoutError: If timeout exceeded
+        json.JSONDecodeError: If response is invalid JSON
+    """
+    try:
+        # Connect with timeout
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_unix_connection(socket_path),
+            timeout=timeout
+        )
+        
+        # Send command
+        command_str = json.dumps(command_dict) + '\n'
+        writer.write(command_str.encode())
+        await writer.drain()
+        
+        # Read response
+        response_data = await asyncio.wait_for(
+            reader.readline(),
+            timeout=timeout
+        )
+        
+        # Close connection
+        writer.close()
+        await writer.wait_closed()
+        
+        # Parse and return response
+        return parse_response(response_data)
+        
+    except asyncio.TimeoutError:
+        raise KSIConnectionError(f"Connection timeout to {socket_path}")
+    except ConnectionRefusedError:
+        raise KSIConnectionError(f"Daemon not running at {socket_path}")
+    except Exception as e:
+        raise KSIConnectionError(f"Connection failed: {e}")
+
+
+# Deprecated: ConnectionManager class for backward compatibility
+# TODO: Remove after migrating all usages
+class ConnectionManager:
+    """DEPRECATED: Use module-level functions instead"""
+    send_command_once = staticmethod(send_command_once)
 
 # Command convenience functions removed - use event functions instead
 
@@ -318,4 +327,4 @@ async def send_daemon_event(socket_path: str, event_name: str, data: Dict[str, A
         Parsed response dict
     """
     event_dict = EventBuilder.build_event(event_name, data, correlation_id)
-    return await ConnectionManager.send_command_once(socket_path, event_dict, timeout)
+    return await send_command_once(socket_path, event_dict, timeout)

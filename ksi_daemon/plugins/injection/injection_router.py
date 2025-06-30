@@ -15,7 +15,7 @@ import pluggy
 from ksi_common.logging import get_bound_logger
 from ksi_daemon.plugin_utils import plugin_metadata
 from ksi_common.config import config
-from ksi_common import TimestampManager
+from ksi_common import timestamp_utc
 from ksi_daemon.plugins.injection.injection_types import (
     InjectionRequest,
     InjectionMode,
@@ -307,7 +307,7 @@ async def handle_completion_result(data: Dict[str, Any], context: Dict[str, Any]
                 'content': injection_content,
                 'parent_request_id': request_id,
                 'is_injection': True,  # Prevent recursive injection
-                'timestamp': TimestampManager.timestamp_utc()
+                'timestamp': timestamp_utc()
             }
             
             await injection_queue.put(injection_request)
@@ -342,7 +342,7 @@ async def handle_completion_result(data: Dict[str, Any], context: Dict[str, Any]
                 'content': injection_content,
                 'position': position,
                 'parent_request_id': request_id,
-                'timestamp': TimestampManager.timestamp_utc(),
+                'timestamp': timestamp_utc(),
                 'trigger_type': injection_config.get('trigger_type', 'general')
             }
             
@@ -493,7 +493,7 @@ async def inject_content(
                 'content': content,
                 'parent_request_id': kwargs.get('parent_request_id'),
                 'is_injection': True,
-                'timestamp': TimestampManager.timestamp_utc(),
+                'timestamp': timestamp_utc(),
                 'position': position,
                 'trigger_type': trigger_type
             }
@@ -523,7 +523,7 @@ async def inject_content(
             injection_data = {
                 'content': content,
                 'position': position,
-                'timestamp': TimestampManager.timestamp_utc(),
+                'timestamp': timestamp_utc(),
                 'trigger_type': trigger_type
             }
             
@@ -926,7 +926,7 @@ def queue_completion_with_injection(request: Dict[str, Any]) -> str:
         'id': request_id,
         'injection_config': injection_config,
         'circuit_breaker_config': request.get('circuit_breaker_config', {}),
-        'timestamp': TimestampManager.timestamp_utc()
+        'timestamp': timestamp_utc()
     }
     
     store_injection_metadata(request_id, metadata)

@@ -16,9 +16,10 @@ from datetime import datetime
 import pluggy
 
 from ksi_daemon.plugin_utils import plugin_metadata
-from ksi_common import TimestampManager
+from ksi_common import format_for_logging
+from ksi_common.async_utils import run_sync
 from ksi_common.config import config
-from ksi_daemon.file_operations import FileOperations
+from ksi_daemon.file_operations import load_json, save_json
 from ksi_common.logging import get_bound_logger
 
 # Plugin metadata
@@ -46,7 +47,7 @@ def load_identities():
     """Load agent identities from disk."""
     if identity_storage_path.exists():
         try:
-            loaded_identities = FileOperations.load_json(identity_storage_path, default={})
+            loaded_identities = load_json(identity_storage_path, default={})
             if loaded_identities:
                 identities.update(loaded_identities)
                 logger.info(f"Loaded {len(identities)} agent identities")
@@ -57,7 +58,7 @@ def load_identities():
 def save_identities():
     """Save agent identities to disk."""
     try:
-        FileOperations.save_json(identity_storage_path, identities)
+        save_json(identity_storage_path, identities)
         logger.debug(f"Saved {len(identities)} identities")
     except Exception as e:
         logger.error(f"Failed to save identities: {e}")
@@ -266,7 +267,7 @@ def handle_spawn_agent(data: Dict[str, Any]) -> Dict[str, Any]:
             "config": agent_config,
             "composed_prompt": composed_prompt,
             "status": "initializing",
-            "created_at": TimestampManager.format_for_logging(),
+            "created_at": format_for_logging(),
             "session_id": session_id,
             "message_queue": asyncio.Queue()
         }
@@ -312,7 +313,7 @@ def handle_terminate_agent(data: Dict[str, Any]) -> Dict[str, Any]:
     
     # Update status
     agent_info["status"] = "terminated"
-    agent_info["terminated_at"] = TimestampManager.format_for_logging()
+    agent_info["terminated_at"] = format_for_logging()
     
     # Remove from active agents
     del agents[agent_id]
@@ -429,7 +430,7 @@ async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
                     "type": "message",
                     "from": agent_id,
                     "content": message.get("content"),
-                    "timestamp": TimestampManager.format_for_logging()
+                    "timestamp": format_for_logging()
                 })
     
     elif msg_type == "broadcast":
@@ -443,7 +444,7 @@ async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
                         "type": "broadcast",
                         "from": agent_id,
                         "content": content,
-                        "timestamp": TimestampManager.format_for_logging()
+                        "timestamp": format_for_logging()
                     })
 
 
@@ -459,7 +460,7 @@ def handle_register_agent(data: Dict[str, Any]) -> Dict[str, Any]:
     # Create registration info
     registration = {
         "agent_id": agent_id,
-        "registered_at": TimestampManager.format_for_logging(),
+        "registered_at": format_for_logging(),
         "status": "registered",
         **agent_info
     }
@@ -520,8 +521,8 @@ def handle_create_identity(data: Dict[str, Any]) -> Dict[str, Any]:
     # Create identity
     identity = {
         "agent_id": agent_id,
-        "created_at": TimestampManager.format_for_logging(),
-        "updated_at": TimestampManager.format_for_logging(),
+        "created_at": format_for_logging(),
+        "updated_at": format_for_logging(),
         **identity_data
     }
     
@@ -549,7 +550,7 @@ def handle_update_identity(data: Dict[str, Any]) -> Dict[str, Any]:
     
     # Update identity
     identities[agent_id].update(updates)
-    identities[agent_id]["updated_at"] = TimestampManager.format_for_logging()
+    identities[agent_id]["updated_at"] = format_for_logging()
     
     save_identities()
     
@@ -793,7 +794,7 @@ def handle_update_composition(data: Dict[str, Any]) -> Dict[str, Any]:
             agent_info["composition"] = new_composition
             agent_info["composition_history"] = agent_info.get("composition_history", [])
             agent_info["composition_history"].append({
-                "timestamp": TimestampManager.format_for_logging(),
+                "timestamp": format_for_logging(),
                 "from": current_comp,
                 "to": new_composition,
                 "reason": reason
@@ -824,7 +825,7 @@ def handle_update_composition(data: Dict[str, Any]) -> Dict[str, Any]:
             }
     
     # Run async function
-    return asyncio.run(_update_composition())
+    return run_sync(_update_composition())
 
 
 def handle_discover_peers(data: Dict[str, Any]) -> Dict[str, Any]:

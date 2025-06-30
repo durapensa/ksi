@@ -22,7 +22,7 @@ import asyncio
 import litellm
 
 from ksi_daemon.plugin_utils import plugin_metadata
-from ksi_common import TimestampManager, create_completion_response, parse_completion_response
+from ksi_common import timestamp_utc, create_completion_response, parse_completion_response, get_response_session_id
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 
@@ -81,7 +81,7 @@ def save_completion_response(response_data: Dict[str, Any]) -> None:
     try:
         # Parse the completion response to extract session_id
         completion_response = parse_completion_response(response_data)
-        session_id = completion_response.get_session_id()
+        session_id = get_response_session_id(completion_response)
         
         if not session_id:
             logger.warning("No session_id in completion response, cannot save to session file")
@@ -355,8 +355,8 @@ async def handle_completion_request(data: Dict[str, Any], context: Dict[str, Any
             duration_ms=duration_ms
         )
         
-        # Save response to session file
-        response_data = completion_response.to_dict()
+        # Save response to session file  
+        response_data = completion_response
         save_completion_response(response_data)
         
         # Extract actual session_id from response (may differ due to forking)
@@ -381,7 +381,7 @@ async def handle_completion_request(data: Dict[str, Any], context: Dict[str, Any
             duration_ms=duration_ms
         )
         
-        result = error_response.to_dict()
+        result = error_response
         result["error"] = str(e)
         result["status"] = "error"
         
@@ -412,10 +412,10 @@ async def handle_async_completion_smart(data: Dict[str, Any], context: Dict[str,
         # Store task handle for cancellation
         active_completions[request_id] = {
             "data": data,
-            "started_at": TimestampManager.timestamp_utc(),
+            "started_at": timestamp_utc(),
             "task": None  # Will be set by process_single_completion
         }
-        task_group.start_soon(process_single_completion, data, context)
+        task_group.create_task(process_single_completion(data, context))
         logger.info(f"Processing sessionless completion {request_id} immediately")
         
         return {
@@ -431,7 +431,7 @@ async def handle_async_completion_smart(data: Dict[str, Any], context: Dict[str,
             # Create per-session queue on demand
             session_processors[session_id] = asyncio.Queue()
             task_group = get_completion_task_group()
-            task_group.start_soon(process_session_queue, session_id)
+            task_group.create_task(process_session_queue(session_id))
             logger.info(f"Created queue processor for session {session_id}")
         
         # Queue the request
@@ -452,10 +452,10 @@ async def handle_async_completion_smart(data: Dict[str, Any], context: Dict[str,
         # Store task handle for cancellation
         active_completions[request_id] = {
             "data": data,
-            "started_at": TimestampManager.timestamp_utc(),
+            "started_at": timestamp_utc(),
             "task": None  # Will be set by process_completion_with_session_lock
         }
-        task_group.start_soon(process_completion_with_session_lock, data, context)
+        task_group.create_task(process_completion_with_session_lock(data, context))
         logger.info(f"Processing completion {request_id} for free session {session_id}")
         
         return {
@@ -512,7 +512,7 @@ async def process_completion_with_session_lock(data: Dict[str, Any], context: Di
         else:
             active_completions[request_id] = {
                 "data": data,
-                "started_at": TimestampManager.timestamp_utc(),
+                "started_at": timestamp_utc(),
                 "task": current_task
             }
             
@@ -546,7 +546,7 @@ async def process_single_completion(data: Dict[str, Any], context: Dict[str, Any
         else:
             active_completions[request_id] = {
                 "data": data,
-                "started_at": TimestampManager.timestamp_utc(),
+                "started_at": timestamp_utc(),
                 "task": current_task
             }
         

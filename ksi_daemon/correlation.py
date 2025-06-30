@@ -38,9 +38,7 @@ class CorrelationTrace:
     error: Optional[str] = None
 
 
-def generate_correlation_id() -> str:
-    """Generate a new correlation ID."""
-    return str(uuid.uuid4())
+# Removed generate_correlation_id - use str(uuid.uuid4()) directly
 
 
 def get_current_correlation_id() -> Optional[str]:
@@ -77,7 +75,7 @@ def ensure_correlation_id(provided_id: Optional[str] = None, parent_id: Optional
         correlation_id = get_current_correlation_id()
         if not correlation_id:
             # Generate new ID
-            correlation_id = generate_correlation_id()
+            correlation_id = str(uuid.uuid4())
     
     # Set context if not already set
     if get_current_correlation_id() != correlation_id:

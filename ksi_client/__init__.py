@@ -39,15 +39,24 @@ from .event_client import (
 
 # Import and re-export utilities
 from .utils import (
-    ConnectionManager, 
-    ResponseHandler,
+    # Module-level functions
+    parse_response,
+    check_success,
+    get_error_message,
+    get_result_data,
+    send_command_once,
+    # Event builder class (keeping as class for now)
     EventBuilder,
+    # Convenience functions
     create_event,
     create_health_event,
     create_completion_event,
     create_agent_event,
     create_state_event,
-    send_daemon_event
+    send_daemon_event,
+    # Deprecated classes
+    ConnectionManager, 
+    ResponseHandler,
 )
 
 # Version info
@@ -58,10 +67,19 @@ __all__ = [
     "EventChatClient",       # Simplified event chat client
     "MultiAgentClient",      # Multi-agent coordination client
     
-    # Utilities
+    # Utilities (module-level functions)
+    "parse_response",        # Parse JSON response
+    "check_success",         # Check if response is success
+    "get_error_message",     # Extract error message
+    "get_result_data",       # Extract result data
+    "send_command_once",     # Send single command
+    
+    # Event builder
     "EventBuilder",          # Event construction
-    "ConnectionManager",     # Low-level connection handling
-    "ResponseHandler",       # Response parsing
+    
+    # Deprecated classes
+    "ConnectionManager",     # DEPRECATED: Use module functions
+    "ResponseHandler",       # DEPRECATED: Use module functions
     
     # Event convenience functions
     "create_event",

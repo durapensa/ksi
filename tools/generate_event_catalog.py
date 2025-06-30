@@ -16,6 +16,7 @@ from typing import Dict, List, Any
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from ksi_client import EventBasedClient
+from ksi_common import main_entry_point
 
 
 class EventCatalogGenerator:
@@ -306,4 +307,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main_entry_point(main)
