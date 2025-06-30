@@ -42,6 +42,26 @@ class InjectionRequest:
     priority: str = "normal"                       # Priority (high, normal, low)
     metadata: Dict[str, Any] = field(default_factory=dict)  # Additional metadata
     
+    def __post_init__(self):
+        """Validate enum types after initialization."""
+        if not isinstance(self.mode, InjectionMode):
+            if isinstance(self.mode, str):
+                try:
+                    self.mode = InjectionMode(self.mode)
+                except ValueError:
+                    raise ValueError(f"Invalid injection mode: {self.mode}")
+            else:
+                raise ValueError(f"Mode must be InjectionMode enum, got {type(self.mode)}")
+        
+        if not isinstance(self.position, InjectionPosition):
+            if isinstance(self.position, str):
+                try:
+                    self.position = InjectionPosition(self.position)
+                except ValueError:
+                    raise ValueError(f"Invalid injection position: {self.position}")
+            else:
+                raise ValueError(f"Position must be InjectionPosition enum, got {type(self.position)}")
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {

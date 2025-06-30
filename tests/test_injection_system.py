@@ -65,8 +65,11 @@ class MockEventEmitter:
     def __init__(self):
         self.events = []
     
-    async def emit(self, event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
+    async def emit(self, event_name: str, data: Dict[str, Any], context: Dict[str, Any] = None):
         """Record emitted events."""
+        if context is None:
+            context = {}
+            
         self.events.append({
             "event": event_name,
             "data": data,
@@ -79,6 +82,15 @@ class MockEventEmitter:
                 "request_id": data.get("request_id"),
                 "session_id": "test-session-123",
                 "response": "Test response"
+            }
+        
+        # Mock response for async_state:push (used by NEXT mode)
+        if event_name == "async_state:push":
+            return {
+                "success": True,
+                "position": 0,  # Code looks for "position" not "queue_position"
+                "namespace": data.get("namespace"),
+                "key": data.get("key")
             }
         
         return {}
@@ -187,10 +199,10 @@ class TestInjectionSystem:
         """Test next mode injection."""
         from ksi_daemon.plugins.injection.injection_router import process_injection
         
-        # Mock the globals
+        # Mock the globals  
         import ksi_daemon.plugins.injection.injection_router as router
         router.state_manager = mock_state_manager
-        router.event_emitter = None  # Next mode doesn't emit immediately
+        router.event_emitter = mock_event_emitter.emit  # Next mode needs event emitter for async_state:push
         
         # Create next mode injection request
         request = InjectionRequest(
@@ -208,14 +220,20 @@ class TestInjectionSystem:
         assert isinstance(result, InjectionResult)
         assert result.success is True
         assert result.mode == InjectionMode.NEXT
+        assert result.position == InjectionPosition.AFTER_PROMPT
+        assert result.session_id == "test-session-2"
         assert result.queued is True
         assert result.queue_position == 0
         
-        # Verify item was queued
-        queue = await mock_state_manager.get_queue("injection", "test-session-2")
-        assert len(queue) == 1
-        assert queue[0]["content"] == "Next mode content"
-        assert queue[0]["position"] == "after_prompt"
+        # Verify async_state:push event was emitted
+        async_state_events = [e for e in mock_event_emitter.events if e["event"] == "async_state:push"]
+        assert len(async_state_events) == 1
+        
+        event_data = async_state_events[0]["data"]
+        assert event_data["namespace"] == "injection"
+        assert event_data["key"] == "test-session-2"
+        assert event_data["data"]["content"] == "Next mode content"
+        assert event_data["data"]["position"] == "after_prompt"
     
     @pytest.mark.asyncio
     async def test_invalid_injection_request(self, mock_state_manager):
