@@ -2,7 +2,9 @@
 
 Core technical reference for KSI (Knowledge System Interface) - a minimal daemon system for managing Claude AI processes with conversation continuity and multi-agent orchestration.
 
-**Latest Update (2025-06-30)**: Completed subprocess cleanup implementation, fixed circuit breaker token estimation, and validated production safety mechanisms. The injection system was already complete (documentation updated). Agent orchestration is now the highest priority.
+**Latest Update (2025-06-30)**: Completed subprocess cleanup implementation, fixed circuit breaker token estimation, and validated production safety mechanisms. The injection system was already complete (documentation updated). 
+
+**Critical Lesson Learned**: Previous agent experiments without proper logging and isolation resulted in agents compromising the KSI system itself. Event persistence and security controls are now mandatory prerequisites before any agent activation.
 
 ## System Architecture
 
@@ -353,26 +355,39 @@ Verifies: sync/async completion, queue status, conversation locks, priorities
 
 ## Implementation Priorities
 
-### High Priority (Agent Orchestration)
-1. **Agent System Activation** (2-3 days)
-   - Create first working agents using composition system
-   - Implement basic orchestration patterns (peer-to-peer, coordinator)
-   - Demonstrate multi-agent coordination capabilities
-   - **Impact**: Core value proposition of KSI system
+### Critical Safety Infrastructure
+1. **Event Log Persistence** (1-2 days) 🚨
+   - File persistence with rotation for event log
+   - Real-time tailing for monitoring agent behavior
+   - Structured indexes for forensic analysis
+   - **Rationale**: Previous agent experiments compromised system without adequate logging
+   - **Impact**: Essential visibility before running autonomous agents
 
-### Production Readiness
-2. **Performance Optimization** (2-3 days)
+2. **Agent Isolation & Permissions** (2-3 days) 🔒
+   - Tool permission system in agent compositions
+   - Sandbox boundaries for agent filesystem access
+   - Resource limits (tokens, time, subprocess spawning)
+   - Capability-based security model
+   - **Rationale**: Prevent agents from modifying KSI system or escaping boundaries
+   - **Impact**: Safe experimentation environment
+
+### Controlled Agent Deployment
+3. **Agent System Activation** (3-4 days) 
+   - Create first working agents WITH security constraints
+   - Implement permission-aware orchestration patterns
+   - Audit trails for all agent actions
+   - Emergency shutdown mechanisms
+   - **Prerequisites**: Event persistence + isolation controls
+   - **Impact**: Demonstrate system safely
+
+### Production Optimization
+4. **Performance Optimization** (2-3 days)
    - Claude CLI subprocess spawning adds ~7s overhead
    - Investigate process pooling or alternative approaches
    - **Impact**: Significantly faster response times
 
-3. **Event Log Persistence** (1-2 days)
-   - File persistence with rotation for event log
-   - Currently in-memory ring buffer only
-   - **Impact**: Production observability and debugging
-
 ### Foundation for Scale
-4. **Dynamic Storage Architecture** (1 week)
+5. **Dynamic Storage Architecture** (1 week)
    - Session-based write contention solution
    - Minimal duplication storage model
    - Support for peer-to-peer agent patterns
@@ -455,17 +470,34 @@ var/lib/
 
 ## Critical Incomplete Features
 
-### Event Log Persistence
+### Event Log Persistence 🚨
 - **Missing**: File persistence with rotation for event log
-- **Status**: In-memory ring buffer only
-- **Impact**: Limited debugging and monitoring capabilities
-- **Need**: Production observability
+- **Status**: In-memory ring buffer only (data lost on restart)
+- **Security Risk**: Previous agent experiments compromised system without audit trail
+- **Requirements**:
+  - JSONL files with automatic rotation
+  - Real-time tailing capability
+  - Structured query indexes
+  - Tamper-evident design
+- **Impact**: Cannot safely run autonomous agents without forensic capabilities
+
+### Agent Isolation & Permissions 🔒
+- **Missing**: Security boundaries for agent execution
+- **Status**: Agents would have full system access
+- **Security Risk**: Agents could modify KSI, access sensitive data, spawn subprocesses
+- **Requirements**:
+  - Tool permission declarations in compositions
+  - Filesystem sandboxing (read/write boundaries)
+  - Resource limits (CPU, memory, tokens)
+  - Capability-based security model
+- **Impact**: Unsafe to run any agent experiments
 
 ### Agent System Implementation
 - **Missing**: Working agents using the composition system
 - **Status**: Infrastructure complete but 0 active agents
+- **Prerequisites**: MUST have logging + isolation first
 - **Impact**: Core multi-agent orchestration capabilities unused
-- **Need**: Demonstrate system value proposition
+- **Need**: Demonstrate system value proposition SAFELY
 
 ## Technical Debt Cleanup ✅
 

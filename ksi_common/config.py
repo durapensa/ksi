@@ -172,6 +172,23 @@ class KSIBaseConfig(BaseSettings):
         """Get experiments workspaces directory."""
         return self.experiments_dir / "workspaces"
     
+    def get_client_log_file(self) -> Path:
+        """Generate log file path for the current client script.
+        
+        Automatically detects the calling script name from sys.argv[0].
+        
+        Returns:
+            Path to log file in format: var/logs/{script_name}.log
+        """
+        import sys
+        from pathlib import Path
+        
+        # Get script name from sys.argv[0], removing path and extension
+        script_path = Path(sys.argv[0])
+        script_name = script_path.stem  # Gets filename without extension
+        
+        return self.log_dir / f"{script_name}.log"
+    
     def __str__(self) -> str:
         """String representation for debugging."""
         return (

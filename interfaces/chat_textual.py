@@ -1329,7 +1329,7 @@ def main():
     # Config directories are created as needed by KSIPaths
     
     # Configure structured logging BEFORE any TUI operations to prevent screen corruption
-    log_file = config.log_dir / 'chat_textual.log'
+    log_file = config.get_client_log_file()  # Auto-detects 'chat_textual' from sys.argv[0]
     log_file.parent.mkdir(parents=True, exist_ok=True)
     
     # Configure structlog with file output and no console output for TUI
