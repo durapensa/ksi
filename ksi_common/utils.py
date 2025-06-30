@@ -24,15 +24,6 @@ def generate_id(prefix: Optional[str] = None) -> str:
     return unique_part
 
 
-def generate_session_id() -> str:
-    """Generate a unique session ID.
-    
-    Returns:
-        Full UUID string suitable for session tracking
-    """
-    return str(uuid.uuid4())
-
-
 def generate_correlation_id() -> str:
     """Generate a correlation ID for request/response tracking.
     
@@ -40,92 +31,6 @@ def generate_correlation_id() -> str:
         Full UUID string
     """
     return str(uuid.uuid4())
-
-
-def safe_json_loads(data: Union[str, bytes], default: Any = None) -> Any:
-    """Safely parse JSON with fallback.
-    
-    Args:
-        data: JSON string or bytes to parse
-        default: Default value on parse failure
-        
-    Returns:
-        Parsed JSON or default value
-    """
-    try:
-        if isinstance(data, bytes):
-            data = data.decode('utf-8')
-        return json.loads(data)
-    except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
-        return default
-
-
-def safe_json_dumps(data: Any, default: str = "{}") -> str:
-    """Safely serialize to JSON with fallback.
-    
-    Args:
-        data: Data to serialize
-        default: Default string on serialization failure
-        
-    Returns:
-        JSON string or default
-    """
-    try:
-        return json.dumps(data)
-    except (TypeError, ValueError):
-        return default
-
-
-def format_bytes(num_bytes: int) -> str:
-    """Format bytes into human-readable string.
-    
-    Args:
-        num_bytes: Number of bytes
-        
-    Returns:
-        Formatted string (e.g., "1.5 MB")
-    """
-    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-        if num_bytes < 1024.0:
-            return f"{num_bytes:.1f} {unit}"
-        num_bytes /= 1024.0
-    return f"{num_bytes:.1f} PB"
-
-
-def truncate_string(text: str, max_length: int = 100, suffix: str = "...") -> str:
-    """Truncate string to maximum length with suffix.
-    
-    Args:
-        text: Text to truncate
-        max_length: Maximum length including suffix
-        suffix: Suffix to add when truncated
-        
-    Returns:
-        Truncated string
-    """
-    if len(text) <= max_length:
-        return text
-    
-    if max_length <= len(suffix):
-        return suffix[:max_length]
-    
-    return text[:max_length - len(suffix)] + suffix
-
-
-def ensure_list(value: Any) -> list:
-    """Ensure value is a list.
-    
-    Args:
-        value: Value to ensure is a list
-        
-    Returns:
-        Value as list (wrapped if necessary)
-    """
-    if value is None:
-        return []
-    if isinstance(value, list):
-        return value
-    return [value]
 
 
 def merge_dicts(base: Dict[str, Any], updates: Dict[str, Any], 
