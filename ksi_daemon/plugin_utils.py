@@ -39,8 +39,16 @@ def plugin_metadata(name: str, version: str = "1.0.0",
 
 
 def get_logger(plugin_name: str) -> 'structlog.stdlib.BoundLogger':
-    """Get a structured logger for the plugin."""
-    return get_structured_logger(f"ksi.plugin.{plugin_name}")
+    """
+    DEPRECATED: Import get_logger directly from ksi_common.logging instead.
+    This wrapper will be removed soon.
+    
+    Get a structured logger for the plugin.
+    """
+    full_name = f"ksi.plugin.{plugin_name}"
+    # Debug: print when plugin loggers are created
+    print(f"[plugin_utils] Creating logger for plugin: {full_name}")
+    return get_structured_logger(full_name)
 
 
 def event_handler(*event_patterns: str):

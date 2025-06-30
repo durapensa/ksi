@@ -19,6 +19,20 @@ import time
 from pathlib import Path
 from typing import Optional, Dict, Any
 
+# Configure logging BEFORE importing ksi modules
+from ksi_common.logging import configure_structlog
+
+# Get configuration from environment or defaults
+log_level = os.environ.get('KSI_LOG_LEVEL', 'INFO')
+log_format = os.environ.get('KSI_LOG_FORMAT', 'console')
+
+# Configure structlog
+configure_structlog(
+    log_level=log_level,
+    log_format=log_format
+)
+
+# NOW import ksi modules
 from ksi_common import config, get_logger
 
 logger = get_logger("daemon_control")

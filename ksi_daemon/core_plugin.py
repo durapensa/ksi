@@ -115,14 +115,16 @@ class SimpleDaemonCore:
             
             # Call ksi_ready hooks - plugins return coroutines to start
             try:
+                logger.info("Calling ksi_ready hooks...")
                 ready_results = self.plugin_loader.pm.hook.ksi_ready()
-                logger.info("Plugin daemon ready")
+                logger.info(f"Got {len(ready_results)} results from ksi_ready hooks")
                 
                 # Collect coroutines from plugins
                 self.async_coroutines = []
                 for result in ready_results:
                     if result and isinstance(result, dict) and "tasks" in result:
                         service_name = result.get("service", "unknown")
+                        logger.info(f"Service {service_name} returned {len(result['tasks'])} tasks")
                         for task_spec in result["tasks"]:
                             task_name = task_spec.get("name", "unnamed")
                             coroutine = task_spec.get("coroutine")
@@ -132,6 +134,9 @@ class SimpleDaemonCore:
                                     "service": service_name,
                                     "name": task_name
                                 })
+                                logger.info(f"Added task {task_name} from service {service_name}")
+                
+                logger.info(f"Plugin daemon ready - collected {len(self.async_coroutines)} async tasks")
                     
             except Exception as e:
                 logger.error(f"Error calling ksi_ready hooks: {e}", exc_info=True)
@@ -153,6 +158,8 @@ class SimpleDaemonCore:
                         tg.start_soon(wrapper)
                     
                     logger.info("Daemon services running")
+                    # Keep the task group running until shutdown
+                    await self.shutdown_event.wait()
             else:
                 await self.shutdown_event.wait()
             

@@ -9,6 +9,7 @@ for consistent, structured logging with correlation support.
 
 import asyncio
 import logging
+import os
 import sys
 import uuid
 from contextlib import asynccontextmanager, contextmanager
@@ -97,7 +98,10 @@ def configure_structlog(
 
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:
     """
-    Get a structured logger instance with automatic context support.
+    Get a structured logger instance.
+    
+    This assumes logging has already been configured via configure_structlog().
+    If logging is not configured, this is a programming error.
     
     Args:
         name: Logger name (typically __name__)
@@ -105,18 +109,11 @@ def get_logger(name: str) -> structlog.stdlib.BoundLogger:
     Returns:
         Structured logger instance
     """
-    # Auto-configure if not already done
     if not _STRUCTLOG_CONFIGURED:
-        # Use config from ksi_common if available
-        try:
-            from .config import config
-            configure_structlog(
-                log_level=config.log_level,
-                log_format=config.log_format
-            )
-        except ImportError:
-            # Fallback to defaults
-            configure_structlog()
+        raise RuntimeError(
+            "Logging not configured! Call configure_structlog() at application startup "
+            "before creating any loggers."
+        )
     
     return structlog.get_logger(name)
 
@@ -253,6 +250,3 @@ def disable_console_logging() -> None:
         if isinstance(handler, logging.StreamHandler) and handler.stream in (sys.stdout, sys.stderr):
             root_logger.removeHandler(handler)
 
-
-# Convenience logger for this module
-logger = get_logger(__name__)

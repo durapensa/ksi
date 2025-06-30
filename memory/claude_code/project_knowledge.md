@@ -470,5 +470,16 @@ var/lib/
 - Cleanup philosophy: distinguish legacy vs incomplete functionality
 - All changes committed atomically with proper documentation
 
+## Current Technical Issues
+
+### Plugin Logging Configuration
+- **Issue**: Plugin loggers don't respect KSI_LOG_LEVEL environment variable
+- **Root Cause**: ksi_common.logging.get_logger() auto-configures structlog with defaults
+- **Impact**: DEBUG logs from plugins don't appear even with KSI_LOG_LEVEL=DEBUG
+- **Attempted Fix**: Configure structlog before plugin imports in daemon __init__.py
+- **Remaining Issue**: get_logger() in ksi_common re-configures with INFO level
+- **Workaround**: Use logger.info() instead of logger.debug() for critical debugging
+- **Proper Fix**: Modify ksi_common.logging.get_logger() to check if already configured
+
 ---
 *For development practices, see `/Users/dp/projects/ksi/CLAUDE.md`*

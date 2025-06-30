@@ -12,11 +12,33 @@ import signal
 import os
 from pathlib import Path
 
-# Import all modules
-from .config import config
+# CRITICAL: Configure logging BEFORE ANY ksi imports to ensure all loggers work correctly
+# This must be the very first thing we do after stdlib imports
+import logging as stdlib_logging
+from ksi_common.logging import configure_structlog
 
-# Import plugin system
-from .core_plugin import SimpleDaemonCore as PluginDaemon
+# Get configuration from environment or defaults
+log_level = os.environ.get('KSI_LOG_LEVEL', 'INFO')
+log_format = os.environ.get('KSI_LOG_FORMAT', 'console')
+log_file = Path(os.environ.get('KSI_LOG_DIR', 'var/logs')) / 'daemon' / 'daemon.log'
+
+# Ensure log directory exists
+log_file.parent.mkdir(parents=True, exist_ok=True)
+
+# Configure structlog with the appropriate level
+# This also configures stdlib logging internally
+configure_structlog(
+    log_level=log_level,
+    log_format=log_format,
+    log_file=log_file
+)
+
+# Debug: Print to verify log level
+print(f"[ksi_daemon.__init__] Configured logging with level: {log_level}")
+
+# NOW we can import our modules - logging is configured
+from ksi_daemon.config import config
+from ksi_daemon.core_plugin import SimpleDaemonCore as PluginDaemon
 
 # Get logger
 import structlog
@@ -30,28 +52,11 @@ def parse_args():
     return parser.parse_args()
 
 def setup_logging():
-    """Set up logging using configuration system"""
-    # Ensure log directory exists
-    config.log_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Configure structlog based on config (this handles everything)
-    config.configure_structlog()
-    
-    # Get log file path for stdlib logger
-    log_file = config.get_log_file_path()
-    
-    # Configure stdlib logging to work with structlog
-    # Note: structlog will handle the formatting
-    logging.basicConfig(
-        level=config.get_log_level(),
-        format='%(message)s',  # Let structlog handle formatting
-        handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler()
-        ]
-    )
-    
-    return logging.getLogger('daemon')
+    """
+    Logging is now configured at module import time to ensure plugins get proper configuration.
+    This function is kept for compatibility but just returns the logger.
+    """
+    return stdlib_logging.getLogger('daemon')
 
 def ensure_var_directories():
     """Ensure all configured directories exist using config system"""

@@ -107,6 +107,29 @@ Essential development practices for Claude Code when working with KSI.
   - Circuit breakers (scaffold in place, logic pending)
   - Profile fallbacks (may be needed for edge cases)
 
+### Debugging & Logging
+- **Enable DEBUG logging** - Set `KSI_LOG_LEVEL=DEBUG` environment variable before daemon commands
+  ```bash
+  KSI_LOG_LEVEL=DEBUG ./daemon_control.py restart  # Restart with debug logging
+  KSI_LOG_LEVEL=DEBUG ./daemon_control.py start    # Start with debug logging
+  ```
+- **Log levels** - Default is INFO; DEBUG shows more verbose output including:
+  - Plugin loading details
+  - Event routing traces  
+  - Module import attempts
+  - Configuration details
+- **Plugin logging** - Plugins use structured logging with logger names: `ksi.plugin.{plugin_name}`
+- **Log locations**:
+  - Main daemon log: `var/logs/daemon/daemon.log`
+  - Response logs: `var/logs/responses/{session_id}.jsonl`
+  - Tool usage: `var/logs/daemon/tool_usage.jsonl`
+- **Known issues with plugin logging**:
+  - Plugin loggers may not respect KSI_LOG_LEVEL due to auto-configuration in ksi_common
+  - The get_logger() function in ksi_common auto-configures with default settings
+  - This can override the daemon's logging configuration
+  - **Workaround**: Use print statements or logger.info() for critical plugin debugging
+  - **Fix needed**: Update ksi_common.logging.get_logger() to respect existing configuration
+
 ## Project Organization
 
 ### Directory Structure
