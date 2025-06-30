@@ -1,74 +1,50 @@
 #!/usr/bin/env python3
 """
-State Service Plugin
+State Events Plugin
 
-Provides persistent state management using SQLite backend.
-Wraps the SessionAndSharedStateManager for plugin architecture.
+Thin event handler wrapper that exposes state infrastructure through events.
+All actual state functionality is provided by daemon infrastructure.
 """
 
 import json
 from typing import Dict, Any, Optional
-import logging
 import pluggy
 
 from ksi_daemon.plugin_utils import plugin_metadata
-from ksi_common import TimestampManager
-from ksi_daemon.plugins.state.session_and_shared_state_manager import SessionAndSharedStateManager
 from ksi_common.logging import get_logger
 
 # Plugin metadata
-plugin_metadata("state_service", version="3.0.0", 
-                description="SQLite-backed persistent state management")
+plugin_metadata("state_events", version="4.0.0", 
+                description="Event handlers for state management")
 
 # Hook implementation marker
 hookimpl = pluggy.HookimplMarker("ksi")
 
 # Module state
-logger = get_logger("state_service")
-state_manager: Optional[SessionAndSharedStateManager] = None
+logger = get_logger("state_events")
+state_manager = None
+async_state = None
 
 # Plugin info
 PLUGIN_INFO = {
-    "name": "state_service",
-    "version": "3.0.0",
-    "description": "SQLite-backed persistent state management"
+    "name": "state_events",
+    "version": "4.0.0",
+    "description": "Event handlers for state management"
 }
 
-# Reload configuration
-_reloadable = True
-_reload_strategy = "stateful"
-_state_hooks = ["serialize_state", "deserialize_state"]
 
-
-# Hook implementations
-@hookimpl(tryfirst=True)  # Initialize early - other plugins depend on state service
-def ksi_startup(config):
-    """Initialize state service on startup."""
-    global state_manager
+@hookimpl
+def ksi_plugin_context(context):
+    """Receive infrastructure from daemon context."""
+    global state_manager, async_state
     
-    try:
-        state_manager = SessionAndSharedStateManager()
-        # BaseManager automatically calls _initialize() during construction
-        
-        # Get current state counts
-        shared_count = len(state_manager.list_shared_state())
-        session_count = len(state_manager.sessions)
-        
-        logger.info(f"State service started - shared keys: {shared_count}, "
-                    f"sessions: {session_count}")
-        
-        return {
-            "status": "state_service_ready",
-            "shared_keys": shared_count,
-            "sessions": session_count,
-            "database": str(state_manager.db_path)
-        }
-    except Exception as e:
-        logger.error(f"Failed to initialize state service: {e}", exc_info=True)
-        return {
-            "status": "state_service_error", 
-            "error": str(e)
-        }
+    state_manager = context.get("state_manager")
+    async_state = context.get("async_state")
+    
+    if state_manager:
+        logger.info("State events plugin connected to state infrastructure")
+    else:
+        logger.error("State manager not available in context")
 
 
 @hookimpl
@@ -76,7 +52,7 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
     """Handle state-related events."""
     
     if not state_manager:
-        return {"error": "State service not initialized"}
+        return {"error": "State infrastructure not available"}
     
     # Get operation
     if event_name == "state:get":
@@ -104,6 +80,25 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
     
     elif event_name == "state:session:get":
         return handle_session_get(data)
+    
+    # Async state operations
+    elif event_name == "async_state:push":
+        return handle_async_push(data)
+    
+    elif event_name == "async_state:pop":
+        return handle_async_pop(data)
+    
+    elif event_name == "async_state:get_queue":
+        return handle_async_get_queue(data)
+    
+    elif event_name == "async_state:get_keys":
+        return handle_async_get_keys(data)
+    
+    elif event_name == "async_state:queue_length":
+        return handle_async_queue_length(data)
+    
+    elif event_name == "async_state:delete":
+        return handle_async_delete(data)
     
     return None
 
@@ -304,61 +299,153 @@ def handle_session_get(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
-@hookimpl
-def ksi_shutdown():
-    """Clean up on shutdown."""
-    if state_manager:
-        try:
-            # State manager automatically commits on operations
-            logger.info("State service stopped")
-        except Exception as e:
-            logger.error(f"Error during state service shutdown: {e}")
+# Async state handler functions
+async def handle_async_push(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle async state push operation."""
+    if not async_state:
+        return {"error": "Async state infrastructure not available"}
+        
+    namespace = data.get("namespace", "")
+    key = data.get("key", "")
+    value = data.get("data")
+    ttl_seconds = data.get("ttl_seconds")
     
-    return {
-        "status": "state_service_stopped"
-    }
+    if not namespace or not key:
+        return {"error": "namespace and key are required"}
+    
+    try:
+        position = await async_state.push(namespace, key, value, ttl_seconds)
+        return {
+            "status": "pushed",
+            "position": position,
+            "namespace": namespace,
+            "key": key
+        }
+    except Exception as e:
+        logger.error(f"Error pushing to async state: {e}")
+        return {"error": str(e)}
 
 
-@hookimpl
-def ksi_serialize_state():
-    """Serialize state for reload."""
-    if not state_manager:
-        return None
+async def handle_async_pop(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle async state pop operation."""
+    if not async_state:
+        return {"error": "Async state infrastructure not available"}
+        
+    namespace = data.get("namespace", "")
+    key = data.get("key", "")
     
-    logger.info("Serializing state service state")
+    if not namespace or not key:
+        return {"error": "namespace and key are required"}
     
-    # Get current state
-    return {
-        "sessions": state_manager.sessions.copy(),
-        "db_path": str(state_manager.db_path),
-        "identities": getattr(state_manager, 'identities', {})
-    }
+    try:
+        value = await async_state.pop(namespace, key)
+        return {
+            "status": "popped",
+            "data": value,
+            "found": value is not None,
+            "namespace": namespace,
+            "key": key
+        }
+    except Exception as e:
+        logger.error(f"Error popping from async state: {e}")
+        return {"error": str(e)}
 
 
-@hookimpl
-def ksi_deserialize_state(state):
-    """Restore state after reload."""
-    if not state_manager or not state:
-        return
+async def handle_async_get_queue(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle async state get queue operation."""
+    if not async_state:
+        return {"error": "Async state infrastructure not available"}
+        
+    namespace = data.get("namespace", "")
+    key = data.get("key", "")
+    limit = data.get("limit")
     
-    logger.info("Restoring state service state")
+    if not namespace or not key:
+        return {"error": "namespace and key are required"}
     
-    # Restore sessions
-    if "sessions" in state:
-        state_manager.sessions = state["sessions"]
-        logger.info(f"Restored {len(state_manager.sessions)} sessions")
-    
-    # DB path should already match from init
-    # Identities if any
-    if "identities" in state:
-        setattr(state_manager, 'identities', state["identities"])
+    try:
+        items = await async_state.get_queue(namespace, key, limit)
+        return {
+            "status": "success",
+            "data": items,
+            "count": len(items),
+            "namespace": namespace,
+            "key": key
+        }
+    except Exception as e:
+        logger.error(f"Error getting queue from async state: {e}")
+        return {"error": str(e)}
 
 
-@hookimpl
-def ksi_validate_reload():
-    """Validate if state service can be reloaded."""
-    # State service can always be reloaded since SQLite handles persistence
-    return {"valid": True}
+async def handle_async_get_keys(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle async state get keys operation."""
+    if not async_state:
+        return {"error": "Async state infrastructure not available"}
+        
+    namespace = data.get("namespace", "")
+    
+    if not namespace:
+        return {"error": "namespace is required"}
+    
+    try:
+        keys = await async_state.get_keys(namespace)
+        return {
+            "status": "success",
+            "keys": keys,
+            "count": len(keys),
+            "namespace": namespace
+        }
+    except Exception as e:
+        logger.error(f"Error getting keys from async state: {e}")
+        return {"error": str(e)}
+
+
+async def handle_async_queue_length(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle async state queue length operation."""
+    if not async_state:
+        return {"error": "Async state infrastructure not available"}
+        
+    namespace = data.get("namespace", "")
+    key = data.get("key", "")
+    
+    if not namespace or not key:
+        return {"error": "namespace and key are required"}
+    
+    try:
+        length = await async_state.queue_length(namespace, key)
+        return {
+            "status": "success",
+            "length": length,
+            "namespace": namespace,
+            "key": key
+        }
+    except Exception as e:
+        logger.error(f"Error getting queue length from async state: {e}")
+        return {"error": str(e)}
+
+
+async def handle_async_delete(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle async state delete operation."""
+    if not async_state:
+        return {"error": "Async state infrastructure not available"}
+        
+    namespace = data.get("namespace", "")
+    key = data.get("key", "")
+    
+    if not namespace or not key:
+        return {"error": "namespace and key are required"}
+    
+    try:
+        deleted = await async_state.delete_queue(namespace, key)
+        return {
+            "status": "deleted",
+            "deleted": deleted,
+            "namespace": namespace,
+            "key": key
+        }
+    except Exception as e:
+        logger.error(f"Error deleting from async state: {e}")
+        return {"error": str(e)}
 
 
 # Module-level marker for plugin discovery

@@ -17,7 +17,7 @@ class DaemonProtocolTester:
         # Import daemon config to use the same socket path
         import sys
         sys.path.insert(0, str(Path(__file__).parent.parent))
-        from ksi_daemon.config import config
+        from ksi_common.config import config
         self.socket_path = str(config.socket_path)
         self.results = []
         

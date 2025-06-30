@@ -15,8 +15,15 @@ import pluggy
 
 from ksi_common.logging import get_logger
 from ksi_daemon.plugin_utils import plugin_metadata
-from ksi_daemon.config import config
+from ksi_common.config import config
 from ksi_common import TimestampManager
+from ksi_daemon.plugins.injection.injection_types import (
+    InjectionRequest,
+    InjectionMode,
+    InjectionPosition,
+    InjectionResult,
+    InjectionError
+)
 
 # Plugin metadata
 plugin_metadata("injection_router", version="1.0.0",
@@ -107,7 +114,7 @@ circuit_breaker = InjectionCircuitBreaker()
 
 @hookimpl
 def ksi_startup(config):
-    """Initialize injection router on startup."""
+    """Initialize injection router."""
     logger.info("Injection router started")
     return {"status": "injection_router_ready"}
 
@@ -182,13 +189,33 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
         return {
             "queued_count": injection_queue.qsize(),
             "metadata_count": len(injection_metadata_store),
-            "blocked_count": len(circuit_breaker.blocked_requests)
+            "blocked_count": len(circuit_breaker.blocked_requests),
+            "state_manager_available": state_manager is not None,
+            "event_emitter_available": event_emitter is not None
         }
     
     # New unified injection events
     elif event_name == "injection:inject":
-        # Unified injection API
-        return inject_content(**data)
+        # Unified injection handler - convert to typed interface
+        try:
+            # Parse mode and position enums
+            mode = InjectionMode(data.get("mode", "next"))
+            position = InjectionPosition(data.get("position", "before_prompt"))
+            
+            # Create typed request
+            request = InjectionRequest(
+                content=data.get("content", ""),
+                mode=mode,
+                position=position,
+                session_id=data.get("session_id"),
+                priority=data.get("priority", "normal"),
+                metadata=data.get("metadata", {})
+            )
+            
+            # Process using typed interface
+            return process_injection(request)
+        except ValueError as e:
+            return {"status": "error", "error": str(e)}
     
     elif event_name == "injection:batch":
         # Batch injection support
@@ -560,21 +587,52 @@ async def inject_batch(injections: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-async def list_pending_injections(session_id: str) -> Dict[str, Any]:
+async def list_pending_injections(session_id: Optional[str] = None) -> Dict[str, Any]:
     """
-    List all pending next-mode injections for a session.
+    List pending next-mode injections.
     
     Args:
-        session_id: Session to query
+        session_id: Session to query (if None, list all sessions)
         
     Returns:
-        List of pending injections
+        List of pending injections or all sessions with injections
     """
-    if not session_id:
-        return {"status": "error", "error": "session_id required"}
-    
     if not event_emitter:
         return {"status": "error", "error": "State service not available"}
+    
+    # If no session_id, list all sessions with injections
+    if not session_id:
+        # Get all keys in injection namespace
+        result = await event_emitter("async_state:get_keys", {
+            "namespace": "injection"
+        })
+        
+        if result and not result.get("error"):
+            keys = result.get("keys", [])
+            queues = {}
+            
+            # Get queue length for each session
+            for key in keys:
+                queue_result = await event_emitter("async_state:queue_length", {
+                    "namespace": "injection",
+                    "key": key
+                })
+                if queue_result and not queue_result.get("error"):
+                    length = queue_result.get("length", 0)
+                    if length > 0:
+                        queues[key] = length
+            
+            return {
+                "status": "success",
+                "total_sessions": len(queues),
+                "injection_queues": queues
+            }
+        
+        return {
+            "status": "success",
+            "total_sessions": 0,
+            "injection_queues": {}
+        }
     
     # Get all injections from async state
     result = await event_emitter("async_state:get_queue", {
@@ -848,7 +906,7 @@ Please consider whether this result warrants any follow-up actions or communicat
     return triggers.get(trigger_type, triggers['general'])
 
 
-# Public API for other plugins
+# Public interface for other plugins
 def queue_completion_with_injection(request: Dict[str, Any]) -> str:
     """Queue a completion request with injection metadata."""
     
@@ -869,6 +927,117 @@ def queue_completion_with_injection(request: Dict[str, Any]) -> str:
     store_injection_metadata(request_id, metadata)
     
     return request_id
+
+
+# Process injection using typed interface
+async def process_injection(request: InjectionRequest) -> InjectionResult:
+    """Process an injection request using typed interface."""
+    global state_manager, event_emitter
+    
+    # Validate request
+    if request.mode == InjectionMode.NEXT and not request.session_id:
+        return InjectionResult(
+            success=False,
+            mode=request.mode,
+            error="session_id required for next mode injection",
+            error_type=InjectionError.NO_SESSION
+        )
+    
+    # Handle based on mode
+    if request.mode == InjectionMode.DIRECT:
+        # Direct mode - emit immediately
+        if not event_emitter:
+            return InjectionResult(
+                success=False,
+                mode=request.mode,
+                error="Event emitter not available",
+                error_type=InjectionError.STATE_ERROR
+            )
+        
+        # Create injection data based on position
+        injection_data = {
+            "content": request.content,
+            "position": request.position.value,
+            "metadata": request.metadata
+        }
+        
+        # Emit completion result
+        result = await event_emitter("claude:completion:result", {
+            "session_id": request.session_id,
+            "injection": injection_data,
+            "timestamp": TimestampManager.format_for_logging()
+        }, {})
+        
+        return InjectionResult(
+            success=True,
+            mode=request.mode,
+            position=request.position,
+            session_id=request.session_id,
+            request_id=result.get("request_id") if isinstance(result, dict) else None
+        )
+    
+    else:  # NEXT mode
+        # Queue for next completion
+        if not state_manager:
+            return InjectionResult(
+                success=False,
+                mode=request.mode,
+                error="State manager not available",
+                error_type=InjectionError.STATE_ERROR
+            )
+        
+        # Push to injection queue
+        queue_data = {
+            "content": request.content,
+            "position": request.position.value,
+            "priority": request.priority,
+            "metadata": request.metadata,
+            "timestamp": TimestampManager.format_for_logging()
+        }
+        
+        try:
+            # Use event system for async state operations
+            if event_emitter:
+                result = await event_emitter("async_state:push", {
+                    "namespace": "injection",
+                    "key": request.session_id,
+                    "data": queue_data,
+                    "ttl_seconds": 3600  # 1 hour TTL
+                })
+                
+                if result and not result.get("error"):
+                    return InjectionResult(
+                        success=True,
+                        mode=request.mode,
+                        position=request.position,
+                        session_id=request.session_id,
+                        queued=True,
+                        queue_position=result.get("position", 0)
+                    )
+                else:
+                    error_msg = result.get("error", "Unknown error") if result else "No event emitter"
+                    logger.error(f"Failed to push injection: {error_msg}")
+                    return InjectionResult(
+                        success=False,
+                        mode=request.mode,
+                        error=error_msg,
+                        error_type=InjectionError.STATE_ERROR
+                    )
+            else:
+                return InjectionResult(
+                    success=False,
+                    mode=request.mode,
+                    error="Event emitter not available",
+                    error_type=InjectionError.STATE_ERROR
+                )
+        except Exception as e:
+            logger.error(f"Failed to queue injection: {e}")
+            return InjectionResult(
+                success=False,
+                mode=request.mode,
+                error=str(e),
+                error_type=InjectionError.STATE_ERROR
+            )
 
 
 @hookimpl

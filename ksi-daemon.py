@@ -19,7 +19,7 @@ import daemon.pidfile
 
 # Import our local daemon modules (path will be set in forked process)
 from ksi_daemon import main as daemon_main
-from ksi_daemon.config import config
+from ksi_common.config import config
 from ksi_common import configure_structlog
 
 # Global shutdown coordination
@@ -160,7 +160,7 @@ def run_in_foreground():
     )
     
     # Also configure structlog for development
-    config.configure_structlog()
+    configure_structlog()
     
     logger = logging.getLogger('ksi_daemon')
     logger.info("Starting KSI daemon in foreground mode (development)")

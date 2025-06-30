@@ -647,7 +647,7 @@ class CompletionCircuitBreaker:
 circuit_breaker = CompletionCircuitBreaker()
 
 
-# Public API
+# Public interface
 def check_completion_allowed(request: Dict[str, Any]) -> bool:
     """Check if a completion request should be allowed."""
     return circuit_breaker.check_allowed(request)

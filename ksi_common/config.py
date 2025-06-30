@@ -22,7 +22,7 @@ Example:
 
 from pydantic_settings import BaseSettings
 from pathlib import Path
-from typing import Optional, Literal
+from typing import Optional, Literal, List
 import logging
 
 from .paths import KSIPaths
@@ -50,11 +50,42 @@ class KSIBaseConfig(BaseSettings):
     # State and data
     state_dir: Path = Path("var/state")
     
+    # Database paths (shared infrastructure) - single database for all components
+    db_dir: Path = Path("var/db")
+    db_path: Path = Path("var/db/ksi_state.db")  # Single shared database
+    async_state_db_path: Path = Path("var/db/ksi_state.db")  # Use same shared database
+    identity_storage_path: Path = Path("var/db/identities.json")
+    
+    # Library and composition paths (shared infrastructure)
+    lib_dir: Path = Path("var/lib")
+    compositions_dir: Path = Path("var/lib/compositions")
+    fragments_dir: Path = Path("var/lib/fragments")
+    schemas_dir: Path = Path("var/lib/schemas")
+    
     # Network settings
     socket_timeout: float = 5.0
     
     # Debug mode
     debug: bool = False
+    
+    # Daemon-specific settings
+    daemon_pid_file: Path = Path("var/run/ksi_daemon.pid")
+    daemon_log_dir: Path = Path("var/logs/daemon")
+    daemon_tmp_dir: Path = Path("var/tmp")
+    
+    # Completion timeouts (in seconds)
+    completion_timeout_default: int = 300  # 5 minutes default
+    completion_timeout_min: int = 60       # 1 minute minimum
+    completion_timeout_max: int = 1800     # 30 minutes maximum
+    
+    # Claude CLI progressive timeouts (in seconds)
+    claude_timeout_attempts: List[int] = [300, 900, 1800]  # 5min, 15min, 30min
+    claude_progress_timeout: int = 300     # 5 minutes without progress
+    claude_max_workers: int = 2            # Max concurrent Claude processes
+    claude_retry_backoff: int = 30         # Seconds between retry attempts
+    
+    # Test timeouts (in seconds)
+    test_completion_timeout: int = 120     # 2 minutes for tests
     
     # Model configuration - same as ksi_daemon
     model_config = {
@@ -73,6 +104,13 @@ class KSIBaseConfig(BaseSettings):
             self.session_log_dir,    # var/logs/responses
             self.response_log_dir,   # var/logs/responses
             self.state_dir,          # var/state
+            self.db_dir,             # var/db
+            self.lib_dir,            # var/lib
+            self.compositions_dir,   # var/lib/compositions
+            self.fragments_dir,      # var/lib/fragments
+            self.schemas_dir,        # var/lib/schemas
+            self.daemon_log_dir,     # var/logs/daemon
+            self.daemon_tmp_dir,     # var/tmp
             self.experiments_cognitive_dir,  # var/experiments/cognitive
             self.experiments_results_dir,    # var/experiments/results
             self.experiments_workspaces_dir, # var/experiments/workspaces

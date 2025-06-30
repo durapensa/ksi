@@ -15,16 +15,23 @@ hookimpl = pluggy.HookimplMarker("ksi")
 logger = logging.getLogger(__name__)
 
 # Module state
-shutdown_event = None
+daemon_shutdown_event = None
 
 
 @hookimpl
 def ksi_startup(config):
     """Initialize shutdown plugin."""
-    global shutdown_event
-    shutdown_event = asyncio.Event()
     logger.info("Simple shutdown plugin started")
     return {"plugin.simple_shutdown": {"loaded": True}}
+
+
+@hookimpl 
+def ksi_plugin_context(context):
+    """Receive daemon shutdown event from context."""
+    global daemon_shutdown_event
+    daemon_shutdown_event = context.get("shutdown_event")
+    if daemon_shutdown_event:
+        logger.info("Shutdown plugin connected to daemon shutdown event")
 
 
 @hookimpl
@@ -33,12 +40,15 @@ def ksi_handle_event(event_name, data, context):
     if event_name == "system:shutdown":
         logger.info("Shutdown requested")
         
-        # Signal daemon to shutdown
-        if shutdown_event:
-            shutdown_event.set()
+        # Signal daemon to shutdown using the daemon's event
+        if daemon_shutdown_event:
+            daemon_shutdown_event.set()
+            logger.info("Daemon shutdown event set")
+        else:
+            logger.error("No daemon shutdown event available")
         
         return {
-            "status": "shutdown_initiated",
+            "status": "shutdown_initiated", 
             "message": "Daemon shutdown requested"
         }
     

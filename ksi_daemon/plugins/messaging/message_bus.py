@@ -14,7 +14,7 @@ import pluggy
 
 from ksi_daemon.plugin_utils import plugin_metadata
 from ksi_common import TimestampManager, log_event, agent_context
-from ksi_daemon.config import config
+from ksi_common.config import config
 from ksi_daemon.event_taxonomy import MESSAGE_BUS_EVENTS, format_agent_event
 from ksi_common.logging import get_logger
 

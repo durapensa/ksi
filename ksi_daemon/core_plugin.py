@@ -15,9 +15,13 @@ import pluggy
 import structlog
 import anyio
 
-from .config import config
+from ksi_common.config import config
 from .plugin_loader_simple import SimplePluginLoader
 from .event_router import SimpleEventRouter
+
+# Import infrastructure modules
+from .infrastructure.state import session_state, async_state
+from .infrastructure.composition import index as composition_index
 
 logger = structlog.get_logger(__name__)
 
@@ -48,10 +52,28 @@ class SimpleDaemonCore:
         
         # Shutdown event for graceful termination
         self.shutdown_event = asyncio.Event()
+        
+        # Infrastructure instances
+        self.state_manager = None
+        self.composition_index = None
     
     async def initialize(self) -> None:
         """Initialize the daemon."""
         logger.info("Initializing plugin daemon")
+        
+        # Initialize infrastructure before plugins
+        logger.info("Initializing infrastructure...")
+        
+        # Initialize state infrastructure
+        self.state_manager = session_state.SessionAndSharedStateManager()
+        
+        # Initialize async state
+        async_state.initialize()  # Uses config.async_state_db_path
+        
+        # Initialize composition index
+        composition_index.initialize()  # Uses config.db_path
+        
+        logger.info("Infrastructure initialized")
         
         # Load plugins
         plugins = self.plugin_loader.load_all_plugins()
@@ -62,7 +84,7 @@ class SimpleDaemonCore:
         
         # Call startup hooks
         startup_results = self.plugin_loader.pm.hook.ksi_startup(
-            config={}  # Use empty dict for now since config is not a model
+            config=self.config  # Pass the actual config object
         )
         
         for result in startup_results:
@@ -73,7 +95,12 @@ class SimpleDaemonCore:
         plugin_context = {
             "event_router": self.event_router,
             "emit_event": self.event_router.route_event,  # Allow plugins to emit events
-            "plugin_loader": self.plugin_loader  # For plugin management
+            "plugin_loader": self.plugin_loader,  # For plugin management
+            "shutdown_event": self.shutdown_event,  # Allow plugins to trigger shutdown
+            # Infrastructure services
+            "state_manager": self.state_manager,
+            "async_state": async_state,  # Module with functional interface
+            "composition_index": composition_index  # Module with functional interface
         }
         
         try:
@@ -157,10 +184,18 @@ class SimpleDaemonCore:
                         wrapper = make_coroutine_wrapper(coroutine)
                         tg.start_soon(wrapper)
                     
+                    # Add shutdown monitor as another service task
+                    async def shutdown_monitor():
+                        await self.shutdown_event.wait()
+                        logger.info("Shutdown event received, cancelling services")
+                        tg.cancel_scope.cancel()
+                    
+                    tg.start_soon(shutdown_monitor)
+                    
                     logger.info("Daemon services running")
-                    # Keep the task group running until shutdown
-                    await self.shutdown_event.wait()
+                    # Task group runs until services complete or shutdown cancels them
             else:
+                logger.warning("No async services to run, waiting for shutdown")
                 await self.shutdown_event.wait()
             
         except Exception as e:

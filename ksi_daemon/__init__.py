@@ -37,7 +37,7 @@ configure_structlog(
 print(f"[ksi_daemon.__init__] Configured logging with level: {log_level}")
 
 # NOW we can import our modules - logging is configured
-from ksi_daemon.config import config
+from ksi_common.config import config
 from ksi_daemon.core_plugin import SimpleDaemonCore as PluginDaemon
 
 # Get logger

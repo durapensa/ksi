@@ -8,6 +8,10 @@ import os
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Initialize logging before importing ksi_client
+from ksi_common.logging import configure_structlog
+configure_structlog(log_level="INFO")
+
 from ksi_client import AsyncClient
 
 

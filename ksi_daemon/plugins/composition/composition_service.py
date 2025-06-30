@@ -18,8 +18,8 @@ import pluggy
 
 from ksi_daemon.plugin_utils import plugin_metadata
 from ksi_common import TimestampManager
-from ksi_daemon.config import config
 from ksi_common.logging import get_logger
+from ksi_common.config import config
 
 # Plugin metadata
 plugin_metadata("composition_service", version="1.0.0",
@@ -30,13 +30,13 @@ hookimpl = pluggy.HookimplMarker("ksi")
 
 # Module state
 logger = get_logger("composition_service")
-state_manager = None  # Will be set during startup
+composition_index = None  # Will be set from context
+state_manager = None  # For shared state operations only
 
-# Base path for compositions (still used for file operations)
-VAR_DIR = Path("var")  # Relative to project root
-COMPOSITIONS_BASE = VAR_DIR / "lib/compositions"
-FRAGMENTS_BASE = VAR_DIR / "lib/fragments"
-SCHEMAS_BASE = VAR_DIR / "lib/schemas"
+# Define path constants from config
+FRAGMENTS_BASE = config.fragments_dir
+COMPOSITIONS_BASE = config.compositions_dir
+SCHEMAS_BASE = config.schemas_dir
 
 
 @dataclass
@@ -158,14 +158,14 @@ def evaluate_conditions(conditions: Dict[str, List[str]], variables: Dict[str, A
 
 async def load_composition(name: str, comp_type: Optional[str] = None) -> Composition:
     """Load a composition by name using index."""
-    if not state_manager:
+    if not composition_index:
         raise RuntimeError("Composition index not available")
         
     # Determine full name
     full_name = f"local:{name}" if ':' not in name else name
     
     # Get file path from index
-    file_path = state_manager.get_composition_path(full_name)
+    file_path = composition_index.get_path(full_name)
     if not file_path or not file_path.exists():
         raise FileNotFoundError(f"Composition not found: {name}")
     
@@ -466,11 +466,11 @@ async def handle_validate(data: Dict[str, Any]) -> Dict[str, Any]:
 
 async def handle_discover(data: Dict[str, Any]) -> Dict[str, Any]:
     """Discover available compositions using index."""
-    if not state_manager:
+    if not composition_index:
         return {'error': 'Composition index not available'}
     
     # Use index for fast discovery
-    discovered = state_manager.discover_compositions(data)
+    discovered = composition_index.discover(data)
     
     return {
         'status': 'success',
@@ -545,11 +545,11 @@ async def handle_get(data: Dict[str, Any]) -> Dict[str, Any]:
 
 async def handle_reload(data: Dict[str, Any]) -> Dict[str, Any]:
     """Reload compositions by rebuilding index."""
-    if not state_manager:
+    if not composition_index:
         return {'error': 'Composition index not available'}
     
     # Rebuild index from filesystem
-    indexed_count = state_manager.rebuild_composition_index()
+    indexed_count = composition_index.rebuild_index()
     
     logger.info(f"Rebuilt composition index - {indexed_count} compositions")
     
@@ -562,7 +562,7 @@ async def handle_reload(data: Dict[str, Any]) -> Dict[str, Any]:
 
 async def handle_load_tree(data: Dict[str, Any]) -> Dict[str, Any]:
     """Universal tree loading based on composition's declared strategy."""
-    if not state_manager:
+    if not composition_index:
         return {'error': 'Composition index not available'}
     
     name = data.get('name')
@@ -573,7 +573,7 @@ async def handle_load_tree(data: Dict[str, Any]) -> Dict[str, Any]:
     
     try:
         # Get composition metadata to check loading strategy
-        metadata = state_manager.get_composition_metadata(f"local:{name}")
+        metadata = composition_index.get_metadata(f"local:{name}")
         if not metadata:
             return {'error': f'Composition not found: {name}'}
         
@@ -625,7 +625,7 @@ async def handle_load_tree(data: Dict[str, Any]) -> Dict[str, Any]:
 
 async def handle_load_bulk(data: Dict[str, Any]) -> Dict[str, Any]:
     """Universal bulk loading for agent efficiency."""
-    if not state_manager:
+    if not composition_index:
         return {'error': 'Composition index not available'}
     
     names = data.get('names', [])
@@ -779,32 +779,24 @@ async def handle_create_composition(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # Plugin lifecycle
-@hookimpl(trylast=True)  # Run after state service initializes
+@hookimpl
+def ksi_plugin_context(context):
+    """Receive infrastructure from daemon context."""
+    global composition_index, state_manager
+    
+    composition_index = context.get("composition_index")
+    state_manager = context.get("state_manager")
+    
+    if composition_index:
+        logger.info("Composition service connected to composition index")
+    else:
+        logger.error("Composition index not available in context")
+
+
+@hookimpl
 def ksi_startup(config):
     """Initialize composition service on startup."""
-    global state_manager
-    
     logger.info("Composition service starting up...")
-    
-    # Get state manager reference from state service
-    try:
-        # Import the state service to get its manager instance
-        from ksi_daemon.plugins.state import state_service
-        state_manager = state_service.state_manager
-        
-        if state_manager:
-            logger.info("State manager available, rebuilding composition index...")
-            # Rebuild composition index on startup
-            indexed_count = state_manager.rebuild_composition_index()
-            logger.info(f"Composition service started - indexed {indexed_count} compositions")
-        else:
-            logger.error("State manager not available from state service")
-        
-    except Exception as e:
-        logger.error(f"Failed to initialize composition index: {e}")
-        import traceback
-        traceback.print_exc()
-        state_manager = None
     
     # Ensure directories exist
     COMPOSITIONS_BASE.mkdir(parents=True, exist_ok=True)

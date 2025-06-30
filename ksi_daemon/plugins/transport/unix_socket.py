@@ -14,7 +14,7 @@ from typing import Dict, Any, Optional, Callable
 import pluggy
 
 from ksi_daemon.plugin_utils import plugin_metadata
-from ksi_daemon.config import config
+from ksi_common.config import config
 from ksi_common.logging import get_logger
 
 # Plugin metadata
@@ -199,8 +199,7 @@ def ksi_startup(config):
     global transport_instance
     
     # Create transport instance - use imported config
-    from ksi_daemon.config import config as daemon_config
-    socket_path = str(daemon_config.socket_path)
+    socket_path = str(config.socket_path)
     transport_instance = UnixSocketTransport(socket_path)
     
     logger.info("Unix socket transport plugin starting")
@@ -258,11 +257,8 @@ def ksi_create_transport(transport_type: str, config: Dict[str, Any]):
     
     logger.info(f"Creating unix socket transport with config: {config}")
     
-    # Import daemon config to get default paths
-    from ksi_daemon.config import config as daemon_config
-    
-    # Get socket path from config or use default
-    socket_dir = config.get("socket_dir", str(daemon_config.socket_path.parent))
+    # Get socket path from transport config (always provided)
+    socket_dir = config["socket_dir"]
     socket_path = os.path.join(socket_dir, "daemon.sock")
     
     return UnixSocketTransport(socket_path)

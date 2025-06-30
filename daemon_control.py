@@ -124,6 +124,11 @@ class DaemonController:
             logger.info("Cleaning up stale PID file")
             self.pid_file.unlink()
         
+        # Clean up stale socket file
+        if self.socket_path.exists():
+            logger.info("Cleaning up stale socket file")
+            self.socket_path.unlink()
+        
         print("Starting KSI daemon...")
         
         # Prepare environment with config values

@@ -18,7 +18,7 @@ import pluggy
 
 from ksi_daemon.plugin_utils import plugin_metadata
 from ksi_common import TimestampManager
-from ksi_daemon.config import config
+from ksi_common.config import config
 from ksi_daemon.file_operations import FileOperations
 from ksi_common.logging import get_logger
 

@@ -19,7 +19,7 @@ import logging
 
 # Add parent directory to path to import config
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from ksi_daemon.config import config
+from ksi_common.config import config
 
 # Set up logging only if not already configured
 def _setup_logging():
