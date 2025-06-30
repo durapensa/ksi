@@ -22,7 +22,7 @@ if str(_project_root) not in sys.path:
 # Core utilities
 from .timestamps import TimestampManager
 from .paths import KSIPaths
-from .config import KSIBaseConfig, get_config, reload_config, config
+from .config import KSIBaseConfig, config
 from .constants import (
     DEFAULT_SOCKET_PATH,
     DEFAULT_SOCKET_TIMEOUT,
@@ -64,10 +64,8 @@ __all__ = [
     "KSIPaths",
     "KSIBaseConfig",
     
-    # Config functions
+    # Config instance
     "config",
-    "get_config",
-    "reload_config",
     
     # Constants
     "DEFAULT_SOCKET_PATH",

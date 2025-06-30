@@ -146,13 +146,5 @@ class KSIBaseConfig(BaseSettings):
 # This will be imported throughout KSI components
 config = KSIBaseConfig()
 
-# Convenience functions for common operations
-def get_config() -> KSIBaseConfig:
-    """Get the global configuration instance."""
-    return config
-
-def reload_config() -> KSIBaseConfig:
-    """Reload configuration from environment and files."""
-    global config
-    config = KSIBaseConfig()
-    return config
+# These functions have been removed per CLAUDE.md: "Never use get_config()"
+# Use the global 'config' instance directly

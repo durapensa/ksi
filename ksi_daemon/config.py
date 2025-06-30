@@ -75,6 +75,5 @@ class KSIDaemonConfig(KSIBaseConfig):
 # Global daemon configuration instance
 config = KSIDaemonConfig()
 
-# Re-export for compatibility
-get_config = lambda: config
-reload_config = lambda: globals().update({'config': KSIDaemonConfig()}) or config
+# These functions have been removed per CLAUDE.md: "Never use get_config()"
+# Use the global 'config' instance directly
