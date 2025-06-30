@@ -16,7 +16,15 @@ from typing import Dict, Any, Optional, List, TYPE_CHECKING
 import pluggy
 
 if TYPE_CHECKING:
-    from .plugin_types import EventContext, TransportConnection
+    # Type stubs for documentation purposes only
+    # In practice, context is a dict and transports implement their own interfaces
+    class EventContext:
+        """Context passed to event handlers (type stub for documentation)."""
+        pass
+    
+    class TransportConnection:
+        """Transport connection interface (type stub for documentation)."""
+        pass
 
 # Create hook specification marker
 hookspec = pluggy.HookspecMarker("ksi")

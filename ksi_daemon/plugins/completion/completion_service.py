@@ -26,7 +26,6 @@ from ksi_common.logging import get_logger
 from ksi_daemon.plugin_utils import plugin_metadata
 from ksi_common import TimestampManager, create_completion_response, parse_completion_response
 from ksi_common.config import config
-from ksi_daemon.event_taxonomy import CLAUDE_EVENTS, format_claude_event
 
 # Import injection systems
 from ksi_daemon.plugins.injection.injection_router import queue_completion_with_injection

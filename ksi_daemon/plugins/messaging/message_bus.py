@@ -15,7 +15,6 @@ import pluggy
 from ksi_daemon.plugin_utils import plugin_metadata
 from ksi_common import TimestampManager, log_event, agent_context
 from ksi_common.config import config
-from ksi_daemon.event_taxonomy import MESSAGE_BUS_EVENTS, format_agent_event
 from ksi_common.logging import get_logger
 
 # Plugin metadata
@@ -55,9 +54,10 @@ class MessageBus:
         self.connections[agent_id] = writer
         
         log_event(logger, "message_bus.agent_connected",
-                 **format_agent_event("message_bus.agent_connected", agent_id,
-                                     total_connections=len(self.connections),
-                                     has_queued_messages=agent_id in self.offline_queue))
+                 event="message_bus.agent_connected",
+                 agent_id=agent_id,
+                 total_connections=len(self.connections),
+                 has_queued_messages=agent_id in self.offline_queue)
         
         # Deliver any queued messages
         if agent_id in self.offline_queue:
@@ -71,9 +71,10 @@ class MessageBus:
             del self.connections[agent_id]
             
         log_event(logger, "message_bus.agent_disconnected",
-                 **format_agent_event("message_bus.agent_disconnected", agent_id,
-                                     was_connected=was_connected,
-                                     remaining_connections=len(self.connections)))
+                 event="message_bus.agent_disconnected",
+                 agent_id=agent_id,
+                 was_connected=was_connected,
+                 remaining_connections=len(self.connections))
             
         # Remove from all subscriptions
         for event_type, subscribers in self.subscriptions.items():
@@ -87,18 +88,20 @@ class MessageBus:
         writer = self.connections.get(agent_id)
         if not writer:
             log_event(logger, "message_bus.subscription_failed",
-                     **format_agent_event("message_bus.subscription_failed", agent_id,
-                                         event_types=event_types,
-                                         reason="agent_not_connected"))
+                     event="message_bus.subscription_failed",
+                     agent_id=agent_id,
+                     event_types=event_types,
+                     reason="agent_not_connected")
             return False
         
         for event_type in event_types:
             self.subscriptions[event_type].add((agent_id, writer))
         
         log_event(logger, "message_bus.subscribed",
-                 **format_agent_event("message_bus.subscribed", agent_id,
-                                     event_types=event_types,
-                                     subscription_count=len(event_types)))
+                 event="message_bus.subscribed",
+                 agent_id=agent_id,
+                 event_types=event_types,
+                 subscription_count=len(event_types))
         
         return True
     
@@ -108,9 +111,10 @@ class MessageBus:
             self.subscriptions[event_type].discard((agent_id, self.connections.get(agent_id)))
         
         log_event(logger, "message_bus.unsubscribed",
-                 **format_agent_event("message_bus.unsubscribed", agent_id,
-                                     event_types=event_types,
-                                     unsubscription_count=len(event_types)))
+                 event="message_bus.unsubscribed",
+                 agent_id=agent_id,
+                 event_types=event_types,
+                 unsubscription_count=len(event_types))
     
     async def publish(self, from_agent: str, event_type: str, payload: dict) -> dict:
         """Publish an event to all subscribers"""
@@ -128,10 +132,11 @@ class MessageBus:
         
         # Log publication event
         log_event(logger, "message_bus.message_published",
-                 **format_agent_event("message_bus.message_published", from_agent,
-                                     event_type=event_type,
-                                     message_id=message['id'],
-                                     subscriber_count=len(self.subscriptions.get(event_type, []))))
+                 event="message_bus.message_published",
+                 agent_id=from_agent,
+                 event_type=event_type,
+                 message_id=message['id'],
+                 subscriber_count=len(self.subscriptions.get(event_type, [])))
         
         # Handle different event types
         if event_type == 'DIRECT_MESSAGE':
