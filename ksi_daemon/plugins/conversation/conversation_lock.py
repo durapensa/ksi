@@ -1,1 +1,482 @@
-#!/usr/bin/env python3\n"""\nConversation Lock Service Plugin\n\nProvides distributed conversation locking to prevent conversation forking\nwhen multiple completion requests target the same conversation_id.\n"""\n\nimport asyncio\nimport time\nfrom dataclasses import dataclass, field\nfrom enum import Enum\nfrom typing import Dict, Any, Optional, List, Set, Tuple\nimport pluggy\n\nfrom ksi_common.logging import get_logger\nfrom ksi_daemon.plugin_utils import plugin_metadata\nfrom ksi_common import TimestampManager\n\n# Plugin metadata\nplugin_metadata("conversation_lock", version="1.0.0",\n                description="Manages conversation locks to prevent forking")\n\n# Hook implementation marker\nhookimpl = pluggy.HookimplMarker("ksi")\n\nlogger = get_logger("conversation_lock")\n\n# Event emitter reference (set during startup)\nevent_emitter = None\n\n\nclass LockState(Enum):\n    """States for conversation locks."""\n    UNLOCKED = "unlocked"\n    LOCKED = "locked"\n    QUEUED = "queued"\n    FORKED = "forked"\n    EXPIRED = "expired"\n\n\n@dataclass\nclass ConversationLock:\n    """Represents a lock on a conversation."""\n    conversation_id: str\n    holder_request_id: str\n    acquired_at: float\n    state: LockState = LockState.LOCKED\n    queue: List[str] = field(default_factory=list)\n    fork_warning: bool = False\n    parent_conversation_id: Optional[str] = None\n    child_conversation_ids: List[str] = field(default_factory=list)\n    metadata: Dict[str, Any] = field(default_factory=dict)\n\n\nclass ConversationLockManager:\n    """Global conversation lock manager."""\n    \n    def __init__(self):\n        self.locks: Dict[str, ConversationLock] = {}\n        self.request_to_conversation: Dict[str, str] = {}\n        self.lock_timeout = 300  # 5 minutes default\n        self.fork_tracking: Dict[str, Set[str]] = {}  # parent -> children\n        self.cleanup_interval = 60  # Cleanup every minute\n        self.last_cleanup = time.time()\n    \n    async def acquire_lock(self, request_id: str, conversation_id: str, \n                          metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:\n        """\n        Attempt to acquire a conversation lock.\n        \n        Returns dict with:\n            - acquired: bool\n            - state: LockState value\n            - position: queue position if queued\n            - fork_warning: any fork warning message\n        """\n        \n        if not conversation_id:\n            # No conversation ID, no lock needed\n            return {\n                'acquired': True,\n                'state': LockState.UNLOCKED.value,\n                'conversation_id': None\n            }\n        \n        current_time = time.time()\n        \n        # Periodic cleanup\n        if current_time - self.last_cleanup > self.cleanup_interval:\n            await self._cleanup_expired_locks(current_time)\n            self.last_cleanup = current_time\n        \n        # Check if conversation is already locked\n        if conversation_id in self.locks:\n            lock = self.locks[conversation_id]\n            \n            # Check if lock expired\n            if current_time - lock.acquired_at > self.lock_timeout:\n                await self._expire_lock(lock, current_time)\n            \n            if lock.state == LockState.LOCKED:\n                # Add to queue\n                lock.queue.append(request_id)\n                self.request_to_conversation[request_id] = conversation_id\n                \n                position = len(lock.queue)\n                logger.info(f"Request {request_id} queued at position {position} for conversation {conversation_id}")\n                \n                # Emit queued event\n                if event_emitter:\n                    await event_emitter("conversation:queued", {\n                        "request_id": request_id,\n                        "conversation_id": conversation_id,\n                        "position": position,\n                        "holder": lock.holder_request_id\n                    })\n                \n                return {\n                    'acquired': False,\n                    'state': LockState.QUEUED.value,\n                    'position': position,\n                    'holder': lock.holder_request_id\n                }\n            \n            elif lock.state == LockState.FORKED:\n                # Conversation was forked, warn but allow\n                warning = (f"Conversation {conversation_id} has been forked. "\n                          f"Parent: {lock.parent_conversation_id}, "\n                          f"Children: {lock.child_conversation_ids}")\n                logger.warning(warning)\n                \n                # Acquire lock on the fork\n                lock.holder_request_id = request_id\n                lock.acquired_at = current_time\n                lock.state = LockState.LOCKED\n                lock.fork_warning = True\n                lock.metadata = metadata or {}\n                \n                self.request_to_conversation[request_id] = conversation_id\n                \n                # Emit fork warning event\n                if event_emitter:\n                    await event_emitter("conversation:fork_warning", {\n                        "request_id": request_id,\n                        "conversation_id": conversation_id,\n                        "parent_conversation": lock.parent_conversation_id,\n                        "child_conversations": lock.child_conversation_ids\n                    })\n                \n                return {\n                    'acquired': True,\n                    'state': LockState.LOCKED.value,\n                    'fork_warning': warning\n                }\n        \n        # Create new lock\n        lock = ConversationLock(\n            conversation_id=conversation_id,\n            holder_request_id=request_id,\n            acquired_at=current_time,\n            metadata=metadata or {}\n        )\n        \n        self.locks[conversation_id] = lock\n        self.request_to_conversation[request_id] = conversation_id\n        \n        logger.debug(f"Lock acquired for conversation {conversation_id} by request {request_id}")\n        \n        # Emit lock acquired event\n        if event_emitter:\n            await event_emitter("conversation:locked", {\n                "request_id": request_id,\n                "conversation_id": conversation_id\n            })\n        \n        return {\n            'acquired': True,\n            'state': LockState.LOCKED.value,\n            'conversation_id': conversation_id\n        }\n    \n    async def release_lock(self, request_id: str) -> Dict[str, Any]:\n        """\n        Release a conversation lock.\n        \n        Returns dict with:\n            - released: bool\n            - next_request: request_id of next in queue if any\n            - conversation_id: the conversation that was unlocked\n        """\n        \n        conversation_id = self.request_to_conversation.get(request_id)\n        if not conversation_id:\n            return {\n                'released': False,\n                'error': 'No lock held by this request'\n            }\n        \n        lock = self.locks.get(conversation_id)\n        if not lock or lock.holder_request_id != request_id:\n            logger.warning(f"Request {request_id} tried to release lock it doesn't hold")\n            return {\n                'released': False,\n                'error': 'Request does not hold this lock'\n            }\n        \n        # Clean up request mapping\n        del self.request_to_conversation[request_id]\n        \n        # Check if there are queued requests\n        next_request_id = None\n        if lock.queue:\n            next_request_id = lock.queue.pop(0)\n            lock.holder_request_id = next_request_id\n            lock.acquired_at = time.time()\n            \n            logger.info(f"Lock for conversation {conversation_id} transferred to {next_request_id}")\n            \n            # Emit lock transferred event\n            if event_emitter:\n                await event_emitter("conversation:lock_transferred", {\n                    "conversation_id": conversation_id,\n                    "previous_holder": request_id,\n                    "new_holder": next_request_id,\n                    "queue_length": len(lock.queue)\n                })\n        else:\n            # No queue, remove lock\n            del self.locks[conversation_id]\n            logger.debug(f"Lock released for conversation {conversation_id}")\n            \n            # Emit unlocked event\n            if event_emitter:\n                await event_emitter("conversation:unlocked", {\n                    "conversation_id": conversation_id,\n                    "released_by": request_id\n                })\n        \n        return {\n            'released': True,\n            'conversation_id': conversation_id,\n            'next_request': next_request_id\n        }\n    \n    async def detect_fork(self, request_id: str, expected_conversation_id: str, \n                         actual_conversation_id: str) -> Dict[str, Any]:\n        """\n        Handle conversation fork detection.\n        \n        Called when completion returns different conversation_id than expected.\n        """\n        \n        logger.warning(f"Fork detected: {expected_conversation_id} -> {actual_conversation_id}")\n        \n        # Update lock state for old conversation\n        if expected_conversation_id in self.locks:\n            lock = self.locks[expected_conversation_id]\n            lock.state = LockState.FORKED\n            if actual_conversation_id not in lock.child_conversation_ids:\n                lock.child_conversation_ids.append(actual_conversation_id)\n        \n        # Create fork tracking\n        if expected_conversation_id not in self.fork_tracking:\n            self.fork_tracking[expected_conversation_id] = set()\n        self.fork_tracking[expected_conversation_id].add(actual_conversation_id)\n        \n        # Create lock for new conversation\n        new_lock = ConversationLock(\n            conversation_id=actual_conversation_id,\n            holder_request_id=request_id,\n            acquired_at=time.time(),\n            parent_conversation_id=expected_conversation_id,\n            state=LockState.FORKED\n        )\n        self.locks[actual_conversation_id] = new_lock\n        self.request_to_conversation[request_id] = actual_conversation_id\n        \n        # Emit fork detected event\n        if event_emitter:\n            await event_emitter("conversation:forked", {\n                "request_id": request_id,\n                "parent_conversation": expected_conversation_id,\n                "child_conversation": actual_conversation_id,\n                "total_forks": len(self.fork_tracking.get(expected_conversation_id, set()))\n            })\n        \n        return {\n            'fork_detected': True,\n            'parent_conversation': expected_conversation_id,\n            'child_conversation': actual_conversation_id,\n            'total_forks': len(self.fork_tracking.get(expected_conversation_id, set()))\n        }\n    \n    async def get_lock_status(self, conversation_id: str) -> Dict[str, Any]:\n        """Get current status of a conversation lock."""\n        \n        lock = self.locks.get(conversation_id)\n        if not lock:\n            return {\n                'locked': False,\n                'state': LockState.UNLOCKED.value\n            }\n        \n        # Check if expired\n        if time.time() - lock.acquired_at > self.lock_timeout:\n            return {\n                'locked': True,\n                'state': LockState.EXPIRED.value,\n                'holder': lock.holder_request_id,\n                'acquired_at': lock.acquired_at,\n                'expired': True\n            }\n        \n        return {\n            'locked': True,\n            'state': lock.state.value,\n            'holder': lock.holder_request_id,\n            'acquired_at': lock.acquired_at,\n            'queue_length': len(lock.queue),\n            'queue': lock.queue[:5],  # First 5 in queue\n            'fork_warning': lock.fork_warning,\n            'parent_conversation': lock.parent_conversation_id,\n            'child_conversations': lock.child_conversation_ids,\n            'metadata': lock.metadata\n        }\n    \n    async def get_all_locks(self) -> Dict[str, Any]:\n        """Get status of all conversation locks."""\n        \n        locks_info = {}\n        current_time = time.time()\n        \n        for conv_id, lock in self.locks.items():\n            locks_info[conv_id] = {\n                'state': lock.state.value,\n                'holder': lock.holder_request_id,\n                'age_seconds': int(current_time - lock.acquired_at),\n                'queue_length': len(lock.queue),\n                'is_fork': lock.state == LockState.FORKED\n            }\n        \n        return {\n            'total_locks': len(self.locks),\n            'total_forks': len(self.fork_tracking),\n            'locks': locks_info\n        }\n    \n    async def _cleanup_expired_locks(self, current_time: float):\n        """Remove expired locks and process their queues."""\n        \n        expired = []\n        for conv_id, lock in self.locks.items():\n            if current_time - lock.acquired_at > self.lock_timeout:\n                expired.append((conv_id, lock))\n        \n        for conv_id, lock in expired:\n            await self._expire_lock(lock, current_time)\n    \n    async def _expire_lock(self, lock: ConversationLock, current_time: float):\n        """Handle lock expiration."""\n        \n        logger.warning(f"Lock expired for conversation {lock.conversation_id}, held by {lock.holder_request_id}")\n        \n        # Emit expiration event\n        if event_emitter:\n            await event_emitter("conversation:lock_expired", {\n                "conversation_id": lock.conversation_id,\n                "expired_holder": lock.holder_request_id,\n                "queue_length": len(lock.queue)\n            })\n        \n        # Process queue if any\n        if lock.queue:\n            next_request = lock.queue.pop(0)\n            lock.holder_request_id = next_request\n            lock.acquired_at = current_time\n            lock.state = LockState.LOCKED\n            \n            logger.info(f"Lock transferred to {next_request} after expiry")\n            \n            # Emit transfer event\n            if event_emitter:\n                await event_emitter("conversation:lock_transferred", {\n                    "conversation_id": lock.conversation_id,\n                    "reason": "expiration",\n                    "new_holder": next_request\n                })\n        else:\n            # Remove expired lock\n            del self.locks[lock.conversation_id]\n            \n            # Clean up request mapping\n            requests_to_remove = [\n                req_id for req_id, conv_id in self.request_to_conversation.items()\n                if conv_id == lock.conversation_id\n            ]\n            for req_id in requests_to_remove:\n                del self.request_to_conversation[req_id]\n\n\n# Global lock manager instance\nlock_manager = ConversationLockManager()\n\n\n@hookimpl\ndef ksi_startup(config):\n    """Initialize conversation lock service on startup."""\n    logger.info("Conversation lock service started")\n    return {"status": "conversation_lock_ready"}\n\n\n@hookimpl\ndef ksi_plugin_context(context):\n    """Store event emitter reference."""\n    global event_emitter\n    event_emitter = context.get("event_emitter")\n\n\n@hookimpl\ndef ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):\n    """Handle conversation lock events."""\n    \n    if event_name == "conversation:acquire_lock":\n        # Acquire lock for a conversation\n        request_id = data.get("request_id")\n        conversation_id = data.get("conversation_id")\n        metadata = data.get("metadata", {})\n        \n        if not request_id or not conversation_id:\n            return {"error": "request_id and conversation_id required"}\n        \n        # Return coroutine for async execution\n        return lock_manager.acquire_lock(request_id, conversation_id, metadata)\n    \n    elif event_name == "conversation:release_lock":\n        # Release a conversation lock\n        request_id = data.get("request_id")\n        \n        if not request_id:\n            return {"error": "request_id required"}\n        \n        return lock_manager.release_lock(request_id)\n    \n    elif event_name == "conversation:fork_detected":\n        # Handle fork detection\n        request_id = data.get("request_id")\n        expected_id = data.get("expected_conversation_id")\n        actual_id = data.get("actual_conversation_id")\n        \n        if not all([request_id, expected_id, actual_id]):\n            return {"error": "request_id, expected_conversation_id, and actual_conversation_id required"}\n        \n        return lock_manager.detect_fork(request_id, expected_id, actual_id)\n    \n    elif event_name == "conversation:lock_status":\n        # Get lock status for a conversation\n        conversation_id = data.get("conversation_id")\n        \n        if conversation_id:\n            return lock_manager.get_lock_status(conversation_id)\n        else:\n            return lock_manager.get_all_locks()\n    \n    elif event_name == "conversation:active":\n        # Get all active (locked) conversations\n        all_locks = asyncio.run(lock_manager.get_all_locks())\n        active = {\n            conv_id: info for conv_id, info in all_locks['locks'].items()\n            if info['state'] == LockState.LOCKED.value\n        }\n        \n        return {\n            'active_count': len(active),\n            'active_conversations': active\n        }\n    \n    return None\n\n\n# Module marker\nksi_plugin = True
+#!/usr/bin/env python3
+"""
+Conversation Lock Service Plugin
+
+Provides distributed conversation locking to prevent conversation forking
+when multiple completion requests target the same conversation_id.
+"""
+
+import asyncio
+import time
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Dict, Any, Optional, List, Set, Tuple
+import pluggy
+
+from ksi_daemon.plugin_utils import plugin_metadata
+from ksi_common import TimestampManager
+from ksi_common.logging import get_logger
+
+# Plugin metadata
+plugin_metadata("conversation_lock", version="1.0.0",
+                description="Manages conversation locks to prevent forking")
+
+# Hook implementation marker
+hookimpl = pluggy.HookimplMarker("ksi")
+
+logger = get_logger("conversation_lock")
+
+# Event emitter reference (set during startup)
+event_emitter = None
+
+
+class LockState(Enum):
+    """States for conversation locks."""
+    UNLOCKED = "unlocked"
+    LOCKED = "locked"
+    QUEUED = "queued"
+    FORKED = "forked"
+    EXPIRED = "expired"
+
+
+@dataclass
+class ConversationLock:
+    """Represents a lock on a conversation."""
+    conversation_id: str
+    holder_request_id: str
+    acquired_at: float
+    state: LockState = LockState.LOCKED
+    queue: List[str] = field(default_factory=list)
+    fork_warning: bool = False
+    parent_conversation_id: Optional[str] = None
+    child_conversation_ids: List[str] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+class ConversationLockManager:
+    """Global conversation lock manager."""
+    
+    def __init__(self):
+        self.locks: Dict[str, ConversationLock] = {}
+        self.request_to_conversation: Dict[str, str] = {}
+        self.lock_timeout = 300  # 5 minutes default
+        self.fork_tracking: Dict[str, Set[str]] = {}  # parent -> children
+        self.cleanup_interval = 60  # Cleanup every minute
+        self.last_cleanup = time.time()
+    
+    async def acquire_lock(self, request_id: str, conversation_id: str, 
+                          metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Attempt to acquire a conversation lock.
+        
+        Returns dict with:
+            - acquired: bool
+            - state: LockState value
+            - position: queue position if queued
+            - fork_warning: any fork warning message
+        """
+        
+        if not conversation_id:
+            # No conversation ID, no lock needed
+            return {
+                'acquired': True,
+                'state': LockState.UNLOCKED.value,
+                'conversation_id': None
+            }
+        
+        current_time = time.time()
+        
+        # Periodic cleanup
+        if current_time - self.last_cleanup > self.cleanup_interval:
+            await self._cleanup_expired_locks(current_time)
+            self.last_cleanup = current_time
+        
+        # Check if conversation is already locked
+        if conversation_id in self.locks:
+            lock = self.locks[conversation_id]
+            
+            # Check if lock expired
+            if current_time - lock.acquired_at > self.lock_timeout:
+                await self._expire_lock(lock, current_time)
+            
+            if lock.state == LockState.LOCKED:
+                # Add to queue
+                lock.queue.append(request_id)
+                self.request_to_conversation[request_id] = conversation_id
+                
+                position = len(lock.queue)
+                logger.info(f"Request {request_id} queued at position {position} for conversation {conversation_id}")
+                
+                # Emit queued event
+                if event_emitter:
+                    await event_emitter("conversation:queued", {
+                        "request_id": request_id,
+                        "conversation_id": conversation_id,
+                        "position": position,
+                        "holder": lock.holder_request_id
+                    })
+                
+                return {
+                    'acquired': False,
+                    'state': LockState.QUEUED.value,
+                    'position': position,
+                    'holder': lock.holder_request_id
+                }
+            
+            elif lock.state == LockState.FORKED:
+                # Conversation was forked, warn but allow
+                warning = (f"Conversation {conversation_id} has been forked. "
+                          f"Parent: {lock.parent_conversation_id}, "
+                          f"Children: {lock.child_conversation_ids}")
+                logger.warning(warning)
+                
+                # Acquire lock on the fork
+                lock.holder_request_id = request_id
+                lock.acquired_at = current_time
+                lock.state = LockState.LOCKED
+                lock.fork_warning = True
+                lock.metadata = metadata or {}
+                
+                self.request_to_conversation[request_id] = conversation_id
+                
+                # Emit fork warning event
+                if event_emitter:
+                    await event_emitter("conversation:fork_warning", {
+                        "request_id": request_id,
+                        "conversation_id": conversation_id,
+                        "parent_conversation": lock.parent_conversation_id,
+                        "child_conversations": lock.child_conversation_ids
+                    })
+                
+                return {
+                    'acquired': True,
+                    'state': LockState.LOCKED.value,
+                    'fork_warning': warning
+                }
+        
+        # Create new lock
+        lock = ConversationLock(
+            conversation_id=conversation_id,
+            holder_request_id=request_id,
+            acquired_at=current_time,
+            metadata=metadata or {}
+        )
+        
+        self.locks[conversation_id] = lock
+        self.request_to_conversation[request_id] = conversation_id
+        
+        logger.debug(f"Lock acquired for conversation {conversation_id} by request {request_id}")
+        
+        # Emit lock acquired event
+        if event_emitter:
+            await event_emitter("conversation:locked", {
+                "request_id": request_id,
+                "conversation_id": conversation_id
+            })
+        
+        return {
+            'acquired': True,
+            'state': LockState.LOCKED.value,
+            'conversation_id': conversation_id
+        }
+    
+    async def release_lock(self, request_id: str) -> Dict[str, Any]:
+        """
+        Release a conversation lock.
+        
+        Returns dict with:
+            - released: bool
+            - next_request: request_id of next in queue if any
+            - conversation_id: the conversation that was unlocked
+        """
+        
+        conversation_id = self.request_to_conversation.get(request_id)
+        if not conversation_id:
+            return {
+                'released': False,
+                'error': 'No lock held by this request'
+            }
+        
+        lock = self.locks.get(conversation_id)
+        if not lock or lock.holder_request_id != request_id:
+            logger.warning(f"Request {request_id} tried to release lock it doesn't hold")
+            return {
+                'released': False,
+                'error': 'Request does not hold this lock'
+            }
+        
+        # Clean up request mapping
+        del self.request_to_conversation[request_id]
+        
+        # Check if there are queued requests
+        next_request_id = None
+        if lock.queue:
+            next_request_id = lock.queue.pop(0)
+            lock.holder_request_id = next_request_id
+            lock.acquired_at = time.time()
+            
+            logger.info(f"Lock for conversation {conversation_id} transferred to {next_request_id}")
+            
+            # Emit lock transferred event
+            if event_emitter:
+                await event_emitter("conversation:lock_transferred", {
+                    "conversation_id": conversation_id,
+                    "previous_holder": request_id,
+                    "new_holder": next_request_id,
+                    "queue_length": len(lock.queue)
+                })
+        else:
+            # No queue, remove lock
+            del self.locks[conversation_id]
+            logger.debug(f"Lock released for conversation {conversation_id}")
+            
+            # Emit unlocked event
+            if event_emitter:
+                await event_emitter("conversation:unlocked", {
+                    "conversation_id": conversation_id,
+                    "released_by": request_id
+                })
+        
+        return {
+            'released': True,
+            'conversation_id': conversation_id,
+            'next_request': next_request_id
+        }
+    
+    async def detect_fork(self, request_id: str, expected_conversation_id: str, 
+                         actual_conversation_id: str) -> Dict[str, Any]:
+        """
+        Handle conversation fork detection.
+        
+        Called when completion returns different conversation_id than expected.
+        """
+        
+        logger.warning(f"Fork detected: {expected_conversation_id} -> {actual_conversation_id}")
+        
+        # Update lock state for old conversation
+        if expected_conversation_id in self.locks:
+            lock = self.locks[expected_conversation_id]
+            lock.state = LockState.FORKED
+            if actual_conversation_id not in lock.child_conversation_ids:
+                lock.child_conversation_ids.append(actual_conversation_id)
+        
+        # Create fork tracking
+        if expected_conversation_id not in self.fork_tracking:
+            self.fork_tracking[expected_conversation_id] = set()
+        self.fork_tracking[expected_conversation_id].add(actual_conversation_id)
+        
+        # Create lock for new conversation
+        new_lock = ConversationLock(
+            conversation_id=actual_conversation_id,
+            holder_request_id=request_id,
+            acquired_at=time.time(),
+            parent_conversation_id=expected_conversation_id,
+            state=LockState.FORKED
+        )
+        self.locks[actual_conversation_id] = new_lock
+        self.request_to_conversation[request_id] = actual_conversation_id
+        
+        # Emit fork detected event
+        if event_emitter:
+            await event_emitter("conversation:forked", {
+                "request_id": request_id,
+                "parent_conversation": expected_conversation_id,
+                "child_conversation": actual_conversation_id,
+                "total_forks": len(self.fork_tracking.get(expected_conversation_id, set()))
+            })
+        
+        return {
+            'fork_detected': True,
+            'parent_conversation': expected_conversation_id,
+            'child_conversation': actual_conversation_id,
+            'total_forks': len(self.fork_tracking.get(expected_conversation_id, set()))
+        }
+    
+    async def get_lock_status(self, conversation_id: str) -> Dict[str, Any]:
+        """Get current status of a conversation lock."""
+        
+        lock = self.locks.get(conversation_id)
+        if not lock:
+            return {
+                'locked': False,
+                'state': LockState.UNLOCKED.value
+            }
+        
+        # Check if expired
+        if time.time() - lock.acquired_at > self.lock_timeout:
+            return {
+                'locked': True,
+                'state': LockState.EXPIRED.value,
+                'holder': lock.holder_request_id,
+                'acquired_at': lock.acquired_at,
+                'expired': True
+            }
+        
+        return {
+            'locked': True,
+            'state': lock.state.value,
+            'holder': lock.holder_request_id,
+            'acquired_at': lock.acquired_at,
+            'queue_length': len(lock.queue),
+            'queue': lock.queue[:5],  # First 5 in queue
+            'fork_warning': lock.fork_warning,
+            'parent_conversation': lock.parent_conversation_id,
+            'child_conversations': lock.child_conversation_ids,
+            'metadata': lock.metadata
+        }
+    
+    async def get_all_locks(self) -> Dict[str, Any]:
+        """Get status of all conversation locks."""
+        
+        locks_info = {}
+        current_time = time.time()
+        
+        for conv_id, lock in self.locks.items():
+            locks_info[conv_id] = {
+                'state': lock.state.value,
+                'holder': lock.holder_request_id,
+                'age_seconds': int(current_time - lock.acquired_at),
+                'queue_length': len(lock.queue),
+                'is_fork': lock.state == LockState.FORKED
+            }
+        
+        return {
+            'total_locks': len(self.locks),
+            'total_forks': len(self.fork_tracking),
+            'locks': locks_info
+        }
+    
+    async def _cleanup_expired_locks(self, current_time: float):
+        """Remove expired locks and process their queues."""
+        
+        expired = []
+        for conv_id, lock in self.locks.items():
+            if current_time - lock.acquired_at > self.lock_timeout:
+                expired.append((conv_id, lock))
+        
+        for conv_id, lock in expired:
+            await self._expire_lock(lock, current_time)
+    
+    async def _expire_lock(self, lock: ConversationLock, current_time: float):
+        """Handle lock expiration."""
+        
+        logger.warning(f"Lock expired for conversation {lock.conversation_id}, held by {lock.holder_request_id}")
+        
+        # Emit expiration event
+        if event_emitter:
+            await event_emitter("conversation:lock_expired", {
+                "conversation_id": lock.conversation_id,
+                "expired_holder": lock.holder_request_id,
+                "queue_length": len(lock.queue)
+            })
+        
+        # Process queue if any
+        if lock.queue:
+            next_request = lock.queue.pop(0)
+            lock.holder_request_id = next_request
+            lock.acquired_at = current_time
+            lock.state = LockState.LOCKED
+            
+            logger.info(f"Lock transferred to {next_request} after expiry")
+            
+            # Emit transfer event
+            if event_emitter:
+                await event_emitter("conversation:lock_transferred", {
+                    "conversation_id": lock.conversation_id,
+                    "reason": "expiration",
+                    "new_holder": next_request
+                })
+        else:
+            # Remove expired lock
+            del self.locks[lock.conversation_id]
+            
+            # Clean up request mapping
+            requests_to_remove = [
+                req_id for req_id, conv_id in self.request_to_conversation.items()
+                if conv_id == lock.conversation_id
+            ]
+            for req_id in requests_to_remove:
+                del self.request_to_conversation[req_id]
+
+
+# Global lock manager instance
+lock_manager = ConversationLockManager()
+
+
+@hookimpl
+def ksi_startup(config):
+    """Initialize conversation lock service on startup."""
+    logger.info("Conversation lock service started")
+    return {"status": "conversation_lock_ready"}
+
+
+@hookimpl
+def ksi_plugin_context(context):
+    """Store event emitter reference."""
+    global event_emitter
+    event_emitter = context.get("event_emitter")
+
+
+@hookimpl
+def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
+    """Handle conversation lock events."""
+    
+    if event_name == "conversation:acquire_lock":
+        # Acquire lock for a conversation
+        request_id = data.get("request_id")
+        conversation_id = data.get("conversation_id")
+        metadata = data.get("metadata", {})
+        
+        if not request_id or not conversation_id:
+            return {"error": "request_id and conversation_id required"}
+        
+        # Return coroutine for async execution
+        return lock_manager.acquire_lock(request_id, conversation_id, metadata)
+    
+    elif event_name == "conversation:release_lock":
+        # Release a conversation lock
+        request_id = data.get("request_id")
+        
+        if not request_id:
+            return {"error": "request_id required"}
+        
+        return lock_manager.release_lock(request_id)
+    
+    elif event_name == "conversation:fork_detected":
+        # Handle fork detection
+        request_id = data.get("request_id")
+        expected_id = data.get("expected_conversation_id")
+        actual_id = data.get("actual_conversation_id")
+        
+        if not all([request_id, expected_id, actual_id]):
+            return {"error": "request_id, expected_conversation_id, and actual_conversation_id required"}
+        
+        return lock_manager.detect_fork(request_id, expected_id, actual_id)
+    
+    elif event_name == "conversation:lock_status":
+        # Get lock status for a conversation
+        conversation_id = data.get("conversation_id")
+        
+        if conversation_id:
+            return lock_manager.get_lock_status(conversation_id)
+        else:
+            return lock_manager.get_all_locks()
+    
+    elif event_name == "conversation:active":
+        # Get all active (locked) conversations
+        all_locks = asyncio.run(lock_manager.get_all_locks())
+        active = {
+            conv_id: info for conv_id, info in all_locks['locks'].items()
+            if info['state'] == LockState.LOCKED.value
+        }
+        
+        return {
+            'active_count': len(active),
+            'active_conversations': active
+        }
+    
+    return None
+
+
+# Module marker
+ksi_plugin = True

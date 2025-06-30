@@ -1,1 +1,1 @@
-"""Composition plugin package."""
+"""Composition service plugin package."""

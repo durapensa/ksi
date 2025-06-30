@@ -1,1 +1,541 @@
-#!/usr/bin/env python3\n"""\nMessage Bus Plugin\n\nProvides pub/sub messaging functionality with consolidated MessageBus class.\n"""\n\nimport asyncio\nimport json\nfrom typing import Dict, List, Set, Optional, Any\nfrom collections import defaultdict\nimport time\nimport pluggy\n\nfrom ksi_common.logging import get_logger\nfrom ksi_daemon.plugin_utils import plugin_metadata\nfrom ksi_common import TimestampManager, log_event, agent_context\nfrom ksi_daemon.config import config\nfrom ksi_daemon.event_taxonomy import MESSAGE_BUS_EVENTS, format_agent_event\n\n# Plugin metadata\nplugin_metadata("message_bus", version="2.0.0",\n                description="Event-based pub/sub messaging for agents (consolidated)")\n\n# Hook implementation marker\nhookimpl = pluggy.HookimplMarker("ksi")\n\n# Module state\nlogger = get_logger("message_bus")\nevent_emitter = None\n\n# Track subscriptions per client\nclient_subscriptions: Dict[str, Set[str]] = {}\n\n\nclass MessageBus:\n    """Event-based message bus for inter-agent communication"""\n    \n    def __init__(self):\n        # Subscriptions: event_type -> set of (agent_id, writer)\n        self.subscriptions: Dict[str, Set[tuple]] = defaultdict(set)\n        \n        # Active connections: agent_id -> writer\n        self.connections: Dict[str, asyncio.StreamWriter] = {}\n        \n        # Message queue for offline agents: agent_id -> list of messages\n        self.offline_queue: Dict[str, List[dict]] = defaultdict(list)\n        \n        # Message history for debugging\n        self.message_history = []\n        self.max_history_size = 1000\n        \n    def connect_agent(self, agent_id: str, writer: asyncio.StreamWriter):\n        """Register an agent connection"""\n        self.connections[agent_id] = writer\n        \n        log_event(logger, "message_bus.agent_connected",\n                 **format_agent_event("message_bus.agent_connected", agent_id,\n                                     total_connections=len(self.connections),\n                                     has_queued_messages=agent_id in self.offline_queue))\n        \n        # Deliver any queued messages\n        if agent_id in self.offline_queue:\n            asyncio.create_task(self._deliver_queued_messages(agent_id))\n    \n    def disconnect_agent(self, agent_id: str):\n        """Remove agent connection"""\n        was_connected = agent_id in self.connections\n        \n        if was_connected:\n            del self.connections[agent_id]\n            \n        log_event(logger, "message_bus.agent_disconnected",\n                 **format_agent_event("message_bus.agent_disconnected", agent_id,\n                                     was_connected=was_connected,\n                                     remaining_connections=len(self.connections)))\n            \n        # Remove from all subscriptions\n        for event_type, subscribers in self.subscriptions.items():\n            self.subscriptions[event_type] = {\n                (aid, w) for aid, w in subscribers if aid != agent_id\n            }\n        \n    \n    def subscribe(self, agent_id: str, event_types: List[str]):\n        """Subscribe an agent to event types"""\n        writer = self.connections.get(agent_id)\n        if not writer:\n            log_event(logger, "message_bus.subscription_failed",\n                     **format_agent_event("message_bus.subscription_failed", agent_id,\n                                         event_types=event_types,\n                                         reason="agent_not_connected"))\n            return False\n        \n        for event_type in event_types:\n            self.subscriptions[event_type].add((agent_id, writer))\n        \n        log_event(logger, "message_bus.subscribed",\n                 **format_agent_event("message_bus.subscribed", agent_id,\n                                     event_types=event_types,\n                                     subscription_count=len(event_types)))\n        \n        return True\n    \n    def unsubscribe(self, agent_id: str, event_types: List[str]):\n        """Unsubscribe an agent from event types"""\n        for event_type in event_types:\n            self.subscriptions[event_type].discard((agent_id, self.connections.get(agent_id)))\n        \n        log_event(logger, "message_bus.unsubscribed",\n                 **format_agent_event("message_bus.unsubscribed", agent_id,\n                                     event_types=event_types,\n                                     unsubscription_count=len(event_types)))\n    \n    async def publish(self, from_agent: str, event_type: str, payload: dict) -> dict:\n        """Publish an event to all subscribers"""\n        # Create message\n        message = {\n            'id': str(time.time()),\n            'type': event_type,\n            'from': from_agent,\n            'timestamp': TimestampManager.format_for_message_bus(),\n            **payload\n        }\n        \n        # Log to history\n        self._add_to_history(message)\n        \n        # Log publication event\n        log_event(logger, "message_bus.message_published",\n                 **format_agent_event("message_bus.message_published", from_agent,\n                                     event_type=event_type,\n                                     message_id=message['id'],\n                                     subscriber_count=len(self.subscriptions.get(event_type, []))))\n        \n        # Handle different event types\n        if event_type == 'DIRECT_MESSAGE':\n            return await self._handle_direct_message(message)\n        elif event_type == 'BROADCAST':\n            return await self._handle_broadcast(message)\n        elif event_type == 'TASK_ASSIGNMENT':\n            return await self._handle_task_assignment(message)\n        else:\n            # Generic event handling\n            return await self._handle_generic_event(event_type, message)\n    \n    async def _handle_direct_message(self, message: dict) -> dict:\n        """Handle direct message between agents"""\n        to_agent = message.get('to')\n        if not to_agent:\n            return {'status': 'error', 'error': 'No recipient specified'}\n        \n        # First, notify all subscribers to DIRECT_MESSAGE events (like monitors)\n        subscribers = self.subscriptions.get('DIRECT_MESSAGE', set())\n        notified = []\n        for agent_id, writer in subscribers:\n            if agent_id != message.get('from'):  # Don't send back to sender\n                try:\n                    await self._send_message(writer, message)\n                    notified.append(agent_id)\n                except Exception as e:\n                    logger.error(f"Failed to notify {agent_id} of DIRECT_MESSAGE: {e}")\n        \n        # Then deliver to the specific recipient\n        if to_agent in self.connections:\n            writer = self.connections[to_agent]\n            try:\n                await self._send_message(writer, message)\n                return {'status': 'delivered', 'to': to_agent, 'notified': notified}\n            except Exception as e:\n                logger.error(f"Failed to deliver message to {to_agent}: {e}")\n                self.offline_queue[to_agent].append(message)\n                return {'status': 'queued', 'to': to_agent, 'error': str(e), 'notified': notified}\n        else:\n            # Queue for offline delivery\n            self.offline_queue[to_agent].append(message)\n            return {'status': 'queued', 'to': to_agent, 'notified': notified}\n    \n    async def _handle_broadcast(self, message: dict) -> dict:\n        """Handle broadcast message to all subscribers"""\n        subscribers = self.subscriptions.get('BROADCAST', set())\n        delivered = []\n        failed = []\n        \n        for agent_id, writer in subscribers:\n            if agent_id != message.get('from'):  # Don't send back to sender\n                try:\n                    await self._send_message(writer, message)\n                    delivered.append(agent_id)\n                except Exception as e:\n                    logger.error(f"Failed to broadcast to {agent_id}: {e}")\n                    failed.append(agent_id)\n        \n        return {\n            'status': 'broadcast',\n            'delivered': delivered,\n            'failed': failed,\n            'total': len(delivered) + len(failed)\n        }\n    \n    async def _handle_task_assignment(self, message: dict) -> dict:\n        """Handle task assignment to specific agent"""\n        to_agent = message.get('to')\n        if not to_agent:\n            # Find suitable agent based on capabilities\n            required_capabilities = message.get('required_capabilities', [])\n            to_agent = self._find_capable_agent(required_capabilities)\n            if not to_agent:\n                return {'status': 'error', 'error': 'No capable agent found'}\n            message['to'] = to_agent\n        \n        # Deliver as direct message\n        return await self._handle_direct_message(message)\n    \n    async def _handle_generic_event(self, event_type: str, message: dict) -> dict:\n        """Handle generic event type"""\n        subscribers = self.subscriptions.get(event_type, set())\n        delivered = []\n        \n        for agent_id, writer in subscribers:\n            try:\n                await self._send_message(writer, message)\n                delivered.append(agent_id)\n            except Exception as e:\n                logger.error(f"Failed to deliver {event_type} to {agent_id}: {e}")\n        \n        return {\n            'status': 'published',\n            'event_type': event_type,\n            'delivered_to': delivered\n        }\n    \n    async def _send_message(self, writer: asyncio.StreamWriter, message: dict):\n        """Send message to agent via writer"""\n        try:\n            data = json.dumps(message) + '\n'\n            writer.write(data.encode())\n            await writer.drain()\n        except Exception as e:\n            logger.error(f"Error sending message: {e}")\n            raise\n    \n    async def _deliver_queued_messages(self, agent_id: str):\n        """Deliver queued messages to newly connected agent"""\n        if agent_id not in self.offline_queue:\n            return\n        \n        writer = self.connections.get(agent_id)\n        if not writer:\n            return\n        \n        queued = self.offline_queue[agent_id]\n        delivered = 0\n        \n        logger.info(f"Delivering {len(queued)} queued messages to {agent_id}")\n        \n        for message in queued[:]:  # Copy list to avoid modification during iteration\n            try:\n                await self._send_message(writer, message)\n                queued.remove(message)\n                delivered += 1\n            except Exception as e:\n                logger.error(f"Failed to deliver queued message: {e}")\n                break\n        \n        logger.info(f"Delivered {delivered} queued messages to {agent_id}")\n        \n        # Clean up if all delivered\n        if not queued:\n            del self.offline_queue[agent_id]\n    \n    def _find_capable_agent(self, required_capabilities: List[str]) -> Optional[str]:\n        """Find an agent with required capabilities"""\n        # This would integrate with agent_manager to find suitable agents\n        # For now, return None (should be implemented with agent_manager integration)\n        return None\n    \n    def _add_to_history(self, message: dict):\n        """Add message to history for debugging"""\n        self.message_history.append(message)\n        \n        # Trim history if too large\n        if len(self.message_history) > self.max_history_size:\n            self.message_history = self.message_history[-self.max_history_size:]\n        \n        # Also log to file\n        try:\n            log_file = str(config.response_log_dir / 'message_bus.jsonl')\n            with open(log_file, 'a') as f:\n                f.write(json.dumps(message) + '\n')\n        except Exception as e:\n            logger.error(f"Failed to log message: {e}")\n    \n    def get_stats(self) -> dict:\n        """Get message bus statistics"""\n        return {\n            'connected_agents': list(self.connections.keys()),\n            'subscriptions': {\n                event_type: [aid for aid, _ in subscribers]\n                for event_type, subscribers in self.subscriptions.items()\n            },\n            'offline_queues': {\n                agent_id: len(messages)\n                for agent_id, messages in self.offline_queue.items()\n            },\n            'history_size': len(self.message_history)\n        }\n    \n    def list_connections(self) -> List[Dict[str, Any]]:\n        """List all active connections (standardized API)"""\n        return [\n            {'agent_id': agent_id, 'connected': True}\n            for agent_id in self.connections.keys()\n        ]\n    \n    def list_subscriptions(self) -> List[Dict[str, Any]]:\n        """List all subscriptions (standardized API)"""\n        result = []\n        for event_type, subscribers in self.subscriptions.items():\n            for agent_id, writer in subscribers:\n                result.append({\n                    'agent_id': agent_id,\n                    'event_type': event_type\n                })\n        return result\n    \n    def clear_subscriptions(self) -> int:\n        """Clear all subscriptions (standardized API)"""\n        count = sum(len(subs) for subs in self.subscriptions.values())\n        self.subscriptions.clear()\n        return count\n    \n    # Simplified interface for in-process agents\n    \n    async def publish_simple(self, from_agent: str, event_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:\n        """Simplified publish interface for in-process agents (no StreamWriter required)"""\n        try:\n            # Create message in same format as regular publish\n            message = {\n                'type': event_type,\n                'from': from_agent,\n                'timestamp': TimestampManager.format_for_message_bus(),\n                **payload\n            }\n            \n            # Log to history\n            self._add_to_history(message)\n            \n            # For in-process agents, we just need to route the message\n            # The orchestrator will handle delivery to subscribed agents\n            \n            return {\n                'status': 'success',\n                'message_id': f"simple_{int(time.time() * 1000)}",\n                'event_type': event_type,\n                'timestamp': message['timestamp']\n            }\n            \n        except Exception as e:\n            logger.error(f"Error in publish_simple: {e}")\n            return {\n                'status': 'error',\n                'error': str(e)\n            }\n\n\n# Initialize message bus instance\nmessage_bus = MessageBus()\n\n\n@hookimpl\ndef ksi_startup(config):\n    """Initialize message bus plugin."""\n    logger.info("Message bus plugin started (consolidated)")\n    return {"plugin.message_bus": {"loaded": True}}\n\n\n@hookimpl\ndef ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):\n    """Handle message bus events."""\n    \n    # Subscribe to events\n    if event_name == "message:subscribe":\n        return handle_subscribe(data)\n    \n    # Unsubscribe from events\n    elif event_name == "message:unsubscribe":\n        return handle_unsubscribe(data)\n    \n    # Publish message\n    elif event_name == "message:publish":\n        return handle_publish(data)\n    \n    # Get subscriptions\n    elif event_name == "message:subscriptions":\n        return handle_get_subscriptions(data)\n    \n    # Legacy PUBLISH/SUBSCRIBE command support\n    elif event_name == "transport:message" and data.get("command") == "PUBLISH":\n        # Convert legacy format\n        params = data.get("parameters", {})\n        return handle_publish({\n            "agent_id": params.get("agent_id"),\n            "event_type": params.get("event_type"),\n            "message": params.get("message", {})\n        })\n    \n    elif event_name == "transport:message" and data.get("command") == "SUBSCRIBE":\n        # Convert legacy format\n        params = data.get("parameters", {})\n        return handle_subscribe({\n            "agent_id": params.get("agent_id"),\n            "event_types": params.get("event_types", [])\n        })\n    \n    # Message bus stats\n    elif event_name == "message_bus:stats":\n        return {"stats": message_bus.get_stats()}\n    \n    return None\n\n\ndef handle_subscribe(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Handle subscription request."""\n    agent_id = data.get("agent_id")\n    event_types = data.get("event_types", [])\n    \n    if not agent_id:\n        return {"error": "agent_id required"}\n    \n    if not event_types:\n        return {"error": "event_types required"}\n    \n    # Track subscriptions per client for unsubscription\n    if agent_id not in client_subscriptions:\n        client_subscriptions[agent_id] = set()\n    \n    client_subscriptions[agent_id].update(event_types)\n    \n    # Subscribe to the message bus\n    success = message_bus.subscribe(agent_id, event_types)\n    \n    if success:\n        return {\n            "status": "subscribed",\n            "agent_id": agent_id,\n            "event_types": event_types\n        }\n    else:\n        return {"error": "Subscription failed - agent not connected"}\n\n\ndef handle_unsubscribe(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Handle unsubscription request."""\n    agent_id = data.get("agent_id")\n    event_types = data.get("event_types", [])\n    \n    if not agent_id:\n        return {"error": "agent_id required"}\n    \n    # If no specific event_types, unsubscribe from all\n    if not event_types and agent_id in client_subscriptions:\n        event_types = list(client_subscriptions[agent_id])\n    \n    if event_types:\n        message_bus.unsubscribe(agent_id, event_types)\n        \n        # Update tracking\n        if agent_id in client_subscriptions:\n            client_subscriptions[agent_id] -= set(event_types)\n            if not client_subscriptions[agent_id]:\n                del client_subscriptions[agent_id]\n    \n    return {\n        "status": "unsubscribed",\n        "agent_id": agent_id,\n        "event_types": event_types\n    }\n\n\nasync def handle_publish(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Handle message publication."""\n    agent_id = data.get("agent_id")\n    event_type = data.get("event_type")\n    message = data.get("message", {})\n    \n    if not agent_id:\n        return {"error": "agent_id required"}\n    \n    if not event_type:\n        return {"error": "event_type required"}\n    \n    try:\n        result = await message_bus.publish(agent_id, event_type, message)\n        return result\n    except Exception as e:\n        logger.error(f"Publish error: {e}")\n        return {"error": str(e)}\n\n\ndef handle_get_subscriptions(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Get subscription information."""\n    agent_id = data.get("agent_id")\n    \n    if agent_id:\n        # Get subscriptions for specific agent\n        return {\n            "agent_id": agent_id,\n            "subscriptions": list(client_subscriptions.get(agent_id, []))\n        }\n    else:\n        # Get all subscriptions\n        return {\n            "all_subscriptions": dict(client_subscriptions)\n        }\n\n\n@hookimpl \ndef ksi_plugin_context(context):\n    """Receive plugin context with event emitter."""\n    global event_emitter\n    event_emitter = context.get("emit_event")\n\n\n@hookimpl\ndef ksi_shutdown():\n    """Clean up on shutdown."""\n    total_subscriptions = message_bus.clear_subscriptions()\n    client_subscriptions.clear()\n    \n    logger.info("Message bus plugin stopped")\n    return {\n        "plugin.message_bus": {\n            "stopped": True,\n            "total_subscriptions": total_subscriptions\n        }\n    }\n\n\n# Module-level marker for plugin discovery\nksi_plugin = True
+#!/usr/bin/env python3
+"""
+Message Bus Plugin
+
+Provides pub/sub messaging functionality with consolidated MessageBus class.
+"""
+
+import asyncio
+import json
+from typing import Dict, List, Set, Optional, Any
+from collections import defaultdict
+import time
+import pluggy
+
+from ksi_daemon.plugin_utils import plugin_metadata
+from ksi_common import TimestampManager, log_event, agent_context
+from ksi_daemon.config import config
+from ksi_daemon.event_taxonomy import MESSAGE_BUS_EVENTS, format_agent_event
+from ksi_common.logging import get_logger
+
+# Plugin metadata
+plugin_metadata("message_bus", version="2.0.0",
+                description="Event-based pub/sub messaging for agents (consolidated)")
+
+# Hook implementation marker
+hookimpl = pluggy.HookimplMarker("ksi")
+
+# Module state
+logger = get_logger("message_bus")
+event_emitter = None
+
+# Track subscriptions per client
+client_subscriptions: Dict[str, Set[str]] = {}
+
+
+class MessageBus:
+    """Event-based message bus for inter-agent communication"""
+    
+    def __init__(self):
+        # Subscriptions: event_type -> set of (agent_id, writer)
+        self.subscriptions: Dict[str, Set[tuple]] = defaultdict(set)
+        
+        # Active connections: agent_id -> writer
+        self.connections: Dict[str, asyncio.StreamWriter] = {}
+        
+        # Message queue for offline agents: agent_id -> list of messages
+        self.offline_queue: Dict[str, List[dict]] = defaultdict(list)
+        
+        # Message history for debugging
+        self.message_history = []
+        self.max_history_size = 1000
+        
+    def connect_agent(self, agent_id: str, writer: asyncio.StreamWriter):
+        """Register an agent connection"""
+        self.connections[agent_id] = writer
+        
+        log_event(logger, "message_bus.agent_connected",
+                 **format_agent_event("message_bus.agent_connected", agent_id,
+                                     total_connections=len(self.connections),
+                                     has_queued_messages=agent_id in self.offline_queue))
+        
+        # Deliver any queued messages
+        if agent_id in self.offline_queue:
+            asyncio.create_task(self._deliver_queued_messages(agent_id))
+    
+    def disconnect_agent(self, agent_id: str):
+        """Remove agent connection"""
+        was_connected = agent_id in self.connections
+        
+        if was_connected:
+            del self.connections[agent_id]
+            
+        log_event(logger, "message_bus.agent_disconnected",
+                 **format_agent_event("message_bus.agent_disconnected", agent_id,
+                                     was_connected=was_connected,
+                                     remaining_connections=len(self.connections)))
+            
+        # Remove from all subscriptions
+        for event_type, subscribers in self.subscriptions.items():
+            self.subscriptions[event_type] = {
+                (aid, w) for aid, w in subscribers if aid != agent_id
+            }
+        
+    
+    def subscribe(self, agent_id: str, event_types: List[str]):
+        """Subscribe an agent to event types"""
+        writer = self.connections.get(agent_id)
+        if not writer:
+            log_event(logger, "message_bus.subscription_failed",
+                     **format_agent_event("message_bus.subscription_failed", agent_id,
+                                         event_types=event_types,
+                                         reason="agent_not_connected"))
+            return False
+        
+        for event_type in event_types:
+            self.subscriptions[event_type].add((agent_id, writer))
+        
+        log_event(logger, "message_bus.subscribed",
+                 **format_agent_event("message_bus.subscribed", agent_id,
+                                     event_types=event_types,
+                                     subscription_count=len(event_types)))
+        
+        return True
+    
+    def unsubscribe(self, agent_id: str, event_types: List[str]):
+        """Unsubscribe an agent from event types"""
+        for event_type in event_types:
+            self.subscriptions[event_type].discard((agent_id, self.connections.get(agent_id)))
+        
+        log_event(logger, "message_bus.unsubscribed",
+                 **format_agent_event("message_bus.unsubscribed", agent_id,
+                                     event_types=event_types,
+                                     unsubscription_count=len(event_types)))
+    
+    async def publish(self, from_agent: str, event_type: str, payload: dict) -> dict:
+        """Publish an event to all subscribers"""
+        # Create message
+        message = {
+            'id': str(time.time()),
+            'type': event_type,
+            'from': from_agent,
+            'timestamp': TimestampManager.format_for_message_bus(),
+            **payload
+        }
+        
+        # Log to history
+        self._add_to_history(message)
+        
+        # Log publication event
+        log_event(logger, "message_bus.message_published",
+                 **format_agent_event("message_bus.message_published", from_agent,
+                                     event_type=event_type,
+                                     message_id=message['id'],
+                                     subscriber_count=len(self.subscriptions.get(event_type, []))))
+        
+        # Handle different event types
+        if event_type == 'DIRECT_MESSAGE':
+            return await self._handle_direct_message(message)
+        elif event_type == 'BROADCAST':
+            return await self._handle_broadcast(message)
+        elif event_type == 'TASK_ASSIGNMENT':
+            return await self._handle_task_assignment(message)
+        else:
+            # Generic event handling
+            return await self._handle_generic_event(event_type, message)
+    
+    async def _handle_direct_message(self, message: dict) -> dict:
+        """Handle direct message between agents"""
+        to_agent = message.get('to')
+        if not to_agent:
+            return {'status': 'error', 'error': 'No recipient specified'}
+        
+        # First, notify all subscribers to DIRECT_MESSAGE events (like monitors)
+        subscribers = self.subscriptions.get('DIRECT_MESSAGE', set())
+        notified = []
+        for agent_id, writer in subscribers:
+            if agent_id != message.get('from'):  # Don't send back to sender
+                try:
+                    await self._send_message(writer, message)
+                    notified.append(agent_id)
+                except Exception as e:
+                    logger.error(f"Failed to notify {agent_id} of DIRECT_MESSAGE: {e}")
+        
+        # Then deliver to the specific recipient
+        if to_agent in self.connections:
+            writer = self.connections[to_agent]
+            try:
+                await self._send_message(writer, message)
+                return {'status': 'delivered', 'to': to_agent, 'notified': notified}
+            except Exception as e:
+                logger.error(f"Failed to deliver message to {to_agent}: {e}")
+                self.offline_queue[to_agent].append(message)
+                return {'status': 'queued', 'to': to_agent, 'error': str(e), 'notified': notified}
+        else:
+            # Queue for offline delivery
+            self.offline_queue[to_agent].append(message)
+            return {'status': 'queued', 'to': to_agent, 'notified': notified}
+    
+    async def _handle_broadcast(self, message: dict) -> dict:
+        """Handle broadcast message to all subscribers"""
+        subscribers = self.subscriptions.get('BROADCAST', set())
+        delivered = []
+        failed = []
+        
+        for agent_id, writer in subscribers:
+            if agent_id != message.get('from'):  # Don't send back to sender
+                try:
+                    await self._send_message(writer, message)
+                    delivered.append(agent_id)
+                except Exception as e:
+                    logger.error(f"Failed to broadcast to {agent_id}: {e}")
+                    failed.append(agent_id)
+        
+        return {
+            'status': 'broadcast',
+            'delivered': delivered,
+            'failed': failed,
+            'total': len(delivered) + len(failed)
+        }
+    
+    async def _handle_task_assignment(self, message: dict) -> dict:
+        """Handle task assignment to specific agent"""
+        to_agent = message.get('to')
+        if not to_agent:
+            # Find suitable agent based on capabilities
+            required_capabilities = message.get('required_capabilities', [])
+            to_agent = self._find_capable_agent(required_capabilities)
+            if not to_agent:
+                return {'status': 'error', 'error': 'No capable agent found'}
+            message['to'] = to_agent
+        
+        # Deliver as direct message
+        return await self._handle_direct_message(message)
+    
+    async def _handle_generic_event(self, event_type: str, message: dict) -> dict:
+        """Handle generic event type"""
+        subscribers = self.subscriptions.get(event_type, set())
+        delivered = []
+        
+        for agent_id, writer in subscribers:
+            try:
+                await self._send_message(writer, message)
+                delivered.append(agent_id)
+            except Exception as e:
+                logger.error(f"Failed to deliver {event_type} to {agent_id}: {e}")
+        
+        return {
+            'status': 'published',
+            'event_type': event_type,
+            'delivered_to': delivered
+        }
+    
+    async def _send_message(self, writer: asyncio.StreamWriter, message: dict):
+        """Send message to agent via writer"""
+        try:
+            data = json.dumps(message) + '\n'
+            writer.write(data.encode())
+            await writer.drain()
+        except Exception as e:
+            logger.error(f"Error sending message: {e}")
+            raise
+    
+    async def _deliver_queued_messages(self, agent_id: str):
+        """Deliver queued messages to newly connected agent"""
+        if agent_id not in self.offline_queue:
+            return
+        
+        writer = self.connections.get(agent_id)
+        if not writer:
+            return
+        
+        queued = self.offline_queue[agent_id]
+        delivered = 0
+        
+        logger.info(f"Delivering {len(queued)} queued messages to {agent_id}")
+        
+        for message in queued[:]:  # Copy list to avoid modification during iteration
+            try:
+                await self._send_message(writer, message)
+                queued.remove(message)
+                delivered += 1
+            except Exception as e:
+                logger.error(f"Failed to deliver queued message: {e}")
+                break
+        
+        logger.info(f"Delivered {delivered} queued messages to {agent_id}")
+        
+        # Clean up if all delivered
+        if not queued:
+            del self.offline_queue[agent_id]
+    
+    def _find_capable_agent(self, required_capabilities: List[str]) -> Optional[str]:
+        """Find an agent with required capabilities"""
+        # This would integrate with agent_manager to find suitable agents
+        # For now, return None (should be implemented with agent_manager integration)
+        return None
+    
+    def _add_to_history(self, message: dict):
+        """Add message to history for debugging"""
+        self.message_history.append(message)
+        
+        # Trim history if too large
+        if len(self.message_history) > self.max_history_size:
+            self.message_history = self.message_history[-self.max_history_size:]
+        
+        # Also log to file
+        try:
+            log_file = str(config.response_log_dir / 'message_bus.jsonl')
+            with open(log_file, 'a') as f:
+                f.write(json.dumps(message) + '\n')
+        except Exception as e:
+            logger.error(f"Failed to log message: {e}")
+    
+    def get_stats(self) -> dict:
+        """Get message bus statistics"""
+        return {
+            'connected_agents': list(self.connections.keys()),
+            'subscriptions': {
+                event_type: [aid for aid, _ in subscribers]
+                for event_type, subscribers in self.subscriptions.items()
+            },
+            'offline_queues': {
+                agent_id: len(messages)
+                for agent_id, messages in self.offline_queue.items()
+            },
+            'history_size': len(self.message_history)
+        }
+    
+    def list_connections(self) -> List[Dict[str, Any]]:
+        """List all active connections (standardized API)"""
+        return [
+            {'agent_id': agent_id, 'connected': True}
+            for agent_id in self.connections.keys()
+        ]
+    
+    def list_subscriptions(self) -> List[Dict[str, Any]]:
+        """List all subscriptions (standardized API)"""
+        result = []
+        for event_type, subscribers in self.subscriptions.items():
+            for agent_id, writer in subscribers:
+                result.append({
+                    'agent_id': agent_id,
+                    'event_type': event_type
+                })
+        return result
+    
+    def clear_subscriptions(self) -> int:
+        """Clear all subscriptions (standardized API)"""
+        count = sum(len(subs) for subs in self.subscriptions.values())
+        self.subscriptions.clear()
+        return count
+    
+    # Simplified interface for in-process agents
+    
+    async def publish_simple(self, from_agent: str, event_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Simplified publish interface for in-process agents (no StreamWriter required)"""
+        try:
+            # Create message in same format as regular publish
+            message = {
+                'type': event_type,
+                'from': from_agent,
+                'timestamp': TimestampManager.format_for_message_bus(),
+                **payload
+            }
+            
+            # Log to history
+            self._add_to_history(message)
+            
+            # For in-process agents, we just need to route the message
+            # The orchestrator will handle delivery to subscribed agents
+            
+            return {
+                'status': 'success',
+                'message_id': f"simple_{int(time.time() * 1000)}",
+                'event_type': event_type,
+                'timestamp': message['timestamp']
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in publish_simple: {e}")
+            return {
+                'status': 'error',
+                'error': str(e)
+            }
+
+
+# Initialize message bus instance
+message_bus = MessageBus()
+
+
+@hookimpl
+def ksi_startup(config):
+    """Initialize message bus plugin."""
+    logger.info("Message bus plugin started (consolidated)")
+    return {"plugin.message_bus": {"loaded": True}}
+
+
+@hookimpl
+def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
+    """Handle message bus events."""
+    
+    # Subscribe to events
+    if event_name == "message:subscribe":
+        return handle_subscribe(data)
+    
+    # Unsubscribe from events
+    elif event_name == "message:unsubscribe":
+        return handle_unsubscribe(data)
+    
+    # Publish message
+    elif event_name == "message:publish":
+        return handle_publish(data)
+    
+    # Get subscriptions
+    elif event_name == "message:subscriptions":
+        return handle_get_subscriptions(data)
+    
+    # Legacy PUBLISH/SUBSCRIBE command support
+    elif event_name == "transport:message" and data.get("command") == "PUBLISH":
+        # Convert legacy format
+        params = data.get("parameters", {})
+        return handle_publish({
+            "agent_id": params.get("agent_id"),
+            "event_type": params.get("event_type"),
+            "message": params.get("message", {})
+        })
+    
+    elif event_name == "transport:message" and data.get("command") == "SUBSCRIBE":
+        # Convert legacy format
+        params = data.get("parameters", {})
+        return handle_subscribe({
+            "agent_id": params.get("agent_id"),
+            "event_types": params.get("event_types", [])
+        })
+    
+    # Message bus stats
+    elif event_name == "message_bus:stats":
+        return {"stats": message_bus.get_stats()}
+    
+    return None
+
+
+def handle_subscribe(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle subscription request."""
+    agent_id = data.get("agent_id")
+    event_types = data.get("event_types", [])
+    
+    if not agent_id:
+        return {"error": "agent_id required"}
+    
+    if not event_types:
+        return {"error": "event_types required"}
+    
+    # Track subscriptions per client for unsubscription
+    if agent_id not in client_subscriptions:
+        client_subscriptions[agent_id] = set()
+    
+    client_subscriptions[agent_id].update(event_types)
+    
+    # Subscribe to the message bus
+    success = message_bus.subscribe(agent_id, event_types)
+    
+    if success:
+        return {
+            "status": "subscribed",
+            "agent_id": agent_id,
+            "event_types": event_types
+        }
+    else:
+        return {"error": "Subscription failed - agent not connected"}
+
+
+def handle_unsubscribe(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle unsubscription request."""
+    agent_id = data.get("agent_id")
+    event_types = data.get("event_types", [])
+    
+    if not agent_id:
+        return {"error": "agent_id required"}
+    
+    # If no specific event_types, unsubscribe from all
+    if not event_types and agent_id in client_subscriptions:
+        event_types = list(client_subscriptions[agent_id])
+    
+    if event_types:
+        message_bus.unsubscribe(agent_id, event_types)
+        
+        # Update tracking
+        if agent_id in client_subscriptions:
+            client_subscriptions[agent_id] -= set(event_types)
+            if not client_subscriptions[agent_id]:
+                del client_subscriptions[agent_id]
+    
+    return {
+        "status": "unsubscribed",
+        "agent_id": agent_id,
+        "event_types": event_types
+    }
+
+
+async def handle_publish(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle message publication."""
+    agent_id = data.get("agent_id")
+    event_type = data.get("event_type")
+    message = data.get("message", {})
+    
+    if not agent_id:
+        return {"error": "agent_id required"}
+    
+    if not event_type:
+        return {"error": "event_type required"}
+    
+    try:
+        result = await message_bus.publish(agent_id, event_type, message)
+        return result
+    except Exception as e:
+        logger.error(f"Publish error: {e}")
+        return {"error": str(e)}
+
+
+def handle_get_subscriptions(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Get subscription information."""
+    agent_id = data.get("agent_id")
+    
+    if agent_id:
+        # Get subscriptions for specific agent
+        return {
+            "agent_id": agent_id,
+            "subscriptions": list(client_subscriptions.get(agent_id, []))
+        }
+    else:
+        # Get all subscriptions
+        return {
+            "all_subscriptions": dict(client_subscriptions)
+        }
+
+
+@hookimpl 
+def ksi_plugin_context(context):
+    """Receive plugin context with event emitter."""
+    global event_emitter
+    event_emitter = context.get("emit_event")
+
+
+@hookimpl
+def ksi_shutdown():
+    """Clean up on shutdown."""
+    total_subscriptions = message_bus.clear_subscriptions()
+    client_subscriptions.clear()
+    
+    logger.info("Message bus plugin stopped")
+    return {
+        "plugin.message_bus": {
+            "stopped": True,
+            "total_subscriptions": total_subscriptions
+        }
+    }
+
+
+# Module-level marker for plugin discovery
+ksi_plugin = True

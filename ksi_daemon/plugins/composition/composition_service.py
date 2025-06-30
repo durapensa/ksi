@@ -1,1 +1,825 @@
-#!/usr/bin/env python3\n"""\nComposition Service Plugin\n\nProvides unified declarative composition system for profiles, prompts, and system configs.\nAll configurations in KSI are treated as YAML-based compositions.\n"""\n\nimport asyncio\nimport json\nimport yaml\nimport re\nfrom pathlib import Path\nfrom typing import Dict, Any, Optional, List, Set\nfrom dataclasses import dataclass, field\nimport logging\nimport pluggy\n\nfrom ksi_common.logging import get_logger\nfrom ksi_daemon.plugin_utils import plugin_metadata\nfrom ksi_common import TimestampManager\nfrom ksi_daemon.config import config\n\n# Plugin metadata\nplugin_metadata("composition_service", version="1.0.0",\n                description="Unified declarative composition system")\n\n# Hook implementation marker\nhookimpl = pluggy.HookimplMarker("ksi")\n\n# Module state\nlogger = get_logger("composition_service")\nstate_manager = None  # Will be set during startup\n\n# Base path for compositions (still used for file operations)\nVAR_DIR = Path("var")  # Relative to project root\nCOMPOSITIONS_BASE = VAR_DIR / "lib/compositions"\nFRAGMENTS_BASE = VAR_DIR / "lib/fragments"\nSCHEMAS_BASE = VAR_DIR / "lib/schemas"\n\n\n@dataclass\nclass CompositionComponent:\n    """A single component in a composition."""\n    name: str\n    source: Optional[str] = None\n    composition: Optional[str] = None\n    inline: Optional[Dict[str, Any]] = None\n    template: Optional[str] = None\n    vars: Dict[str, Any] = field(default_factory=dict)\n    condition: Optional[str] = None\n    conditions: Optional[Dict[str, List[str]]] = None\n\n\n@dataclass\nclass Composition:\n    """A complete composition definition."""\n    name: str\n    type: str\n    version: str\n    description: str\n    author: Optional[str] = None\n    extends: Optional[str] = None\n    mixins: List[str] = field(default_factory=list)\n    components: List[CompositionComponent] = field(default_factory=list)\n    variables: Dict[str, Dict[str, Any]] = field(default_factory=dict)\n    metadata: Dict[str, Any] = field(default_factory=dict)\n    \n    @classmethod\n    def from_yaml(cls, data: Dict[str, Any]) -> 'Composition':\n        """Create composition from YAML data."""\n        components = []\n        for comp_data in data.get('components', []):\n            components.append(CompositionComponent(**comp_data))\n        \n        return cls(\n            name=data['name'],\n            type=data['type'],\n            version=data['version'],\n            description=data['description'],\n            author=data.get('author'),\n            extends=data.get('extends'),\n            mixins=data.get('mixins', []),\n            components=components,\n            variables=data.get('variables', {}),\n            metadata=data.get('metadata', {})\n        )\n\n\ndef load_fragment(path: str) -> str:\n    """Load a text fragment from disk (no caching)."""\n    fragment_path = FRAGMENTS_BASE / path\n    if not fragment_path.exists():\n        raise FileNotFoundError(f"Fragment not found: {path}")\n    \n    return fragment_path.read_text()\n\n\ndef substitute_variables(text: str, variables: Dict[str, Any]) -> str:\n    """Substitute {{variable}} placeholders in text."""\n    def replace_var(match):\n        var_name = match.group(1).strip()\n        if var_name in variables:\n            value = variables[var_name]\n            # Handle different value types\n            if isinstance(value, (dict, list)):\n                return json.dumps(value, indent=2)\n            return str(value)\n        return match.group(0)  # Keep original if not found\n    \n    return re.sub(r'\{\{([^}]+)\}\}', replace_var, text)\n\n\ndef evaluate_condition(condition: str, variables: Dict[str, Any]) -> bool:\n    """Evaluate a simple condition expression."""\n    # Substitute variables in condition\n    condition = substitute_variables(condition, variables)\n    \n    # Remove {{ }} if still present (means variable was undefined)\n    if '{{' in condition:\n        return False\n    \n    # Simple evaluation - just check for truthiness\n    # In a real implementation, could use ast.literal_eval or similar\n    condition = condition.strip()\n    if condition.lower() in ('true', '1', 'yes'):\n        return True\n    elif condition.lower() in ('false', '0', 'no', ''):\n        return False\n    else:\n        # If it's any other non-empty string, consider it true\n        return bool(condition)\n\n\ndef evaluate_conditions(conditions: Dict[str, List[str]], variables: Dict[str, Any]) -> bool:\n    """Evaluate complex condition expressions."""\n    if 'all_of' in conditions:\n        for cond in conditions['all_of']:\n            if not evaluate_condition(cond, variables):\n                return False\n    \n    if 'any_of' in conditions:\n        any_true = False\n        for cond in conditions['any_of']:\n            if evaluate_condition(cond, variables):\n                any_true = True\n                break\n        if not any_true:\n            return False\n    \n    if 'none_of' in conditions:\n        for cond in conditions['none_of']:\n            if evaluate_condition(cond, variables):\n                return False\n    \n    return True\n\n\nasync def load_composition(name: str, comp_type: Optional[str] = None) -> Composition:\n    """Load a composition by name using index."""\n    if not state_manager:\n        raise RuntimeError("Composition index not available")\n        \n    # Determine full name\n    full_name = f"local:{name}" if ':' not in name else name\n    \n    # Get file path from index\n    file_path = state_manager.get_composition_path(full_name)\n    if not file_path or not file_path.exists():\n        raise FileNotFoundError(f"Composition not found: {name}")\n    \n    # Load directly from file (no cache)\n    logger.debug(f"Loading composition from {file_path}")\n    data = yaml.safe_load(file_path.read_text())\n    \n    # Validate type if specified\n    if comp_type and data.get('type') != comp_type:\n        raise ValueError(f"Composition {name} is type {data.get('type')}, expected {comp_type}")\n    \n    return Composition.from_yaml(data)\n\n\nasync def resolve_composition(\n    composition: Composition,\n    variables: Dict[str, Any],\n    visited: Optional[Set[str]] = None\n) -> Dict[str, Any]:\n    """Resolve a composition into its final form."""\n    if visited is None:\n        visited = set()\n    \n    if composition.name in visited:\n        raise ValueError(f"Circular reference detected: {composition.name}")\n    \n    visited.add(composition.name)\n    result = {}\n    \n    # Handle inheritance\n    if composition.extends:\n        base = await load_composition(composition.extends, composition.type)\n        base_result = await resolve_composition(base, variables, visited.copy())\n        result.update(base_result)\n    \n    # Handle mixins\n    for mixin_name in composition.mixins:\n        mixin = await load_composition(mixin_name, composition.type)\n        mixin_result = await resolve_composition(mixin, variables, visited.copy())\n        # Merge mixin results\n        for key, value in mixin_result.items():\n            if key in result and isinstance(result[key], dict) and isinstance(value, dict):\n                result[key].update(value)\n            else:\n                result[key] = value\n    \n    # Apply variable defaults\n    for var_name, var_def in composition.variables.items():\n        if var_name not in variables and 'default' in var_def:\n            variables[var_name] = var_def['default']\n    \n    # Process components\n    for component in composition.components:\n        # Check conditions\n        if component.condition and not evaluate_condition(component.condition, variables):\n            continue\n        \n        if component.conditions and not evaluate_conditions(component.conditions, variables):\n            continue\n        \n        # Merge component vars with global vars\n        comp_vars = {**variables, **component.vars}\n        \n        # Process component based on type\n        if component.source:\n            # Load fragment\n            content = load_fragment(component.source)\n            content = substitute_variables(content, comp_vars)\n            result[component.name] = content\n            \n        elif component.composition:\n            # Nested composition\n            nested = await load_composition(component.composition)\n            nested_result = await resolve_composition(nested, comp_vars, visited.copy())\n            result[component.name] = nested_result\n            \n        elif component.inline:\n            # Inline content\n            result[component.name] = component.inline\n            \n        elif component.template:\n            # Template string\n            content = substitute_variables(component.template, comp_vars)\n            result[component.name] = content\n    \n    # Add metadata\n    result['_metadata'] = {\n        'composition': composition.name,\n        'type': composition.type,\n        'version': composition.version,\n        'resolved_at': TimestampManager.format_for_logging()\n    }\n    \n    return result\n\n\nasync def compose_profile(name: str, variables: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:\n    """Compose an agent profile."""\n    if variables is None:\n        variables = {}\n    \n    composition = await load_composition(name, "profile")\n    result = await resolve_composition(composition, variables)\n    \n    # Extract and structure profile data\n    profile = {\n        'name': name,\n        'composition': composition.name,\n        **result.get('agent_config', {}),\n        '_metadata': result['_metadata']\n    }\n    \n    # Add composed prompt if present\n    if 'prompt' in result:\n        profile['composed_prompt'] = result['prompt']\n    \n    return profile\n\n\nasync def compose_prompt(name: str, variables: Optional[Dict[str, Any]] = None) -> str:\n    """Compose a prompt template."""\n    if variables is None:\n        variables = {}\n    \n    composition = await load_composition(name, "prompt")\n    result = await resolve_composition(composition, variables)\n    \n    # Concatenate all text components\n    prompt_parts = []\n    for key, value in result.items():\n        if key.startswith('_'):\n            continue\n        if isinstance(value, str):\n            prompt_parts.append(value)\n        elif isinstance(value, dict) and 'content' in value:\n            prompt_parts.append(value['content'])\n    \n    return '\n\n'.join(prompt_parts)\n\n\n# Event handlers\n@hookimpl\ndef ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):\n    """Handle composition events."""\n    \n    if event_name == "composition:compose":\n        # Generic composition\n        return handle_compose(data)\n    \n    elif event_name == "composition:profile":\n        # Profile-specific composition\n        return handle_compose_profile(data)\n    \n    elif event_name == "composition:prompt":\n        # Prompt-specific composition\n        return handle_compose_prompt(data)\n    \n    elif event_name == "composition:validate":\n        # Validate composition\n        return handle_validate(data)\n    \n    elif event_name == "composition:discover":\n        # Discover available compositions\n        return handle_discover(data)\n    \n    elif event_name == "composition:list":\n        # List compositions by type\n        return handle_list(data)\n    \n    elif event_name == "composition:get":\n        # Get composition definition\n        return handle_get(data)\n    \n    elif event_name == "composition:reload":\n        # Reload compositions from disk\n        return handle_reload(data)\n    \n    elif event_name == "composition:load_tree":\n        # Universal tree loading based on declared strategy\n        return handle_load_tree(data)\n    \n    elif event_name == "composition:load_bulk":\n        # Universal bulk loading for agent efficiency\n        return handle_load_bulk(data)\n    \n    elif event_name == "composition:select":\n        # Dynamic composition selection\n        return handle_select_composition(data)\n    \n    elif event_name == "composition:create":\n        # Runtime composition creation\n        return handle_create_composition(data)\n    \n    return None\n\n\nasync def handle_compose(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Handle generic composition request."""\n    name = data.get('name')\n    comp_type = data.get('type')\n    variables = data.get('variables', {})\n    \n    if not name:\n        return {'error': 'Composition name required'}\n    \n    try:\n        composition = await load_composition(name, comp_type)\n        result = await resolve_composition(composition, variables)\n        return {\n            'status': 'success',\n            'result': result\n        }\n    except Exception as e:\n        logger.error(f"Composition failed: {e}")\n        return {'error': str(e)}\n\n\nasync def handle_compose_profile(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Handle profile composition request."""\n    name = data.get('name')\n    variables = data.get('variables', {})\n    \n    if not name:\n        return {'error': 'Profile name required'}\n    \n    try:\n        profile = await compose_profile(name, variables)\n        return {\n            'status': 'success',\n            'profile': profile\n        }\n    except Exception as e:\n        logger.error(f"Profile composition failed: {e}")\n        return {'error': str(e)}\n\n\nasync def handle_compose_prompt(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Handle prompt composition request."""\n    name = data.get('name')\n    variables = data.get('variables', {})\n    \n    if not name:\n        return {'error': 'Prompt name required'}\n    \n    try:\n        prompt = await compose_prompt(name, variables)\n        return {\n            'status': 'success',\n            'prompt': prompt\n        }\n    except Exception as e:\n        logger.error(f"Prompt composition failed: {e}")\n        return {'error': str(e)}\n\n\nasync def handle_validate(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Validate a composition."""\n    name = data.get('name')\n    comp_type = data.get('type')\n    \n    if not name:\n        return {'error': 'Composition name required'}\n    \n    try:\n        composition = await load_composition(name, comp_type)\n        \n        # Basic validation\n        errors = []\n        warnings = []\n        \n        # Check required fields\n        if not composition.version:\n            errors.append("Missing version field")\n        \n        # Check variable definitions\n        for var_name, var_def in composition.variables.items():\n            if 'type' not in var_def:\n                warnings.append(f"Variable '{var_name}' missing type definition")\n        \n        # Try to resolve with empty variables to check for issues\n        try:\n            await resolve_composition(composition, {})\n        except Exception as e:\n            errors.append(f"Resolution error: {str(e)}")\n        \n        return {\n            'status': 'valid' if not errors else 'invalid',\n            'errors': errors,\n            'warnings': warnings\n        }\n        \n    except Exception as e:\n        return {\n            'status': 'error',\n            'error': str(e)\n        }\n\n\nasync def handle_discover(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Discover available compositions using index."""\n    if not state_manager:\n        return {'error': 'Composition index not available'}\n    \n    # Use index for fast discovery\n    discovered = state_manager.discover_compositions(data)\n    \n    return {\n        'status': 'success',\n        'compositions': discovered,\n        'count': len(discovered)\n    }\n\n\nasync def handle_list(data: Dict[str, Any]) -> Dict[str, Any]:\n    """List all compositions of a given type."""\n    comp_type = data.get('type', 'all')\n    \n    compositions = []\n    \n    if comp_type == 'all':\n        types = ['profile', 'prompt', 'system']\n    else:\n        types = [comp_type]\n    \n    for t in types:\n        discovered = await handle_discover({'type': t})\n        compositions.extend(discovered.get('compositions', []))\n    \n    return {\n        'status': 'success',\n        'compositions': compositions,\n        'count': len(compositions)\n    }\n\n\nasync def handle_get(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Get a composition definition."""\n    name = data.get('name')\n    comp_type = data.get('type')\n    \n    if not name:\n        return {'error': 'Composition name required'}\n    \n    try:\n        composition = await load_composition(name, comp_type)\n        \n        return {\n            'status': 'success',\n            'composition': {\n                'name': composition.name,\n                'type': composition.type,\n                'version': composition.version,\n                'description': composition.description,\n                'author': composition.author,\n                'extends': composition.extends,\n                'mixins': composition.mixins,\n                'components': [\n                    {\n                        'name': c.name,\n                        'source': c.source,\n                        'composition': c.composition,\n                        'has_inline': c.inline is not None,\n                        'has_template': c.template is not None,\n                        'condition': c.condition,\n                        'vars': list(c.vars.keys())\n                    }\n                    for c in composition.components\n                ],\n                'variables': composition.variables,\n                'metadata': composition.metadata\n            }\n        }\n        \n    except Exception as e:\n        return {'error': str(e)}\n\n\nasync def handle_reload(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Reload compositions by rebuilding index."""\n    if not state_manager:\n        return {'error': 'Composition index not available'}\n    \n    # Rebuild index from filesystem\n    indexed_count = state_manager.rebuild_composition_index()\n    \n    logger.info(f"Rebuilt composition index - {indexed_count} compositions")\n    \n    return {\n        'status': 'success',\n        'indexed_count': indexed_count,\n        'message': f'Reindexed {indexed_count} compositions'\n    }\n\n\nasync def handle_load_tree(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Universal tree loading based on composition's declared strategy."""\n    if not state_manager:\n        return {'error': 'Composition index not available'}\n    \n    name = data.get('name')\n    max_depth = data.get('max_depth', 5)\n    \n    if not name:\n        return {'error': 'Composition name required'}\n    \n    try:\n        # Get composition metadata to check loading strategy\n        metadata = state_manager.get_composition_metadata(f"local:{name}")\n        if not metadata:\n            return {'error': f'Composition not found: {name}'}\n        \n        loading_strategy = metadata.get('loading_strategy', 'single')\n        \n        if loading_strategy == 'single':\n            # Just load the one composition\n            composition = await load_composition(name)\n            return {\n                'status': 'success',\n                'strategy': 'single',\n                'compositions': {name: composition}\n            }\n        \n        elif loading_strategy == 'tree':\n            # Load composition + dependencies recursively\n            tree = {}\n            to_load = [(name, 0)]\n            \n            while to_load:\n                comp_name, depth = to_load.pop(0)\n                if depth > max_depth or comp_name in tree:\n                    continue\n                \n                comp = await load_composition(comp_name)\n                tree[comp_name] = comp\n                \n                # Add dependencies to load queue\n                for dep in comp.dependencies or []:\n                    to_load.append((dep, depth + 1))\n                    \n                # Add extends parent\n                if comp.extends:\n                    to_load.append((comp.extends, depth + 1))\n            \n            return {\n                'status': 'success', \n                'strategy': 'tree',\n                'compositions': tree,\n                'loaded_count': len(tree)\n            }\n        \n        else:\n            return {'error': f'Unknown loading strategy: {loading_strategy}'}\n            \n    except Exception as e:\n        return {'error': str(e)}\n\n\nasync def handle_load_bulk(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Universal bulk loading for agent efficiency."""\n    if not state_manager:\n        return {'error': 'Composition index not available'}\n    \n    names = data.get('names', [])\n    if not names:\n        return {'error': 'Composition names list required'}\n    \n    try:\n        # Load all compositions in parallel\n        compositions = {}\n        failed = {}\n        \n        for name in names:\n            try:\n                comp = await load_composition(name)\n                compositions[name] = comp\n            except Exception as e:\n                failed[name] = str(e)\n        \n        return {\n            'status': 'success',\n            'compositions': compositions,\n            'failed': failed,\n            'loaded_count': len(compositions),\n            'failed_count': len(failed)\n        }\n        \n    except Exception as e:\n        return {'error': str(e)}\n\n\nasync def handle_select_composition(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Handle dynamic composition selection based on context."""\n    try:\n        # Import selector dynamically to avoid circular imports\n        from prompts.composition_selector import CompositionSelector, SelectionContext\n        \n        # Build selection context\n        context = SelectionContext(\n            agent_id=data.get('agent_id', 'unknown'),\n            role=data.get('role'),\n            capabilities=data.get('capabilities', []),\n            task_description=data.get('task'),\n            preferred_style=data.get('style'),\n            context_variables=data.get('context', {})\n        )\n        \n        # Use selector to find best composition\n        selector = CompositionSelector()\n        result = await selector.select_composition(context)\n        \n        # Get additional suggestions if requested\n        max_suggestions = data.get('max_suggestions', 1)\n        suggestions = []\n        \n        if max_suggestions > 1:\n            # Get all scored compositions from selector\n            all_compositions = await selector.get_scored_compositions(context)\n            suggestions = [\n                {\n                    'name': name,\n                    'score': score,\n                    'reasons': reasons\n                }\n                for name, score, reasons in all_compositions[:max_suggestions]\n            ]\n        \n        return {\n            'status': 'success',\n            'selected': result.composition_name,\n            'score': result.score,\n            'reasons': result.reasons,\n            'suggestions': suggestions,\n            'fallback_used': result.fallback_used\n        }\n        \n    except Exception as e:\n        logger.error(f"Composition selection failed: {e}")\n        return {'error': str(e)}\n\n\nasync def handle_create_composition(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Handle runtime composition creation."""\n    try:\n        name = data.get('name')\n        if not name:\n            # Generate unique name\n            import uuid\n            name = f"dynamic_{uuid.uuid4().hex[:8]}"\n        \n        comp_type = data.get('type', 'profile')\n        base_composition = data.get('extends', 'base_agent')\n        \n        # Build composition structure\n        composition = {\n            'name': name,\n            'type': comp_type,\n            'version': '1.0.0',\n            'description': data.get('description', f'Dynamically created {comp_type}'),\n            'author': data.get('author', 'dynamic_agent'),\n            'extends': base_composition,\n            'components': [],\n            'metadata': data.get('metadata', {})\n        }\n        \n        # Add components\n        if 'components' in data:\n            composition['components'] = data['components']\n        else:\n            # Default components based on type\n            if comp_type == 'profile':\n                composition['components'] = [\n                    {\n                        'name': 'agent_config',\n                        'inline': data.get('config', {\n                            'role': data.get('role', 'assistant'),\n                            'model': data.get('model', 'sonnet'),\n                            'capabilities': data.get('capabilities', []),\n                            'tools': data.get('tools', [])\n                        })\n                    }\n                ]\n                if 'prompt' in data:\n                    composition['components'].append({\n                        'name': 'prompt',\n                        'template': data['prompt']\n                    })\n        \n        # Add metadata for dynamic composition\n        composition['metadata'].update({\n            'dynamic': True,\n            'created_at': TimestampManager.format_for_logging(),\n            'parent_agent': data.get('agent_id')\n        })\n        \n        # Save to temporary location (in-memory cache)\n        # In production, could save to disk or state service\n        dynamic_cache_key = f"dynamic_composition:{name}"\n        if state_manager:\n            state_manager.set_state(dynamic_cache_key, composition)\n        \n        return {\n            'status': 'success',\n            'name': name,\n            'composition': composition,\n            'message': f'Created dynamic composition: {name}'\n        }\n        \n    except Exception as e:\n        logger.error(f"Dynamic composition creation failed: {e}")\n        return {'error': str(e)}\n\n\n# Plugin lifecycle\n@hookimpl(trylast=True)  # Run after state service initializes\ndef ksi_startup(config):\n    """Initialize composition service on startup."""\n    global state_manager\n    \n    logger.info("Composition service starting up...")\n    \n    # Get state manager reference from state service\n    try:\n        # Import the state service to get its manager instance\n        from ksi_daemon.plugins.state import state_service\n        state_manager = state_service.state_manager\n        \n        if state_manager:\n            logger.info("State manager available, rebuilding composition index...")\n            # Rebuild composition index on startup\n            indexed_count = state_manager.rebuild_composition_index()\n            logger.info(f"Composition service started - indexed {indexed_count} compositions")\n        else:\n            logger.error("State manager not available from state service")\n        \n    except Exception as e:\n        logger.error(f"Failed to initialize composition index: {e}")\n        import traceback\n        traceback.print_exc()\n        state_manager = None\n    \n    # Ensure directories exist\n    COMPOSITIONS_BASE.mkdir(parents=True, exist_ok=True)\n    FRAGMENTS_BASE.mkdir(parents=True, exist_ok=True)\n    SCHEMAS_BASE.mkdir(parents=True, exist_ok=True)\n    \n    return {"status": "composition_service_ready"}\n\n\n@hookimpl\ndef ksi_shutdown():\n    """Clean up on shutdown."""\n    logger.info("Composition service stopped")\n    return {"status": "composition_service_stopped"}\n\n\n# Module-level marker for plugin discovery\nksi_plugin = True
+#!/usr/bin/env python3
+"""
+Composition Service Plugin
+
+Provides unified declarative composition system for profiles, prompts, and system configs.
+All configurations in KSI are treated as YAML-based compositions.
+"""
+
+import asyncio
+import json
+import yaml
+import re
+from pathlib import Path
+from typing import Dict, Any, Optional, List, Set
+from dataclasses import dataclass, field
+import logging
+import pluggy
+
+from ksi_daemon.plugin_utils import plugin_metadata
+from ksi_common import TimestampManager
+from ksi_daemon.config import config
+from ksi_common.logging import get_logger
+
+# Plugin metadata
+plugin_metadata("composition_service", version="1.0.0",
+                description="Unified declarative composition system")
+
+# Hook implementation marker
+hookimpl = pluggy.HookimplMarker("ksi")
+
+# Module state
+logger = get_logger("composition_service")
+state_manager = None  # Will be set during startup
+
+# Base path for compositions (still used for file operations)
+VAR_DIR = Path("var")  # Relative to project root
+COMPOSITIONS_BASE = VAR_DIR / "lib/compositions"
+FRAGMENTS_BASE = VAR_DIR / "lib/fragments"
+SCHEMAS_BASE = VAR_DIR / "lib/schemas"
+
+
+@dataclass
+class CompositionComponent:
+    """A single component in a composition."""
+    name: str
+    source: Optional[str] = None
+    composition: Optional[str] = None
+    inline: Optional[Dict[str, Any]] = None
+    template: Optional[str] = None
+    vars: Dict[str, Any] = field(default_factory=dict)
+    condition: Optional[str] = None
+    conditions: Optional[Dict[str, List[str]]] = None
+
+
+@dataclass
+class Composition:
+    """A complete composition definition."""
+    name: str
+    type: str
+    version: str
+    description: str
+    author: Optional[str] = None
+    extends: Optional[str] = None
+    mixins: List[str] = field(default_factory=list)
+    components: List[CompositionComponent] = field(default_factory=list)
+    variables: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    @classmethod
+    def from_yaml(cls, data: Dict[str, Any]) -> 'Composition':
+        """Create composition from YAML data."""
+        components = []
+        for comp_data in data.get('components', []):
+            components.append(CompositionComponent(**comp_data))
+        
+        return cls(
+            name=data['name'],
+            type=data['type'],
+            version=data['version'],
+            description=data['description'],
+            author=data.get('author'),
+            extends=data.get('extends'),
+            mixins=data.get('mixins', []),
+            components=components,
+            variables=data.get('variables', {}),
+            metadata=data.get('metadata', {})
+        )
+
+
+def load_fragment(path: str) -> str:
+    """Load a text fragment from disk (no caching)."""
+    fragment_path = FRAGMENTS_BASE / path
+    if not fragment_path.exists():
+        raise FileNotFoundError(f"Fragment not found: {path}")
+    
+    return fragment_path.read_text()
+
+
+def substitute_variables(text: str, variables: Dict[str, Any]) -> str:
+    """Substitute {{variable}} placeholders in text."""
+    def replace_var(match):
+        var_name = match.group(1).strip()
+        if var_name in variables:
+            value = variables[var_name]
+            # Handle different value types
+            if isinstance(value, (dict, list)):
+                return json.dumps(value, indent=2)
+            return str(value)
+        return match.group(0)  # Keep original if not found
+    
+    return re.sub(r'\{\{([^}]+)\}\}', replace_var, text)
+
+
+def evaluate_condition(condition: str, variables: Dict[str, Any]) -> bool:
+    """Evaluate a simple condition expression."""
+    # Substitute variables in condition
+    condition = substitute_variables(condition, variables)
+    
+    # Remove {{ }} if still present (means variable was undefined)
+    if '{{' in condition:
+        return False
+    
+    # Simple evaluation - just check for truthiness
+    # In a real implementation, could use ast.literal_eval or similar
+    condition = condition.strip()
+    if condition.lower() in ('true', '1', 'yes'):
+        return True
+    elif condition.lower() in ('false', '0', 'no', ''):
+        return False
+    else:
+        # If it's any other non-empty string, consider it true
+        return bool(condition)
+
+
+def evaluate_conditions(conditions: Dict[str, List[str]], variables: Dict[str, Any]) -> bool:
+    """Evaluate complex condition expressions."""
+    if 'all_of' in conditions:
+        for cond in conditions['all_of']:
+            if not evaluate_condition(cond, variables):
+                return False
+    
+    if 'any_of' in conditions:
+        any_true = False
+        for cond in conditions['any_of']:
+            if evaluate_condition(cond, variables):
+                any_true = True
+                break
+        if not any_true:
+            return False
+    
+    if 'none_of' in conditions:
+        for cond in conditions['none_of']:
+            if evaluate_condition(cond, variables):
+                return False
+    
+    return True
+
+
+async def load_composition(name: str, comp_type: Optional[str] = None) -> Composition:
+    """Load a composition by name using index."""
+    if not state_manager:
+        raise RuntimeError("Composition index not available")
+        
+    # Determine full name
+    full_name = f"local:{name}" if ':' not in name else name
+    
+    # Get file path from index
+    file_path = state_manager.get_composition_path(full_name)
+    if not file_path or not file_path.exists():
+        raise FileNotFoundError(f"Composition not found: {name}")
+    
+    # Load directly from file (no cache)
+    logger.debug(f"Loading composition from {file_path}")
+    data = yaml.safe_load(file_path.read_text())
+    
+    # Validate type if specified
+    if comp_type and data.get('type') != comp_type:
+        raise ValueError(f"Composition {name} is type {data.get('type')}, expected {comp_type}")
+    
+    return Composition.from_yaml(data)
+
+
+async def resolve_composition(
+    composition: Composition,
+    variables: Dict[str, Any],
+    visited: Optional[Set[str]] = None
+) -> Dict[str, Any]:
+    """Resolve a composition into its final form."""
+    if visited is None:
+        visited = set()
+    
+    if composition.name in visited:
+        raise ValueError(f"Circular reference detected: {composition.name}")
+    
+    visited.add(composition.name)
+    result = {}
+    
+    # Handle inheritance
+    if composition.extends:
+        base = await load_composition(composition.extends, composition.type)
+        base_result = await resolve_composition(base, variables, visited.copy())
+        result.update(base_result)
+    
+    # Handle mixins
+    for mixin_name in composition.mixins:
+        mixin = await load_composition(mixin_name, composition.type)
+        mixin_result = await resolve_composition(mixin, variables, visited.copy())
+        # Merge mixin results
+        for key, value in mixin_result.items():
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                result[key].update(value)
+            else:
+                result[key] = value
+    
+    # Apply variable defaults
+    for var_name, var_def in composition.variables.items():
+        if var_name not in variables and 'default' in var_def:
+            variables[var_name] = var_def['default']
+    
+    # Process components
+    for component in composition.components:
+        # Check conditions
+        if component.condition and not evaluate_condition(component.condition, variables):
+            continue
+        
+        if component.conditions and not evaluate_conditions(component.conditions, variables):
+            continue
+        
+        # Merge component vars with global vars
+        comp_vars = {**variables, **component.vars}
+        
+        # Process component based on type
+        if component.source:
+            # Load fragment
+            content = load_fragment(component.source)
+            content = substitute_variables(content, comp_vars)
+            result[component.name] = content
+            
+        elif component.composition:
+            # Nested composition
+            nested = await load_composition(component.composition)
+            nested_result = await resolve_composition(nested, comp_vars, visited.copy())
+            result[component.name] = nested_result
+            
+        elif component.inline:
+            # Inline content
+            result[component.name] = component.inline
+            
+        elif component.template:
+            # Template string
+            content = substitute_variables(component.template, comp_vars)
+            result[component.name] = content
+    
+    # Add metadata
+    result['_metadata'] = {
+        'composition': composition.name,
+        'type': composition.type,
+        'version': composition.version,
+        'resolved_at': TimestampManager.format_for_logging()
+    }
+    
+    return result
+
+
+async def compose_profile(name: str, variables: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Compose an agent profile."""
+    if variables is None:
+        variables = {}
+    
+    composition = await load_composition(name, "profile")
+    result = await resolve_composition(composition, variables)
+    
+    # Extract and structure profile data
+    profile = {
+        'name': name,
+        'composition': composition.name,
+        **result.get('agent_config', {}),
+        '_metadata': result['_metadata']
+    }
+    
+    # Add composed prompt if present
+    if 'prompt' in result:
+        profile['composed_prompt'] = result['prompt']
+    
+    return profile
+
+
+async def compose_prompt(name: str, variables: Optional[Dict[str, Any]] = None) -> str:
+    """Compose a prompt template."""
+    if variables is None:
+        variables = {}
+    
+    composition = await load_composition(name, "prompt")
+    result = await resolve_composition(composition, variables)
+    
+    # Concatenate all text components
+    prompt_parts = []
+    for key, value in result.items():
+        if key.startswith('_'):
+            continue
+        if isinstance(value, str):
+            prompt_parts.append(value)
+        elif isinstance(value, dict) and 'content' in value:
+            prompt_parts.append(value['content'])
+    
+    return '\n\n'.join(prompt_parts)
+
+
+# Event handlers
+@hookimpl
+def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
+    """Handle composition events."""
+    
+    if event_name == "composition:compose":
+        # Generic composition
+        return handle_compose(data)
+    
+    elif event_name == "composition:profile":
+        # Profile-specific composition
+        return handle_compose_profile(data)
+    
+    elif event_name == "composition:prompt":
+        # Prompt-specific composition
+        return handle_compose_prompt(data)
+    
+    elif event_name == "composition:validate":
+        # Validate composition
+        return handle_validate(data)
+    
+    elif event_name == "composition:discover":
+        # Discover available compositions
+        return handle_discover(data)
+    
+    elif event_name == "composition:list":
+        # List compositions by type
+        return handle_list(data)
+    
+    elif event_name == "composition:get":
+        # Get composition definition
+        return handle_get(data)
+    
+    elif event_name == "composition:reload":
+        # Reload compositions from disk
+        return handle_reload(data)
+    
+    elif event_name == "composition:load_tree":
+        # Universal tree loading based on declared strategy
+        return handle_load_tree(data)
+    
+    elif event_name == "composition:load_bulk":
+        # Universal bulk loading for agent efficiency
+        return handle_load_bulk(data)
+    
+    elif event_name == "composition:select":
+        # Dynamic composition selection
+        return handle_select_composition(data)
+    
+    elif event_name == "composition:create":
+        # Runtime composition creation
+        return handle_create_composition(data)
+    
+    return None
+
+
+async def handle_compose(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle generic composition request."""
+    name = data.get('name')
+    comp_type = data.get('type')
+    variables = data.get('variables', {})
+    
+    if not name:
+        return {'error': 'Composition name required'}
+    
+    try:
+        composition = await load_composition(name, comp_type)
+        result = await resolve_composition(composition, variables)
+        return {
+            'status': 'success',
+            'result': result
+        }
+    except Exception as e:
+        logger.error(f"Composition failed: {e}")
+        return {'error': str(e)}
+
+
+async def handle_compose_profile(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle profile composition request."""
+    name = data.get('name')
+    variables = data.get('variables', {})
+    
+    if not name:
+        return {'error': 'Profile name required'}
+    
+    try:
+        profile = await compose_profile(name, variables)
+        return {
+            'status': 'success',
+            'profile': profile
+        }
+    except Exception as e:
+        logger.error(f"Profile composition failed: {e}")
+        return {'error': str(e)}
+
+
+async def handle_compose_prompt(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle prompt composition request."""
+    name = data.get('name')
+    variables = data.get('variables', {})
+    
+    if not name:
+        return {'error': 'Prompt name required'}
+    
+    try:
+        prompt = await compose_prompt(name, variables)
+        return {
+            'status': 'success',
+            'prompt': prompt
+        }
+    except Exception as e:
+        logger.error(f"Prompt composition failed: {e}")
+        return {'error': str(e)}
+
+
+async def handle_validate(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate a composition."""
+    name = data.get('name')
+    comp_type = data.get('type')
+    
+    if not name:
+        return {'error': 'Composition name required'}
+    
+    try:
+        composition = await load_composition(name, comp_type)
+        
+        # Basic validation
+        errors = []
+        warnings = []
+        
+        # Check required fields
+        if not composition.version:
+            errors.append("Missing version field")
+        
+        # Check variable definitions
+        for var_name, var_def in composition.variables.items():
+            if 'type' not in var_def:
+                warnings.append(f"Variable '{var_name}' missing type definition")
+        
+        # Try to resolve with empty variables to check for issues
+        try:
+            await resolve_composition(composition, {})
+        except Exception as e:
+            errors.append(f"Resolution error: {str(e)}")
+        
+        return {
+            'status': 'valid' if not errors else 'invalid',
+            'errors': errors,
+            'warnings': warnings
+        }
+        
+    except Exception as e:
+        return {
+            'status': 'error',
+            'error': str(e)
+        }
+
+
+async def handle_discover(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Discover available compositions using index."""
+    if not state_manager:
+        return {'error': 'Composition index not available'}
+    
+    # Use index for fast discovery
+    discovered = state_manager.discover_compositions(data)
+    
+    return {
+        'status': 'success',
+        'compositions': discovered,
+        'count': len(discovered)
+    }
+
+
+async def handle_list(data: Dict[str, Any]) -> Dict[str, Any]:
+    """List all compositions of a given type."""
+    comp_type = data.get('type', 'all')
+    
+    compositions = []
+    
+    if comp_type == 'all':
+        types = ['profile', 'prompt', 'system']
+    else:
+        types = [comp_type]
+    
+    for t in types:
+        discovered = await handle_discover({'type': t})
+        compositions.extend(discovered.get('compositions', []))
+    
+    return {
+        'status': 'success',
+        'compositions': compositions,
+        'count': len(compositions)
+    }
+
+
+async def handle_get(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Get a composition definition."""
+    name = data.get('name')
+    comp_type = data.get('type')
+    
+    if not name:
+        return {'error': 'Composition name required'}
+    
+    try:
+        composition = await load_composition(name, comp_type)
+        
+        return {
+            'status': 'success',
+            'composition': {
+                'name': composition.name,
+                'type': composition.type,
+                'version': composition.version,
+                'description': composition.description,
+                'author': composition.author,
+                'extends': composition.extends,
+                'mixins': composition.mixins,
+                'components': [
+                    {
+                        'name': c.name,
+                        'source': c.source,
+                        'composition': c.composition,
+                        'has_inline': c.inline is not None,
+                        'has_template': c.template is not None,
+                        'condition': c.condition,
+                        'vars': list(c.vars.keys())
+                    }
+                    for c in composition.components
+                ],
+                'variables': composition.variables,
+                'metadata': composition.metadata
+            }
+        }
+        
+    except Exception as e:
+        return {'error': str(e)}
+
+
+async def handle_reload(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Reload compositions by rebuilding index."""
+    if not state_manager:
+        return {'error': 'Composition index not available'}
+    
+    # Rebuild index from filesystem
+    indexed_count = state_manager.rebuild_composition_index()
+    
+    logger.info(f"Rebuilt composition index - {indexed_count} compositions")
+    
+    return {
+        'status': 'success',
+        'indexed_count': indexed_count,
+        'message': f'Reindexed {indexed_count} compositions'
+    }
+
+
+async def handle_load_tree(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Universal tree loading based on composition's declared strategy."""
+    if not state_manager:
+        return {'error': 'Composition index not available'}
+    
+    name = data.get('name')
+    max_depth = data.get('max_depth', 5)
+    
+    if not name:
+        return {'error': 'Composition name required'}
+    
+    try:
+        # Get composition metadata to check loading strategy
+        metadata = state_manager.get_composition_metadata(f"local:{name}")
+        if not metadata:
+            return {'error': f'Composition not found: {name}'}
+        
+        loading_strategy = metadata.get('loading_strategy', 'single')
+        
+        if loading_strategy == 'single':
+            # Just load the one composition
+            composition = await load_composition(name)
+            return {
+                'status': 'success',
+                'strategy': 'single',
+                'compositions': {name: composition}
+            }
+        
+        elif loading_strategy == 'tree':
+            # Load composition + dependencies recursively
+            tree = {}
+            to_load = [(name, 0)]
+            
+            while to_load:
+                comp_name, depth = to_load.pop(0)
+                if depth > max_depth or comp_name in tree:
+                    continue
+                
+                comp = await load_composition(comp_name)
+                tree[comp_name] = comp
+                
+                # Add dependencies to load queue
+                for dep in comp.dependencies or []:
+                    to_load.append((dep, depth + 1))
+                    
+                # Add extends parent
+                if comp.extends:
+                    to_load.append((comp.extends, depth + 1))
+            
+            return {
+                'status': 'success', 
+                'strategy': 'tree',
+                'compositions': tree,
+                'loaded_count': len(tree)
+            }
+        
+        else:
+            return {'error': f'Unknown loading strategy: {loading_strategy}'}
+            
+    except Exception as e:
+        return {'error': str(e)}
+
+
+async def handle_load_bulk(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Universal bulk loading for agent efficiency."""
+    if not state_manager:
+        return {'error': 'Composition index not available'}
+    
+    names = data.get('names', [])
+    if not names:
+        return {'error': 'Composition names list required'}
+    
+    try:
+        # Load all compositions in parallel
+        compositions = {}
+        failed = {}
+        
+        for name in names:
+            try:
+                comp = await load_composition(name)
+                compositions[name] = comp
+            except Exception as e:
+                failed[name] = str(e)
+        
+        return {
+            'status': 'success',
+            'compositions': compositions,
+            'failed': failed,
+            'loaded_count': len(compositions),
+            'failed_count': len(failed)
+        }
+        
+    except Exception as e:
+        return {'error': str(e)}
+
+
+async def handle_select_composition(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle dynamic composition selection based on context."""
+    try:
+        # Import selector dynamically to avoid circular imports
+        from prompts.composition_selector import CompositionSelector, SelectionContext
+        
+        # Build selection context
+        context = SelectionContext(
+            agent_id=data.get('agent_id', 'unknown'),
+            role=data.get('role'),
+            capabilities=data.get('capabilities', []),
+            task_description=data.get('task'),
+            preferred_style=data.get('style'),
+            context_variables=data.get('context', {})
+        )
+        
+        # Use selector to find best composition
+        selector = CompositionSelector()
+        result = await selector.select_composition(context)
+        
+        # Get additional suggestions if requested
+        max_suggestions = data.get('max_suggestions', 1)
+        suggestions = []
+        
+        if max_suggestions > 1:
+            # Get all scored compositions from selector
+            all_compositions = await selector.get_scored_compositions(context)
+            suggestions = [
+                {
+                    'name': name,
+                    'score': score,
+                    'reasons': reasons
+                }
+                for name, score, reasons in all_compositions[:max_suggestions]
+            ]
+        
+        return {
+            'status': 'success',
+            'selected': result.composition_name,
+            'score': result.score,
+            'reasons': result.reasons,
+            'suggestions': suggestions,
+            'fallback_used': result.fallback_used
+        }
+        
+    except Exception as e:
+        logger.error(f"Composition selection failed: {e}")
+        return {'error': str(e)}
+
+
+async def handle_create_composition(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle runtime composition creation."""
+    try:
+        name = data.get('name')
+        if not name:
+            # Generate unique name
+            import uuid
+            name = f"dynamic_{uuid.uuid4().hex[:8]}"
+        
+        comp_type = data.get('type', 'profile')
+        base_composition = data.get('extends', 'base_agent')
+        
+        # Build composition structure
+        composition = {
+            'name': name,
+            'type': comp_type,
+            'version': '1.0.0',
+            'description': data.get('description', f'Dynamically created {comp_type}'),
+            'author': data.get('author', 'dynamic_agent'),
+            'extends': base_composition,
+            'components': [],
+            'metadata': data.get('metadata', {})
+        }
+        
+        # Add components
+        if 'components' in data:
+            composition['components'] = data['components']
+        else:
+            # Default components based on type
+            if comp_type == 'profile':
+                composition['components'] = [
+                    {
+                        'name': 'agent_config',
+                        'inline': data.get('config', {
+                            'role': data.get('role', 'assistant'),
+                            'model': data.get('model', 'sonnet'),
+                            'capabilities': data.get('capabilities', []),
+                            'tools': data.get('tools', [])
+                        })
+                    }
+                ]
+                if 'prompt' in data:
+                    composition['components'].append({
+                        'name': 'prompt',
+                        'template': data['prompt']
+                    })
+        
+        # Add metadata for dynamic composition
+        composition['metadata'].update({
+            'dynamic': True,
+            'created_at': TimestampManager.format_for_logging(),
+            'parent_agent': data.get('agent_id')
+        })
+        
+        # Save to temporary location (in-memory cache)
+        # In production, could save to disk or state service
+        dynamic_cache_key = f"dynamic_composition:{name}"
+        if state_manager:
+            state_manager.set_state(dynamic_cache_key, composition)
+        
+        return {
+            'status': 'success',
+            'name': name,
+            'composition': composition,
+            'message': f'Created dynamic composition: {name}'
+        }
+        
+    except Exception as e:
+        logger.error(f"Dynamic composition creation failed: {e}")
+        return {'error': str(e)}
+
+
+# Plugin lifecycle
+@hookimpl(trylast=True)  # Run after state service initializes
+def ksi_startup(config):
+    """Initialize composition service on startup."""
+    global state_manager
+    
+    logger.info("Composition service starting up...")
+    
+    # Get state manager reference from state service
+    try:
+        # Import the state service to get its manager instance
+        from ksi_daemon.plugins.state import state_service
+        state_manager = state_service.state_manager
+        
+        if state_manager:
+            logger.info("State manager available, rebuilding composition index...")
+            # Rebuild composition index on startup
+            indexed_count = state_manager.rebuild_composition_index()
+            logger.info(f"Composition service started - indexed {indexed_count} compositions")
+        else:
+            logger.error("State manager not available from state service")
+        
+    except Exception as e:
+        logger.error(f"Failed to initialize composition index: {e}")
+        import traceback
+        traceback.print_exc()
+        state_manager = None
+    
+    # Ensure directories exist
+    COMPOSITIONS_BASE.mkdir(parents=True, exist_ok=True)
+    FRAGMENTS_BASE.mkdir(parents=True, exist_ok=True)
+    SCHEMAS_BASE.mkdir(parents=True, exist_ok=True)
+    
+    return {"status": "composition_service_ready"}
+
+
+@hookimpl
+def ksi_shutdown():
+    """Clean up on shutdown."""
+    logger.info("Composition service stopped")
+    return {"status": "composition_service_stopped"}
+
+
+# Module-level marker for plugin discovery
+ksi_plugin = True

@@ -1,1 +1,1 @@
-# Message Bus Plugin Package
+"""Message bus plugin package."""

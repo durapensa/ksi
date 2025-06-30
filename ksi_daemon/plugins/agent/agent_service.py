@@ -1,1 +1,915 @@
-#!/usr/bin/env python3\n"""\nAgent Service Plugin\n\nProvides agent management without complex inheritance.\nHandles agent lifecycle, identities, and routing through events.\nUses composition service for all profile/configuration needs.\n"""\n\nimport asyncio\nimport json\nimport uuid\nfrom pathlib import Path\nfrom typing import Dict, Any, Optional, List, Set\nfrom datetime import datetime\nimport logging\nimport pluggy\n\nfrom ksi_common.logging import get_logger\nfrom ksi_daemon.plugin_utils import plugin_metadata\nfrom ksi_common import TimestampManager\nfrom ksi_daemon.config import config\nfrom ksi_daemon.file_operations import FileOperations\n\n# Plugin metadata\nplugin_metadata("agent_service", version="2.0.0",\n                description="Simplified agent management service")\n\n# Hook implementation marker\nhookimpl = pluggy.HookimplMarker("ksi")\n\n# Module state\nlogger = get_logger("agent_service")\nagents: Dict[str, Dict[str, Any]] = {}  # agent_id -> agent_info\nidentities: Dict[str, Dict[str, Any]] = {}  # agent_id -> identity_info\nagent_threads: Dict[str, asyncio.Task] = {}  # agent_id -> task\n\n# Storage paths\nidentity_storage_path = config.identity_storage_path\n\n# Event emitter reference (set during context)\nevent_emitter = None\n\n\n# Helper functions\ndef load_identities():\n    """Load agent identities from disk."""\n    if identity_storage_path.exists():\n        try:\n            loaded_identities = FileOperations.read_json_file(identity_storage_path)\n            if loaded_identities:\n                identities.update(loaded_identities)\n                logger.info(f"Loaded {len(identities)} agent identities")\n        except Exception as e:\n            logger.error(f"Failed to load identities: {e}")\n\n\ndef save_identities():\n    """Save agent identities to disk."""\n    try:\n        FileOperations.write_json_file(identity_storage_path, identities)\n        logger.debug(f"Saved {len(identities)} identities")\n    except Exception as e:\n        logger.error(f"Failed to save identities: {e}")\n\n\n# Hook implementations\n@hookimpl\ndef ksi_startup(config):\n    """Initialize agent service on startup."""\n    load_identities()\n    \n    logger.info(f"Agent service started - agents: {len(agents)}, "\n                f"identities: {len(identities)}")\n    \n    return {\n        "status": "agent_service_ready",\n        "agents": len(agents),\n        "identities": len(identities)\n    }\n\n\n@hookimpl\ndef ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):\n    """Handle agent-related events."""\n    \n    # Agent lifecycle events\n    if event_name == "agent:spawn":\n        return handle_spawn_agent(data)\n    \n    elif event_name == "agent:terminate":\n        return handle_terminate_agent(data)\n    \n    elif event_name == "agent:restart":\n        return handle_restart_agent(data)\n    \n    # Agent registry events\n    elif event_name == "agent:register":\n        return handle_register_agent(data)\n    \n    elif event_name == "agent:unregister":\n        return handle_unregister_agent(data)\n    \n    elif event_name == "agent:list":\n        return handle_list_agents(data)\n    \n    # Identity events  \n    elif event_name == "agent:create_identity":\n        return handle_create_identity(data)\n    \n    elif event_name == "agent:update_identity":\n        return handle_update_identity(data)\n    \n    elif event_name == "agent:remove_identity":\n        return handle_remove_identity(data)\n    \n    elif event_name == "agent:list_identities":\n        return handle_list_identities(data)\n    \n    elif event_name == "agent:get_identity":\n        return handle_get_identity(data)\n    \n    # Task routing\n    elif event_name == "agent:route_task":\n        return handle_route_task(data)\n    \n    elif event_name == "agent:get_capabilities":\n        return handle_get_capabilities(data)\n    \n    # Message handling\n    elif event_name == "agent:send_message":\n        return handle_send_message(data)\n    \n    elif event_name == "agent:broadcast":\n        return handle_broadcast(data)\n    \n    # Dynamic composition events\n    elif event_name == "agent:update_composition":\n        return handle_update_composition(data)\n    \n    elif event_name == "agent:discover_peers":\n        return handle_discover_peers(data)\n    \n    elif event_name == "agent:negotiate_roles":\n        return handle_negotiate_roles(data)\n    \n    return None\n\n\n# Agent lifecycle handlers\ndef handle_spawn_agent(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Spawn a new agent thread with optional profile."""\n    agent_id = data.get("agent_id") or f"agent_{uuid.uuid4().hex[:8]}"\n    profile_name = data.get("profile") or data.get("profile_name")\n    composition_name = data.get("composition")  # Direct composition reference\n    session_id = data.get("session_id")\n    \n    # Create coroutine to handle async composition\n    async def _spawn_with_composition():\n        # Check for dynamic spawn mode\n        spawn_mode = data.get("spawn_mode", "fixed")\n        selection_context = data.get("selection_context", {})\n        \n        # Determine what to compose\n        if spawn_mode == "dynamic" and event_emitter:\n            # Use composition selection service\n            logger.debug("Using dynamic composition selection")\n            \n            select_result = await event_emitter("composition:select", {\n                "agent_id": agent_id,\n                "role": selection_context.get("role"),\n                "capabilities": selection_context.get("required_capabilities", []),\n                "task": data.get("task"),\n                "context": selection_context,\n                "max_suggestions": 3\n            }, {})\n            \n            if select_result and select_result.get("status") == "success":\n                compose_name = select_result["selected"]\n                logger.info(f"Dynamically selected composition: {compose_name} (score: {select_result['score']})")\n                \n                # Store selection metadata\n                data["_composition_selection"] = {\n                    "selected": compose_name,\n                    "score": select_result["score"],\n                    "reasons": select_result["reasons"],\n                    "suggestions": select_result.get("suggestions", [])\n                }\n            else:\n                return {\n                    "error": f"Dynamic composition selection failed: {select_result.get('error', 'Unknown error')}",\n                    "status": "failed"\n                }\n                \n        elif composition_name:\n            # Direct composition reference (hint mode)\n            compose_name = composition_name\n        elif profile_name:\n            # Use specified profile\n            compose_name = profile_name\n        else:\n            # No profile specified - fail fast\n            return {\n                "error": "No profile or composition specified",\n                "status": "failed"\n            }\n        \n        # Compose profile using composition service\n        agent_config = {}\n        composed_prompt = None\n        \n        if event_emitter:\n            logger.debug(f"Using composition service to compose profile: {compose_name}")\n            # Prepare variables for composition\n            comp_vars = {\n                "agent_id": agent_id,\n                "enable_tools": data.get("enable_tools", False)\n            }\n            \n            # Add any additional context from data\n            if "context" in data:\n                comp_vars.update(data["context"])\n            \n            # Try to compose profile\n            compose_result = await event_emitter("composition:profile", {\n                "name": compose_name,\n                "variables": comp_vars\n            }, {})\n            \n            if compose_result and compose_result.get("status") == "success":\n                profile = compose_result["profile"]\n                # Extract config from composed profile\n                agent_config = {\n                    "model": profile.get("model", "sonnet"),\n                    "capabilities": profile.get("capabilities", []),\n                    "role": profile.get("role", "assistant"),\n                    "enable_tools": profile.get("enable_tools", False),\n                    "tools": profile.get("tools", [])\n                }\n                composed_prompt = profile.get("composed_prompt")\n            else:\n                # Fail fast - no fallbacks\n                error_msg = compose_result.get("error", f"Failed to compose profile: {compose_name}")\n                logger.error(error_msg)\n                return {\n                    "error": error_msg,\n                    "status": "failed",\n                    "requested_profile": compose_name\n                }\n        else:\n            # No composition service available\n            logger.error(f"Composition service not available - event_emitter is None")\n            return {\n                "error": "Composition service not available - event system not initialized",\n                "status": "failed"\n            }\n        \n        # Override with provided config\n        if "config" in data:\n            agent_config.update(data["config"])\n        \n        # Create agent info\n        agent_info = {\n            "agent_id": agent_id,\n            "profile": profile_name or compose_name,\n            "composition": composition_name or compose_name,\n            "config": agent_config,\n            "composed_prompt": composed_prompt,\n            "status": "initializing",\n            "created_at": TimestampManager.format_for_logging(),\n            "session_id": session_id,\n            "message_queue": asyncio.Queue()\n        }\n        \n        # Register agent\n        agents[agent_id] = agent_info\n        \n        # Start agent thread\n        agent_task = asyncio.create_task(run_agent_thread(agent_id))\n        agent_threads[agent_id] = agent_task\n        \n        logger.info(f"Created agent thread {agent_id} with composition {compose_name}")\n        \n        return {\n            "agent_id": agent_id,\n            "status": "created",\n            "profile": profile_name,\n            "composition": compose_name,\n            "session_id": session_id,\n            "config": agent_config\n        }\n    \n    # Return the coroutine for the daemon to await\n    return _spawn_with_composition()\n\n\ndef handle_terminate_agent(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Terminate an agent thread."""\n    agent_id = data.get("agent_id")\n    \n    if not agent_id:\n        return {"error": "agent_id required"}\n    \n    if agent_id not in agents:\n        return {"error": f"Agent {agent_id} not found"}\n    \n    agent_info = agents[agent_id]\n    \n    # Cancel agent thread if running\n    if agent_id in agent_threads:\n        agent_threads[agent_id].cancel()\n        del agent_threads[agent_id]\n    \n    # Update status\n    agent_info["status"] = "terminated"\n    agent_info["terminated_at"] = TimestampManager.format_for_logging()\n    \n    # Remove from active agents\n    del agents[agent_id]\n    \n    logger.info(f"Terminated agent {agent_id}")\n    \n    return {\n        "agent_id": agent_id,\n        "status": "terminated"\n    }\n\n\ndef handle_restart_agent(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Restart an agent."""\n    agent_id = data.get("agent_id")\n    \n    if not agent_id:\n        return {"error": "agent_id required"}\n    \n    if agent_id not in agents:\n        return {"error": f"Agent {agent_id} not found"}\n    \n    # Get current agent info\n    agent_info = agents[agent_id].copy()\n    \n    # Terminate existing\n    terminate_result = handle_terminate_agent({"agent_id": agent_id})\n    if "error" in terminate_result:\n        return terminate_result\n    \n    # Spawn new with same config\n    spawn_data = {\n        "agent_id": agent_id,\n        "profile": agent_info.get("profile"),\n        "config": agent_info.get("config", {}),\n        "session_id": agent_info.get("session_id")\n    }\n    \n    return handle_spawn_agent(spawn_data)\n\n\nasync def run_agent_thread(agent_id: str):\n    """Run agent thread that handles messages and coordination."""\n    if agent_id not in agents:\n        logger.error(f"Agent {agent_id} not found")\n        return\n    \n    agent_info = agents[agent_id]\n    message_queue = agent_info.get("message_queue")\n    \n    try:\n        # Mark agent as ready\n        agent_info["status"] = "ready"\n        logger.info(f"Agent thread {agent_id} started")\n        \n        # Process messages\n        while True:\n            try:\n                # Wait for message with timeout\n                message = await asyncio.wait_for(message_queue.get(), timeout=60.0)\n                \n                if message.get("type") == "terminate":\n                    break\n                \n                # Handle different message types\n                await handle_agent_message(agent_id, message)\n                \n            except asyncio.TimeoutError:\n                # Periodic health check\n                continue\n            except asyncio.CancelledError:\n                break\n            except Exception as e:\n                logger.error(f"Error in agent {agent_id} thread: {e}")\n                \n    except Exception as e:\n        logger.error(f"Agent thread {agent_id} crashed: {e}")\n        agent_info["status"] = "failed"\n        agent_info["error"] = str(e)\n    finally:\n        agent_info["status"] = "stopped"\n        logger.info(f"Agent thread {agent_id} stopped")\n\n\nasync def handle_agent_message(agent_id: str, message: Dict[str, Any]):\n    """Handle a message sent to an agent."""\n    agent_info = agents.get(agent_id)\n    if not agent_info:\n        return\n    \n    msg_type = message.get("type")\n    \n    if msg_type == "completion":\n        # Forward to completion service using new async interface\n        prompt = message.get("prompt", "")\n        if prompt and event_emitter:\n            await event_emitter("completion:async", {\n                "prompt": prompt,\n                "agent_id": agent_id,\n                "client_id": agent_id,  # Use agent_id as client_id\n                "session_id": agent_info.get("session_id"),\n                "model": agent_info.get("config", {}).get("model", "sonnet"),\n                "priority": "normal",\n                "request_id": f"{agent_id}_{message.get('request_id', uuid.uuid4().hex[:8])}"\n            })\n    \n    elif msg_type == "direct_message":\n        # Inter-agent messaging\n        target_agent = message.get("to")\n        if target_agent and target_agent in agents:\n            target_queue = agents[target_agent].get("message_queue")\n            if target_queue:\n                await target_queue.put({\n                    "type": "message",\n                    "from": agent_id,\n                    "content": message.get("content"),\n                    "timestamp": TimestampManager.format_for_logging()\n                })\n    \n    elif msg_type == "broadcast":\n        # Broadcast to all agents\n        content = message.get("content")\n        for other_id, other_info in agents.items():\n            if other_id != agent_id:\n                other_queue = other_info.get("message_queue")\n                if other_queue:\n                    await other_queue.put({\n                        "type": "broadcast",\n                        "from": agent_id,\n                        "content": content,\n                        "timestamp": TimestampManager.format_for_logging()\n                    })\n\n\n# Agent registry handlers\ndef handle_register_agent(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Register an external agent."""\n    agent_id = data.get("agent_id")\n    agent_info = data.get("info", {})\n    \n    if not agent_id:\n        return {"error": "agent_id required"}\n    \n    # Create registration info\n    registration = {\n        "agent_id": agent_id,\n        "registered_at": TimestampManager.format_for_logging(),\n        "status": "registered",\n        **agent_info\n    }\n    \n    agents[agent_id] = registration\n    \n    logger.info(f"Registered agent {agent_id}")\n    \n    return {\n        "agent_id": agent_id,\n        "status": "registered"\n    }\n\n\ndef handle_unregister_agent(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Unregister an agent."""\n    agent_id = data.get("agent_id")\n    \n    if not agent_id:\n        return {"error": "agent_id required"}\n    \n    if agent_id in agents:\n        del agents[agent_id]\n        logger.info(f"Unregistered agent {agent_id}")\n        return {"status": "unregistered"}\n    \n    return {"error": f"Agent {agent_id} not found"}\n\n\ndef handle_list_agents(data: Dict[str, Any]) -> Dict[str, Any]:\n    """List registered agents."""\n    filter_status = data.get("status")\n    \n    agent_list = []\n    for agent_id, info in agents.items():\n        if filter_status and info.get("status") != filter_status:\n            continue\n        \n        agent_list.append({\n            "agent_id": agent_id,\n            "status": info.get("status"),\n            "profile": info.get("profile"),\n            "created_at": info.get("created_at")\n        })\n    \n    return {\n        "agents": agent_list,\n        "count": len(agent_list)\n    }\n\n\n# Identity handlers\ndef handle_create_identity(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Create a new agent identity."""\n    agent_id = data.get("agent_id") or f"agent_{uuid.uuid4().hex[:8]}"\n    identity_data = data.get("identity", {})\n    \n    # Create identity\n    identity = {\n        "agent_id": agent_id,\n        "created_at": TimestampManager.format_for_logging(),\n        "updated_at": TimestampManager.format_for_logging(),\n        **identity_data\n    }\n    \n    identities[agent_id] = identity\n    save_identities()\n    \n    logger.info(f"Created identity for agent {agent_id}")\n    \n    return {\n        "agent_id": agent_id,\n        "status": "created"\n    }\n\n\ndef handle_update_identity(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Update an agent identity."""\n    agent_id = data.get("agent_id")\n    updates = data.get("updates", {})\n    \n    if not agent_id:\n        return {"error": "agent_id required"}\n    \n    if agent_id not in identities:\n        return {"error": f"Identity for {agent_id} not found"}\n    \n    # Update identity\n    identities[agent_id].update(updates)\n    identities[agent_id]["updated_at"] = TimestampManager.format_for_logging()\n    \n    save_identities()\n    \n    logger.info(f"Updated identity for agent {agent_id}")\n    \n    return {\n        "agent_id": agent_id,\n        "status": "updated"\n    }\n\n\ndef handle_remove_identity(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Remove an agent identity."""\n    agent_id = data.get("agent_id")\n    \n    if not agent_id:\n        return {"error": "agent_id required"}\n    \n    if agent_id in identities:\n        del identities[agent_id]\n        save_identities()\n        logger.info(f"Removed identity for agent {agent_id}")\n        return {"status": "removed"}\n    \n    return {"error": f"Identity for {agent_id} not found"}\n\n\ndef handle_list_identities(data: Dict[str, Any]) -> Dict[str, Any]:\n    """List agent identities."""\n    identity_list = []\n    \n    for agent_id, identity in identities.items():\n        identity_list.append({\n            "agent_id": agent_id,\n            "name": identity.get("name", ""),\n            "role": identity.get("role", ""),\n            "created_at": identity.get("created_at")\n        })\n    \n    return {\n        "identities": identity_list,\n        "count": len(identity_list)\n    }\n\n\ndef handle_get_identity(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Get a specific agent identity."""\n    agent_id = data.get("agent_id")\n    \n    if not agent_id:\n        return {"error": "agent_id required"}\n    \n    if agent_id in identities:\n        return {\n            "agent_id": agent_id,\n            "identity": identities[agent_id]\n        }\n    \n    return {"error": f"Identity for {agent_id} not found"}\n\n\n# Task routing handlers\ndef handle_route_task(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Route a task to an appropriate agent."""\n    task = data.get("task", {})\n    requirements = task.get("requirements", [])\n    \n    # Simple routing: find first available agent\n    for agent_id, info in agents.items():\n        if info.get("status") == "ready":\n            logger.info(f"Routing task to agent {agent_id}")\n            return {\n                "agent_id": agent_id,\n                "status": "routed"\n            }\n    \n    return {"error": "No available agents"}\n\n\ndef handle_get_capabilities(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Get capabilities of an agent or all agents."""\n    agent_id = data.get("agent_id")\n    \n    if agent_id:\n        if agent_id not in agents:\n            return {"error": f"Agent {agent_id} not found"}\n        \n        agent_info = agents[agent_id]\n        \n        # Get capabilities from agent config (composed at spawn time)\n        capabilities = agent_info.get("config", {}).get("capabilities", [])\n        \n        return {\n            "agent_id": agent_id,\n            "capabilities": capabilities\n        }\n    \n    # Return all agent capabilities\n    all_capabilities = {}\n    for aid, info in agents.items():\n        # Get capabilities from agent config (composed at spawn time)\n        all_capabilities[aid] = info.get("config", {}).get("capabilities", [])\n    \n    return {"capabilities": all_capabilities}\n\n\n@hookimpl\ndef ksi_plugin_context(context):\n    """Receive plugin context with event emitter."""\n    global event_emitter\n    event_emitter = context.get("emit_event")\n    logger.info(f"Agent service received plugin context, event_emitter: {event_emitter is not None}")\n\n\n@hookimpl\ndef ksi_shutdown():\n    """Clean up on shutdown."""\n    # Cancel all agent threads\n    for agent_id, task in list(agent_threads.items()):\n        task.cancel()\n    \n    # Save identities\n    save_identities()\n    \n    logger.info(f"Agent service stopped - {len(agents)} agents, "\n                f"{len(identities)} identities")\n    \n    return {\n        "status": "agent_service_stopped",\n        "agents": len(agents),\n        "identities": len(identities)\n    }\n\n\n# Message handling functions\ndef handle_send_message(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Send a message to an agent."""\n    agent_id = data.get("agent_id")\n    message = data.get("message", {})\n    \n    if not agent_id:\n        return {"error": "agent_id required"}\n    \n    if agent_id not in agents:\n        return {"error": f"Agent {agent_id} not found"}\n    \n    # Add message to agent's queue\n    queue = agents[agent_id].get("message_queue")\n    if queue:\n        asyncio.create_task(queue.put(message))\n        return {"status": "sent", "agent_id": agent_id}\n    \n    return {"error": "Agent message queue not available"}\n\n\ndef handle_broadcast(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Broadcast a message to all agents."""\n    message = data.get("message", {})\n    sender = data.get("sender", "system")\n    \n    sent_count = 0\n    for agent_id, agent_info in agents.items():\n        queue = agent_info.get("message_queue")\n        if queue:\n            asyncio.create_task(queue.put({\n                "type": "broadcast",\n                "from": sender,\n                **message\n            }))\n            sent_count += 1\n    \n    return {\n        "status": "broadcast",\n        "agents_reached": sent_count,\n        "total_agents": len(agents)\n    }\n\n\n# Dynamic composition handlers\ndef handle_update_composition(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Handle agent composition update request."""\n    agent_id = data.get("agent_id")\n    new_composition = data.get("new_composition")\n    reason = data.get("reason", "Adaptation required")\n    \n    if not agent_id:\n        return {"error": "agent_id required"}\n    \n    if not new_composition:\n        return {"error": "new_composition required"}\n    \n    if agent_id not in agents:\n        return {"error": f"Agent {agent_id} not found"}\n    \n    # Check if agent can self-modify\n    agent_info = agents[agent_id]\n    current_config = agent_info.get("config", {})\n    \n    # Create async function to handle composition update\n    async def _update_composition():\n        if not event_emitter:\n            return {"error": "Event emitter not available"}\n        \n        # First, check if current composition allows modification\n        current_comp = agent_info.get("composition", agent_info.get("profile"))\n        if current_comp:\n            # Get composition metadata\n            comp_result = await event_emitter("composition:get", {\n                "name": current_comp\n            }, {})\n            \n            if comp_result and comp_result.get("status") == "success":\n                metadata = comp_result["composition"].get("metadata", {})\n                if not metadata.get("self_modifiable", False):\n                    return {\n                        "error": "Current composition does not allow self-modification",\n                        "status": "denied"\n                    }\n        \n        # Compose new profile\n        compose_result = await event_emitter("composition:profile", {\n            "name": new_composition,\n            "variables": {\n                "agent_id": agent_id,\n                "previous_role": current_config.get("role"),\n                "adaptation_reason": reason\n            }\n        }, {})\n        \n        if compose_result and compose_result.get("status") == "success":\n            new_profile = compose_result["profile"]\n            \n            # Update agent configuration\n            agent_info["config"] = {\n                "model": new_profile.get("model", "sonnet"),\n                "capabilities": new_profile.get("capabilities", []),\n                "role": new_profile.get("role", "assistant"),\n                "enable_tools": new_profile.get("enable_tools", False),\n                "tools": new_profile.get("tools", [])\n            }\n            agent_info["composition"] = new_composition\n            agent_info["composition_history"] = agent_info.get("composition_history", [])\n            agent_info["composition_history"].append({\n                "timestamp": TimestampManager.format_for_logging(),\n                "from": current_comp,\n                "to": new_composition,\n                "reason": reason\n            })\n            \n            # Notify agent of update via message queue\n            queue = agent_info.get("message_queue")\n            if queue:\n                await queue.put({\n                    "type": "composition_updated",\n                    "new_composition": new_composition,\n                    "new_config": agent_info["config"],\n                    "prompt": new_profile.get("composed_prompt")\n                })\n            \n            logger.info(f"Agent {agent_id} updated composition to {new_composition}")\n            \n            return {\n                "status": "updated",\n                "agent_id": agent_id,\n                "new_composition": new_composition,\n                "new_capabilities": agent_info["config"]["capabilities"]\n            }\n        else:\n            return {\n                "error": f"Failed to compose new profile: {compose_result.get('error', 'Unknown error')}",\n                "status": "failed"\n            }\n    \n    # Run async function\n    return asyncio.run(_update_composition())\n\n\ndef handle_discover_peers(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Discover other agents and their capabilities."""\n    requesting_agent = data.get("agent_id")\n    capability_filter = data.get("capabilities", [])\n    role_filter = data.get("roles", [])\n    \n    discovered = []\n    \n    for agent_id, agent_info in agents.items():\n        if agent_id == requesting_agent:\n            continue  # Skip self\n        \n        agent_config = agent_info.get("config", {})\n        agent_caps = agent_config.get("capabilities", [])\n        agent_role = agent_config.get("role")\n        \n        # Apply filters\n        if capability_filter:\n            if not any(cap in agent_caps for cap in capability_filter):\n                continue\n        \n        if role_filter:\n            if agent_role not in role_filter:\n                continue\n        \n        discovered.append({\n            "agent_id": agent_id,\n            "role": agent_role,\n            "capabilities": agent_caps,\n            "composition": agent_info.get("composition"),\n            "status": agent_info.get("status", "active")\n        })\n    \n    return {\n        "status": "success",\n        "requesting_agent": requesting_agent,\n        "discovered_count": len(discovered),\n        "peers": discovered\n    }\n\n\ndef handle_negotiate_roles(data: Dict[str, Any]) -> Dict[str, Any]:\n    """Coordinate role negotiation between agents."""\n    participants = data.get("participants", [])\n    negotiation_type = data.get("type", "collaborative")\n    context = data.get("context", {})\n    \n    if not participants or len(participants) < 2:\n        return {"error": "At least 2 participants required for negotiation"}\n    \n    # Verify all participants exist\n    for agent_id in participants:\n        if agent_id not in agents:\n            return {"error": f"Agent {agent_id} not found"}\n    \n    # Create negotiation session\n    negotiation_id = f"neg_{uuid.uuid4().hex[:8]}"\n    \n    # Send negotiation request to all participants\n    for agent_id in participants:\n        agent_info = agents[agent_id]\n        queue = agent_info.get("message_queue")\n        if queue:\n            asyncio.create_task(queue.put({\n                "type": "role_negotiation",\n                "negotiation_id": negotiation_id,\n                "participants": participants,\n                "negotiation_type": negotiation_type,\n                "context": context,\n                "your_current_role": agent_info.get("config", {}).get("role"),\n                "your_capabilities": agent_info.get("config", {}).get("capabilities", [])\n            }))\n    \n    logger.info(f"Started role negotiation {negotiation_id} with {len(participants)} agents")\n    \n    return {\n        "status": "initiated",\n        "negotiation_id": negotiation_id,\n        "participants": participants,\n        "type": negotiation_type\n    }\n\n\n# Module-level marker for plugin discovery\nksi_plugin = True
+#!/usr/bin/env python3
+"""
+Agent Service Plugin
+
+Provides agent management without complex inheritance.
+Handles agent lifecycle, identities, and routing through events.
+Uses composition service for all profile/configuration needs.
+"""
+
+import asyncio
+import json
+import uuid
+from pathlib import Path
+from typing import Dict, Any, Optional, List, Set
+from datetime import datetime
+import logging
+import pluggy
+
+from ksi_daemon.plugin_utils import plugin_metadata
+from ksi_common import TimestampManager
+from ksi_daemon.config import config
+from ksi_daemon.file_operations import FileOperations
+from ksi_common.logging import get_logger
+
+# Plugin metadata
+plugin_metadata("agent_service", version="2.0.0",
+                description="Simplified agent management service")
+
+# Hook implementation marker
+hookimpl = pluggy.HookimplMarker("ksi")
+
+# Module state
+logger = get_logger("agent_service")
+agents: Dict[str, Dict[str, Any]] = {}  # agent_id -> agent_info
+identities: Dict[str, Dict[str, Any]] = {}  # agent_id -> identity_info
+agent_threads: Dict[str, asyncio.Task] = {}  # agent_id -> task
+
+# Storage paths
+identity_storage_path = config.identity_storage_path
+
+# Event emitter reference (set during context)
+event_emitter = None
+
+
+# Helper functions
+def load_identities():
+    """Load agent identities from disk."""
+    if identity_storage_path.exists():
+        try:
+            loaded_identities = FileOperations.read_json_file(identity_storage_path)
+            if loaded_identities:
+                identities.update(loaded_identities)
+                logger.info(f"Loaded {len(identities)} agent identities")
+        except Exception as e:
+            logger.error(f"Failed to load identities: {e}")
+
+
+def save_identities():
+    """Save agent identities to disk."""
+    try:
+        FileOperations.write_json_file(identity_storage_path, identities)
+        logger.debug(f"Saved {len(identities)} identities")
+    except Exception as e:
+        logger.error(f"Failed to save identities: {e}")
+
+
+# Hook implementations
+@hookimpl
+def ksi_startup(config):
+    """Initialize agent service on startup."""
+    load_identities()
+    
+    logger.info(f"Agent service started - agents: {len(agents)}, "
+                f"identities: {len(identities)}")
+    
+    return {
+        "status": "agent_service_ready",
+        "agents": len(agents),
+        "identities": len(identities)
+    }
+
+
+@hookimpl
+def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
+    """Handle agent-related events."""
+    
+    # Agent lifecycle events
+    if event_name == "agent:spawn":
+        return handle_spawn_agent(data)
+    
+    elif event_name == "agent:terminate":
+        return handle_terminate_agent(data)
+    
+    elif event_name == "agent:restart":
+        return handle_restart_agent(data)
+    
+    # Agent registry events
+    elif event_name == "agent:register":
+        return handle_register_agent(data)
+    
+    elif event_name == "agent:unregister":
+        return handle_unregister_agent(data)
+    
+    elif event_name == "agent:list":
+        return handle_list_agents(data)
+    
+    # Identity events  
+    elif event_name == "agent:create_identity":
+        return handle_create_identity(data)
+    
+    elif event_name == "agent:update_identity":
+        return handle_update_identity(data)
+    
+    elif event_name == "agent:remove_identity":
+        return handle_remove_identity(data)
+    
+    elif event_name == "agent:list_identities":
+        return handle_list_identities(data)
+    
+    elif event_name == "agent:get_identity":
+        return handle_get_identity(data)
+    
+    # Task routing
+    elif event_name == "agent:route_task":
+        return handle_route_task(data)
+    
+    elif event_name == "agent:get_capabilities":
+        return handle_get_capabilities(data)
+    
+    # Message handling
+    elif event_name == "agent:send_message":
+        return handle_send_message(data)
+    
+    elif event_name == "agent:broadcast":
+        return handle_broadcast(data)
+    
+    # Dynamic composition events
+    elif event_name == "agent:update_composition":
+        return handle_update_composition(data)
+    
+    elif event_name == "agent:discover_peers":
+        return handle_discover_peers(data)
+    
+    elif event_name == "agent:negotiate_roles":
+        return handle_negotiate_roles(data)
+    
+    return None
+
+
+# Agent lifecycle handlers
+def handle_spawn_agent(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Spawn a new agent thread with optional profile."""
+    agent_id = data.get("agent_id") or f"agent_{uuid.uuid4().hex[:8]}"
+    profile_name = data.get("profile") or data.get("profile_name")
+    composition_name = data.get("composition")  # Direct composition reference
+    session_id = data.get("session_id")
+    
+    # Create coroutine to handle async composition
+    async def _spawn_with_composition():
+        # Check for dynamic spawn mode
+        spawn_mode = data.get("spawn_mode", "fixed")
+        selection_context = data.get("selection_context", {})
+        
+        # Determine what to compose
+        if spawn_mode == "dynamic" and event_emitter:
+            # Use composition selection service
+            logger.debug("Using dynamic composition selection")
+            
+            select_result = await event_emitter("composition:select", {
+                "agent_id": agent_id,
+                "role": selection_context.get("role"),
+                "capabilities": selection_context.get("required_capabilities", []),
+                "task": data.get("task"),
+                "context": selection_context,
+                "max_suggestions": 3
+            }, {})
+            
+            if select_result and select_result.get("status") == "success":
+                compose_name = select_result["selected"]
+                logger.info(f"Dynamically selected composition: {compose_name} (score: {select_result['score']})")
+                
+                # Store selection metadata
+                data["_composition_selection"] = {
+                    "selected": compose_name,
+                    "score": select_result["score"],
+                    "reasons": select_result["reasons"],
+                    "suggestions": select_result.get("suggestions", [])
+                }
+            else:
+                return {
+                    "error": f"Dynamic composition selection failed: {select_result.get('error', 'Unknown error')}",
+                    "status": "failed"
+                }
+                
+        elif composition_name:
+            # Direct composition reference (hint mode)
+            compose_name = composition_name
+        elif profile_name:
+            # Use specified profile
+            compose_name = profile_name
+        else:
+            # No profile specified - fail fast
+            return {
+                "error": "No profile or composition specified",
+                "status": "failed"
+            }
+        
+        # Compose profile using composition service
+        agent_config = {}
+        composed_prompt = None
+        
+        if event_emitter:
+            logger.debug(f"Using composition service to compose profile: {compose_name}")
+            # Prepare variables for composition
+            comp_vars = {
+                "agent_id": agent_id,
+                "enable_tools": data.get("enable_tools", False)
+            }
+            
+            # Add any additional context from data
+            if "context" in data:
+                comp_vars.update(data["context"])
+            
+            # Try to compose profile
+            compose_result = await event_emitter("composition:profile", {
+                "name": compose_name,
+                "variables": comp_vars
+            }, {})
+            
+            if compose_result and compose_result.get("status") == "success":
+                profile = compose_result["profile"]
+                # Extract config from composed profile
+                agent_config = {
+                    "model": profile.get("model", "sonnet"),
+                    "capabilities": profile.get("capabilities", []),
+                    "role": profile.get("role", "assistant"),
+                    "enable_tools": profile.get("enable_tools", False),
+                    "tools": profile.get("tools", [])
+                }
+                composed_prompt = profile.get("composed_prompt")
+            else:
+                # Fail fast - no fallbacks
+                error_msg = compose_result.get("error", f"Failed to compose profile: {compose_name}")
+                logger.error(error_msg)
+                return {
+                    "error": error_msg,
+                    "status": "failed",
+                    "requested_profile": compose_name
+                }
+        else:
+            # No composition service available
+            logger.error(f"Composition service not available - event_emitter is None")
+            return {
+                "error": "Composition service not available - event system not initialized",
+                "status": "failed"
+            }
+        
+        # Override with provided config
+        if "config" in data:
+            agent_config.update(data["config"])
+        
+        # Create agent info
+        agent_info = {
+            "agent_id": agent_id,
+            "profile": profile_name or compose_name,
+            "composition": composition_name or compose_name,
+            "config": agent_config,
+            "composed_prompt": composed_prompt,
+            "status": "initializing",
+            "created_at": TimestampManager.format_for_logging(),
+            "session_id": session_id,
+            "message_queue": asyncio.Queue()
+        }
+        
+        # Register agent
+        agents[agent_id] = agent_info
+        
+        # Start agent thread
+        agent_task = asyncio.create_task(run_agent_thread(agent_id))
+        agent_threads[agent_id] = agent_task
+        
+        logger.info(f"Created agent thread {agent_id} with composition {compose_name}")
+        
+        return {
+            "agent_id": agent_id,
+            "status": "created",
+            "profile": profile_name,
+            "composition": compose_name,
+            "session_id": session_id,
+            "config": agent_config
+        }
+    
+    # Return the coroutine for the daemon to await
+    return _spawn_with_composition()
+
+
+def handle_terminate_agent(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Terminate an agent thread."""
+    agent_id = data.get("agent_id")
+    
+    if not agent_id:
+        return {"error": "agent_id required"}
+    
+    if agent_id not in agents:
+        return {"error": f"Agent {agent_id} not found"}
+    
+    agent_info = agents[agent_id]
+    
+    # Cancel agent thread if running
+    if agent_id in agent_threads:
+        agent_threads[agent_id].cancel()
+        del agent_threads[agent_id]
+    
+    # Update status
+    agent_info["status"] = "terminated"
+    agent_info["terminated_at"] = TimestampManager.format_for_logging()
+    
+    # Remove from active agents
+    del agents[agent_id]
+    
+    logger.info(f"Terminated agent {agent_id}")
+    
+    return {
+        "agent_id": agent_id,
+        "status": "terminated"
+    }
+
+
+def handle_restart_agent(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Restart an agent."""
+    agent_id = data.get("agent_id")
+    
+    if not agent_id:
+        return {"error": "agent_id required"}
+    
+    if agent_id not in agents:
+        return {"error": f"Agent {agent_id} not found"}
+    
+    # Get current agent info
+    agent_info = agents[agent_id].copy()
+    
+    # Terminate existing
+    terminate_result = handle_terminate_agent({"agent_id": agent_id})
+    if "error" in terminate_result:
+        return terminate_result
+    
+    # Spawn new with same config
+    spawn_data = {
+        "agent_id": agent_id,
+        "profile": agent_info.get("profile"),
+        "config": agent_info.get("config", {}),
+        "session_id": agent_info.get("session_id")
+    }
+    
+    return handle_spawn_agent(spawn_data)
+
+
+async def run_agent_thread(agent_id: str):
+    """Run agent thread that handles messages and coordination."""
+    if agent_id not in agents:
+        logger.error(f"Agent {agent_id} not found")
+        return
+    
+    agent_info = agents[agent_id]
+    message_queue = agent_info.get("message_queue")
+    
+    try:
+        # Mark agent as ready
+        agent_info["status"] = "ready"
+        logger.info(f"Agent thread {agent_id} started")
+        
+        # Process messages
+        while True:
+            try:
+                # Wait for message with timeout
+                message = await asyncio.wait_for(message_queue.get(), timeout=60.0)
+                
+                if message.get("type") == "terminate":
+                    break
+                
+                # Handle different message types
+                await handle_agent_message(agent_id, message)
+                
+            except asyncio.TimeoutError:
+                # Periodic health check
+                continue
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in agent {agent_id} thread: {e}")
+                
+    except Exception as e:
+        logger.error(f"Agent thread {agent_id} crashed: {e}")
+        agent_info["status"] = "failed"
+        agent_info["error"] = str(e)
+    finally:
+        agent_info["status"] = "stopped"
+        logger.info(f"Agent thread {agent_id} stopped")
+
+
+async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
+    """Handle a message sent to an agent."""
+    agent_info = agents.get(agent_id)
+    if not agent_info:
+        return
+    
+    msg_type = message.get("type")
+    
+    if msg_type == "completion":
+        # Forward to completion service using new async interface
+        prompt = message.get("prompt", "")
+        if prompt and event_emitter:
+            await event_emitter("completion:async", {
+                "prompt": prompt,
+                "agent_id": agent_id,
+                "client_id": agent_id,  # Use agent_id as client_id
+                "session_id": agent_info.get("session_id"),
+                "model": agent_info.get("config", {}).get("model", "sonnet"),
+                "priority": "normal",
+                "request_id": f"{agent_id}_{message.get('request_id', uuid.uuid4().hex[:8])}"
+            })
+    
+    elif msg_type == "direct_message":
+        # Inter-agent messaging
+        target_agent = message.get("to")
+        if target_agent and target_agent in agents:
+            target_queue = agents[target_agent].get("message_queue")
+            if target_queue:
+                await target_queue.put({
+                    "type": "message",
+                    "from": agent_id,
+                    "content": message.get("content"),
+                    "timestamp": TimestampManager.format_for_logging()
+                })
+    
+    elif msg_type == "broadcast":
+        # Broadcast to all agents
+        content = message.get("content")
+        for other_id, other_info in agents.items():
+            if other_id != agent_id:
+                other_queue = other_info.get("message_queue")
+                if other_queue:
+                    await other_queue.put({
+                        "type": "broadcast",
+                        "from": agent_id,
+                        "content": content,
+                        "timestamp": TimestampManager.format_for_logging()
+                    })
+
+
+# Agent registry handlers
+def handle_register_agent(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Register an external agent."""
+    agent_id = data.get("agent_id")
+    agent_info = data.get("info", {})
+    
+    if not agent_id:
+        return {"error": "agent_id required"}
+    
+    # Create registration info
+    registration = {
+        "agent_id": agent_id,
+        "registered_at": TimestampManager.format_for_logging(),
+        "status": "registered",
+        **agent_info
+    }
+    
+    agents[agent_id] = registration
+    
+    logger.info(f"Registered agent {agent_id}")
+    
+    return {
+        "agent_id": agent_id,
+        "status": "registered"
+    }
+
+
+def handle_unregister_agent(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Unregister an agent."""
+    agent_id = data.get("agent_id")
+    
+    if not agent_id:
+        return {"error": "agent_id required"}
+    
+    if agent_id in agents:
+        del agents[agent_id]
+        logger.info(f"Unregistered agent {agent_id}")
+        return {"status": "unregistered"}
+    
+    return {"error": f"Agent {agent_id} not found"}
+
+
+def handle_list_agents(data: Dict[str, Any]) -> Dict[str, Any]:
+    """List registered agents."""
+    filter_status = data.get("status")
+    
+    agent_list = []
+    for agent_id, info in agents.items():
+        if filter_status and info.get("status") != filter_status:
+            continue
+        
+        agent_list.append({
+            "agent_id": agent_id,
+            "status": info.get("status"),
+            "profile": info.get("profile"),
+            "created_at": info.get("created_at")
+        })
+    
+    return {
+        "agents": agent_list,
+        "count": len(agent_list)
+    }
+
+
+# Identity handlers
+def handle_create_identity(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Create a new agent identity."""
+    agent_id = data.get("agent_id") or f"agent_{uuid.uuid4().hex[:8]}"
+    identity_data = data.get("identity", {})
+    
+    # Create identity
+    identity = {
+        "agent_id": agent_id,
+        "created_at": TimestampManager.format_for_logging(),
+        "updated_at": TimestampManager.format_for_logging(),
+        **identity_data
+    }
+    
+    identities[agent_id] = identity
+    save_identities()
+    
+    logger.info(f"Created identity for agent {agent_id}")
+    
+    return {
+        "agent_id": agent_id,
+        "status": "created"
+    }
+
+
+def handle_update_identity(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Update an agent identity."""
+    agent_id = data.get("agent_id")
+    updates = data.get("updates", {})
+    
+    if not agent_id:
+        return {"error": "agent_id required"}
+    
+    if agent_id not in identities:
+        return {"error": f"Identity for {agent_id} not found"}
+    
+    # Update identity
+    identities[agent_id].update(updates)
+    identities[agent_id]["updated_at"] = TimestampManager.format_for_logging()
+    
+    save_identities()
+    
+    logger.info(f"Updated identity for agent {agent_id}")
+    
+    return {
+        "agent_id": agent_id,
+        "status": "updated"
+    }
+
+
+def handle_remove_identity(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Remove an agent identity."""
+    agent_id = data.get("agent_id")
+    
+    if not agent_id:
+        return {"error": "agent_id required"}
+    
+    if agent_id in identities:
+        del identities[agent_id]
+        save_identities()
+        logger.info(f"Removed identity for agent {agent_id}")
+        return {"status": "removed"}
+    
+    return {"error": f"Identity for {agent_id} not found"}
+
+
+def handle_list_identities(data: Dict[str, Any]) -> Dict[str, Any]:
+    """List agent identities."""
+    identity_list = []
+    
+    for agent_id, identity in identities.items():
+        identity_list.append({
+            "agent_id": agent_id,
+            "name": identity.get("name", ""),
+            "role": identity.get("role", ""),
+            "created_at": identity.get("created_at")
+        })
+    
+    return {
+        "identities": identity_list,
+        "count": len(identity_list)
+    }
+
+
+def handle_get_identity(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Get a specific agent identity."""
+    agent_id = data.get("agent_id")
+    
+    if not agent_id:
+        return {"error": "agent_id required"}
+    
+    if agent_id in identities:
+        return {
+            "agent_id": agent_id,
+            "identity": identities[agent_id]
+        }
+    
+    return {"error": f"Identity for {agent_id} not found"}
+
+
+# Task routing handlers
+def handle_route_task(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Route a task to an appropriate agent."""
+    task = data.get("task", {})
+    requirements = task.get("requirements", [])
+    
+    # Simple routing: find first available agent
+    for agent_id, info in agents.items():
+        if info.get("status") == "ready":
+            logger.info(f"Routing task to agent {agent_id}")
+            return {
+                "agent_id": agent_id,
+                "status": "routed"
+            }
+    
+    return {"error": "No available agents"}
+
+
+def handle_get_capabilities(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Get capabilities of an agent or all agents."""
+    agent_id = data.get("agent_id")
+    
+    if agent_id:
+        if agent_id not in agents:
+            return {"error": f"Agent {agent_id} not found"}
+        
+        agent_info = agents[agent_id]
+        
+        # Get capabilities from agent config (composed at spawn time)
+        capabilities = agent_info.get("config", {}).get("capabilities", [])
+        
+        return {
+            "agent_id": agent_id,
+            "capabilities": capabilities
+        }
+    
+    # Return all agent capabilities
+    all_capabilities = {}
+    for aid, info in agents.items():
+        # Get capabilities from agent config (composed at spawn time)
+        all_capabilities[aid] = info.get("config", {}).get("capabilities", [])
+    
+    return {"capabilities": all_capabilities}
+
+
+@hookimpl
+def ksi_plugin_context(context):
+    """Receive plugin context with event emitter."""
+    global event_emitter
+    event_emitter = context.get("emit_event")
+    logger.info(f"Agent service received plugin context, event_emitter: {event_emitter is not None}")
+
+
+@hookimpl
+def ksi_shutdown():
+    """Clean up on shutdown."""
+    # Cancel all agent threads
+    for agent_id, task in list(agent_threads.items()):
+        task.cancel()
+    
+    # Save identities
+    save_identities()
+    
+    logger.info(f"Agent service stopped - {len(agents)} agents, "
+                f"{len(identities)} identities")
+    
+    return {
+        "status": "agent_service_stopped",
+        "agents": len(agents),
+        "identities": len(identities)
+    }
+
+
+# Message handling functions
+def handle_send_message(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Send a message to an agent."""
+    agent_id = data.get("agent_id")
+    message = data.get("message", {})
+    
+    if not agent_id:
+        return {"error": "agent_id required"}
+    
+    if agent_id not in agents:
+        return {"error": f"Agent {agent_id} not found"}
+    
+    # Add message to agent's queue
+    queue = agents[agent_id].get("message_queue")
+    if queue:
+        asyncio.create_task(queue.put(message))
+        return {"status": "sent", "agent_id": agent_id}
+    
+    return {"error": "Agent message queue not available"}
+
+
+def handle_broadcast(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Broadcast a message to all agents."""
+    message = data.get("message", {})
+    sender = data.get("sender", "system")
+    
+    sent_count = 0
+    for agent_id, agent_info in agents.items():
+        queue = agent_info.get("message_queue")
+        if queue:
+            asyncio.create_task(queue.put({
+                "type": "broadcast",
+                "from": sender,
+                **message
+            }))
+            sent_count += 1
+    
+    return {
+        "status": "broadcast",
+        "agents_reached": sent_count,
+        "total_agents": len(agents)
+    }
+
+
+# Dynamic composition handlers
+def handle_update_composition(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle agent composition update request."""
+    agent_id = data.get("agent_id")
+    new_composition = data.get("new_composition")
+    reason = data.get("reason", "Adaptation required")
+    
+    if not agent_id:
+        return {"error": "agent_id required"}
+    
+    if not new_composition:
+        return {"error": "new_composition required"}
+    
+    if agent_id not in agents:
+        return {"error": f"Agent {agent_id} not found"}
+    
+    # Check if agent can self-modify
+    agent_info = agents[agent_id]
+    current_config = agent_info.get("config", {})
+    
+    # Create async function to handle composition update
+    async def _update_composition():
+        if not event_emitter:
+            return {"error": "Event emitter not available"}
+        
+        # First, check if current composition allows modification
+        current_comp = agent_info.get("composition", agent_info.get("profile"))
+        if current_comp:
+            # Get composition metadata
+            comp_result = await event_emitter("composition:get", {
+                "name": current_comp
+            }, {})
+            
+            if comp_result and comp_result.get("status") == "success":
+                metadata = comp_result["composition"].get("metadata", {})
+                if not metadata.get("self_modifiable", False):
+                    return {
+                        "error": "Current composition does not allow self-modification",
+                        "status": "denied"
+                    }
+        
+        # Compose new profile
+        compose_result = await event_emitter("composition:profile", {
+            "name": new_composition,
+            "variables": {
+                "agent_id": agent_id,
+                "previous_role": current_config.get("role"),
+                "adaptation_reason": reason
+            }
+        }, {})
+        
+        if compose_result and compose_result.get("status") == "success":
+            new_profile = compose_result["profile"]
+            
+            # Update agent configuration
+            agent_info["config"] = {
+                "model": new_profile.get("model", "sonnet"),
+                "capabilities": new_profile.get("capabilities", []),
+                "role": new_profile.get("role", "assistant"),
+                "enable_tools": new_profile.get("enable_tools", False),
+                "tools": new_profile.get("tools", [])
+            }
+            agent_info["composition"] = new_composition
+            agent_info["composition_history"] = agent_info.get("composition_history", [])
+            agent_info["composition_history"].append({
+                "timestamp": TimestampManager.format_for_logging(),
+                "from": current_comp,
+                "to": new_composition,
+                "reason": reason
+            })
+            
+            # Notify agent of update via message queue
+            queue = agent_info.get("message_queue")
+            if queue:
+                await queue.put({
+                    "type": "composition_updated",
+                    "new_composition": new_composition,
+                    "new_config": agent_info["config"],
+                    "prompt": new_profile.get("composed_prompt")
+                })
+            
+            logger.info(f"Agent {agent_id} updated composition to {new_composition}")
+            
+            return {
+                "status": "updated",
+                "agent_id": agent_id,
+                "new_composition": new_composition,
+                "new_capabilities": agent_info["config"]["capabilities"]
+            }
+        else:
+            return {
+                "error": f"Failed to compose new profile: {compose_result.get('error', 'Unknown error')}",
+                "status": "failed"
+            }
+    
+    # Run async function
+    return asyncio.run(_update_composition())
+
+
+def handle_discover_peers(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Discover other agents and their capabilities."""
+    requesting_agent = data.get("agent_id")
+    capability_filter = data.get("capabilities", [])
+    role_filter = data.get("roles", [])
+    
+    discovered = []
+    
+    for agent_id, agent_info in agents.items():
+        if agent_id == requesting_agent:
+            continue  # Skip self
+        
+        agent_config = agent_info.get("config", {})
+        agent_caps = agent_config.get("capabilities", [])
+        agent_role = agent_config.get("role")
+        
+        # Apply filters
+        if capability_filter:
+            if not any(cap in agent_caps for cap in capability_filter):
+                continue
+        
+        if role_filter:
+            if agent_role not in role_filter:
+                continue
+        
+        discovered.append({
+            "agent_id": agent_id,
+            "role": agent_role,
+            "capabilities": agent_caps,
+            "composition": agent_info.get("composition"),
+            "status": agent_info.get("status", "active")
+        })
+    
+    return {
+        "status": "success",
+        "requesting_agent": requesting_agent,
+        "discovered_count": len(discovered),
+        "peers": discovered
+    }
+
+
+def handle_negotiate_roles(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Coordinate role negotiation between agents."""
+    participants = data.get("participants", [])
+    negotiation_type = data.get("type", "collaborative")
+    context = data.get("context", {})
+    
+    if not participants or len(participants) < 2:
+        return {"error": "At least 2 participants required for negotiation"}
+    
+    # Verify all participants exist
+    for agent_id in participants:
+        if agent_id not in agents:
+            return {"error": f"Agent {agent_id} not found"}
+    
+    # Create negotiation session
+    negotiation_id = f"neg_{uuid.uuid4().hex[:8]}"
+    
+    # Send negotiation request to all participants
+    for agent_id in participants:
+        agent_info = agents[agent_id]
+        queue = agent_info.get("message_queue")
+        if queue:
+            asyncio.create_task(queue.put({
+                "type": "role_negotiation",
+                "negotiation_id": negotiation_id,
+                "participants": participants,
+                "negotiation_type": negotiation_type,
+                "context": context,
+                "your_current_role": agent_info.get("config", {}).get("role"),
+                "your_capabilities": agent_info.get("config", {}).get("capabilities", [])
+            }))
+    
+    logger.info(f"Started role negotiation {negotiation_id} with {len(participants)} agents")
+    
+    return {
+        "status": "initiated",
+        "negotiation_id": negotiation_id,
+        "participants": participants,
+        "type": negotiation_type
+    }
+
+
+# Module-level marker for plugin discovery
+ksi_plugin = True

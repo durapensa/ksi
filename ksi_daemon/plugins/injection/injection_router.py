@@ -1,1 +1,892 @@
-#!/usr/bin/env python3\n"""\nInjection Router Plugin\n\nRoutes async completion results through system-reminder injection to enable\nautonomous agent coordination through completion chains.\n"""\n\nimport asyncio\nimport json\nimport time\nfrom queue import Queue\nfrom typing import Dict, Any, Optional\nimport pluggy\n\nfrom ksi_common.logging import get_logger\nfrom ksi_daemon.plugin_utils import plugin_metadata\nfrom ksi_daemon.config import config\nfrom ksi_common import TimestampManager\n\n# Plugin metadata\nplugin_metadata("injection_router", version="1.0.0",\n                description="Routes async completion results through injection")\n\n# Hook implementation marker\nhookimpl = pluggy.HookimplMarker("ksi")\n\n# Module state\nlogger = get_logger("injection_router")\ninjection_queue = Queue()\ninjection_metadata_store: Dict[str, Dict[str, Any]] = {}\n\n# Event emitter reference (set during startup)\nevent_emitter = None\n\n# Import prompt composer when available\ntry:\n    from prompts.composer import PromptComposer\n    composer = PromptComposer()\nexcept ImportError:\n    logger.warning("PromptComposer not available, using fallback injection formatting")\n    composer = None\n\n\nclass InjectionCircuitBreaker:\n    """Basic circuit breaker for injection safety."""\n    \n    def __init__(self):\n        self.request_depth_tracker: Dict[str, int] = {}\n        self.blocked_requests = set()\n    \n    def check_injection_allowed(self, metadata: Dict[str, Any]) -> bool:\n        """Check if injection should be allowed based on circuit breaker rules."""\n        request_id = metadata.get('id')\n        \n        # Check if already blocked\n        if request_id in self.blocked_requests:\n            return False\n        \n        # Check depth\n        circuit_config = metadata.get('circuit_breaker_config', {})\n        parent_id = circuit_config.get('parent_request_id')\n        max_depth = circuit_config.get('max_depth', 5)\n        \n        if parent_id:\n            parent_depth = self.request_depth_tracker.get(parent_id, 0)\n            current_depth = parent_depth + 1\n            \n            if current_depth >= max_depth:\n                logger.warning(f"Injection blocked: depth {current_depth} exceeds max {max_depth}")\n                self.blocked_requests.add(request_id)\n                return False\n            \n            self.request_depth_tracker[request_id] = current_depth\n        else:\n            self.request_depth_tracker[request_id] = 0\n        \n        return True\n    \n    def get_status(self, parent_request_id: Optional[str]) -> Dict[str, Any]:\n        """Get current circuit breaker status for a request chain."""\n        if not parent_request_id:\n            return {\n                'depth': 0,\n                'max_depth': 5,\n                'tokens_used': 0,\n                'token_budget': 50000,\n                'time_elapsed': 0,\n                'time_window': 3600\n            }\n        \n        depth = self.request_depth_tracker.get(parent_request_id, 0) + 1\n        \n        return {\n            'depth': depth,\n            'max_depth': 5,\n            'tokens_used': 0,  # Token tracking not yet implemented\n            'token_budget': 50000,\n            'time_elapsed': 0,  # Time tracking not yet implemented\n            'time_window': 3600\n        }\n\n\n# Global circuit breaker instance\ncircuit_breaker = InjectionCircuitBreaker()\n\n\n@hookimpl\ndef ksi_startup(config):\n    """Initialize injection router on startup."""\n    logger.info("Injection router started")\n    return {"status": "injection_router_ready"}\n\n\n@hookimpl\ndef ksi_plugin_context(context):\n    """Store event emitter reference."""\n    global event_emitter\n    event_emitter = context.get("emit_event")\n\n\n@hookimpl\ndef ksi_ready():\n    """Return async task to process injection queue."""\n    logger.info("Injection router ksi_ready called - returning queue processor task")\n    \n    async def process_injection_queue():\n        """Process queued injections."""\n        logger.info("Starting injection queue processor")\n        \n        while True:\n            try:\n                # Get next injection request (blocking)\n                injection_request = await asyncio.get_event_loop().run_in_executor(\n                    None, injection_queue.get\n                )\n                \n                if injection_request is None:  # Shutdown signal\n                    logger.info("Injection queue processor shutting down")\n                    break\n                \n                logger.debug(f"Processing injection for session {injection_request.get('session_id')}")\n                \n                # Execute the injection\n                if event_emitter:\n                    logger.debug(f"Executing injection with data: {injection_request}")\n                    result = await execute_injection(injection_request, {})\n                    logger.debug(f"Injection result: {result}")\n                else:\n                    logger.error("Event emitter not available for injection processing")\n                    \n            except Exception as e:\n                logger.error(f"Error processing injection: {e}", exc_info=True)\n                await asyncio.sleep(1)  # Brief pause on error\n        \n        logger.info("Injection queue processor stopped")\n    \n    return {\n        "service": "injection_router",\n        "tasks": [\n            {\n                "name": "injection_queue_processor",\n                "coroutine": process_injection_queue()\n            }\n        ]\n    }\n\n\n@hookimpl\ndef ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):\n    """Handle injection-related events."""\n    \n    if event_name == "completion:result":\n        # Return async coroutine for daemon to await\n        return handle_completion_result(data, context)\n    \n    elif event_name == "injection:execute":\n        # Return async coroutine for daemon to await\n        return execute_injection(data, context)\n    \n    elif event_name == "injection:status":\n        return {\n            "queued_count": injection_queue.qsize(),\n            "metadata_count": len(injection_metadata_store),\n            "blocked_count": len(circuit_breaker.blocked_requests)\n        }\n    \n    return None\n\n\nasync def handle_completion_result(data: Dict[str, Any], context: Dict[str, Any]) -> Optional[Dict[str, Any]]:\n    """Process completion result and queue injection if configured."""\n    \n    request_id = data.get('request_id')\n    completion_text = data.get('result') or data.get('completion_text', '')\n    \n    # Check for error responses\n    if data.get('status') == 'error':\n        logger.warning(f"Completion error for {request_id}, skipping injection")\n        return None\n    \n    # Retrieve injection metadata\n    injection_metadata = get_injection_metadata(request_id)\n    \n    if not injection_metadata:\n        logger.debug(f"No injection metadata for {request_id}")\n        return None\n    \n    injection_config = injection_metadata.get('injection_config', {})\n    \n    if not injection_config.get('enabled'):\n        logger.debug(f"Injection not enabled for {request_id}")\n        return None\n    \n    # Check if this is already an injection (prevent recursion)\n    if injection_metadata.get('is_injection'):\n        logger.debug(f"Skipping injection for injected completion {request_id}")\n        return None\n    \n    # Check circuit breakers\n    if not circuit_breaker.check_injection_allowed(injection_metadata):\n        logger.warning(f"Injection blocked by circuit breaker for {request_id}")\n        \n        # Emit blocked event\n        if event_emitter:\n            asyncio.create_task(event_emitter("injection:blocked", {\n                "request_id": request_id,\n                "reason": "circuit_breaker"\n            }))\n        \n        return {"injection:blocked": {"request_id": request_id}}\n    \n    # Compose injection content\n    try:\n        injection_content = compose_injection_content(\n            completion_text, data, injection_metadata\n        )\n    except Exception as e:\n        logger.error(f"Failed to compose injection for {request_id}: {e}")\n        return {"error": f"Injection composition failed: {e}"}\n    \n    # Determine injection mode\n    injection_mode = injection_config.get('mode', 'next')  # Default to "next" mode\n    position = injection_config.get('position', 'prepend')  # Default to prepend\n    \n    # Handle based on mode\n    if injection_mode == 'direct':\n        # Direct mode: Queue for immediate completion (original behavior)\n        target_sessions = injection_config.get('target_sessions', ['originating'])\n        queued_count = 0\n        \n        for session_id in target_sessions:\n            injection_request = {\n                'session_id': session_id,\n                'content': injection_content,\n                'parent_request_id': request_id,\n                'is_injection': True,  # Prevent recursive injection\n                'timestamp': TimestampManager.timestamp_utc()\n            }\n            \n            injection_queue.put(injection_request)\n            queued_count += 1\n            \n            # Emit queued event\n            if event_emitter:\n                asyncio.create_task(event_emitter("injection:queued", {\n                    "request_id": request_id,\n                    "session_id": session_id,\n                    "mode": "direct"\n                }))\n        \n        logger.info(f"Queued {queued_count} direct injections for request {request_id}")\n        \n        return {\n            "injection:queued": {\n                "request_id": request_id,\n                "target_count": queued_count,\n                "mode": "direct"\n            }\n        }\n    \n    else:  # next mode\n        # Next mode: Store in async state for next request\n        target_sessions = injection_config.get('target_sessions', ['originating'])\n        stored_count = 0\n        \n        for session_id in target_sessions:\n            # Store injection in async state\n            injection_data = {\n                'content': injection_content,\n                'position': position,\n                'parent_request_id': request_id,\n                'timestamp': TimestampManager.timestamp_utc(),\n                'trigger_type': injection_config.get('trigger_type', 'general')\n            }\n            \n            # Use async_state API\n            if event_emitter:\n                result = await event_emitter("async_state:push", {\n                    "namespace": "injection",\n                    "key": session_id,\n                    "data": injection_data,\n                    "ttl_seconds": 3600  # 1 hour TTL\n                })\n                \n                if result and not result.get("error"):\n                    stored_count += 1\n                    \n                    # Emit stored event\n                    await event_emitter("injection:stored", {\n                        "request_id": request_id,\n                        "session_id": session_id,\n                        "mode": "next",\n                        "position": position\n                    })\n                else:\n                    logger.error(f"Failed to store injection for session {session_id}: {result}")\n        \n        logger.info(f"Stored {stored_count} next-mode injections for request {request_id}")\n        \n        return {\n            "injection:stored": {\n                "request_id": request_id,\n                "target_count": stored_count,\n                "mode": "next"\n            }\n        }\n\n\nasync def execute_injection(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:\n    """Execute a queued injection by creating a new completion request."""\n    \n    session_id = data.get('session_id')\n    content = data.get('content')\n    request_id = data.get('request_id')\n    target_sessions = data.get('target_sessions', [session_id] if session_id else [])\n    \n    if not content:\n        logger.error("No content provided for injection")\n        return {"status": "error", "error": "No content provided"}\n    \n    if not event_emitter:\n        logger.error("Event emitter not available for injection")\n        return {"status": "error", "error": "Event emitter not available"}\n    \n    logger.info(f"Executing injection for session {session_id}")\n    \n    # Create completion requests for each target session\n    results = []\n    for target_session in target_sessions:\n        try:\n            # Construct the completion request\n            completion_data = {\n                "prompt": content,\n                "session_id": target_session,\n                "model": data.get('model', 'claude-cli/sonnet'),  # Default model\n                "client_id": "injection_router",\n                "request_id": f"inj_{request_id}_{target_session}" if request_id else f"inj_{int(time.time() * 1000)}_{target_session}",\n                "priority": data.get('priority', 'normal'),\n                "injection_metadata": {\n                    "source_request": request_id,\n                    "injection_type": data.get('injection_type', 'system_reminder'),\n                    "timestamp": time.time()\n                }\n            }\n            \n            # Emit the completion request\n            result = await event_emitter("completion:async", completion_data)\n            results.append({\n                "target_session": target_session,\n                "status": "queued",\n                "request_id": completion_data["request_id"],\n                "result": result\n            })\n            \n            logger.info(f"Injected completion request {completion_data['request_id']} into session {target_session}")\n            \n        except Exception as e:\n            logger.error(f"Failed to inject into session {target_session}: {e}")\n            results.append({\n                "target_session": target_session,\n                "status": "error",\n                "error": str(e)\n            })\n    \n    return {\n        "status": "injection_executed",\n        "target_count": len(target_sessions),\n        "results": results\n    }\n\n\ndef get_injection_metadata(request_id: str) -> Optional[Dict[str, Any]]:\n    """Retrieve injection metadata for a request."""\n    \n    # First check our local store\n    if request_id in injection_metadata_store:\n        return injection_metadata_store[request_id]\n    \n    # Check persistent storage or state service (future enhancement)\n    \n    return None\n\n\ndef store_injection_metadata(request_id: str, metadata: Dict[str, Any]):\n    """Store injection metadata for a request."""\n    injection_metadata_store[request_id] = metadata\n\n\ndef compose_injection_content(completion_text: str, result_data: Dict[str, Any], \n                             metadata: Dict[str, Any]) -> str:\n    """Compose injection content using prompt composition system."""\n    \n    injection_config = metadata.get('injection_config', {})\n    circuit_breaker_config = metadata.get('circuit_breaker_config', {})\n    \n    # Calculate circuit breaker status\n    cb_status = circuit_breaker.get_status(\n        circuit_breaker_config.get('parent_request_id')\n    )\n    \n    # If composer is available, use it\n    if composer:\n        try:\n            # Prepare composition context\n            composition_context = {\n                'completion_result': completion_text,\n                'completion_attributes': result_data.get('attributes', {}),\n                'trigger_type': injection_config.get('trigger_type', 'general'),\n                'follow_up_guidance': injection_config.get('follow_up_guidance'),\n                'circuit_breaker_status': cb_status,\n                'pending_completion_result': True\n            }\n            \n            # Use specified template or default\n            template_name = injection_config.get('composition_template', 'async_completion_result')\n            \n            # Compose using template system\n            injection_prompt = composer.compose(template_name, composition_context)\n            \n            # Wrap in system-reminder tags\n            return f"<system-reminder>\n{injection_prompt}\n</system-reminder>"\n            \n        except Exception as e:\n            logger.error(f"Composer failed: {e}, using fallback")\n    \n    # Fallback formatting\n    trigger_type = injection_config.get('trigger_type', 'general')\n    follow_up_guidance = injection_config.get('follow_up_guidance', \n                                             'Consider if this requires any follow-up actions.')\n    \n    # Generate trigger boilerplate based on type\n    trigger_boilerplate = get_trigger_boilerplate(trigger_type)\n    \n    # Format circuit breaker status\n    cb_status_text = ""\n    if cb_status and cb_status['depth'] > 0:\n        cb_status_text = f"""\n## Circuit Breaker Status\n- Ideation Depth: {cb_status['depth']}/{cb_status['max_depth']}\n- Token Budget: {cb_status['tokens_used']}/{cb_status['token_budget']}\n- Time Window: {cb_status['time_elapsed']}/{cb_status['time_window']}s\n"""\n    \n    return f"""<system-reminder>\n## Async Completion Result\n\nAn asynchronous completion has returned with the following result:\n\n{completion_text}\n\n{trigger_boilerplate}\n\n{follow_up_guidance}\n{cb_status_text}\n</system-reminder>"""\n\n\ndef get_trigger_boilerplate(trigger_type: str) -> str:\n    """Get boilerplate text for different trigger types."""\n    \n    triggers = {\n        'antThinking': """\n## Analytical Thinking Trigger\n\nThis notification requires careful analytical consideration. Please think step-by-step about:\n\n1. **Implications**: What are the broader implications of this result?\n2. **Dependencies**: Which other agents or systems might be affected?\n3. **Actions**: What follow-up actions, if any, should be taken?\n4. **Risks**: Are there any risks or concerns to address?\n\nConsider whether to:\n- Send messages to specific agents\n- Initiate further research\n- Update organizational state\n- Document findings in collective memory\n""",\n        \n        'coordination': """\n## Coordination Trigger\n\nThis result has coordination implications. Consider:\n\n1. **Agent Notification**: Which agents need this information?\n2. **Organizational Impact**: How does this affect current coordination patterns?\n3. **Capability Changes**: Are there new capabilities to leverage?\n4. **Synchronization**: What state needs to be synchronized?\n\nCoordination actions to consider:\n- Broadcast to relevant agent groups\n- Update coordination patterns\n- Reallocate capabilities\n- Form new agent coalitions\n""",\n        \n        'research': """\n## Research Continuation Trigger\n\nThese findings suggest additional research opportunities:\n\n1. **Follow-up Questions**: What new questions arise from these results?\n2. **Knowledge Gaps**: What gaps in understanding remain?\n3. **Research Paths**: Which research directions seem most promising?\n4. **Resource Allocation**: What resources would be needed?\n\nResearch actions available:\n- Queue additional research tasks\n- Consult collective memory\n- Engage specialist agents\n- Synthesize with existing knowledge\n""",\n        \n        'memory': """\n## Memory Integration Trigger\n\nThis information may be valuable for collective memory:\n\n1. **Significance**: Is this finding significant enough to preserve?\n2. **Generalization**: Can this be generalized for future use?\n3. **Indexing**: How should this be categorized for retrieval?\n4. **Relationships**: How does this relate to existing memories?\n\nMemory actions:\n- Store in experience library\n- Update pattern recognition\n- Link to related memories\n- Tag for future retrieval\n""",\n        \n        'general': """\n## General Consideration\n\nPlease consider whether this result warrants any follow-up actions or communications.\n"""\n    }\n    \n    return triggers.get(trigger_type, triggers['general'])\n\n\n# Public API for other plugins\ndef queue_completion_with_injection(request: Dict[str, Any]) -> str:\n    """Queue a completion request with injection metadata."""\n    \n    # Generate request ID if not provided\n    request_id = request.get('id') or f"req_{int(time.time() * 1000)}"\n    \n    # Extract injection config\n    injection_config = request.get('injection_config', {})\n    \n    # Store metadata\n    metadata = {\n        'id': request_id,\n        'injection_config': injection_config,\n        'circuit_breaker_config': request.get('circuit_breaker_config', {}),\n        'timestamp': TimestampManager.timestamp_utc()\n    }\n    \n    store_injection_metadata(request_id, metadata)\n    \n    return request_id\n\n\n@hookimpl\ndef ksi_shutdown():\n    """Clean up on shutdown."""\n    # Signal queue processor to stop\n    injection_queue.put(None)\n    \n    # Clear any remaining items\n    while not injection_queue.empty():\n        try:\n            injection_queue.get_nowait()\n        except:\n            break\n    \n    logger.info("Injection router stopped")\n    return {"status": "injection_router_stopped"}\n\n\n# Module marker\nksi_plugin = True
+#!/usr/bin/env python3
+"""
+Injection Router Plugin
+
+Routes async completion results through system-reminder injection to enable
+autonomous agent coordination through completion chains.
+"""
+
+import asyncio
+import json
+import time
+from queue import Queue
+from typing import Dict, Any, Optional, List
+import pluggy
+
+from ksi_common.logging import get_logger
+from ksi_daemon.plugin_utils import plugin_metadata
+from ksi_daemon.config import config
+from ksi_common import TimestampManager
+
+# Plugin metadata
+plugin_metadata("injection_router", version="1.0.0",
+                description="Routes async completion results through injection")
+
+# Hook implementation marker
+hookimpl = pluggy.HookimplMarker("ksi")
+
+# Module state
+logger = get_logger("injection_router")
+injection_queue = Queue()
+injection_metadata_store: Dict[str, Dict[str, Any]] = {}
+
+# Event emitter reference (set during startup)
+event_emitter = None
+
+# Import prompt composer when available
+try:
+    from prompts.composer import PromptComposer
+    composer = PromptComposer()
+except ImportError:
+    logger.warning("PromptComposer not available, using fallback injection formatting")
+    composer = None
+
+
+class InjectionCircuitBreaker:
+    """Basic circuit breaker for injection safety."""
+    
+    def __init__(self):
+        self.request_depth_tracker: Dict[str, int] = {}
+        self.blocked_requests = set()
+    
+    def check_injection_allowed(self, metadata: Dict[str, Any]) -> bool:
+        """Check if injection should be allowed based on circuit breaker rules."""
+        request_id = metadata.get('id')
+        
+        # Check if already blocked
+        if request_id in self.blocked_requests:
+            return False
+        
+        # Check depth
+        circuit_config = metadata.get('circuit_breaker_config', {})
+        parent_id = circuit_config.get('parent_request_id')
+        max_depth = circuit_config.get('max_depth', 5)
+        
+        if parent_id:
+            parent_depth = self.request_depth_tracker.get(parent_id, 0)
+            current_depth = parent_depth + 1
+            
+            if current_depth >= max_depth:
+                logger.warning(f"Injection blocked: depth {current_depth} exceeds max {max_depth}")
+                self.blocked_requests.add(request_id)
+                return False
+            
+            self.request_depth_tracker[request_id] = current_depth
+        else:
+            self.request_depth_tracker[request_id] = 0
+        
+        return True
+    
+    def get_status(self, parent_request_id: Optional[str]) -> Dict[str, Any]:
+        """Get current circuit breaker status for a request chain."""
+        if not parent_request_id:
+            return {
+                'depth': 0,
+                'max_depth': 5,
+                'tokens_used': 0,
+                'token_budget': 50000,
+                'time_elapsed': 0,
+                'time_window': 3600
+            }
+        
+        depth = self.request_depth_tracker.get(parent_request_id, 0) + 1
+        
+        return {
+            'depth': depth,
+            'max_depth': 5,
+            'tokens_used': 0,  # Token tracking not yet implemented
+            'token_budget': 50000,
+            'time_elapsed': 0,  # Time tracking not yet implemented
+            'time_window': 3600
+        }
+
+
+# Global circuit breaker instance
+circuit_breaker = InjectionCircuitBreaker()
+
+
+@hookimpl
+def ksi_startup(config):
+    """Initialize injection router on startup."""
+    logger.info("Injection router started")
+    return {"status": "injection_router_ready"}
+
+
+@hookimpl
+def ksi_plugin_context(context):
+    """Store event emitter reference."""
+    global event_emitter
+    event_emitter = context.get("emit_event")
+
+
+@hookimpl
+def ksi_ready():
+    """Return async task to process injection queue."""
+    logger.info("Injection router ksi_ready called - returning queue processor task")
+    
+    async def process_injection_queue():
+        """Process queued injections."""
+        logger.info("Starting injection queue processor")
+        
+        while True:
+            try:
+                # Get next injection request (blocking)
+                injection_request = await asyncio.get_event_loop().run_in_executor(
+                    None, injection_queue.get
+                )
+                
+                if injection_request is None:  # Shutdown signal
+                    logger.info("Injection queue processor shutting down")
+                    break
+                
+                logger.debug(f"Processing injection for session {injection_request.get('session_id')}")
+                
+                # Execute the injection
+                if event_emitter:
+                    logger.debug(f"Executing injection with data: {injection_request}")
+                    result = await execute_injection(injection_request, {})
+                    logger.debug(f"Injection result: {result}")
+                else:
+                    logger.error("Event emitter not available for injection processing")
+                    
+            except Exception as e:
+                logger.error(f"Error processing injection: {e}", exc_info=True)
+                await asyncio.sleep(1)  # Brief pause on error
+        
+        logger.info("Injection queue processor stopped")
+    
+    return {
+        "service": "injection_router",
+        "tasks": [
+            {
+                "name": "injection_queue_processor",
+                "coroutine": process_injection_queue()
+            }
+        ]
+    }
+
+
+@hookimpl
+def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
+    """Handle injection-related events."""
+    
+    if event_name == "completion:result":
+        # Return async coroutine for daemon to await
+        return handle_completion_result(data, context)
+    
+    elif event_name == "injection:execute":
+        # Return async coroutine for daemon to await
+        return execute_injection(data, context)
+    
+    elif event_name == "injection:status":
+        return {
+            "queued_count": injection_queue.qsize(),
+            "metadata_count": len(injection_metadata_store),
+            "blocked_count": len(circuit_breaker.blocked_requests)
+        }
+    
+    # New unified injection events
+    elif event_name == "injection:inject":
+        # Unified injection API
+        return inject_content(**data)
+    
+    elif event_name == "injection:batch":
+        # Batch injection support
+        return inject_batch(data.get("injections", []))
+    
+    elif event_name == "injection:list":
+        # List pending injections
+        return list_pending_injections(data.get("session_id"))
+    
+    elif event_name == "injection:clear":
+        # Clear injections
+        return clear_injections(
+            data.get("session_id"),
+            data.get("mode")
+        )
+    
+    return None
+
+
+async def handle_completion_result(data: Dict[str, Any], context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Process completion result and queue injection if configured."""
+    
+    request_id = data.get('request_id')
+    completion_text = data.get('result') or data.get('completion_text', '')
+    
+    # Check for error responses
+    if data.get('status') == 'error':
+        logger.warning(f"Completion error for {request_id}, skipping injection")
+        return None
+    
+    # Retrieve injection metadata
+    injection_metadata = get_injection_metadata(request_id)
+    
+    if not injection_metadata:
+        logger.debug(f"No injection metadata for {request_id}")
+        return None
+    
+    injection_config = injection_metadata.get('injection_config', {})
+    
+    if not injection_config.get('enabled'):
+        logger.debug(f"Injection not enabled for {request_id}")
+        return None
+    
+    # Check if this is already an injection (prevent recursion)
+    if injection_metadata.get('is_injection'):
+        logger.debug(f"Skipping injection for injected completion {request_id}")
+        return None
+    
+    # Check circuit breakers
+    if not circuit_breaker.check_injection_allowed(injection_metadata):
+        logger.warning(f"Injection blocked by circuit breaker for {request_id}")
+        
+        # Emit blocked event
+        if event_emitter:
+            asyncio.create_task(event_emitter("injection:blocked", {
+                "request_id": request_id,
+                "reason": "circuit_breaker"
+            }))
+        
+        return {"injection:blocked": {"request_id": request_id}}
+    
+    # Compose injection content
+    try:
+        injection_content = compose_injection_content(
+            completion_text, data, injection_metadata
+        )
+    except Exception as e:
+        logger.error(f"Failed to compose injection for {request_id}: {e}")
+        return {"error": f"Injection composition failed: {e}"}
+    
+    # Determine injection mode
+    injection_mode = injection_config.get('mode', 'next')  # Default to "next" mode
+    position = injection_config.get('position', 'prepend')  # Default to prepend
+    
+    # Handle based on mode
+    if injection_mode == 'direct':
+        # Direct mode: Queue for immediate completion (original behavior)
+        target_sessions = injection_config.get('target_sessions', ['originating'])
+        queued_count = 0
+        
+        for session_id in target_sessions:
+            injection_request = {
+                'session_id': session_id,
+                'content': injection_content,
+                'parent_request_id': request_id,
+                'is_injection': True,  # Prevent recursive injection
+                'timestamp': TimestampManager.timestamp_utc()
+            }
+            
+            injection_queue.put(injection_request)
+            queued_count += 1
+            
+            # Emit queued event
+            if event_emitter:
+                asyncio.create_task(event_emitter("injection:queued", {
+                    "request_id": request_id,
+                    "session_id": session_id,
+                    "mode": "direct"
+                }))
+        
+        logger.info(f"Queued {queued_count} direct injections for request {request_id}")
+        
+        return {
+            "injection:queued": {
+                "request_id": request_id,
+                "target_count": queued_count,
+                "mode": "direct"
+            }
+        }
+    
+    else:  # next mode
+        # Next mode: Store in async state for next request
+        target_sessions = injection_config.get('target_sessions', ['originating'])
+        stored_count = 0
+        
+        for session_id in target_sessions:
+            # Store injection in async state
+            injection_data = {
+                'content': injection_content,
+                'position': position,
+                'parent_request_id': request_id,
+                'timestamp': TimestampManager.timestamp_utc(),
+                'trigger_type': injection_config.get('trigger_type', 'general')
+            }
+            
+            # Use async_state API
+            if event_emitter:
+                result = await event_emitter("async_state:push", {
+                    "namespace": "injection",
+                    "key": session_id,
+                    "data": injection_data,
+                    "ttl_seconds": 3600  # 1 hour TTL
+                })
+                
+                if result and not result.get("error"):
+                    stored_count += 1
+                    
+                    # Emit stored event
+                    await event_emitter("injection:stored", {
+                        "request_id": request_id,
+                        "session_id": session_id,
+                        "mode": "next",
+                        "position": position
+                    })
+                else:
+                    logger.error(f"Failed to store injection for session {session_id}: {result}")
+        
+        logger.info(f"Stored {stored_count} next-mode injections for request {request_id}")
+        
+        return {
+            "injection:stored": {
+                "request_id": request_id,
+                "target_count": stored_count,
+                "mode": "next"
+            }
+        }
+
+
+async def execute_injection(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+    """Execute a queued injection by creating a new completion request."""
+    
+    session_id = data.get('session_id')
+    content = data.get('content')
+    request_id = data.get('request_id')
+    target_sessions = data.get('target_sessions', [session_id] if session_id else [])
+    
+    if not content:
+        logger.error("No content provided for injection")
+        return {"status": "error", "error": "No content provided"}
+    
+    if not event_emitter:
+        logger.error("Event emitter not available for injection")
+        return {"status": "error", "error": "Event emitter not available"}
+    
+    logger.info(f"Executing injection for session {session_id}")
+    
+    # Create completion requests for each target session
+    results = []
+    for target_session in target_sessions:
+        try:
+            # Construct the completion request
+            completion_data = {
+                "prompt": content,
+                "session_id": target_session,
+                "model": data.get('model', 'claude-cli/sonnet'),  # Default model
+                "client_id": "injection_router",
+                "request_id": f"inj_{request_id}_{target_session}" if request_id else f"inj_{int(time.time() * 1000)}_{target_session}",
+                "priority": data.get('priority', 'normal'),
+                "injection_metadata": {
+                    "source_request": request_id,
+                    "injection_type": data.get('injection_type', 'system_reminder'),
+                    "timestamp": time.time()
+                }
+            }
+            
+            # Emit the completion request
+            result = await event_emitter("completion:async", completion_data)
+            results.append({
+                "target_session": target_session,
+                "status": "queued",
+                "request_id": completion_data["request_id"],
+                "result": result
+            })
+            
+            logger.info(f"Injected completion request {completion_data['request_id']} into session {target_session}")
+            
+        except Exception as e:
+            logger.error(f"Failed to inject into session {target_session}: {e}")
+            results.append({
+                "target_session": target_session,
+                "status": "error",
+                "error": str(e)
+            })
+    
+    return {
+        "status": "injection_executed",
+        "target_count": len(target_sessions),
+        "results": results
+    }
+
+
+# Unified injection helper functions
+
+async def inject_content(
+    session_id: str,
+    content: str,
+    mode: str = "next",
+    position: str = "prepend",
+    trigger_type: str = "general",
+    ttl_seconds: int = 3600,
+    target_sessions: Optional[List[str]] = None,
+    **kwargs
+) -> Dict[str, Any]:
+    """
+    Inject content into one or more sessions.
+    
+    Args:
+        session_id: Primary session ID
+        content: Content to inject
+        mode: 'direct' for immediate injection, 'next' for next request
+        position: 'prepend', 'postscript', 'system_reminder', etc.
+        trigger_type: Type of trigger for composition
+        ttl_seconds: TTL for next-mode injections
+        target_sessions: List of target sessions (defaults to [session_id])
+        **kwargs: Additional options
+        
+    Returns:
+        Result dictionary with injection status
+    """
+    # Validate parameters
+    error = validate_injection_request(session_id, content, mode, position)
+    if error:
+        return {"status": "error", "error": error}
+    
+    # Default target sessions
+    if not target_sessions:
+        target_sessions = [session_id]
+    
+    # Handle system_reminder position by wrapping content
+    if position == "system_reminder" and not content.startswith("<system-reminder>"):
+        content = f"<system-reminder>\n{content}\n</system-reminder>"
+    
+    if mode == "direct":
+        # Direct mode: Queue for immediate execution
+        queued_count = 0
+        
+        for target in target_sessions:
+            injection_request = {
+                'session_id': target,
+                'content': content,
+                'parent_request_id': kwargs.get('parent_request_id'),
+                'is_injection': True,
+                'timestamp': TimestampManager.timestamp_utc(),
+                'position': position,
+                'trigger_type': trigger_type
+            }
+            
+            injection_queue.put(injection_request)
+            queued_count += 1
+            
+            if event_emitter:
+                await event_emitter("injection:queued", {
+                    "session_id": target,
+                    "mode": "direct",
+                    "position": position
+                })
+        
+        return {
+            "status": "success",
+            "mode": "direct",
+            "queued_count": queued_count,
+            "target_sessions": target_sessions
+        }
+    
+    else:  # next mode
+        # Store in async state for next request
+        stored_count = 0
+        
+        for target in target_sessions:
+            injection_data = {
+                'content': content,
+                'position': position,
+                'timestamp': TimestampManager.timestamp_utc(),
+                'trigger_type': trigger_type
+            }
+            
+            if event_emitter:
+                result = await event_emitter("async_state:push", {
+                    "namespace": "injection",
+                    "key": target,
+                    "data": injection_data,
+                    "ttl_seconds": ttl_seconds
+                })
+                
+                if result and not result.get("error"):
+                    stored_count += 1
+                    
+                    await event_emitter("injection:stored", {
+                        "session_id": target,
+                        "mode": "next",
+                        "position": position
+                    })
+        
+        return {
+            "status": "success",
+            "mode": "next",
+            "stored_count": stored_count,
+            "target_sessions": target_sessions,
+            "ttl_seconds": ttl_seconds
+        }
+
+
+async def inject_batch(injections: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Process multiple injections efficiently.
+    
+    Args:
+        injections: List of injection requests
+        
+    Returns:
+        Summary of batch injection results
+    """
+    results = []
+    
+    for injection in injections:
+        try:
+            result = await inject_content(**injection)
+            results.append({
+                "session_id": injection.get("session_id"),
+                "status": result.get("status"),
+                "result": result
+            })
+        except Exception as e:
+            results.append({
+                "session_id": injection.get("session_id"),
+                "status": "error",
+                "error": str(e)
+            })
+    
+    success_count = sum(1 for r in results if r["status"] == "success")
+    error_count = len(results) - success_count
+    
+    return {
+        "status": "batch_complete",
+        "total": len(results),
+        "success_count": success_count,
+        "error_count": error_count,
+        "results": results
+    }
+
+
+async def list_pending_injections(session_id: str) -> Dict[str, Any]:
+    """
+    List all pending next-mode injections for a session.
+    
+    Args:
+        session_id: Session to query
+        
+    Returns:
+        List of pending injections
+    """
+    if not session_id:
+        return {"status": "error", "error": "session_id required"}
+    
+    if not event_emitter:
+        return {"status": "error", "error": "State service not available"}
+    
+    # Get all injections from async state
+    result = await event_emitter("async_state:get_queue", {
+        "namespace": "injection",
+        "key": session_id
+    })
+    
+    if result and not result.get("error"):
+        injections = result.get("data", [])
+        return {
+            "status": "success",
+            "session_id": session_id,
+            "pending_count": len(injections),
+            "injections": injections
+        }
+    
+    return {
+        "status": "success",
+        "session_id": session_id,
+        "pending_count": 0,
+        "injections": []
+    }
+
+
+async def clear_injections(session_id: str, mode: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Clear pending injections for a session.
+    
+    Args:
+        session_id: Session to clear
+        mode: Optional mode filter ('next' or 'direct')
+        
+    Returns:
+        Number of cleared injections
+    """
+    if not session_id:
+        return {"status": "error", "error": "session_id required"}
+    
+    cleared_count = 0
+    
+    # Clear next-mode injections from async state
+    if mode in [None, "next"]:
+        if event_emitter:
+            result = await event_emitter("async_state:delete", {
+                "namespace": "injection",
+                "key": session_id
+            })
+            
+            if result and not result.get("error"):
+                cleared_count += result.get("deleted", 0)
+    
+    # Clear direct-mode injections from queue
+    if mode in [None, "direct"]:
+        # This is more complex as we'd need to filter the queue
+        # For now, we'll note this as a limitation
+        logger.warning("Clearing direct-mode injections from queue not yet implemented")
+    
+    return {
+        "status": "success",
+        "session_id": session_id,
+        "cleared_count": cleared_count,
+        "mode": mode or "all"
+    }
+
+
+def validate_injection_request(
+    session_id: str,
+    content: str,
+    mode: str,
+    position: str
+) -> Optional[str]:
+    """
+    Validate injection parameters.
+    
+    Returns:
+        Error message if invalid, None if valid
+    """
+    if not session_id:
+        return "session_id is required"
+    
+    if not content:
+        return "content is required"
+    
+    if mode not in ["direct", "next"]:
+        return f"Invalid mode '{mode}'. Must be 'direct' or 'next'"
+    
+    valid_positions = [
+        "prepend", "postscript", "system_reminder",
+        "before_prompt", "after_prompt"
+    ]
+    if position not in valid_positions:
+        return f"Invalid position '{position}'. Must be one of: {', '.join(valid_positions)}"
+    
+    return None
+
+
+def get_injection_metadata(request_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieve injection metadata for a request."""
+    
+    # First check our local store
+    if request_id in injection_metadata_store:
+        return injection_metadata_store[request_id]
+    
+    # Check persistent storage or state service (future enhancement)
+    
+    return None
+
+
+def store_injection_metadata(request_id: str, metadata: Dict[str, Any]):
+    """Store injection metadata for a request."""
+    injection_metadata_store[request_id] = metadata
+
+
+def compose_injection_content(completion_text: str, result_data: Dict[str, Any], 
+                             metadata: Dict[str, Any]) -> str:
+    """Compose injection content using prompt composition system."""
+    
+    injection_config = metadata.get('injection_config', {})
+    circuit_breaker_config = metadata.get('circuit_breaker_config', {})
+    
+    # Calculate circuit breaker status
+    cb_status = circuit_breaker.get_status(
+        circuit_breaker_config.get('parent_request_id')
+    )
+    
+    # If composer is available, use it
+    if composer:
+        try:
+            # Prepare composition context
+            composition_context = {
+                'completion_result': completion_text,
+                'completion_attributes': result_data.get('attributes', {}),
+                'trigger_type': injection_config.get('trigger_type', 'general'),
+                'follow_up_guidance': injection_config.get('follow_up_guidance'),
+                'circuit_breaker_status': cb_status,
+                'pending_completion_result': True
+            }
+            
+            # Use specified template or default
+            template_name = injection_config.get('composition_template', 'async_completion_result')
+            
+            # Compose using template system
+            injection_prompt = composer.compose(template_name, composition_context)
+            
+            # Check if we need to wrap in system-reminder tags
+            position = injection_config.get('position', 'prepend')
+            if position == 'system_reminder' or injection_config.get('wrap_system_reminder'):
+                return f"<system-reminder>\n{injection_prompt}\n</system-reminder>"
+            
+            return injection_prompt
+            
+        except Exception as e:
+            logger.error(f"Composer failed: {e}, using fallback")
+    
+    # Fallback formatting
+    trigger_type = injection_config.get('trigger_type', 'general')
+    follow_up_guidance = injection_config.get('follow_up_guidance', 
+                                             'Consider if this requires any follow-up actions.')
+    
+    # Generate trigger boilerplate based on type
+    trigger_boilerplate = get_trigger_boilerplate(trigger_type)
+    
+    # Format circuit breaker status
+    cb_status_text = ""
+    if cb_status and cb_status['depth'] > 0:
+        cb_status_text = f"""
+## Circuit Breaker Status
+- Ideation Depth: {cb_status['depth']}/{cb_status['max_depth']}
+- Token Budget: {cb_status['tokens_used']}/{cb_status['token_budget']}
+- Time Window: {cb_status['time_elapsed']}/{cb_status['time_window']}s
+"""
+    
+    content = f"""## Async Completion Result
+
+An asynchronous completion has returned with the following result:
+
+{completion_text}
+
+{trigger_boilerplate}
+
+{follow_up_guidance}
+{cb_status_text}"""
+    
+    # Wrap based on position
+    position = injection_config.get('position', 'prepend')
+    if position == 'system_reminder':
+        return f"<system-reminder>\n{content}\n</system-reminder>"
+    
+    return content
+
+
+def get_trigger_boilerplate(trigger_type: str) -> str:
+    """Get boilerplate text for different trigger types."""
+    
+    triggers = {
+        'antThinking': """
+## Analytical Thinking Trigger
+
+This notification requires careful analytical consideration. Please think step-by-step about:
+
+1. **Implications**: What are the broader implications of this result?
+2. **Dependencies**: Which other agents or systems might be affected?
+3. **Actions**: What follow-up actions, if any, should be taken?
+4. **Risks**: Are there any risks or concerns to address?
+
+Consider whether to:
+- Send messages to specific agents
+- Initiate further research
+- Update organizational state
+- Document findings in collective memory
+""",
+        
+        'coordination': """
+## Coordination Trigger
+
+This result has coordination implications. Consider:
+
+1. **Agent Notification**: Which agents need this information?
+2. **Organizational Impact**: How does this affect current coordination patterns?
+3. **Capability Changes**: Are there new capabilities to leverage?
+4. **Synchronization**: What state needs to be synchronized?
+
+Coordination actions to consider:
+- Broadcast to relevant agent groups
+- Update coordination patterns
+- Reallocate capabilities
+- Form new agent coalitions
+""",
+        
+        'research': """
+## Research Continuation Trigger
+
+These findings suggest additional research opportunities:
+
+1. **Follow-up Questions**: What new questions arise from these results?
+2. **Knowledge Gaps**: What gaps in understanding remain?
+3. **Research Paths**: Which research directions seem most promising?
+4. **Resource Allocation**: What resources would be needed?
+
+Research actions available:
+- Queue additional research tasks
+- Consult collective memory
+- Engage specialist agents
+- Synthesize with existing knowledge
+""",
+        
+        'memory': """
+## Memory Integration Trigger
+
+This information may be valuable for collective memory:
+
+1. **Significance**: Is this finding significant enough to preserve?
+2. **Generalization**: Can this be generalized for future use?
+3. **Indexing**: How should this be categorized for retrieval?
+4. **Relationships**: How does this relate to existing memories?
+
+Memory actions:
+- Store in experience library
+- Update pattern recognition
+- Link to related memories
+- Tag for future retrieval
+""",
+        
+        'general': """
+## General Consideration
+
+Please consider whether this result warrants any follow-up actions or communications.
+"""
+    }
+    
+    return triggers.get(trigger_type, triggers['general'])
+
+
+# Public API for other plugins
+def queue_completion_with_injection(request: Dict[str, Any]) -> str:
+    """Queue a completion request with injection metadata."""
+    
+    # Generate request ID if not provided
+    request_id = request.get('id') or f"req_{int(time.time() * 1000)}"
+    
+    # Extract injection config
+    injection_config = request.get('injection_config', {})
+    
+    # Store metadata
+    metadata = {
+        'id': request_id,
+        'injection_config': injection_config,
+        'circuit_breaker_config': request.get('circuit_breaker_config', {}),
+        'timestamp': TimestampManager.timestamp_utc()
+    }
+    
+    store_injection_metadata(request_id, metadata)
+    
+    return request_id
+
+
+@hookimpl
+def ksi_shutdown():
+    """Clean up on shutdown."""
+    # Signal queue processor to stop
+    injection_queue.put(None)
+    
+    # Clear any remaining items
+    while not injection_queue.empty():
+        try:
+            injection_queue.get_nowait()
+        except:
+            break
+    
+    logger.info("Injection router stopped")
+    return {"status": "injection_router_stopped"}
+
+
+# Module marker
+ksi_plugin = True

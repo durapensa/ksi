@@ -1,1 +1,319 @@
-#!/usr/bin/env python3\n"""\nAsync State Manager - Generalized persistent state for async flows\n\nProvides persistent state management for:\n- Injection queues (next-mode injections)\n- Completion queues (fork prevention)\n- Any async flow that needs restart resilience\n\nDesign principles:\n- All state persists to SQLite immediately\n- State organized by namespace and key\n- Supports queue-like operations (push/pop/peek)\n- Automatic expiration for stale entries\n- Extensible for future async patterns\n"""\n\nimport json\nimport time\nimport sqlite3\nfrom pathlib import Path\nfrom typing import Dict, Any, List, Optional, Tuple\nfrom dataclasses import dataclass, asdict\nfrom datetime import datetime, timedelta\nimport asyncio\nfrom contextlib import contextmanager\n\nfrom ksi_common.logging import get_logger\nfrom ksi_daemon.plugin_utils import get_logger\n\nlogger = get_logger("async_state_manager")\n\n\n@dataclass\nclass StateEntry:\n    """Represents a single state entry."""\n    namespace: str  # e.g., "injection", "completion_queue"\n    key: str       # e.g., session_id\n    data: Dict[str, Any]\n    created_at: float\n    expires_at: Optional[float] = None\n    position: int = 0  # For queue ordering\n    \n    def is_expired(self) -> bool:\n        """Check if entry has expired."""\n        if self.expires_at is None:\n            return False\n        return time.time() > self.expires_at\n\n\nclass AsyncStateManager:\n    """Manages persistent state for async flows."""\n    \n    def __init__(self, db_path: Path):\n        self.db_path = db_path\n        self.db_path.parent.mkdir(parents=True, exist_ok=True)\n        self._init_db()\n        \n    def _init_db(self):\n        """Initialize database schema."""\n        with self._get_db() as conn:\n            conn.execute("""\n                CREATE TABLE IF NOT EXISTS async_state (\n                    namespace TEXT NOT NULL,\n                    key TEXT NOT NULL,\n                    position INTEGER NOT NULL DEFAULT 0,\n                    data TEXT NOT NULL,\n                    created_at REAL NOT NULL,\n                    expires_at REAL,\n                    PRIMARY KEY (namespace, key, position)\n                )\n            """)\n            \n            # Indexes for efficient queries\n            conn.execute("""\n                CREATE INDEX IF NOT EXISTS idx_async_state_expiry \n                ON async_state(expires_at) \n                WHERE expires_at IS NOT NULL\n            """)\n            \n            conn.execute("""\n                CREATE INDEX IF NOT EXISTS idx_async_state_namespace_key \n                ON async_state(namespace, key)\n            """)\n            \n            conn.commit()\n    \n    @contextmanager\n    def _get_db(self):\n        """Get database connection with proper cleanup."""\n        conn = sqlite3.connect(str(self.db_path))\n        conn.row_factory = sqlite3.Row\n        try:\n            yield conn\n        finally:\n            conn.close()\n    \n    # Queue-like operations for injection/completion queues\n    \n    async def push(self, namespace: str, key: str, data: Dict[str, Any], \n                   ttl_seconds: Optional[int] = None) -> int:\n        """Push item to queue (append)."""\n        created_at = time.time()\n        expires_at = created_at + ttl_seconds if ttl_seconds else None\n        \n        with self._get_db() as conn:\n            # Get next position\n            cursor = conn.execute(\n                "SELECT MAX(position) as max_pos FROM async_state WHERE namespace = ? AND key = ?",\n                (namespace, key)\n            )\n            row = cursor.fetchone()\n            position = (row['max_pos'] + 1) if row['max_pos'] is not None else 0\n            \n            # Insert new entry\n            conn.execute(\n                """INSERT INTO async_state \n                   (namespace, key, position, data, created_at, expires_at) \n                   VALUES (?, ?, ?, ?, ?, ?)""",\n                (namespace, key, position, json.dumps(data), created_at, expires_at)\n            )\n            conn.commit()\n            \n        logger.debug(f"Pushed to {namespace}:{key} at position {position}")\n        return position\n    \n    async def pop(self, namespace: str, key: str) -> Optional[Dict[str, Any]]:\n        """Pop item from queue (remove and return first)."""\n        with self._get_db() as conn:\n            # Get first item\n            cursor = conn.execute(\n                """SELECT * FROM async_state \n                   WHERE namespace = ? AND key = ? \n                   ORDER BY position ASC LIMIT 1""",\n                (namespace, key)\n            )\n            row = cursor.fetchone()\n            \n            if not row:\n                return None\n            \n            # Delete it\n            conn.execute(\n                """DELETE FROM async_state \n                   WHERE namespace = ? AND key = ? AND position = ?""",\n                (namespace, key, row['position'])\n            )\n            conn.commit()\n            \n            data = json.loads(row['data'])\n            logger.debug(f"Popped from {namespace}:{key}")\n            return data\n    \n    async def peek(self, namespace: str, key: str) -> Optional[Dict[str, Any]]:\n        """Peek at first item without removing."""\n        with self._get_db() as conn:\n            cursor = conn.execute(\n                """SELECT data FROM async_state \n                   WHERE namespace = ? AND key = ? \n                   ORDER BY position ASC LIMIT 1""",\n                (namespace, key)\n            )\n            row = cursor.fetchone()\n            \n            if not row:\n                return None\n            \n            return json.loads(row['data'])\n    \n    async def get_queue(self, namespace: str, key: str) -> List[Dict[str, Any]]:\n        """Get all items in queue order."""\n        with self._get_db() as conn:\n            cursor = conn.execute(\n                """SELECT data FROM async_state \n                   WHERE namespace = ? AND key = ? \n                   ORDER BY position ASC""",\n                (namespace, key)\n            )\n            \n            return [json.loads(row['data']) for row in cursor.fetchall()]\n    \n    async def queue_length(self, namespace: str, key: str) -> int:\n        """Get number of items in queue."""\n        with self._get_db() as conn:\n            cursor = conn.execute(\n                "SELECT COUNT(*) as count FROM async_state WHERE namespace = ? AND key = ?",\n                (namespace, key)\n            )\n            return cursor.fetchone()['count']\n    \n    # Key-value operations for simple state\n    \n    async def set(self, namespace: str, key: str, data: Dict[str, Any],\n                  ttl_seconds: Optional[int] = None) -> None:\n        """Set single value (replaces any existing)."""\n        created_at = time.time()\n        expires_at = created_at + ttl_seconds if ttl_seconds else None\n        \n        with self._get_db() as conn:\n            # Delete existing\n            conn.execute(\n                "DELETE FROM async_state WHERE namespace = ? AND key = ?",\n                (namespace, key)\n            )\n            \n            # Insert new\n            conn.execute(\n                """INSERT INTO async_state \n                   (namespace, key, position, data, created_at, expires_at) \n                   VALUES (?, ?, 0, ?, ?, ?)""",\n                (namespace, key, json.dumps(data), created_at, expires_at)\n            )\n            conn.commit()\n            \n        logger.debug(f"Set {namespace}:{key}")\n    \n    async def get(self, namespace: str, key: str) -> Optional[Dict[str, Any]]:\n        """Get single value."""\n        with self._get_db() as conn:\n            cursor = conn.execute(\n                """SELECT data FROM async_state \n                   WHERE namespace = ? AND key = ? AND position = 0""",\n                (namespace, key)\n            )\n            row = cursor.fetchone()\n            \n            if not row:\n                return None\n            \n            return json.loads(row['data'])\n    \n    async def delete(self, namespace: str, key: str) -> int:\n        """Delete all entries for namespace:key."""\n        with self._get_db() as conn:\n            cursor = conn.execute(\n                "DELETE FROM async_state WHERE namespace = ? AND key = ?",\n                (namespace, key)\n            )\n            conn.commit()\n            \n            deleted = cursor.rowcount\n            if deleted > 0:\n                logger.debug(f"Deleted {deleted} entries from {namespace}:{key}")\n            return deleted\n    \n    # Maintenance operations\n    \n    async def cleanup_expired(self) -> int:\n        """Remove expired entries."""\n        current_time = time.time()\n        \n        with self._get_db() as conn:\n            cursor = conn.execute(\n                "DELETE FROM async_state WHERE expires_at IS NOT NULL AND expires_at < ?",\n                (current_time,)\n            )\n            conn.commit()\n            \n            deleted = cursor.rowcount\n            if deleted > 0:\n                logger.info(f"Cleaned up {deleted} expired entries")\n            return deleted\n    \n    async def get_namespaces(self) -> List[str]:\n        """Get all active namespaces."""\n        with self._get_db() as conn:\n            cursor = conn.execute(\n                "SELECT DISTINCT namespace FROM async_state ORDER BY namespace"\n            )\n            return [row['namespace'] for row in cursor.fetchall()]\n    \n    async def get_keys(self, namespace: str) -> List[str]:\n        """Get all keys in namespace."""\n        with self._get_db() as conn:\n            cursor = conn.execute(\n                "SELECT DISTINCT key FROM async_state WHERE namespace = ? ORDER BY key",\n                (namespace,)\n            )\n            return [row['key'] for row in cursor.fetchall()]\n    \n    async def get_stats(self) -> Dict[str, Any]:\n        """Get statistics about stored state."""\n        with self._get_db() as conn:\n            # Total entries\n            cursor = conn.execute("SELECT COUNT(*) as total FROM async_state")\n            total = cursor.fetchone()['total']\n            \n            # By namespace\n            cursor = conn.execute(\n                """SELECT namespace, COUNT(*) as count \n                   FROM async_state \n                   GROUP BY namespace"""\n            )\n            by_namespace = {row['namespace']: row['count'] for row in cursor.fetchall()}\n            \n            # Expired\n            cursor = conn.execute(\n                """SELECT COUNT(*) as expired \n                   FROM async_state \n                   WHERE expires_at IS NOT NULL AND expires_at < ?""",\n                (time.time(),)\n            )\n            expired = cursor.fetchone()['expired']\n            \n            return {\n                "total_entries": total,\n                "by_namespace": by_namespace,\n                "expired_entries": expired\n            }\n\n\n# Global instance (initialized by plugin)\nasync_state_manager: Optional[AsyncStateManager] = None\n\n\ndef get_async_state_manager() -> AsyncStateManager:\n    """Get the global async state manager."""\n    if async_state_manager is None:\n        raise RuntimeError("Async state manager not initialized")\n    return async_state_manager
+#!/usr/bin/env python3
+"""
+Async State Manager - Generalized persistent state for async flows
+
+Provides persistent state management for:
+- Injection queues (next-mode injections)
+- Completion queues (fork prevention)
+- Any async flow that needs restart resilience
+
+Design principles:
+- All state persists to SQLite immediately
+- State organized by namespace and key
+- Supports queue-like operations (push/pop/peek)
+- Automatic expiration for stale entries
+- Extensible for future async patterns
+"""
+
+import json
+import time
+import sqlite3
+from pathlib import Path
+from typing import Dict, Any, List, Optional, Tuple
+from dataclasses import dataclass, asdict
+from datetime import datetime, timedelta
+import asyncio
+from contextlib import contextmanager
+
+from ksi_common.logging import get_logger
+
+logger = get_logger("async_state_manager")
+
+
+@dataclass
+class StateEntry:
+    """Represents a single state entry."""
+    namespace: str  # e.g., "injection", "completion_queue"
+    key: str       # e.g., session_id
+    data: Dict[str, Any]
+    created_at: float
+    expires_at: Optional[float] = None
+    position: int = 0  # For queue ordering
+    
+    def is_expired(self) -> bool:
+        """Check if entry has expired."""
+        if self.expires_at is None:
+            return False
+        return time.time() > self.expires_at
+
+
+class AsyncStateManager:
+    """Manages persistent state for async flows."""
+    
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._init_db()
+        
+    def _init_db(self):
+        """Initialize database schema."""
+        with self._get_db() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS async_state (
+                    namespace TEXT NOT NULL,
+                    key TEXT NOT NULL,
+                    position INTEGER NOT NULL DEFAULT 0,
+                    data TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    expires_at REAL,
+                    PRIMARY KEY (namespace, key, position)
+                )
+            """)
+            
+            # Indexes for efficient queries
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_async_state_expiry 
+                ON async_state(expires_at) 
+                WHERE expires_at IS NOT NULL
+            """)
+            
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_async_state_namespace_key 
+                ON async_state(namespace, key)
+            """)
+            
+            conn.commit()
+    
+    @contextmanager
+    def _get_db(self):
+        """Get database connection with proper cleanup."""
+        conn = sqlite3.connect(str(self.db_path))
+        conn.row_factory = sqlite3.Row
+        try:
+            yield conn
+        finally:
+            conn.close()
+    
+    # Queue-like operations for injection/completion queues
+    
+    async def push(self, namespace: str, key: str, data: Dict[str, Any], 
+                   ttl_seconds: Optional[int] = None) -> int:
+        """Push item to queue (append)."""
+        created_at = time.time()
+        expires_at = created_at + ttl_seconds if ttl_seconds else None
+        
+        with self._get_db() as conn:
+            # Get next position
+            cursor = conn.execute(
+                "SELECT MAX(position) as max_pos FROM async_state WHERE namespace = ? AND key = ?",
+                (namespace, key)
+            )
+            row = cursor.fetchone()
+            position = (row['max_pos'] + 1) if row['max_pos'] is not None else 0
+            
+            # Insert new entry
+            conn.execute(
+                """INSERT INTO async_state 
+                   (namespace, key, position, data, created_at, expires_at) 
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (namespace, key, position, json.dumps(data), created_at, expires_at)
+            )
+            conn.commit()
+            
+        logger.debug(f"Pushed to {namespace}:{key} at position {position}")
+        return position
+    
+    async def pop(self, namespace: str, key: str) -> Optional[Dict[str, Any]]:
+        """Pop item from queue (remove and return first)."""
+        with self._get_db() as conn:
+            # Get first item
+            cursor = conn.execute(
+                """SELECT * FROM async_state 
+                   WHERE namespace = ? AND key = ? 
+                   ORDER BY position ASC LIMIT 1""",
+                (namespace, key)
+            )
+            row = cursor.fetchone()
+            
+            if not row:
+                return None
+            
+            # Delete it
+            conn.execute(
+                """DELETE FROM async_state 
+                   WHERE namespace = ? AND key = ? AND position = ?""",
+                (namespace, key, row['position'])
+            )
+            conn.commit()
+            
+            data = json.loads(row['data'])
+            logger.debug(f"Popped from {namespace}:{key}")
+            return data
+    
+    async def peek(self, namespace: str, key: str) -> Optional[Dict[str, Any]]:
+        """Peek at first item without removing."""
+        with self._get_db() as conn:
+            cursor = conn.execute(
+                """SELECT data FROM async_state 
+                   WHERE namespace = ? AND key = ? 
+                   ORDER BY position ASC LIMIT 1""",
+                (namespace, key)
+            )
+            row = cursor.fetchone()
+            
+            if not row:
+                return None
+            
+            return json.loads(row['data'])
+    
+    async def get_queue(self, namespace: str, key: str) -> List[Dict[str, Any]]:
+        """Get all items in queue order."""
+        with self._get_db() as conn:
+            cursor = conn.execute(
+                """SELECT data FROM async_state 
+                   WHERE namespace = ? AND key = ? 
+                   ORDER BY position ASC""",
+                (namespace, key)
+            )
+            
+            return [json.loads(row['data']) for row in cursor.fetchall()]
+    
+    async def queue_length(self, namespace: str, key: str) -> int:
+        """Get number of items in queue."""
+        with self._get_db() as conn:
+            cursor = conn.execute(
+                "SELECT COUNT(*) as count FROM async_state WHERE namespace = ? AND key = ?",
+                (namespace, key)
+            )
+            return cursor.fetchone()['count']
+    
+    # Key-value operations for simple state
+    
+    async def set(self, namespace: str, key: str, data: Dict[str, Any],
+                  ttl_seconds: Optional[int] = None) -> None:
+        """Set single value (replaces any existing)."""
+        created_at = time.time()
+        expires_at = created_at + ttl_seconds if ttl_seconds else None
+        
+        with self._get_db() as conn:
+            # Delete existing
+            conn.execute(
+                "DELETE FROM async_state WHERE namespace = ? AND key = ?",
+                (namespace, key)
+            )
+            
+            # Insert new
+            conn.execute(
+                """INSERT INTO async_state 
+                   (namespace, key, position, data, created_at, expires_at) 
+                   VALUES (?, ?, 0, ?, ?, ?)""",
+                (namespace, key, json.dumps(data), created_at, expires_at)
+            )
+            conn.commit()
+            
+        logger.debug(f"Set {namespace}:{key}")
+    
+    async def get(self, namespace: str, key: str) -> Optional[Dict[str, Any]]:
+        """Get single value."""
+        with self._get_db() as conn:
+            cursor = conn.execute(
+                """SELECT data FROM async_state 
+                   WHERE namespace = ? AND key = ? AND position = 0""",
+                (namespace, key)
+            )
+            row = cursor.fetchone()
+            
+            if not row:
+                return None
+            
+            return json.loads(row['data'])
+    
+    async def delete(self, namespace: str, key: str) -> int:
+        """Delete all entries for namespace:key."""
+        with self._get_db() as conn:
+            cursor = conn.execute(
+                "DELETE FROM async_state WHERE namespace = ? AND key = ?",
+                (namespace, key)
+            )
+            conn.commit()
+            
+            deleted = cursor.rowcount
+            if deleted > 0:
+                logger.debug(f"Deleted {deleted} entries from {namespace}:{key}")
+            return deleted
+    
+    # Maintenance operations
+    
+    async def cleanup_expired(self) -> int:
+        """Remove expired entries."""
+        current_time = time.time()
+        
+        with self._get_db() as conn:
+            cursor = conn.execute(
+                "DELETE FROM async_state WHERE expires_at IS NOT NULL AND expires_at < ?",
+                (current_time,)
+            )
+            conn.commit()
+            
+            deleted = cursor.rowcount
+            if deleted > 0:
+                logger.info(f"Cleaned up {deleted} expired entries")
+            return deleted
+    
+    async def get_namespaces(self) -> List[str]:
+        """Get all active namespaces."""
+        with self._get_db() as conn:
+            cursor = conn.execute(
+                "SELECT DISTINCT namespace FROM async_state ORDER BY namespace"
+            )
+            return [row['namespace'] for row in cursor.fetchall()]
+    
+    async def get_keys(self, namespace: str) -> List[str]:
+        """Get all keys in namespace."""
+        with self._get_db() as conn:
+            cursor = conn.execute(
+                "SELECT DISTINCT key FROM async_state WHERE namespace = ? ORDER BY key",
+                (namespace,)
+            )
+            return [row['key'] for row in cursor.fetchall()]
+    
+    async def get_stats(self) -> Dict[str, Any]:
+        """Get statistics about stored state."""
+        with self._get_db() as conn:
+            # Total entries
+            cursor = conn.execute("SELECT COUNT(*) as total FROM async_state")
+            total = cursor.fetchone()['total']
+            
+            # By namespace
+            cursor = conn.execute(
+                """SELECT namespace, COUNT(*) as count 
+                   FROM async_state 
+                   GROUP BY namespace"""
+            )
+            by_namespace = {row['namespace']: row['count'] for row in cursor.fetchall()}
+            
+            # Expired
+            cursor = conn.execute(
+                """SELECT COUNT(*) as expired 
+                   FROM async_state 
+                   WHERE expires_at IS NOT NULL AND expires_at < ?""",
+                (time.time(),)
+            )
+            expired = cursor.fetchone()['expired']
+            
+            return {
+                "total_entries": total,
+                "by_namespace": by_namespace,
+                "expired_entries": expired
+            }
+
+
+# Global instance (initialized by plugin)
+async_state_manager: Optional[AsyncStateManager] = None
+
+
+def get_async_state_manager() -> AsyncStateManager:
+    """Get the global async state manager."""
+    if async_state_manager is None:
+        raise RuntimeError("Async state manager not initialized")
+    return async_state_manager

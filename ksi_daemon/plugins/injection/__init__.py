@@ -1,1 +1,1 @@
-"""Injection plugin package."""
+"""Injection system plugin package."""

@@ -1,1 +1,784 @@
-"""\nConversation Service Plugin\n\nProvides conversation listing, search, filtering, and export functionality.\nAssumes all messages have proper timestamps - drops malformed entries.\n"""\n\nimport json\nimport logging\nfrom datetime import datetime, timezone\nfrom pathlib import Path\nfrom typing import Dict, List, Optional, Set, Any\nimport hashlib\n\nimport pluggy\n\nfrom ksi_daemon.config import config\nfrom ksi_common import TimestampManager\nfrom ksi_common.logging import get_logger\nfrom ksi_daemon.plugin_utils import plugin_metadata\n\n# Plugin metadata\nplugin_metadata("conversation", version="1.0.0",\n                description="Conversation history listing, search, and export service")\n\n# Hook implementation marker\nhookimpl = pluggy.HookimplMarker("ksi")\n\n# Module state\nlogger = get_logger("conversation")\n\n\n# Module state\nconversation_cache: Dict[str, Dict[str, Any]] = {}\ncache_timestamp: Optional[datetime] = None\ncache_ttl_seconds = 60  # Refresh cache every minute\nresponses_dir_path = None\nexports_dir = None\n\n\ndef ensure_directories():\n    """Ensure required directories exist."""\n    global responses_dir_path, exports_dir\n    responses_dir_path = config.responses_dir\n    exports_dir = config.state_dir / 'exports'\n    exports_dir.mkdir(exist_ok=True)\n\n\n# Hook implementations\n@hookimpl\ndef ksi_startup(config):\n    """Initialize conversation service on startup."""\n    ensure_directories()\n    logger.info("Conversation service started")\n    return {"status": "conversation_service_ready"}\n\n\n@hookimpl\ndef ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):\n    """Handle conversation-related events."""\n    \n    if event_name == "conversation:list":\n        return handle_list_conversations(data, context)\n    \n    elif event_name == "conversation:search":\n        return handle_search_conversations(data, context)\n    \n    elif event_name == "conversation:get":\n        return handle_get_conversation(data, context)\n    \n    elif event_name == "conversation:export":\n        return handle_export_conversation(data, context)\n    \n    elif event_name == "conversation:stats":\n        return handle_conversation_stats(data, context)\n    \n    elif event_name == "conversation:active":\n        return handle_active_conversations(data, context)\n    \n    return None\n\n\ndef is_cache_stale() -> bool:\n    """Check if conversation cache needs refresh."""\n    if cache_timestamp is None:\n        return True\n    \n    age = (datetime.now(timezone.utc) - cache_timestamp).total_seconds()\n    return age > cache_ttl_seconds\n\n\ndef refresh_conversation_cache() -> None:\n    """Refresh the conversation metadata cache."""\n    global cache_timestamp\n    conversation_cache.clear()\n    \n    # Scan all conversation files\n    for log_file in responses_dir_path.glob("*.jsonl"):\n        session_id = log_file.stem\n        \n        # Skip message_bus.jsonl - it's special\n        if session_id == "message_bus":\n            continue\n        \n        try:\n            # Get file stats\n            stat = log_file.stat()\n                \n            # Quick scan for metadata\n            metadata = {\n                'session_id': session_id,\n                'file_path': str(log_file),\n                'size_bytes': stat.st_size,\n                'modified_timestamp': datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),\n                'message_count': 0,\n                'first_timestamp': None,\n                'last_timestamp': None,\n                'participants': set(),\n                'has_claude': False,\n                'has_user': False\n            }\n                \n            # Read file to get message count and timestamps\n            with open(log_file, 'r') as f:\n                for line in f:\n                    try:\n                        entry = json.loads(line.strip())\n                        \n                        # Only process entries with valid timestamps\n                        timestamp = entry.get('timestamp')\n                        if not timestamp:\n                            continue\n                        \n                        # Validate timestamp format\n                        try:\n                            TimestampManager.parse_iso_timestamp(timestamp)\n                        except:\n                            continue  # Skip malformed timestamps\n                        \n                        metadata['message_count'] += 1\n                        \n                        # Track first/last timestamps\n                        if metadata['first_timestamp'] is None:\n                            metadata['first_timestamp'] = timestamp\n                        metadata['last_timestamp'] = timestamp\n                        \n                        # Track participants\n                        entry_type = entry.get('type', '')\n                        if entry_type in ['user', 'human']:\n                            metadata['has_user'] = True\n                            metadata['participants'].add('You')\n                        elif entry_type == 'claude':\n                            metadata['has_claude'] = True\n                            metadata['participants'].add('Claude')\n                        elif entry_type == 'DIRECT_MESSAGE':\n                            sender = entry.get('from')\n                            if sender:\n                                metadata['participants'].add(sender)\n                                \n                    except:\n                        # Skip malformed entries\n                        continue\n                \n            # Convert participants set to list\n            metadata['participants'] = list(metadata['participants'])\n            \n            # Store in cache\n            conversation_cache[session_id] = metadata\n                \n        except Exception as e:\n            logger.warning(f"Error scanning conversation {session_id}: {e}")\n            continue\n    \n    # Update cache timestamp\n    cache_timestamp = datetime.now(timezone.utc)\n    logger.info(f"Refreshed conversation cache: {len(conversation_cache)} conversations")\n\n\ndef handle_list_conversations(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:\n    """List available conversations with metadata."""\n    try:\n        # Refresh cache if needed\n        if is_cache_stale():\n            refresh_conversation_cache()\n        \n        # Get filter parameters\n        limit = data.get('limit', 100)\n        offset = data.get('offset', 0)\n        sort_by = data.get('sort_by', 'last_timestamp')  # or 'first_timestamp', 'message_count'\n        reverse = data.get('reverse', True)  # Most recent first by default\n        \n        # Filter by date range if provided\n        start_date = data.get('start_date')\n        end_date = data.get('end_date')\n        \n        # Get all conversations\n        conversations = list(conversation_cache.values())\n        \n        # Apply date filtering\n        if start_date or end_date:\n            filtered = []\n            for conv in conversations:\n                last_ts = conv.get('last_timestamp')\n                if not last_ts:\n                    continue\n                \n                try:\n                    conv_date = TimestampManager.parse_iso_timestamp(last_ts)\n                    \n                    if start_date:\n                        start_dt = TimestampManager.parse_iso_timestamp(start_date)\n                        if conv_date < start_dt:\n                            continue\n                    \n                    if end_date:\n                        end_dt = TimestampManager.parse_iso_timestamp(end_date)\n                        if conv_date > end_dt:\n                            continue\n                    \n                    filtered.append(conv)\n                except:\n                    continue\n            \n            conversations = filtered\n        \n        # Sort conversations\n        if sort_by == 'message_count':\n            conversations.sort(key=lambda c: c.get('message_count', 0), reverse=reverse)\n        elif sort_by == 'first_timestamp':\n            conversations.sort(key=lambda c: c.get('first_timestamp') or '', reverse=reverse)\n        else:  # Default to last_timestamp\n            conversations.sort(key=lambda c: c.get('last_timestamp') or '', reverse=reverse)\n        \n        # Apply pagination\n        total = len(conversations)\n        conversations = conversations[offset:offset + limit]\n        \n        return {\n            'conversations': conversations,\n            'total': total,\n            'offset': offset,\n            'limit': limit\n        }\n        \n    except Exception as e:\n        logger.error(f"Error listing conversations: {e}", exc_info=True)\n        return {"error": f"Failed to list conversations: {str(e)}"}\n\n\ndef handle_search_conversations(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:\n    """Search conversations by content."""\n    try:\n        query = data.get('query', '').lower()\n        if not query:\n            return {"error": "Search query required"}\n        \n        limit = data.get('limit', 50)\n        search_in = data.get('search_in', ['content'])  # or ['sender', 'content']\n        \n        results = []\n        \n        # Search each conversation\n        for session_id, metadata in conversation_cache.items():\n            if session_id == "message_bus":\n                continue\n                \n            log_file = Path(metadata['file_path'])\n            if not log_file.exists():\n                continue\n            \n            matches = []\n            \n            try:\n                with open(log_file, 'r') as f:\n                    for line_num, line in enumerate(f):\n                        try:\n                            entry = json.loads(line.strip())\n                            \n                            # Only process entries with valid timestamps\n                            timestamp = entry.get('timestamp')\n                            if not timestamp:\n                                continue\n                            \n                            # Search in specified fields\n                            found = False\n                            \n                            if 'content' in search_in:\n                                content = entry.get('content', '')\n                                if isinstance(content, str) and query in content.lower():\n                                    found = True\n                                \n                                # Also check 'result' field for Claude responses\n                                result = entry.get('result', '')\n                                if isinstance(result, str) and query in result.lower():\n                                    found = True\n                            \n                            if 'sender' in search_in:\n                                entry_type = entry.get('type', '')\n                                sender = 'You' if entry_type in ['user', 'human'] else 'Claude'\n                                if query in sender.lower():\n                                    found = True\n                            \n                            if found:\n                                # Extract context\n                                display_content = content or result\n                                if len(display_content) > 200:\n                                    # Find query position and show context\n                                    pos = display_content.lower().find(query)\n                                    if pos > 50:\n                                        display_content = "..." + display_content[pos-50:pos+150] + "..."\n                                    else:\n                                        display_content = display_content[:200] + "..."\n                                \n                                matches.append({\n                                    'line_num': line_num,\n                                    'timestamp': timestamp,\n                                    'type': entry_type,\n                                    'content_preview': display_content,\n                                    'sender': sender\n                                })\n                                \n                                if len(matches) >= 10:  # Limit matches per conversation\n                                    break\n                                    \n                        except:\n                            continue\n            \n            except Exception as e:\n                logger.warning(f"Error searching conversation {session_id}: {e}")\n                continue\n            \n            if matches:\n                results.append({\n                    'session_id': session_id,\n                    'conversation_metadata': metadata,\n                    'matches': matches,\n                    'match_count': len(matches)\n                })\n            \n            if len(results) >= limit:\n                break\n        \n        # Sort by match count\n        results.sort(key=lambda r: r['match_count'], reverse=True)\n        \n        return {\n            'query': query,\n            'results': results[:limit],\n            'total_conversations': len(results)\n        }\n        \n    except Exception as e:\n        logger.error(f"Error searching conversations: {e}", exc_info=True)\n        return {"error": f"Search failed: {str(e)}"}\n\n\ndef handle_get_conversation(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:\n    """Get a specific conversation with full message history."""\n    try:\n        session_id = data.get('session_id')\n        if not session_id:\n            return {"error": "session_id required"}\n        \n        limit = data.get('limit', 1000)\n        offset = data.get('offset', 0)\n        \n        # Handle message_bus specially\n        if session_id == "message_bus":\n            conversation_id = data.get('conversation_id')\n            return get_message_bus_conversation(conversation_id, limit, offset)\n        \n        # Regular conversation\n        log_file = responses_dir_path / f"{session_id}.jsonl"\n        if not log_file.exists():\n            return {"error": f"Conversation not found: {session_id}"}\n        \n        messages = []\n        seen_messages = set()  # For deduplication\n        \n        with open(log_file, 'r') as f:\n            for line in f:\n                try:\n                    entry = json.loads(line.strip())\n                    \n                    # Only process entries with valid timestamps\n                    timestamp = entry.get('timestamp')\n                    if not timestamp:\n                        continue\n                    \n                    # Validate timestamp\n                    try:\n                        TimestampManager.parse_iso_timestamp(timestamp)\n                    except:\n                        continue\n                    \n                    # Handle different log formats\n                    message = None\n                    entry_type = entry.get('type', '')\n                    \n                    if entry_type in ['user', 'human']:\n                        message = {\n                            'timestamp': timestamp,\n                            'sender': 'You',\n                            'content': entry.get('content', ''),\n                            'type': 'user'\n                        }\n                    elif entry_type == 'claude':\n                        content = entry.get('result', entry.get('content', ''))\n                        message = {\n                            'timestamp': timestamp,\n                            'sender': 'Claude',\n                            'content': content,\n                            'type': 'claude'\n                        }\n                    elif entry_type == 'DIRECT_MESSAGE':\n                        message = {\n                            'timestamp': timestamp,\n                            'sender': entry.get('from', 'Unknown'),\n                            'content': entry.get('content', ''),\n                            'type': 'message',\n                            'to': entry.get('to')\n                        }\n                    \n                    if message:\n                        # Deduplicate based on timestamp + sender + content hash\n                        msg_id = f"{timestamp}:{message['sender']}:{hash(message['content'])}"\n                        if msg_id not in seen_messages:\n                            seen_messages.add(msg_id)\n                            messages.append(message)\n                            \n                except:\n                    continue\n        \n        # Sort by timestamp (no fallback)\n        messages.sort(key=lambda m: m['timestamp'])\n        \n        # Apply pagination\n        total = len(messages)\n        messages = messages[offset:offset + limit]\n        \n        return {\n            'session_id': session_id,\n            'messages': messages,\n            'total': total,\n            'offset': offset,\n            'limit': limit\n        }\n        \n    except Exception as e:\n        logger.error(f"Error getting conversation: {e}", exc_info=True)\n        return {"error": f"Failed to get conversation: {str(e)}"}\n\n\ndef get_message_bus_conversation(\n    conversation_id: Optional[str], limit: int, offset: int\n) -> Dict[str, Any]:\n    """Get messages from message_bus.jsonl, optionally filtered by conversation_id."""\n    message_bus_file = responses_dir_path / 'message_bus.jsonl'\n    if not message_bus_file.exists():\n        return {"error": "Message bus log not found"}\n    \n    messages = []\n    seen_messages = set()\n    \n    with open(message_bus_file, 'r') as f:\n        for line in f:\n            try:\n                msg = json.loads(line.strip())\n                \n                # Only process entries with valid timestamps\n                timestamp = msg.get('timestamp')\n                if not timestamp:\n                    continue\n                \n                # Only include COMPLETION_RESULT types\n                if msg.get('type') != 'COMPLETION_RESULT':\n                    continue\n                \n                # Extract session_id and content from result\n                result = msg.get('result', {})\n                session_id = result.get('session_id')\n                if not session_id:\n                    continue\n                \n                # Filter by conversation_id (session_id) if provided\n                if conversation_id and session_id != conversation_id:\n                    continue\n                \n                # Deduplicate\n                content = result.get('response', '')\n                client_id = msg.get('client_id', 'Unknown')\n                msg_id = f"{timestamp}:{client_id}:{hash(content)}"\n                \n                if msg_id not in seen_messages:\n                    seen_messages.add(msg_id)\n                    messages.append({\n                        'timestamp': timestamp,\n                        'sender': client_id,\n                        'content': content,\n                        'session_id': session_id,\n                        'model': result.get('model', 'unknown'),\n                        'type': 'completion_result'\n                    })\n                    \n            except:\n                continue\n    \n    # Sort by timestamp\n    messages.sort(key=lambda m: m['timestamp'])\n    \n    # Apply pagination\n    total = len(messages)\n    messages = messages[offset:offset + limit]\n    \n    return {\n        'session_id': 'message_bus',\n        'filtered_session_id': conversation_id,\n        'messages': messages,\n        'total': total,\n        'offset': offset,\n        'limit': limit\n    }\n\n\ndef handle_export_conversation(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:\n    """Export conversation to markdown or JSON format."""\n    try:\n        session_id = data.get('session_id')\n        if not session_id:\n            return {"error": "session_id required"}\n        \n        format_type = data.get('format', 'markdown')\n        if format_type not in ['markdown', 'json']:\n            return {"error": f"Unsupported format: {format_type}. Supported formats: markdown, json"}\n        \n        # Get conversation messages\n        conv_result = handle_get_conversation(\n            {'session_id': session_id, 'limit': 10000},\n            context\n        )\n        \n        if 'error' in conv_result:\n            return conv_result\n        \n        messages = conv_result['messages']\n        \n        # Generate timestamp for filename\n        timestamp = TimestampManager.filename_timestamp(utc=False)\n        \n        if format_type == 'json':\n            # Build JSON content\n            export_data = {\n                'session_id': session_id,\n                'exported_at': TimestampManager.display_timestamp('%Y-%m-%d %H:%M:%S', utc=False),\n                'exported_at_iso': datetime.now(timezone.utc).isoformat(),\n                'total_messages': len(messages),\n                'messages': []\n            }\n            \n            # Add messages with structured data\n            for msg in messages:\n                msg_timestamp = msg.get('timestamp', '')\n                \n                # Format timestamp for display\n                display_time = msg_timestamp\n                try:\n                    dt = TimestampManager.parse_iso_timestamp(msg_timestamp)\n                    local_dt = TimestampManager.utc_to_local(dt)\n                    display_time = local_dt.strftime('%Y-%m-%d %H:%M:%S')\n                except:\n                    pass\n                \n                message_data = {\n                    'timestamp': msg_timestamp,\n                    'display_time': display_time,\n                    'sender': msg.get('sender', 'Unknown'),\n                    'content': msg.get('content', ''),\n                    'type': msg.get('type', 'unknown')\n                }\n                \n                # Add recipient for direct messages\n                if msg.get('type') == 'message' and msg.get('to'):\n                    message_data['to'] = msg['to']\n                \n                export_data['messages'].append(message_data)\n            \n            # Save to JSON file\n            export_filename = f"conversation_{session_id}_{timestamp}.json"\n            export_path = exports_dir / export_filename\n            \n            with open(export_path, 'w', encoding='utf-8') as f:\n                json.dump(export_data, f, indent=2, ensure_ascii=False)\n        \n        else:  # markdown format\n            # Build markdown content\n            md_lines = [f"# Conversation Export: {session_id}\n"]\n            md_lines.append(f"*Exported on {TimestampManager.display_timestamp('%Y-%m-%d %H:%M:%S', utc=False)}*\n")\n            md_lines.append(f"*Total messages: {len(messages)}*\n")\n            md_lines.append("---\n")\n            \n            # Add messages\n            for msg in messages:\n                msg_timestamp = msg.get('timestamp', '')\n                \n                # Format timestamp for display\n                try:\n                    dt = TimestampManager.parse_iso_timestamp(msg_timestamp)\n                    local_dt = TimestampManager.utc_to_local(dt)\n                    time_str = local_dt.strftime('%Y-%m-%d %H:%M:%S')\n                except:\n                    time_str = msg_timestamp\n                \n                sender = msg.get('sender', 'Unknown')\n                content = msg.get('content', '')\n                \n                # Add recipient for direct messages\n                if msg.get('type') == 'message' and msg.get('to'):\n                    md_lines.append(f"### {time_str} - {sender} → {msg['to']}\n")\n                else:\n                    md_lines.append(f"### {time_str} - {sender}\n")\n                \n                md_lines.append(f"{content}\n")\n                md_lines.append("---\n")\n            \n            # Save to file\n            export_filename = f"conversation_{session_id}_{timestamp}.md"\n            export_path = exports_dir / export_filename\n            \n            with open(export_path, 'w', encoding='utf-8') as f:\n                f.writelines(md_lines)\n        \n        return {\n            'export_path': str(export_path),\n            'filename': export_filename,\n            'format': format_type,\n            'message_count': len(messages),\n            'size_bytes': export_path.stat().st_size\n        }\n        \n    except Exception as e:\n        logger.error(f"Error exporting conversation: {e}", exc_info=True)\n        return {"error": f"Export failed: {str(e)}"}\n\n\ndef handle_conversation_stats(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:\n    """Get statistics about conversations."""\n    try:\n        # Refresh cache if needed\n        if is_cache_stale():\n            refresh_conversation_cache()\n        \n        # Calculate stats\n        total_conversations = len(conversation_cache)\n        total_messages = sum(c.get('message_count', 0) for c in conversation_cache.values())\n        total_size_bytes = sum(c.get('size_bytes', 0) for c in conversation_cache.values())\n        \n        # Find date range\n        all_timestamps = []\n        for conv in conversation_cache.values():\n            if conv.get('first_timestamp'):\n                all_timestamps.append(conv['first_timestamp'])\n            if conv.get('last_timestamp'):\n                all_timestamps.append(conv['last_timestamp'])\n        \n        all_timestamps.sort()\n        \n        stats = {\n            'total_conversations': total_conversations,\n            'total_messages': total_messages,\n            'total_size_bytes': total_size_bytes,\n            'total_size_mb': round(total_size_bytes / (1024 * 1024), 2),\n            'earliest_timestamp': all_timestamps[0] if all_timestamps else None,\n            'latest_timestamp': all_timestamps[-1] if all_timestamps else None,\n            'exports_dir': str(exports_dir),\n            'cache_age_seconds': int((datetime.now(timezone.utc) - cache_timestamp).total_seconds()) if cache_timestamp else None\n        }\n        \n        return stats\n        \n    except Exception as e:\n        logger.error(f"Error getting conversation stats: {e}", exc_info=True)\n        return {"error": f"Failed to get stats: {str(e)}"}\n\n\ndef handle_active_conversations(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:\n    """Find active conversations from recent COMPLETION_RESULT messages."""\n    try:\n        # Parameters\n        max_lines = data.get('max_lines', 100)\n        max_age_hours = data.get('max_age_hours', 2160)  # 90 days default\n        \n        message_bus_file = responses_dir_path / 'message_bus.jsonl'\n        if not message_bus_file.exists():\n            return {"active_sessions": []}\n        \n        active_sessions = {}\n        cutoff_time = datetime.now(timezone.utc).timestamp() - (max_age_hours * 3600)\n        \n        # Read recent lines from message bus\n        recent_lines = []\n        try:\n            with open(message_bus_file, 'rb') as f:\n                f.seek(0, 2)  # Go to end\n                f.seek(max(0, f.tell() - max_lines * 200))  # Estimate\n                lines = f.read().decode('utf-8', errors='ignore').split('\n')[-max_lines:]\n                recent_lines = [line for line in lines if line.strip()]\n        except Exception as e:\n            logger.warning(f"Error reading message bus: {e}")\n            return {"active_sessions": []}\n        \n        # Process recent COMPLETION_RESULT messages\n        for line in reversed(recent_lines):  # Most recent first\n            try:\n                msg = json.loads(line.strip())\n                \n                # Only process COMPLETION_RESULT messages\n                if msg.get('type') != 'COMPLETION_RESULT':\n                    continue\n                \n                # Extract session_id from result\n                result = msg.get('result', {})\n                session_id = result.get('session_id')\n                if not session_id:\n                    continue\n                \n                # Check timestamp\n                timestamp = msg.get('timestamp')\n                if timestamp:\n                    try:\n                        dt = TimestampManager.parse_iso_timestamp(timestamp)\n                        if dt.timestamp() < cutoff_time:\n                            continue\n                    except:\n                        continue\n                \n                # Track session activity\n                if session_id not in active_sessions:\n                    active_sessions[session_id] = {\n                        'session_id': session_id,\n                        'last_activity': timestamp,\n                        'client_id': msg.get('client_id'),\n                        'message_count': 0,\n                        'last_response': result.get('response', ''),\n                        'model': result.get('model', 'unknown')\n                    }\n                \n                active_sessions[session_id]['message_count'] += 1\n                \n                # Keep most recent activity\n                if timestamp > active_sessions[session_id]['last_activity']:\n                    active_sessions[session_id].update({\n                        'last_activity': timestamp,\n                        'last_response': result.get('response', ''),\n                        'client_id': msg.get('client_id')\n                    })\n                    \n            except Exception as e:\n                logger.debug(f"Error processing message bus line: {e}")\n                continue\n        \n        # Sort by last activity\n        sessions_list = list(active_sessions.values())\n        sessions_list.sort(key=lambda s: s['last_activity'], reverse=True)\n        \n        return {\n            'active_sessions': sessions_list,\n            'total_active': len(sessions_list),\n            'scanned_lines': len(recent_lines)\n        }\n        \n    except Exception as e:\n        logger.error(f"Error getting active conversations: {e}", exc_info=True)\n        return {"error": f"Failed to get active conversations: {str(e)}"}\n\n\n@hookimpl\ndef ksi_shutdown():\n    """Clean up on shutdown."""\n    logger.info(f"Conversation service stopped - {len(conversation_cache)} conversations cached")\n    return {"status": "conversation_service_stopped"}\n\n\n# Module-level marker for plugin discovery\nksi_plugin = True
+"""
+Conversation Service Plugin
+
+Provides conversation listing, search, filtering, and export functionality.
+Assumes all messages have proper timestamps - drops malformed entries.
+"""
+
+import json
+import logging
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict, List, Optional, Set, Any
+import hashlib
+
+import pluggy
+
+from ksi_daemon.config import config
+from ksi_common import TimestampManager
+from ksi_daemon.plugin_utils import plugin_metadata
+from ksi_common.logging import get_logger
+
+# Plugin metadata
+plugin_metadata("conversation", version="1.0.0",
+                description="Conversation history listing, search, and export service")
+
+# Hook implementation marker
+hookimpl = pluggy.HookimplMarker("ksi")
+
+# Module state
+logger = get_logger("conversation")
+
+
+# Module state
+conversation_cache: Dict[str, Dict[str, Any]] = {}
+cache_timestamp: Optional[datetime] = None
+cache_ttl_seconds = 60  # Refresh cache every minute
+responses_dir_path = None
+exports_dir = None
+
+
+def ensure_directories():
+    """Ensure required directories exist."""
+    global responses_dir_path, exports_dir
+    responses_dir_path = config.responses_dir
+    exports_dir = config.state_dir / 'exports'
+    exports_dir.mkdir(exist_ok=True)
+
+
+# Hook implementations
+@hookimpl
+def ksi_startup(config):
+    """Initialize conversation service on startup."""
+    ensure_directories()
+    logger.info("Conversation service started")
+    return {"status": "conversation_service_ready"}
+
+
+@hookimpl
+def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
+    """Handle conversation-related events."""
+    
+    if event_name == "conversation:list":
+        return handle_list_conversations(data, context)
+    
+    elif event_name == "conversation:search":
+        return handle_search_conversations(data, context)
+    
+    elif event_name == "conversation:get":
+        return handle_get_conversation(data, context)
+    
+    elif event_name == "conversation:export":
+        return handle_export_conversation(data, context)
+    
+    elif event_name == "conversation:stats":
+        return handle_conversation_stats(data, context)
+    
+    elif event_name == "conversation:active":
+        return handle_active_conversations(data, context)
+    
+    return None
+
+
+def is_cache_stale() -> bool:
+    """Check if conversation cache needs refresh."""
+    if cache_timestamp is None:
+        return True
+    
+    age = (datetime.now(timezone.utc) - cache_timestamp).total_seconds()
+    return age > cache_ttl_seconds
+
+
+def refresh_conversation_cache() -> None:
+    """Refresh the conversation metadata cache."""
+    global cache_timestamp
+    conversation_cache.clear()
+    
+    # Scan all conversation files
+    for log_file in responses_dir_path.glob("*.jsonl"):
+        session_id = log_file.stem
+        
+        # Skip message_bus.jsonl - it's special
+        if session_id == "message_bus":
+            continue
+        
+        try:
+            # Get file stats
+            stat = log_file.stat()
+                
+            # Quick scan for metadata
+            metadata = {
+                'session_id': session_id,
+                'file_path': str(log_file),
+                'size_bytes': stat.st_size,
+                'modified_timestamp': datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                'message_count': 0,
+                'first_timestamp': None,
+                'last_timestamp': None,
+                'participants': set(),
+                'has_claude': False,
+                'has_user': False
+            }
+                
+            # Read file to get message count and timestamps
+            with open(log_file, 'r') as f:
+                for line in f:
+                    try:
+                        entry = json.loads(line.strip())
+                        
+                        # Only process entries with valid timestamps
+                        timestamp = entry.get('timestamp')
+                        if not timestamp:
+                            continue
+                        
+                        # Validate timestamp format
+                        try:
+                            TimestampManager.parse_iso_timestamp(timestamp)
+                        except:
+                            continue  # Skip malformed timestamps
+                        
+                        metadata['message_count'] += 1
+                        
+                        # Track first/last timestamps
+                        if metadata['first_timestamp'] is None:
+                            metadata['first_timestamp'] = timestamp
+                        metadata['last_timestamp'] = timestamp
+                        
+                        # Track participants
+                        entry_type = entry.get('type', '')
+                        if entry_type in ['user', 'human']:
+                            metadata['has_user'] = True
+                            metadata['participants'].add('You')
+                        elif entry_type == 'claude':
+                            metadata['has_claude'] = True
+                            metadata['participants'].add('Claude')
+                        elif entry_type == 'DIRECT_MESSAGE':
+                            sender = entry.get('from')
+                            if sender:
+                                metadata['participants'].add(sender)
+                                
+                    except:
+                        # Skip malformed entries
+                        continue
+                
+            # Convert participants set to list
+            metadata['participants'] = list(metadata['participants'])
+            
+            # Store in cache
+            conversation_cache[session_id] = metadata
+                
+        except Exception as e:
+            logger.warning(f"Error scanning conversation {session_id}: {e}")
+            continue
+    
+    # Update cache timestamp
+    cache_timestamp = datetime.now(timezone.utc)
+    logger.info(f"Refreshed conversation cache: {len(conversation_cache)} conversations")
+
+
+def handle_list_conversations(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+    """List available conversations with metadata."""
+    try:
+        # Refresh cache if needed
+        if is_cache_stale():
+            refresh_conversation_cache()
+        
+        # Get filter parameters
+        limit = data.get('limit', 100)
+        offset = data.get('offset', 0)
+        sort_by = data.get('sort_by', 'last_timestamp')  # or 'first_timestamp', 'message_count'
+        reverse = data.get('reverse', True)  # Most recent first by default
+        
+        # Filter by date range if provided
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+        
+        # Get all conversations
+        conversations = list(conversation_cache.values())
+        
+        # Apply date filtering
+        if start_date or end_date:
+            filtered = []
+            for conv in conversations:
+                last_ts = conv.get('last_timestamp')
+                if not last_ts:
+                    continue
+                
+                try:
+                    conv_date = TimestampManager.parse_iso_timestamp(last_ts)
+                    
+                    if start_date:
+                        start_dt = TimestampManager.parse_iso_timestamp(start_date)
+                        if conv_date < start_dt:
+                            continue
+                    
+                    if end_date:
+                        end_dt = TimestampManager.parse_iso_timestamp(end_date)
+                        if conv_date > end_dt:
+                            continue
+                    
+                    filtered.append(conv)
+                except:
+                    continue
+            
+            conversations = filtered
+        
+        # Sort conversations
+        if sort_by == 'message_count':
+            conversations.sort(key=lambda c: c.get('message_count', 0), reverse=reverse)
+        elif sort_by == 'first_timestamp':
+            conversations.sort(key=lambda c: c.get('first_timestamp') or '', reverse=reverse)
+        else:  # Default to last_timestamp
+            conversations.sort(key=lambda c: c.get('last_timestamp') or '', reverse=reverse)
+        
+        # Apply pagination
+        total = len(conversations)
+        conversations = conversations[offset:offset + limit]
+        
+        return {
+            'conversations': conversations,
+            'total': total,
+            'offset': offset,
+            'limit': limit
+        }
+        
+    except Exception as e:
+        logger.error(f"Error listing conversations: {e}", exc_info=True)
+        return {"error": f"Failed to list conversations: {str(e)}"}
+
+
+def handle_search_conversations(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+    """Search conversations by content."""
+    try:
+        query = data.get('query', '').lower()
+        if not query:
+            return {"error": "Search query required"}
+        
+        limit = data.get('limit', 50)
+        search_in = data.get('search_in', ['content'])  # or ['sender', 'content']
+        
+        results = []
+        
+        # Search each conversation
+        for session_id, metadata in conversation_cache.items():
+            if session_id == "message_bus":
+                continue
+                
+            log_file = Path(metadata['file_path'])
+            if not log_file.exists():
+                continue
+            
+            matches = []
+            
+            try:
+                with open(log_file, 'r') as f:
+                    for line_num, line in enumerate(f):
+                        try:
+                            entry = json.loads(line.strip())
+                            
+                            # Only process entries with valid timestamps
+                            timestamp = entry.get('timestamp')
+                            if not timestamp:
+                                continue
+                            
+                            # Search in specified fields
+                            found = False
+                            
+                            if 'content' in search_in:
+                                content = entry.get('content', '')
+                                if isinstance(content, str) and query in content.lower():
+                                    found = True
+                                
+                                # Also check 'result' field for Claude responses
+                                result = entry.get('result', '')
+                                if isinstance(result, str) and query in result.lower():
+                                    found = True
+                            
+                            if 'sender' in search_in:
+                                entry_type = entry.get('type', '')
+                                sender = 'You' if entry_type in ['user', 'human'] else 'Claude'
+                                if query in sender.lower():
+                                    found = True
+                            
+                            if found:
+                                # Extract context
+                                display_content = content or result
+                                if len(display_content) > 200:
+                                    # Find query position and show context
+                                    pos = display_content.lower().find(query)
+                                    if pos > 50:
+                                        display_content = "..." + display_content[pos-50:pos+150] + "..."
+                                    else:
+                                        display_content = display_content[:200] + "..."
+                                
+                                matches.append({
+                                    'line_num': line_num,
+                                    'timestamp': timestamp,
+                                    'type': entry_type,
+                                    'content_preview': display_content,
+                                    'sender': sender
+                                })
+                                
+                                if len(matches) >= 10:  # Limit matches per conversation
+                                    break
+                                    
+                        except:
+                            continue
+            
+            except Exception as e:
+                logger.warning(f"Error searching conversation {session_id}: {e}")
+                continue
+            
+            if matches:
+                results.append({
+                    'session_id': session_id,
+                    'conversation_metadata': metadata,
+                    'matches': matches,
+                    'match_count': len(matches)
+                })
+            
+            if len(results) >= limit:
+                break
+        
+        # Sort by match count
+        results.sort(key=lambda r: r['match_count'], reverse=True)
+        
+        return {
+            'query': query,
+            'results': results[:limit],
+            'total_conversations': len(results)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error searching conversations: {e}", exc_info=True)
+        return {"error": f"Search failed: {str(e)}"}
+
+
+def handle_get_conversation(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+    """Get a specific conversation with full message history."""
+    try:
+        session_id = data.get('session_id')
+        if not session_id:
+            return {"error": "session_id required"}
+        
+        limit = data.get('limit', 1000)
+        offset = data.get('offset', 0)
+        
+        # Handle message_bus specially
+        if session_id == "message_bus":
+            conversation_id = data.get('conversation_id')
+            return get_message_bus_conversation(conversation_id, limit, offset)
+        
+        # Regular conversation
+        log_file = responses_dir_path / f"{session_id}.jsonl"
+        if not log_file.exists():
+            return {"error": f"Conversation not found: {session_id}"}
+        
+        messages = []
+        seen_messages = set()  # For deduplication
+        
+        with open(log_file, 'r') as f:
+            for line in f:
+                try:
+                    entry = json.loads(line.strip())
+                    
+                    # Only process entries with valid timestamps
+                    timestamp = entry.get('timestamp')
+                    if not timestamp:
+                        continue
+                    
+                    # Validate timestamp
+                    try:
+                        TimestampManager.parse_iso_timestamp(timestamp)
+                    except:
+                        continue
+                    
+                    # Handle different log formats
+                    message = None
+                    entry_type = entry.get('type', '')
+                    
+                    if entry_type in ['user', 'human']:
+                        message = {
+                            'timestamp': timestamp,
+                            'sender': 'You',
+                            'content': entry.get('content', ''),
+                            'type': 'user'
+                        }
+                    elif entry_type == 'claude':
+                        content = entry.get('result', entry.get('content', ''))
+                        message = {
+                            'timestamp': timestamp,
+                            'sender': 'Claude',
+                            'content': content,
+                            'type': 'claude'
+                        }
+                    elif entry_type == 'DIRECT_MESSAGE':
+                        message = {
+                            'timestamp': timestamp,
+                            'sender': entry.get('from', 'Unknown'),
+                            'content': entry.get('content', ''),
+                            'type': 'message',
+                            'to': entry.get('to')
+                        }
+                    
+                    if message:
+                        # Deduplicate based on timestamp + sender + content hash
+                        msg_id = f"{timestamp}:{message['sender']}:{hash(message['content'])}"
+                        if msg_id not in seen_messages:
+                            seen_messages.add(msg_id)
+                            messages.append(message)
+                            
+                except:
+                    continue
+        
+        # Sort by timestamp (no fallback)
+        messages.sort(key=lambda m: m['timestamp'])
+        
+        # Apply pagination
+        total = len(messages)
+        messages = messages[offset:offset + limit]
+        
+        return {
+            'session_id': session_id,
+            'messages': messages,
+            'total': total,
+            'offset': offset,
+            'limit': limit
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting conversation: {e}", exc_info=True)
+        return {"error": f"Failed to get conversation: {str(e)}"}
+
+
+def get_message_bus_conversation(
+    conversation_id: Optional[str], limit: int, offset: int
+) -> Dict[str, Any]:
+    """Get messages from message_bus.jsonl, optionally filtered by conversation_id."""
+    message_bus_file = responses_dir_path / 'message_bus.jsonl'
+    if not message_bus_file.exists():
+        return {"error": "Message bus log not found"}
+    
+    messages = []
+    seen_messages = set()
+    
+    with open(message_bus_file, 'r') as f:
+        for line in f:
+            try:
+                msg = json.loads(line.strip())
+                
+                # Only process entries with valid timestamps
+                timestamp = msg.get('timestamp')
+                if not timestamp:
+                    continue
+                
+                # Only include COMPLETION_RESULT types
+                if msg.get('type') != 'COMPLETION_RESULT':
+                    continue
+                
+                # Extract session_id and content from result
+                result = msg.get('result', {})
+                session_id = result.get('session_id')
+                if not session_id:
+                    continue
+                
+                # Filter by conversation_id (session_id) if provided
+                if conversation_id and session_id != conversation_id:
+                    continue
+                
+                # Deduplicate
+                content = result.get('response', '')
+                client_id = msg.get('client_id', 'Unknown')
+                msg_id = f"{timestamp}:{client_id}:{hash(content)}"
+                
+                if msg_id not in seen_messages:
+                    seen_messages.add(msg_id)
+                    messages.append({
+                        'timestamp': timestamp,
+                        'sender': client_id,
+                        'content': content,
+                        'session_id': session_id,
+                        'model': result.get('model', 'unknown'),
+                        'type': 'completion_result'
+                    })
+                    
+            except:
+                continue
+    
+    # Sort by timestamp
+    messages.sort(key=lambda m: m['timestamp'])
+    
+    # Apply pagination
+    total = len(messages)
+    messages = messages[offset:offset + limit]
+    
+    return {
+        'session_id': 'message_bus',
+        'filtered_session_id': conversation_id,
+        'messages': messages,
+        'total': total,
+        'offset': offset,
+        'limit': limit
+    }
+
+
+def handle_export_conversation(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+    """Export conversation to markdown or JSON format."""
+    try:
+        session_id = data.get('session_id')
+        if not session_id:
+            return {"error": "session_id required"}
+        
+        format_type = data.get('format', 'markdown')
+        if format_type not in ['markdown', 'json']:
+            return {"error": f"Unsupported format: {format_type}. Supported formats: markdown, json"}
+        
+        # Get conversation messages
+        conv_result = handle_get_conversation(
+            {'session_id': session_id, 'limit': 10000},
+            context
+        )
+        
+        if 'error' in conv_result:
+            return conv_result
+        
+        messages = conv_result['messages']
+        
+        # Generate timestamp for filename
+        timestamp = TimestampManager.filename_timestamp(utc=False)
+        
+        if format_type == 'json':
+            # Build JSON content
+            export_data = {
+                'session_id': session_id,
+                'exported_at': TimestampManager.display_timestamp('%Y-%m-%d %H:%M:%S', utc=False),
+                'exported_at_iso': datetime.now(timezone.utc).isoformat(),
+                'total_messages': len(messages),
+                'messages': []
+            }
+            
+            # Add messages with structured data
+            for msg in messages:
+                msg_timestamp = msg.get('timestamp', '')
+                
+                # Format timestamp for display
+                display_time = msg_timestamp
+                try:
+                    dt = TimestampManager.parse_iso_timestamp(msg_timestamp)
+                    local_dt = TimestampManager.utc_to_local(dt)
+                    display_time = local_dt.strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    pass
+                
+                message_data = {
+                    'timestamp': msg_timestamp,
+                    'display_time': display_time,
+                    'sender': msg.get('sender', 'Unknown'),
+                    'content': msg.get('content', ''),
+                    'type': msg.get('type', 'unknown')
+                }
+                
+                # Add recipient for direct messages
+                if msg.get('type') == 'message' and msg.get('to'):
+                    message_data['to'] = msg['to']
+                
+                export_data['messages'].append(message_data)
+            
+            # Save to JSON file
+            export_filename = f"conversation_{session_id}_{timestamp}.json"
+            export_path = exports_dir / export_filename
+            
+            with open(export_path, 'w', encoding='utf-8') as f:
+                json.dump(export_data, f, indent=2, ensure_ascii=False)
+        
+        else:  # markdown format
+            # Build markdown content
+            md_lines = [f"# Conversation Export: {session_id}\n"]
+            md_lines.append(f"*Exported on {TimestampManager.display_timestamp('%Y-%m-%d %H:%M:%S', utc=False)}*\n")
+            md_lines.append(f"*Total messages: {len(messages)}*\n")
+            md_lines.append("---\n")
+            
+            # Add messages
+            for msg in messages:
+                msg_timestamp = msg.get('timestamp', '')
+                
+                # Format timestamp for display
+                try:
+                    dt = TimestampManager.parse_iso_timestamp(msg_timestamp)
+                    local_dt = TimestampManager.utc_to_local(dt)
+                    time_str = local_dt.strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    time_str = msg_timestamp
+                
+                sender = msg.get('sender', 'Unknown')
+                content = msg.get('content', '')
+                
+                # Add recipient for direct messages
+                if msg.get('type') == 'message' and msg.get('to'):
+                    md_lines.append(f"### {time_str} - {sender} → {msg['to']}\n")
+                else:
+                    md_lines.append(f"### {time_str} - {sender}\n")
+                
+                md_lines.append(f"{content}\n")
+                md_lines.append("---\n")
+            
+            # Save to file
+            export_filename = f"conversation_{session_id}_{timestamp}.md"
+            export_path = exports_dir / export_filename
+            
+            with open(export_path, 'w', encoding='utf-8') as f:
+                f.writelines(md_lines)
+        
+        return {
+            'export_path': str(export_path),
+            'filename': export_filename,
+            'format': format_type,
+            'message_count': len(messages),
+            'size_bytes': export_path.stat().st_size
+        }
+        
+    except Exception as e:
+        logger.error(f"Error exporting conversation: {e}", exc_info=True)
+        return {"error": f"Export failed: {str(e)}"}
+
+
+def handle_conversation_stats(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+    """Get statistics about conversations."""
+    try:
+        # Refresh cache if needed
+        if is_cache_stale():
+            refresh_conversation_cache()
+        
+        # Calculate stats
+        total_conversations = len(conversation_cache)
+        total_messages = sum(c.get('message_count', 0) for c in conversation_cache.values())
+        total_size_bytes = sum(c.get('size_bytes', 0) for c in conversation_cache.values())
+        
+        # Find date range
+        all_timestamps = []
+        for conv in conversation_cache.values():
+            if conv.get('first_timestamp'):
+                all_timestamps.append(conv['first_timestamp'])
+            if conv.get('last_timestamp'):
+                all_timestamps.append(conv['last_timestamp'])
+        
+        all_timestamps.sort()
+        
+        stats = {
+            'total_conversations': total_conversations,
+            'total_messages': total_messages,
+            'total_size_bytes': total_size_bytes,
+            'total_size_mb': round(total_size_bytes / (1024 * 1024), 2),
+            'earliest_timestamp': all_timestamps[0] if all_timestamps else None,
+            'latest_timestamp': all_timestamps[-1] if all_timestamps else None,
+            'exports_dir': str(exports_dir),
+            'cache_age_seconds': int((datetime.now(timezone.utc) - cache_timestamp).total_seconds()) if cache_timestamp else None
+        }
+        
+        return stats
+        
+    except Exception as e:
+        logger.error(f"Error getting conversation stats: {e}", exc_info=True)
+        return {"error": f"Failed to get stats: {str(e)}"}
+
+
+def handle_active_conversations(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+    """Find active conversations from recent COMPLETION_RESULT messages."""
+    try:
+        # Parameters
+        max_lines = data.get('max_lines', 100)
+        max_age_hours = data.get('max_age_hours', 2160)  # 90 days default
+        
+        message_bus_file = responses_dir_path / 'message_bus.jsonl'
+        if not message_bus_file.exists():
+            return {"active_sessions": []}
+        
+        active_sessions = {}
+        cutoff_time = datetime.now(timezone.utc).timestamp() - (max_age_hours * 3600)
+        
+        # Read recent lines from message bus
+        recent_lines = []
+        try:
+            with open(message_bus_file, 'rb') as f:
+                f.seek(0, 2)  # Go to end
+                f.seek(max(0, f.tell() - max_lines * 200))  # Estimate
+                lines = f.read().decode('utf-8', errors='ignore').split('\n')[-max_lines:]
+                recent_lines = [line for line in lines if line.strip()]
+        except Exception as e:
+            logger.warning(f"Error reading message bus: {e}")
+            return {"active_sessions": []}
+        
+        # Process recent COMPLETION_RESULT messages
+        for line in reversed(recent_lines):  # Most recent first
+            try:
+                msg = json.loads(line.strip())
+                
+                # Only process COMPLETION_RESULT messages
+                if msg.get('type') != 'COMPLETION_RESULT':
+                    continue
+                
+                # Extract session_id from result
+                result = msg.get('result', {})
+                session_id = result.get('session_id')
+                if not session_id:
+                    continue
+                
+                # Check timestamp
+                timestamp = msg.get('timestamp')
+                if timestamp:
+                    try:
+                        dt = TimestampManager.parse_iso_timestamp(timestamp)
+                        if dt.timestamp() < cutoff_time:
+                            continue
+                    except:
+                        continue
+                
+                # Track session activity
+                if session_id not in active_sessions:
+                    active_sessions[session_id] = {
+                        'session_id': session_id,
+                        'last_activity': timestamp,
+                        'client_id': msg.get('client_id'),
+                        'message_count': 0,
+                        'last_response': result.get('response', ''),
+                        'model': result.get('model', 'unknown')
+                    }
+                
+                active_sessions[session_id]['message_count'] += 1
+                
+                # Keep most recent activity
+                if timestamp > active_sessions[session_id]['last_activity']:
+                    active_sessions[session_id].update({
+                        'last_activity': timestamp,
+                        'last_response': result.get('response', ''),
+                        'client_id': msg.get('client_id')
+                    })
+                    
+            except Exception as e:
+                logger.debug(f"Error processing message bus line: {e}")
+                continue
+        
+        # Sort by last activity
+        sessions_list = list(active_sessions.values())
+        sessions_list.sort(key=lambda s: s['last_activity'], reverse=True)
+        
+        return {
+            'active_sessions': sessions_list,
+            'total_active': len(sessions_list),
+            'scanned_lines': len(recent_lines)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting active conversations: {e}", exc_info=True)
+        return {"error": f"Failed to get active conversations: {str(e)}"}
+
+
+@hookimpl
+def ksi_shutdown():
+    """Clean up on shutdown."""
+    logger.info(f"Conversation service stopped - {len(conversation_cache)} conversations cached")
+    return {"status": "conversation_service_stopped"}
+
+
+# Module-level marker for plugin discovery
+ksi_plugin = True

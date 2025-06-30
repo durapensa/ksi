@@ -1,1 +1,567 @@
-#!/usr/bin/env python3\n"""\nCompletion Service Plugin V2\n\nEnhanced completion service that integrates with:\n- Async completion queue with priority support\n- Conversation lock management\n- Event-driven injection routing\n- Circuit breaker safety mechanisms\n"""\n\nimport asyncio\nimport json\nimport os\nimport time\nimport uuid\nfrom pathlib import Path\nfrom typing import Dict, Any, Optional, List\nimport logging\nimport pluggy\n\nimport anyio\nimport litellm\n\nfrom ksi_common.logging import get_logger\nfrom ksi_daemon.plugin_utils import plugin_metadata\nfrom ksi_common import TimestampManager, create_completion_response, parse_completion_response\nfrom ksi_daemon.config import config\nfrom ksi_daemon.event_taxonomy import CLAUDE_EVENTS, format_claude_event\n\n# Import injection systems\nfrom ksi_daemon.plugins.injection.injection_router import queue_completion_with_injection\nfrom ksi_daemon.plugins.injection.circuit_breakers import check_completion_allowed\n\n# Import claude_cli_litellm_provider to ensure provider registration\nfrom ksi_daemon.plugins.completion import claude_cli_litellm_provider\n\n# Plugin metadata\nplugin_metadata("completion_service", version="3.0.0",\n                description="Enhanced LLM completion service with queue and injection support")\n\n# Hook implementation marker\nhookimpl = pluggy.HookimplMarker("ksi")\n\n# Module state\nlogger = get_logger("completion_service")\nactive_completions: Dict[str, Dict[str, Any]] = {}\n\n# Per-session queue management for fork prevention\nsession_processors: Dict[str, asyncio.Queue] = {}  # session_id -> Queue\nactive_sessions: set = set()  # Currently processing sessions\n\n# Structured concurrency with anyio - created on demand\ncompletion_task_group = None\ntask_group_context = None\n\n# Event emitter reference (set during startup)\nevent_emitter = None\n\n\ndef get_completion_task_group():\n    """Get the completion task group (must be called after service startup)."""\n    if completion_task_group is None:\n        raise RuntimeError("Completion service not ready - task group not available")\n    return completion_task_group\n\n\ndef ensure_directories():\n    """Ensure required directories exist."""\n    config.ensure_directories()\n\n\ndef save_completion_response(response_data: Dict[str, Any]) -> None:\n    """\n    Save standardized completion response to session file.\n    \n    Args:\n        response_data: Standardized completion response from create_completion_response\n    """\n    try:\n        # Parse the completion response to extract session_id\n        completion_response = parse_completion_response(response_data)\n        session_id = completion_response.get_session_id()\n        \n        if not session_id:\n            logger.warning("No session_id in completion response, cannot save to session file")\n            return\n        \n        # Ensure responses directory exists\n        responses_dir = config.response_log_dir\n        responses_dir.mkdir(parents=True, exist_ok=True)\n        \n        # Session file path\n        session_file = responses_dir / f"{session_id}.jsonl"\n        \n        # Append response to session file\n        with open(session_file, 'a', encoding='utf-8') as f:\n            f.write(json.dumps(response_data) + '\n')\n        \n        logger.debug(f"Saved completion response to {session_file}")\n        \n    except Exception as e:\n        logger.error(f"Failed to save completion response: {e}", exc_info=True)\n\n\n# Hook implementations\n@hookimpl(trylast=True)  # Run after core services are ready  \ndef ksi_startup(config):\n    """Initialize completion service on startup."""\n    ensure_directories()\n    logger.debug("DEBUG: Testing if debug logs work in completion service")\n    logger.info("Smart hybrid completion service with anyio structured concurrency - event-driven with per-session fork prevention")\n    return {"status": "completion_service_anyio_smart_hybrid_ready"}\n\n\n\nasync def manage_completion_service():\n    """Long-running service to manage anyio task group for completions."""\n    global completion_task_group, task_group_context\n    \n    logger.info("Starting completion service manager task")\n    \n    try:\n        # Create and enter the task group context\n        async with anyio.create_task_group() as tg:\n            completion_task_group = tg\n            logger.info("Completion service ready with task group")\n            \n            # Keep the service running until cancelled\n            await anyio.sleep_forever()\n            \n    except anyio.get_cancelled_exc_class():\n        logger.info("Completion service manager cancelled")\n        raise\n    except Exception as e:\n        logger.error(f"Completion service error: {e}", exc_info=True)\n        raise\n    finally:\n        completion_task_group = None\n        logger.info("Completion service manager stopped")\n\n\n@hookimpl\ndef ksi_ready():\n    """Return the completion service manager task."""\n    logger.info("Completion service requesting service manager task")\n    \n    return {\n        "service": "completion_service",\n        "tasks": [\n            {\n                "name": "service_manager",\n                "coroutine": manage_completion_service()\n            }\n        ]\n    }\n\n\n\n\n@hookimpl\ndef ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):\n    """Handle completion-related events."""\n    \n    if event_name == "completion:async":\n        logger.info(f"Received completion:async event with data: {data}")\n        # Smart hybrid: event-driven + per-session fork prevention\n        # Create a coroutine wrapper for consistent async handling\n        async def _handle_async():\n            return await handle_async_completion_smart(data, context)\n        return _handle_async()\n    \n    elif event_name == "completion:cancel":\n        # Cancel an active completion\n        request_id = data.get("request_id")\n        if request_id in active_completions:\n            # Cancellation with queue not yet implemented\n            del active_completions[request_id]\n            return {"status": "cancelled"}\n        return {"status": "not_found"}\n    \n    elif event_name == "completion:status":\n        # anyio smart hybrid architecture status\n        return {\n            "architecture": "anyio_smart_hybrid",\n            "task_group_active": completion_task_group is not None,\n            "active_count": len(active_completions),\n            "active_requests": list(active_completions.keys()),\n            "active_sessions": list(active_sessions),\n            "session_queues": {\n                session_id: queue.qsize() \n                for session_id, queue in session_processors.items()\n            },\n            "session_queue_count": len(session_processors)\n        }\n    \n    elif event_name == "completion:session_status":\n        # Detailed per-session status\n        session_id = data.get("session_id")\n        if not session_id:\n            return {"error": "session_id required"}\n            \n        return {\n            "session_id": session_id,\n            "active": session_id in active_sessions,\n            "queued": session_processors.get(session_id, asyncio.Queue()).qsize() if session_id in session_processors else 0,\n            "has_queue": session_id in session_processors\n        }\n    \n    return None\n\n\nasync def handle_completion_request(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:\n    """Handle completion request (original logic preserved)."""\n    \n    prompt = data.get("prompt", "")\n    model = data.get("model", "claude-cli/sonnet")\n    session_id = data.get("session_id")\n    temperature = data.get("temperature", 0.7)\n    max_tokens = data.get("max_tokens", 4096)\n    client_id = data.get("client_id")\n    request_id = data.get("request_id", str(uuid.uuid4()))\n    \n    if not prompt:\n        return {"error": "No prompt provided"}\n    \n    # Check for pending injections if session_id provided\n    if session_id and event_emitter:\n        prepend_injections = []\n        append_injections = []\n        \n        # Pop all pending injections for this session\n        while True:\n            result = await event_emitter("async_state:pop", {\n                "namespace": "injection",\n                "key": session_id\n            })\n            \n            if not result or not result.get("found"):\n                break\n                \n            injection_data = result.get("data", {})\n            position = injection_data.get("position", "prepend")\n            content = injection_data.get("content", "")\n            \n            if position == "prepend":\n                prepend_injections.append(content)\n            else:  # postscript\n                append_injections.append(content)\n        \n        # Apply injections to prompt\n        if prepend_injections:\n            prompt = "\n\n".join(prepend_injections) + "\n\n" + prompt\n            logger.info(f"Applied {len(prepend_injections)} prepend injections to session {session_id}")\n        \n        if append_injections:\n            prompt = prompt + "\n\n" + "\n\n".join(append_injections)\n            logger.info(f"Applied {len(append_injections)} postscript injections to session {session_id}")\n    \n    start_time = time.time()\n    \n    try:\n        # Prepare messages\n        messages = data.get("messages", [])\n        if not messages and prompt:\n            messages = [{"role": "user", "content": prompt}]\n        \n        # Just pass model through - no mapping\n        # Prepare litellm parameters\n        completion_params = {\n            "model": model,\n            "messages": messages,\n            "temperature": temperature,\n            "max_tokens": max_tokens\n        }\n        \n        # Add session ID as metadata for claude-cli provider\n        if session_id:\n            completion_params["metadata"] = {"session_id": session_id}\n        \n        # Call LiteLLM\n        response = await litellm.acompletion(**completion_params)\n        \n        # Calculate duration\n        duration_ms = int((time.time() - start_time) * 1000)\n        \n        # Extract response\n        raw_response = {}\n        \n        if model.startswith("claude-cli/"):\n            # Claude CLI returns JSON string in content\n            content = response.choices[0].message.content\n            if isinstance(content, str) and content.strip().startswith('{'):\n                try:\n                    raw_response = json.loads(content)\n                except json.JSONDecodeError:\n                    raw_response = {\n                        "result": content,\n                        "session_id": session_id,\n                        "model": model\n                    }\n            else:\n                raw_response = {\n                    "result": content,\n                    "session_id": session_id,\n                    "model": model\n                }\n        else:\n            # Other providers\n            raw_response = response.model_dump() if hasattr(response, 'model_dump') else dict(response)\n        \n        # Create standardized response\n        completion_response = create_completion_response(\n            provider="claude-cli" if model.startswith("claude-cli/") else "unknown",\n            raw_response=raw_response,\n            request_id=request_id,\n            client_id=client_id,\n            duration_ms=duration_ms\n        )\n        \n        # Save response to session file\n        response_data = completion_response.to_dict()\n        save_completion_response(response_data)\n        \n        # Extract actual session_id from response (may differ due to forking)\n        actual_session_id = raw_response.get('session_id', session_id)\n        response_data['session_id'] = actual_session_id\n        \n        return response_data\n        \n    except Exception as e:\n        logger.error(f"Completion error: {e}", exc_info=True)\n        duration_ms = int((time.time() - start_time) * 1000)\n        \n        # Return error in standardized format\n        error_response = create_completion_response(\n            provider="claude-cli" if model.startswith("claude-cli/") else "unknown",\n            raw_response={\n                "error": str(e),\n                "error_type": type(e).__name__\n            },\n            request_id=request_id,\n            client_id=client_id,\n            duration_ms=duration_ms\n        )\n        \n        result = error_response.to_dict()\n        result["error"] = str(e)\n        result["status"] = "error"\n        \n        save_completion_response(result)\n        \n        return result\n\n\nasync def handle_async_completion_smart(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:\n    """Smart hybrid completion handling - event-driven + per-session fork prevention."""\n    \n    # Generate request ID if not provided\n    request_id = data.get('request_id', str(uuid.uuid4()))\n    data['request_id'] = request_id\n    session_id = data.get('session_id')\n    \n    # Check if injection is requested\n    injection_config = data.get("injection_config")\n    if injection_config and injection_config.get('enabled'):\n        # Store injection metadata with injection router\n        request_id = queue_completion_with_injection(data)\n        data['request_id'] = request_id\n    \n    # Smart routing based on session state\n    if not session_id:\n        # No session ID = no fork risk = immediate processing\n        task_group = get_completion_task_group()\n        task_group.start_soon(process_single_completion, data, context)\n        logger.info(f"Processing sessionless completion {request_id} immediately")\n        \n        return {\n            "request_id": request_id,\n            "status": "processing",\n            "reason": "no_session",\n            "message": "Processing immediately - no fork risk"\n        }\n    \n    elif session_id in active_sessions:\n        # Session busy = queue to prevent fork\n        if session_id not in session_processors:\n            # Create per-session queue on demand\n            session_processors[session_id] = asyncio.Queue()\n            task_group = get_completion_task_group()\n            task_group.start_soon(process_session_queue, session_id)\n            logger.info(f"Created queue processor for session {session_id}")\n        \n        # Queue the request\n        await session_processors[session_id].put(data)\n        logger.info(f"Queued completion {request_id} for busy session {session_id}")\n        \n        return {\n            "request_id": request_id,\n            "status": "queued",\n            "reason": "session_busy",\n            "session_id": session_id,\n            "message": "Queued to prevent conversation fork"\n        }\n    \n    else:\n        # Session free = immediate processing with lock\n        task_group = get_completion_task_group()\n        task_group.start_soon(process_completion_with_session_lock, data, context)\n        logger.info(f"Processing completion {request_id} for free session {session_id}")\n        \n        return {\n            "request_id": request_id,\n            "status": "processing", \n            "session_id": session_id,\n            "message": "Processing immediately"\n        }\n\n\nasync def process_session_queue(session_id: str) -> None:\n    """Process queued requests for a specific session - prevents forks."""\n    \n    logger.info(f"Starting session queue processor for {session_id}")\n    queue = session_processors[session_id]\n    \n    try:\n        while True:\n            # Wait for next request for this session\n            request_data = await queue.get()\n            \n            logger.info(f"Processing queued request for session {session_id}")\n            \n            # Process with session lock\n            await process_completion_with_session_lock(request_data, {})\n            \n            # Mark task done\n            queue.task_done()\n            \n    except asyncio.CancelledError:\n        logger.info(f"Session queue processor for {session_id} cancelled")\n        raise\n    except Exception as e:\n        logger.error(f"Session queue error for {session_id}: {e}", exc_info=True)\n        # Continue processing queue\n    finally:\n        # Cleanup session queue when done\n        if session_id in session_processors:\n            del session_processors[session_id]\n        logger.info(f"Session queue processor for {session_id} stopped")\n\n\nasync def process_completion_with_session_lock(data: Dict[str, Any], context: Dict[str, Any]) -> None:\n    """Process completion with session locking to prevent forks."""\n    \n    session_id = data.get('session_id')\n    request_id = data.get('request_id', str(uuid.uuid4()))\n    \n    try:\n        # Acquire session lock\n        if session_id:\n            active_sessions.add(session_id)\n            logger.debug(f"Acquired session lock for {session_id}")\n            \n        # Process the completion\n        await process_single_completion(data, context)\n        \n    finally:\n        # Always release session lock\n        if session_id:\n            active_sessions.discard(session_id)\n            logger.debug(f"Released session lock for {session_id}")\n\n\nasync def process_single_completion(data: Dict[str, Any], context: Dict[str, Any]) -> None:\n    """Process a single completion request - core logic."""\n    \n    request_id = data.get('request_id', str(uuid.uuid4()))\n    \n    logger.debug(f"Processing completion request {request_id}")\n    \n    try:\n        # Store as active\n        active_completions[request_id] = {\n            "data": data,\n            "started_at": TimestampManager.timestamp_utc()\n        }\n        \n        # Emit progress event\n        if event_emitter and callable(event_emitter):\n            await event_emitter("completion:progress", {\n                "request_id": request_id,\n                "status": "processing",\n                "message": "Processing completion"\n            }, {})\n        \n        # Process the completion\n        result = await handle_completion_request(data, context)\n        \n        # Add request ID to result\n        result["request_id"] = request_id\n        \n        # Emit result event (will trigger injection router)\n        if event_emitter and callable(event_emitter):\n            logger.debug(f"Emitting completion:result event for {request_id}")\n            emit_result = await event_emitter("completion:result", result, {})\n            logger.debug(f"completion:result emission result: {emit_result}")\n        else:\n            logger.error("event_emitter not available or not callable")\n        \n        logger.info(f"Completed request {request_id}")\n        \n    except Exception as e:\n        logger.error(f"Completion error for {request_id}: {e}", exc_info=True)\n        # Emit error event\n        if event_emitter and callable(event_emitter):\n            await event_emitter("completion:error", {\n                "request_id": request_id,\n                "error": str(e)\n            }, {})\n    \n    finally:\n        # Clean up\n        active_completions.pop(request_id, None)\n\n\n\n@hookimpl\ndef ksi_plugin_context(context):\n    """Receive plugin context with event emitter."""\n    global event_emitter\n    event_emitter = context.get("emit_event")\n\n\n@hookimpl\ndef ksi_shutdown():\n    """Clean up on shutdown."""\n    logger.info(f"anyio smart hybrid completion service stopped - {len(active_completions)} active tasks, {len(session_processors)} session queues")\n    \n    return {\n        "status": "completion_service_anyio_smart_hybrid_stopped",\n        "active_tasks": len(active_completions),\n        "session_queues": len(session_processors),\n        "architecture": "anyio_smart_hybrid"\n    }\n\n\n# Module-level marker for plugin discovery\nksi_plugin = True
+#!/usr/bin/env python3
+"""
+Completion Service Plugin V2
+
+Enhanced completion service that integrates with:
+- Async completion queue with priority support
+- Conversation lock management
+- Event-driven injection routing
+- Circuit breaker safety mechanisms
+"""
+
+import asyncio
+import json
+import os
+import time
+import uuid
+from pathlib import Path
+from typing import Dict, Any, Optional, List
+import logging
+import pluggy
+
+import anyio
+import litellm
+
+from ksi_common.logging import get_logger
+from ksi_daemon.plugin_utils import plugin_metadata
+from ksi_common import TimestampManager, create_completion_response, parse_completion_response
+from ksi_daemon.config import config
+from ksi_daemon.event_taxonomy import CLAUDE_EVENTS, format_claude_event
+
+# Import injection systems
+from ksi_daemon.plugins.injection.injection_router import queue_completion_with_injection
+from ksi_daemon.plugins.injection.circuit_breakers import check_completion_allowed
+
+# Import claude_cli_litellm_provider to ensure provider registration
+from ksi_daemon.plugins.completion import claude_cli_litellm_provider
+
+# Plugin metadata
+plugin_metadata("completion_service", version="3.0.0",
+                description="Enhanced LLM completion service with queue and injection support")
+
+# Hook implementation marker
+hookimpl = pluggy.HookimplMarker("ksi")
+
+# Module state
+logger = get_logger("completion_service")
+active_completions: Dict[str, Dict[str, Any]] = {}
+
+# Per-session queue management for fork prevention
+session_processors: Dict[str, asyncio.Queue] = {}  # session_id -> Queue
+active_sessions: set = set()  # Currently processing sessions
+
+# Structured concurrency with anyio - created on demand
+completion_task_group = None
+task_group_context = None
+
+# Event emitter reference (set during startup)
+event_emitter = None
+
+
+def get_completion_task_group():
+    """Get the completion task group (must be called after service startup)."""
+    if completion_task_group is None:
+        raise RuntimeError("Completion service not ready - task group not available")
+    return completion_task_group
+
+
+def ensure_directories():
+    """Ensure required directories exist."""
+    config.ensure_directories()
+
+
+def save_completion_response(response_data: Dict[str, Any]) -> None:
+    """
+    Save standardized completion response to session file.
+    
+    Args:
+        response_data: Standardized completion response from create_completion_response
+    """
+    try:
+        # Parse the completion response to extract session_id
+        completion_response = parse_completion_response(response_data)
+        session_id = completion_response.get_session_id()
+        
+        if not session_id:
+            logger.warning("No session_id in completion response, cannot save to session file")
+            return
+        
+        # Ensure responses directory exists
+        responses_dir = config.response_log_dir
+        responses_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Session file path
+        session_file = responses_dir / f"{session_id}.jsonl"
+        
+        # Append response to session file
+        with open(session_file, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(response_data) + '\n')
+        
+        logger.debug(f"Saved completion response to {session_file}")
+        
+    except Exception as e:
+        logger.error(f"Failed to save completion response: {e}", exc_info=True)
+
+
+# Hook implementations
+@hookimpl(trylast=True)  # Run after core services are ready  
+def ksi_startup(config):
+    """Initialize completion service on startup."""
+    ensure_directories()
+    logger.info("Smart hybrid completion service with anyio structured concurrency - event-driven with per-session fork prevention")
+    return {"status": "completion_service_anyio_smart_hybrid_ready"}
+
+
+
+async def manage_completion_service():
+    """Long-running service to manage anyio task group for completions."""
+    global completion_task_group, task_group_context
+    
+    try:
+        # Create and enter the task group context
+        async with anyio.create_task_group() as tg:
+            completion_task_group = tg
+            logger.info("Completion service ready")
+            
+            # Keep the service running until cancelled
+            await anyio.sleep_forever()
+            
+    except anyio.get_cancelled_exc_class():
+        raise
+    except Exception as e:
+        logger.error(f"Completion service error: {e}", exc_info=True)
+        raise
+    finally:
+        completion_task_group = None
+
+
+@hookimpl
+def ksi_ready():
+    """Return the completion service manager task."""
+    logger.info("Completion service requesting service manager task")
+    
+    return {
+        "service": "completion_service",
+        "tasks": [
+            {
+                "name": "service_manager",
+                "coroutine": manage_completion_service()
+            }
+        ]
+    }
+
+
+
+
+@hookimpl
+def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
+    """Handle completion-related events."""
+    
+    if event_name == "completion:async":
+        # Smart hybrid: event-driven + per-session fork prevention
+        # Create a coroutine wrapper for consistent async handling
+        async def _handle_async():
+            return await handle_async_completion_smart(data, context)
+        return _handle_async()
+    
+    elif event_name == "completion:cancel":
+        # Cancel an active completion
+        request_id = data.get("request_id")
+        if request_id in active_completions:
+            # Cancellation with queue not yet implemented
+            del active_completions[request_id]
+            return {"status": "cancelled"}
+        return {"status": "not_found"}
+    
+    elif event_name == "completion:status":
+        # anyio smart hybrid architecture status
+        return {
+            "architecture": "anyio_smart_hybrid",
+            "task_group_active": completion_task_group is not None,
+            "active_count": len(active_completions),
+            "active_requests": list(active_completions.keys()),
+            "active_sessions": list(active_sessions),
+            "session_queues": {
+                session_id: queue.qsize() 
+                for session_id, queue in session_processors.items()
+            },
+            "session_queue_count": len(session_processors)
+        }
+    
+    elif event_name == "completion:session_status":
+        # Detailed per-session status
+        session_id = data.get("session_id")
+        if not session_id:
+            return {"error": "session_id required"}
+            
+        return {
+            "session_id": session_id,
+            "active": session_id in active_sessions,
+            "queued": session_processors.get(session_id, asyncio.Queue()).qsize() if session_id in session_processors else 0,
+            "has_queue": session_id in session_processors
+        }
+    
+    return None
+
+
+async def handle_completion_request(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle completion request (original logic preserved)."""
+    
+    prompt = data.get("prompt", "")
+    model = data.get("model", "claude-cli/sonnet")
+    session_id = data.get("session_id")
+    temperature = data.get("temperature", 0.7)
+    max_tokens = data.get("max_tokens", 4096)
+    client_id = data.get("client_id")
+    request_id = data.get("request_id", str(uuid.uuid4()))
+    
+    if not prompt:
+        return {"error": "No prompt provided"}
+    
+    # Check for pending injections if session_id provided
+    if session_id and event_emitter:
+        prepend_injections = []
+        append_injections = []
+        before_prompt_injections = []
+        after_prompt_injections = []
+        
+        # Pop all pending injections for this session
+        while True:
+            result = await event_emitter("async_state:pop", {
+                "namespace": "injection",
+                "key": session_id
+            })
+            
+            if not result or not result.get("found"):
+                break
+                
+            injection_data = result.get("data", {})
+            position = injection_data.get("position", "prepend")
+            content = injection_data.get("content", "")
+            
+            if position == "prepend":
+                prepend_injections.append(content)
+            elif position == "postscript":
+                append_injections.append(content)
+            elif position == "before_prompt":
+                before_prompt_injections.append(content)
+            elif position == "after_prompt":
+                after_prompt_injections.append(content)
+            else:  # Default to prepend for unknown positions
+                prepend_injections.append(content)
+        
+        # Apply injections to prompt
+        original_prompt = prompt
+        parts = []
+        
+        # Add prepend injections
+        if prepend_injections:
+            parts.extend(prepend_injections)
+            logger.info(f"Applied {len(prepend_injections)} prepend injections to session {session_id}")
+        
+        # Add before_prompt injections
+        if before_prompt_injections:
+            parts.extend(before_prompt_injections)
+            logger.info(f"Applied {len(before_prompt_injections)} before_prompt injections to session {session_id}")
+        
+        # Add original prompt
+        parts.append(original_prompt)
+        
+        # Add after_prompt injections
+        if after_prompt_injections:
+            parts.extend(after_prompt_injections)
+            logger.info(f"Applied {len(after_prompt_injections)} after_prompt injections to session {session_id}")
+        
+        # Add postscript injections
+        if append_injections:
+            parts.extend(append_injections)
+            logger.info(f"Applied {len(append_injections)} postscript injections to session {session_id}")
+        
+        # Join all parts with double newlines
+        prompt = "\n\n".join(parts)
+    
+    start_time = time.time()
+    
+    try:
+        # Prepare messages
+        messages = data.get("messages", [])
+        if not messages and prompt:
+            messages = [{"role": "user", "content": prompt}]
+        
+        # Just pass model through - no mapping
+        # Prepare litellm parameters
+        completion_params = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens
+        }
+        
+        # Add session ID as metadata for claude-cli provider
+        if session_id:
+            completion_params["metadata"] = {"session_id": session_id}
+        
+        # Call LiteLLM
+        response = await litellm.acompletion(**completion_params)
+        
+        # Calculate duration
+        duration_ms = int((time.time() - start_time) * 1000)
+        
+        # Extract response
+        raw_response = {}
+        
+        if model.startswith("claude-cli/"):
+            # Claude CLI returns JSON string in content
+            content = response.choices[0].message.content
+            if isinstance(content, str) and content.strip().startswith('{'):
+                try:
+                    raw_response = json.loads(content)
+                except json.JSONDecodeError:
+                    raw_response = {
+                        "result": content,
+                        "session_id": session_id,
+                        "model": model
+                    }
+            else:
+                raw_response = {
+                    "result": content,
+                    "session_id": session_id,
+                    "model": model
+                }
+        else:
+            # Other providers
+            raw_response = response.model_dump() if hasattr(response, 'model_dump') else dict(response)
+        
+        # Create standardized response
+        completion_response = create_completion_response(
+            provider="claude-cli" if model.startswith("claude-cli/") else "unknown",
+            raw_response=raw_response,
+            request_id=request_id,
+            client_id=client_id,
+            duration_ms=duration_ms
+        )
+        
+        # Save response to session file
+        response_data = completion_response.to_dict()
+        save_completion_response(response_data)
+        
+        # Extract actual session_id from response (may differ due to forking)
+        actual_session_id = raw_response.get('session_id', session_id)
+        response_data['session_id'] = actual_session_id
+        
+        return response_data
+        
+    except Exception as e:
+        logger.error(f"Completion error: {e}", exc_info=True)
+        duration_ms = int((time.time() - start_time) * 1000)
+        
+        # Return error in standardized format
+        error_response = create_completion_response(
+            provider="claude-cli" if model.startswith("claude-cli/") else "unknown",
+            raw_response={
+                "error": str(e),
+                "error_type": type(e).__name__
+            },
+            request_id=request_id,
+            client_id=client_id,
+            duration_ms=duration_ms
+        )
+        
+        result = error_response.to_dict()
+        result["error"] = str(e)
+        result["status"] = "error"
+        
+        save_completion_response(result)
+        
+        return result
+
+
+async def handle_async_completion_smart(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+    """Smart hybrid completion handling - event-driven + per-session fork prevention."""
+    
+    # Generate request ID if not provided
+    request_id = data.get('request_id', str(uuid.uuid4()))
+    data['request_id'] = request_id
+    session_id = data.get('session_id')
+    
+    # Check if injection is requested
+    injection_config = data.get("injection_config")
+    if injection_config and injection_config.get('enabled'):
+        # Store injection metadata with injection router
+        request_id = queue_completion_with_injection(data)
+        data['request_id'] = request_id
+    
+    # Smart routing based on session state
+    if not session_id:
+        # No session ID = no fork risk = immediate processing
+        task_group = get_completion_task_group()
+        task_group.start_soon(process_single_completion, data, context)
+        logger.info(f"Processing sessionless completion {request_id} immediately")
+        
+        return {
+            "request_id": request_id,
+            "status": "processing",
+            "reason": "no_session",
+            "message": "Processing immediately - no fork risk"
+        }
+    
+    elif session_id in active_sessions:
+        # Session busy = queue to prevent fork
+        if session_id not in session_processors:
+            # Create per-session queue on demand
+            session_processors[session_id] = asyncio.Queue()
+            task_group = get_completion_task_group()
+            task_group.start_soon(process_session_queue, session_id)
+            logger.info(f"Created queue processor for session {session_id}")
+        
+        # Queue the request
+        await session_processors[session_id].put(data)
+        logger.info(f"Queued completion {request_id} for busy session {session_id}")
+        
+        return {
+            "request_id": request_id,
+            "status": "queued",
+            "reason": "session_busy",
+            "session_id": session_id,
+            "message": "Queued to prevent conversation fork"
+        }
+    
+    else:
+        # Session free = immediate processing with lock
+        task_group = get_completion_task_group()
+        task_group.start_soon(process_completion_with_session_lock, data, context)
+        logger.info(f"Processing completion {request_id} for free session {session_id}")
+        
+        return {
+            "request_id": request_id,
+            "status": "processing", 
+            "session_id": session_id,
+            "message": "Processing immediately"
+        }
+
+
+async def process_session_queue(session_id: str) -> None:
+    """Process queued requests for a specific session - prevents forks."""
+    
+    logger.info(f"Starting session queue processor for {session_id}")
+    queue = session_processors[session_id]
+    
+    try:
+        while True:
+            # Wait for next request for this session
+            request_data = await queue.get()
+            
+            logger.info(f"Processing queued request for session {session_id}")
+            
+            # Process with session lock
+            await process_completion_with_session_lock(request_data, {})
+            
+            # Mark task done
+            queue.task_done()
+            
+    except asyncio.CancelledError:
+        logger.info(f"Session queue processor for {session_id} cancelled")
+        raise
+    except Exception as e:
+        logger.error(f"Session queue error for {session_id}: {e}", exc_info=True)
+        # Continue processing queue
+    finally:
+        # Cleanup session queue when done
+        if session_id in session_processors:
+            del session_processors[session_id]
+        logger.info(f"Session queue processor for {session_id} stopped")
+
+
+async def process_completion_with_session_lock(data: Dict[str, Any], context: Dict[str, Any]) -> None:
+    """Process completion with session locking to prevent forks."""
+    
+    session_id = data.get('session_id')
+    request_id = data.get('request_id', str(uuid.uuid4()))
+    
+    try:
+        # Acquire session lock
+        if session_id:
+            active_sessions.add(session_id)
+            logger.debug(f"Acquired session lock for {session_id}")
+            
+        # Process the completion
+        await process_single_completion(data, context)
+        
+    finally:
+        # Always release session lock
+        if session_id:
+            active_sessions.discard(session_id)
+            logger.debug(f"Released session lock for {session_id}")
+
+
+async def process_single_completion(data: Dict[str, Any], context: Dict[str, Any]) -> None:
+    """Process a single completion request - core logic."""
+    
+    request_id = data.get('request_id', str(uuid.uuid4()))
+    
+    logger.info(f"Processing completion request {request_id}")
+    
+    try:
+        # Store as active
+        active_completions[request_id] = {
+            "data": data,
+            "started_at": TimestampManager.timestamp_utc()
+        }
+        
+        # Emit progress event
+        if event_emitter and callable(event_emitter):
+            await event_emitter("completion:progress", {
+                "request_id": request_id,
+                "status": "processing",
+                "message": "Processing completion"
+            }, {})
+        
+        # Process the completion
+        result = await handle_completion_request(data, context)
+        
+        # Add request ID to result
+        result["request_id"] = request_id
+        
+        # Emit result event (will trigger injection router)
+        if event_emitter and callable(event_emitter):
+            await event_emitter("completion:result", result, {})
+        
+        logger.info(f"Completed request {request_id}")
+        
+    except Exception as e:
+        logger.error(f"Completion error for {request_id}: {e}", exc_info=True)
+        # Emit error event
+        if event_emitter and callable(event_emitter):
+            await event_emitter("completion:error", {
+                "request_id": request_id,
+                "error": str(e)
+            }, {})
+    
+    finally:
+        # Clean up
+        active_completions.pop(request_id, None)
+
+
+
+@hookimpl
+def ksi_plugin_context(context):
+    """Receive plugin context with event emitter."""
+    global event_emitter
+    event_emitter = context.get("emit_event")
+
+
+@hookimpl
+def ksi_shutdown():
+    """Clean up on shutdown."""
+    logger.info(f"anyio smart hybrid completion service stopped - {len(active_completions)} active tasks, {len(session_processors)} session queues")
+    
+    return {
+        "status": "completion_service_anyio_smart_hybrid_stopped",
+        "active_tasks": len(active_completions),
+        "session_queues": len(session_processors),
+        "architecture": "anyio_smart_hybrid"
+    }
+
+
+# Module-level marker for plugin discovery
+ksi_plugin = True
