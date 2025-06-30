@@ -423,11 +423,11 @@ var/lib/
 
 ## Critical Incomplete Features
 
-### Injection System (90% Complete)
-- **Missing**: Final execution step in `injection_router.py:235-238`
-- **Status**: Content composition and queuing works, execution is just a TODO
-- **Impact**: Blocks end-to-end async completion flows and agent coordination
-- **Effort**: Low - mostly implemented, needs final wiring
+### Injection System ✅ (COMPLETED)
+- **Status**: Fully implemented and functional
+- **Architecture**: Event-driven injection via `completion:async` events (not queue processing)
+- **Features**: Supports both 'direct' (immediate) and 'next' (stored) injection modes
+- **Implementation**: `execute_injection` function creates completion requests via event emission
 
 ### Completion Cancellation (Needed for Production)
 - **Missing**: Actual LiteLLM request cancellation in `completion_service.py:124`

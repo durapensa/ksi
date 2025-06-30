@@ -44,7 +44,7 @@ class DaemonController:
         """Initialize controller with config-based paths."""
         # All paths from config - no hardcoding
         self.daemon_script = "ksi-daemon.py"
-        self.pid_file = config.paths.pid_file
+        self.pid_file = config.daemon_pid_file
         self.socket_path = config.socket_path
         self.log_dir = config.log_dir
         self.venv_dir = Path(".venv")
@@ -144,14 +144,18 @@ class DaemonController:
             python_path = self.venv_dir / "bin" / "python3"
             cmd = [str(python_path), self.daemon_script]
             
-            # Start daemon in background
-            process = subprocess.Popen(
-                cmd,
-                env=env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True
-            )
+            # Redirect stdout/stderr to startup log using config paths
+            startup_log = config.daemon_log_dir / "daemon_startup.log"
+            
+            with open(startup_log, 'w') as log_file:
+                # Start daemon in background with startup log
+                process = subprocess.Popen(
+                    cmd,
+                    env=env,
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True
+                )
             
             # Wait a moment for daemon to start
             time.sleep(2)

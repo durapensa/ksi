@@ -46,15 +46,15 @@ def setup_daemon_logging():
     config.log_dir.mkdir(parents=True, exist_ok=True)
     
     # Configure structlog first (from ksi_common)
+    daemon_log_file = config.daemon_log_dir / "daemon.log"
     configure_structlog(
         log_level=config.log_level,
         log_format=config.log_format,
-        log_file=config.get_log_file_path()
+        log_file=daemon_log_file
     )
     
     # Create file handler for daemon logs
-    log_file = config.get_log_file_path()
-    handler = logging.FileHandler(log_file)
+    handler = logging.FileHandler(daemon_log_file)
     handler.setLevel(config.get_log_level())
     handler.setFormatter(logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -114,7 +114,7 @@ def run_as_daemon():
         working_directory=str(Path.cwd()),
         
         # PID file for process management
-        pidfile=daemon.pidfile.PIDLockFile(str(config.pid_file)),
+        pidfile=daemon.pidfile.PIDLockFile(str(config.daemon_pid_file)),
         
         # Preserve logging file descriptors
         files_preserve=[log_handler.stream],
