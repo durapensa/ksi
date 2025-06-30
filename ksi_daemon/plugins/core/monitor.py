@@ -44,6 +44,21 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
     elif event_name == "monitor:clear_log":
         return handle_clear_log(data)
     
+    elif event_name == "monitor:subscribe":
+        return handle_subscribe(data, context)
+    
+    elif event_name == "monitor:unsubscribe":
+        return handle_unsubscribe(data, context)
+    
+    elif event_name == "monitor:query":
+        return handle_query(data)
+    
+    elif event_name == "monitor:get_session_events":
+        return handle_get_session_events(data)
+    
+    elif event_name == "monitor:get_correlation_chain":
+        return handle_get_correlation_chain(data)
+    
     return None
 
 
@@ -167,6 +182,263 @@ def handle_clear_log(data: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Failed to clear log: {e}")
         return {"error": f"Clear failed: {str(e)}"}
+
+
+def handle_subscribe(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Subscribe to real-time event stream.
+    
+    Args:
+        data: Subscription parameters:
+            - event_patterns: List of event name patterns (supports wildcards)
+            - filter_fn: Optional additional filter function
+        context: Request context with client_id and writer
+    
+    Returns:
+        Subscription confirmation
+    """
+    if not event_router or not hasattr(event_router, 'event_log'):
+        return {"error": "Event log not available"}
+    
+    # Get subscription parameters
+    client_id = data.get("client_id") or context.get("client_id")
+    patterns = data.get("event_patterns", ["*"])
+    
+    # Get transport writer from context
+    writer = context.get("writer")
+    if not writer:
+        return {"error": "No writer available for streaming"}
+    
+    try:
+        # Subscribe to event stream
+        subscription = event_router.event_log.subscribe(
+            client_id=client_id,
+            patterns=patterns,
+            writer=writer
+        )
+        
+        logger.info(f"Client {client_id} subscribed to events: {patterns}")
+        
+        return {
+            "status": "subscribed",
+            "client_id": client_id,
+            "patterns": patterns
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to subscribe {client_id}: {e}")
+        return {"error": f"Subscription failed: {str(e)}"}
+
+
+def handle_unsubscribe(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Unsubscribe from event stream.
+    
+    Args:
+        data: Unsubscribe parameters
+        context: Request context with client_id
+    
+    Returns:
+        Unsubscribe confirmation
+    """
+    if not event_router or not hasattr(event_router, 'event_log'):
+        return {"error": "Event log not available"}
+    
+    # Get client ID
+    client_id = data.get("client_id") or context.get("client_id")
+    
+    try:
+        # Unsubscribe from event stream
+        event_router.event_log.unsubscribe(client_id)
+        
+        logger.info(f"Client {client_id} unsubscribed from events")
+        
+        return {
+            "status": "unsubscribed",
+            "client_id": client_id
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to unsubscribe {client_id}: {e}")
+        return {"error": f"Unsubscribe failed: {str(e)}"}
+
+
+def handle_query(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Execute custom SQL query against event database.
+    
+    Args:
+        data: Query parameters:
+            - query: SQL query string
+            - params: Optional query parameters (tuple)
+            - limit: Maximum results (default 1000)
+    
+    Returns:
+        Query results with metadata
+    """
+    if not event_router or not hasattr(event_router, 'event_log'):
+        return {"error": "Event log not available"}
+    
+    # Get query parameters
+    query = data.get("query")
+    params = data.get("params", ())
+    limit = data.get("limit", 1000)
+    
+    if not query:
+        return {"error": "No query provided"}
+    
+    # Security: Only allow SELECT queries
+    if not query.strip().upper().startswith("SELECT"):
+        return {"error": "Only SELECT queries are allowed"}
+    
+    try:
+        # Add limit if not present
+        if "LIMIT" not in query.upper():
+            query = f"{query} LIMIT {limit}"
+        
+        # Execute query
+        results = event_router.event_log.query_db(query, params)
+        
+        return {
+            "results": results,
+            "count": len(results),
+            "query": query
+        }
+        
+    except Exception as e:
+        logger.error(f"Query failed: {e}")
+        return {"error": f"Query failed: {str(e)}"}
+
+
+def handle_get_session_events(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Get all events for a specific session.
+    
+    Args:
+        data: Query parameters:
+            - session_id: Session ID to query
+            - include_memory: Include events from memory buffer (default True)
+            - reverse: Sort newest first (default True)
+    
+    Returns:
+        Events for the session
+    """
+    if not event_router or not hasattr(event_router, 'event_log'):
+        return {"error": "Event log not available"}
+    
+    session_id = data.get("session_id")
+    if not session_id:
+        return {"error": "No session_id provided"}
+    
+    include_memory = data.get("include_memory", True)
+    reverse = data.get("reverse", True)
+    
+    try:
+        events = []
+        
+        # Get events from database
+        db_events = event_router.event_log.query_db(
+            """SELECT * FROM events 
+               WHERE session_id = ? OR json_extract(data, '$.session_id') = ?
+               ORDER BY timestamp""",
+            (session_id, session_id)
+        )
+        events.extend(db_events)
+        
+        # Get events from memory buffer if requested
+        if include_memory:
+            memory_events = event_router.event_log.get_events(limit=None)
+            # Filter for session
+            for event in memory_events:
+                event_data = event.get("data", {})
+                if event_data.get("session_id") == session_id:
+                    # Check if not already in db results
+                    if not any(e.get("event_id") == event.get("event_id") 
+                             for e in db_events if e.get("event_id")):
+                        events.append(event)
+        
+        # Sort by timestamp
+        events.sort(key=lambda e: e.get("timestamp", 0), reverse=reverse)
+        
+        return {
+            "session_id": session_id,
+            "events": events,
+            "count": len(events),
+            "sources": ["database"] + (["memory"] if include_memory else [])
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get session events: {e}")
+        return {"error": f"Query failed: {str(e)}"}
+
+
+def handle_get_correlation_chain(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Get all events in a correlation chain.
+    
+    Args:
+        data: Query parameters:
+            - correlation_id: Correlation ID to trace
+            - include_memory: Include events from memory buffer (default True)
+    
+    Returns:
+        Events in the correlation chain
+    """
+    if not event_router or not hasattr(event_router, 'event_log'):
+        return {"error": "Event log not available"}
+    
+    correlation_id = data.get("correlation_id")
+    if not correlation_id:
+        return {"error": "No correlation_id provided"}
+    
+    include_memory = data.get("include_memory", True)
+    
+    try:
+        events = []
+        
+        # Get events from database
+        db_events = event_router.event_log.query_db(
+            """SELECT * FROM events 
+               WHERE correlation_id = ?
+               ORDER BY timestamp""",
+            (correlation_id,)
+        )
+        events.extend(db_events)
+        
+        # Get events from memory buffer if requested
+        if include_memory:
+            memory_events = event_router.event_log.get_events(limit=None)
+            # Filter for correlation
+            for event in memory_events:
+                if event.get("correlation_id") == correlation_id:
+                    # Check if not already in db results
+                    if not any(e.get("event_id") == event.get("event_id") 
+                             for e in db_events if e.get("event_id")):
+                        events.append(event)
+        
+        # Sort by timestamp to show chain progression
+        events.sort(key=lambda e: e.get("timestamp", 0))
+        
+        # Build chain metadata
+        chain_info = {
+            "correlation_id": correlation_id,
+            "events": events,
+            "count": len(events),
+            "duration_ms": None,
+            "event_types": list(set(e.get("event_name", "") for e in events))
+        }
+        
+        # Calculate chain duration
+        if len(events) >= 2:
+            chain_info["duration_ms"] = int(
+                (events[-1].get("timestamp", 0) - events[0].get("timestamp", 0)) * 1000
+            )
+        
+        return chain_info
+        
+    except Exception as e:
+        logger.error(f"Failed to get correlation chain: {e}")
+        return {"error": f"Query failed: {str(e)}"}
 
 
 # Module-level marker for plugin discovery

@@ -13,7 +13,7 @@ from typing import Dict, Any, Optional, Callable, List, Set
 from collections import defaultdict
 import fnmatch
 
-from .event_log import DaemonEventLog
+from .event_log import DaemonEventLog, AsyncSQLiteEventLog
 from .correlation import start_trace, complete_trace, ensure_correlation_id, get_correlation_logger
 
 logger = logging.getLogger(__name__)
@@ -41,8 +41,8 @@ class SimpleEventRouter:
         self.pending_requests: Dict[str, asyncio.Future] = {}
         self.request_timeout = 30.0
         
-        # Event log for pull-based monitoring
-        self.event_log = DaemonEventLog(max_size=10000)
+        # Event log for pull-based monitoring with persistence
+        self.event_log = AsyncSQLiteEventLog(max_size=10000)
         
         # Statistics
         self.stats = {
@@ -227,6 +227,9 @@ class SimpleEventRouter:
     
     async def initialize_transports(self, config: Dict[str, Any]) -> None:
         """Initialize transport plugins."""
+        # Start event log persistence
+        await self.event_log.start()
+        
         transports_config = config.get("transports", {"unix": {"enabled": True}})
         
         for transport_type, transport_config in transports_config.items():
@@ -263,6 +266,9 @@ class SimpleEventRouter:
             if hasattr(transport, 'stop'):
                 await transport.stop()
             logger.info(f"Stopped transport: {transport_type}")
+        
+        # Stop event log persistence
+        await self.event_log.stop()
         
         # Cancel pending requests
         for future in self.pending_requests.values():

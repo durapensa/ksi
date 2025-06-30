@@ -56,6 +56,14 @@ class KSIBaseConfig(BaseSettings):
     async_state_db_path: Path = Path("var/db/ksi_state.db")  # Use same shared database
     identity_storage_path: Path = Path("var/db/identities.json")
     
+    # Event logging database (separate from state)
+    event_db_path: Path = Path("var/db/events.db")
+    event_write_queue_size: int = 5000
+    event_batch_size: int = 100
+    event_flush_interval: float = 1.0  # seconds
+    event_retention_days: int = 30
+    event_recovery: bool = False  # Set KSI_EVENT_RECOVERY=true to enable
+    
     # Library and composition paths (shared infrastructure)
     lib_dir: Path = Path("var/lib")
     compositions_dir: Path = Path("var/lib/compositions")
