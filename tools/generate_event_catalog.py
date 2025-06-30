@@ -15,14 +15,14 @@ from typing import Dict, List, Any
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from ksi_client import AsyncClient
+from ksi_client import EventBasedClient
 
 
 class EventCatalogGenerator:
     """Generate event catalog documentation from live daemon introspection."""
     
     def __init__(self):
-        self.client = AsyncClient(client_id="catalog_generator")
+        self.client = EventBasedClient(client_id="catalog_generator")
         self.events_by_namespace = {}
         
     async def connect(self) -> bool:

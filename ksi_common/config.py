@@ -26,6 +26,20 @@ from typing import Optional, Literal, List
 # Note: Removed stdlib logging import - using pure structlog
 
 from .paths import KSIPaths
+from .constants import (
+    DEFAULT_VAR_DIR,
+    DEFAULT_LOG_DIR,
+    DEFAULT_SESSION_LOG_DIR,
+    DEFAULT_DAEMON_LOG_DIR,
+    DEFAULT_STATE_DIR,
+    DEFAULT_DB_DIR,
+    DEFAULT_RUN_DIR,
+    DEFAULT_EXPORT_DIR,
+    DEFAULT_SOCKET_PATH,
+    DEFAULT_SOCKET_TIMEOUT,
+    DEFAULT_LOG_LEVEL,
+    DEFAULT_PID_FILE,
+)
 
 
 class KSIBaseConfig(BaseSettings):
@@ -38,26 +52,26 @@ class KSIBaseConfig(BaseSettings):
     """
     
     # Core paths - matching ksi_daemon patterns
-    socket_path: Path = Path("var/run/daemon.sock")
+    socket_path: Path = Path(DEFAULT_SOCKET_PATH)
     
     # Logging configuration
-    log_dir: Path = Path("var/logs")
-    session_log_dir: Path = Path("var/logs/responses")  # Session logs migrated to responses directory
-    response_log_dir: Path = Path("var/logs/responses")  # Provider-agnostic completion responses
-    log_level: str = "INFO"
+    log_dir: Path = Path(DEFAULT_LOG_DIR)
+    session_log_dir: Path = Path(DEFAULT_SESSION_LOG_DIR)  # Session logs migrated to responses directory
+    response_log_dir: Path = Path(DEFAULT_SESSION_LOG_DIR)  # Provider-agnostic completion responses
+    log_level: str = DEFAULT_LOG_LEVEL
     log_format: Literal["json", "console"] = "console"
     
     # State and data
-    state_dir: Path = Path("var/state")
+    state_dir: Path = Path(DEFAULT_STATE_DIR)
     
     # Database paths (shared infrastructure) - single database for all components
-    db_dir: Path = Path("var/db")
-    db_path: Path = Path("var/db/ksi_state.db")  # Single shared database
-    async_state_db_path: Path = Path("var/db/ksi_state.db")  # Use same shared database
-    identity_storage_path: Path = Path("var/db/identities.json")
+    db_dir: Path = Path(DEFAULT_DB_DIR)
+    db_path: Path = Path(DEFAULT_DB_DIR) / "ksi_state.db"  # Single shared database
+    async_state_db_path: Path = Path(DEFAULT_DB_DIR) / "ksi_state.db"  # Use same shared database
+    identity_storage_path: Path = Path(DEFAULT_DB_DIR) / "identities.json"
     
     # Event logging database (separate from state)
-    event_db_path: Path = Path("var/db/events.db")
+    event_db_path: Path = Path(DEFAULT_DB_DIR) / "events.db"
     event_write_queue_size: int = 5000
     event_batch_size: int = 100
     event_flush_interval: float = 1.0  # seconds
@@ -65,26 +79,27 @@ class KSIBaseConfig(BaseSettings):
     event_recovery: bool = False  # Set KSI_EVENT_RECOVERY=true to enable
     
     # Library and composition paths (shared infrastructure)
-    lib_dir: Path = Path("var/lib")
-    compositions_dir: Path = Path("var/lib/compositions")
-    fragments_dir: Path = Path("var/lib/fragments")
-    schemas_dir: Path = Path("var/lib/schemas")
+    lib_dir: Path = Path(DEFAULT_VAR_DIR) / "lib"
+    compositions_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/compositions"
+    fragments_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/fragments"
+    schemas_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/schemas"
     
     # Network settings
-    socket_timeout: float = 5.0
+    socket_timeout: float = DEFAULT_SOCKET_TIMEOUT
     
     # Debug mode
     debug: bool = False
     
     # Daemon-specific settings
-    daemon_pid_file: Path = Path("var/run/ksi_daemon.pid")
-    daemon_log_dir: Path = Path("var/logs/daemon")
+    daemon_pid_file: Path = Path(DEFAULT_RUN_DIR) / DEFAULT_PID_FILE
+    daemon_log_dir: Path = Path(DEFAULT_DAEMON_LOG_DIR)
     
     @property
     def daemon_log_file(self) -> Path:
         """Get the daemon log file path."""
         return self.daemon_log_dir / "daemon.log"
-    daemon_tmp_dir: Path = Path("var/tmp")
+    
+    daemon_tmp_dir: Path = Path(DEFAULT_VAR_DIR) / "tmp"
     
     # Completion timeouts (in seconds)
     completion_timeout_default: int = 300  # 5 minutes default
@@ -168,7 +183,7 @@ class KSIBaseConfig(BaseSettings):
     @property
     def experiments_dir(self) -> Path:
         """Get experiments data directory."""
-        return Path("var/experiments")
+        return Path(DEFAULT_VAR_DIR) / "experiments"
     
     @property
     def experiments_cognitive_dir(self) -> Path:

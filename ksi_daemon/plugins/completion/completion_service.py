@@ -132,12 +132,9 @@ async def manage_completion_service():
             await shutdown_event.wait()
             logger.info("Shutdown event received, completion service exiting gracefully")
             
-    except asyncio.CancelledError:
-        logger.info("Completion service cancelled")
-        raise
-    except ExceptionGroup as eg:
-        # TaskGroup can raise ExceptionGroup when tasks fail
-        logger.error(f"Completion service task group error: {eg}", exc_info=True)
+    except* Exception as eg:
+        # TaskGroup raises ExceptionGroup when tasks fail
+        logger.error(f"Completion service task group error: {eg!r}")
         raise
     finally:
         completion_task_group = None

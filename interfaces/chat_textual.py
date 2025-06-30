@@ -1404,7 +1404,7 @@ def main():
 
 async def test_mode(args):
     """Test mode without TUI"""
-    from ksi_client import EventChatClient, MultiAgentClient, AsyncClient
+    from ksi_client import EventChatClient, MultiAgentClient, EventBasedClient
     
     print("Testing daemon connection...")
     
@@ -1420,7 +1420,7 @@ async def test_mode(args):
     )
     
     # Create async client for conversation operations
-    async_client = AsyncClient(
+    async_client = EventBasedClient(
         client_id=f"chat_test_async_{args.profile}",
         socket_path=str(config.socket_path)
     )

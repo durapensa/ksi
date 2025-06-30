@@ -26,7 +26,7 @@ class KSIError(Exception):
         return result
 
 
-class ConnectionError(KSIError):
+class KSIConnectionError(KSIError):
     """Raised when connection to daemon fails."""
     
     def __init__(self, message: str = "Failed to connect to daemon", **kwargs):
@@ -40,7 +40,7 @@ class ProtocolError(KSIError):
         super().__init__(message, code="PROTOCOL_ERROR", **kwargs)
 
 
-class TimeoutError(KSIError):
+class KSITimeoutError(KSIError):
     """Raised when operations timeout."""
     
     def __init__(self, message: str = "Operation timed out", **kwargs):

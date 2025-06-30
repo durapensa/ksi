@@ -16,6 +16,7 @@ from typing import Dict, Any, Optional, Union, List, Tuple
 from datetime import datetime
 
 import structlog
+from ksi_common import KSIConnectionError
 
 logger = structlog.get_logger("ksi.client.utils")
 
@@ -107,7 +108,7 @@ class ConnectionManager:
             Parsed response dict
             
         Raises:
-            ConnectionError: If connection fails
+            KSIConnectionError: If connection fails
             asyncio.TimeoutError: If timeout exceeded
             json.JSONDecodeError: If response is invalid JSON
         """
@@ -137,11 +138,11 @@ class ConnectionManager:
             return ResponseHandler.parse_response(response_data)
             
         except asyncio.TimeoutError:
-            raise ConnectionError(f"Connection timeout to {socket_path}")
+            raise KSIConnectionError(f"Connection timeout to {socket_path}")
         except ConnectionRefusedError:
-            raise ConnectionError(f"Daemon not running at {socket_path}")
+            raise KSIConnectionError(f"Daemon not running at {socket_path}")
         except Exception as e:
-            raise ConnectionError(f"Connection failed: {e}")
+            raise KSIConnectionError(f"Connection failed: {e}")
 
 # Command convenience functions removed - use event functions instead
 

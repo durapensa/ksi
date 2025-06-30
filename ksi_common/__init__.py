@@ -32,9 +32,9 @@ from .constants import (
 # Protocol imports removed - protocols.py was dead code
 from .exceptions import (
     KSIError,
-    ConnectionError as KSIConnectionError,
+    KSIConnectionError,
     ProtocolError,
-    TimeoutError as KSITimeoutError,
+    KSITimeoutError,
 )
 from .logging import (
     configure_structlog,

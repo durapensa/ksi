@@ -192,6 +192,9 @@ class SimpleDaemonCore:
                 logger.warning("No async services to run, waiting for shutdown")
                 await self.shutdown_event.wait()
             
+        except* asyncio.CancelledError:
+            # This is expected during shutdown - don't log as error
+            logger.info("Services cancelled during shutdown")
         except* Exception as eg:
             # TaskGroup can raise ExceptionGroup when tasks fail
             logger.error("Daemon task group error", error=str(eg), exc_info=True)

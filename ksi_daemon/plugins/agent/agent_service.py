@@ -46,7 +46,7 @@ def load_identities():
     """Load agent identities from disk."""
     if identity_storage_path.exists():
         try:
-            loaded_identities = FileOperations.read_json_file(identity_storage_path)
+            loaded_identities = FileOperations.load_json(identity_storage_path, default={})
             if loaded_identities:
                 identities.update(loaded_identities)
                 logger.info(f"Loaded {len(identities)} agent identities")
@@ -57,7 +57,7 @@ def load_identities():
 def save_identities():
     """Save agent identities to disk."""
     try:
-        FileOperations.write_json_file(identity_storage_path, identities)
+        FileOperations.save_json(identity_storage_path, identities)
         logger.debug(f"Saved {len(identities)} identities")
     except Exception as e:
         logger.error(f"Failed to save identities: {e}")

@@ -7,18 +7,18 @@ with the KSI plugin-based daemon architecture.
 
 Usage:
     # Simple chat interface (event-based)
-    from ksi_client import SimpleChatClient
+    from ksi_client import EventChatClient
     
     async def main():
-        async with SimpleChatClient() as client:
+        async with EventChatClient() as client:
             response, session_id = await client.send_prompt("What is 2+2?")
             print(response)
     
     # Full-featured event client  
-    from ksi_client import AsyncClient
+    from ksi_client import EventBasedClient
     
     async def main():
-        client = AsyncClient(client_id="my-app")
+        client = EventBasedClient(client_id="my-app")
         await client.connect()
         
         # Health check via event
@@ -32,8 +32,6 @@ Usage:
 
 # Import event-based clients as primary interface
 from .event_client import (
-    EventBasedClient as AsyncClient,  # Use event client as default
-    EventChatClient as SimpleChatClient,
     EventBasedClient,
     EventChatClient,
     MultiAgentClient
@@ -56,8 +54,6 @@ from .utils import (
 __version__ = "1.0.0"
 __all__ = [
     # Event-based clients - Primary interface
-    "AsyncClient",           # Primary full-featured client (EventBasedClient)
-    "SimpleChatClient",      # Simplified chat interface (EventChatClient)
     "EventBasedClient",      # Event-driven client
     "EventChatClient",       # Simplified event chat client
     "MultiAgentClient",      # Multi-agent coordination client

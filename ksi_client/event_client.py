@@ -21,7 +21,7 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from collections import defaultdict
 
-from ksi_common import config, parse_completion_response
+from ksi_common import config, parse_completion_response, KSIConnectionError, KSITimeoutError
 import structlog
 
 logger = structlog.get_logger("ksi.client.event")
@@ -151,7 +151,7 @@ class EventBasedClient:
         # Cancel pending requests
         for pending in self.pending_requests.values():
             if not pending.future.done():
-                pending.future.set_exception(ConnectionError("Client disconnected"))
+                pending.future.set_exception(KSIConnectionError("Client disconnected"))
             if pending.timeout_task and not pending.timeout_task.done():
                 pending.timeout_task.cancel()
         
@@ -174,7 +174,7 @@ class EventBasedClient:
             correlation_id: Optional correlation ID for request/response patterns
         """
         if not self.connected:
-            raise ConnectionError("Not connected to daemon")
+            raise KSIConnectionError("Not connected to daemon")
         
         event = {
             "event": event_name,
@@ -205,7 +205,7 @@ class EventBasedClient:
             Response data
             
         Raises:
-            TimeoutError: If no response within timeout
+            KSITimeoutError: If no response within timeout
         """
         correlation_id = str(uuid.uuid4())
         
@@ -245,7 +245,7 @@ class EventBasedClient:
             pending = self.pending_requests.pop(correlation_id)
             if not pending.future.done():
                 pending.future.set_exception(
-                    TimeoutError(f"Request {correlation_id} timed out after {timeout}s")
+                    KSITimeoutError(f"Request {correlation_id} timed out after {timeout}s")
                 )
     
     async def send_async_wait_result(self, request_event: str, request_data: Dict[str, Any],
@@ -268,7 +268,7 @@ class EventBasedClient:
             Result data from the matching result event
             
         Raises:
-            TimeoutError: If no matching result within timeout
+            KSITimeoutError: If no matching result within timeout
         """
         # Generate request ID if not provided
         request_id = request_data.get(result_id_field)
@@ -296,7 +296,7 @@ class EventBasedClient:
             return await asyncio.wait_for(result_future, timeout=timeout)
             
         except asyncio.TimeoutError:
-            raise TimeoutError(f"Request {request_id} timed out after {timeout}s waiting for {result_event}")
+            raise KSITimeoutError(f"Request {request_id} timed out after {timeout}s waiting for {result_event}")
             
         finally:
             # Always unsubscribe handler
@@ -518,7 +518,7 @@ class EventBasedClient:
             
         Raises:
             ValueError: If completion returns an error
-            TimeoutError: If completion times out
+            KSITimeoutError: If completion times out
         """
         # Prepare request data
         request_data = {

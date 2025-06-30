@@ -38,15 +38,7 @@ def plugin_metadata(name: str, version: str = "1.0.0",
     return decorator
 
 
-def get_logger(plugin_name: str) -> 'structlog.stdlib.BoundLogger':
-    """
-    DEPRECATED: Import get_logger directly from ksi_common.logging instead.
-    This wrapper will be removed soon.
-    
-    Get a structured logger for the plugin.
-    """
-    full_name = f"ksi.plugin.{plugin_name}"
-    return get_structured_logger(full_name)
+# get_logger removed - use get_bound_logger from ksi_common.logging instead
 
 
 def event_handler(*event_patterns: str):
@@ -113,10 +105,11 @@ class SimpleEventEmitter:
 
 async def with_timeout(coro, timeout: float, error_msg: str = "Operation timed out"):
     """Run a coroutine with timeout."""
+    from ksi_common import KSITimeoutError
     try:
         return await asyncio.wait_for(coro, timeout=timeout)
     except asyncio.TimeoutError:
-        raise TimeoutError(error_msg)
+        raise KSITimeoutError(error_msg)
 
 
 def validate_data(data: Dict[str, Any], required_fields: List[str]) -> bool:
