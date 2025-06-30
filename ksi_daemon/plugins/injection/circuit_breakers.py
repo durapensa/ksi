@@ -20,6 +20,35 @@ from ksi_common import TimestampManager
 logger = get_logger("circuit_breakers")
 
 
+def estimate_tokens(content: str) -> int:
+    """
+    Estimate token count for text content.
+    
+    Uses multiple heuristics for better accuracy:
+    - Character count / 4 (common GPT-style tokenization ratio)
+    - Word count * 1.3 (accounting for subword tokenization)
+    - Takes the average and ensures minimum of 1
+    
+    Args:
+        content: Text content to estimate
+        
+    Returns:
+        Estimated token count (minimum 1)
+    """
+    if not content or not content.strip():
+        return 1
+    
+    # Multiple estimation methods
+    char_estimate = len(content) / 4.0  # ~4 chars per token average
+    word_estimate = len(content.split()) * 1.3  # Words + subword tokenization
+    
+    # Take average of methods, with reasonable bounds
+    avg_estimate = (char_estimate + word_estimate) / 2.0
+    
+    # Ensure minimum of 1 token and return as integer
+    return max(1, int(avg_estimate))
+
+
 @dataclass
 class CompletionRecord:
     """Record of a completion in the chain."""
@@ -50,7 +79,7 @@ class RequestTracker:
         
         # Estimate tokens if not provided
         if tokens is None:
-            tokens = len(content.split()) * 1.3  # Rough estimate
+            tokens = estimate_tokens(content)
         
         # Create record
         record = CompletionRecord(
@@ -476,7 +505,7 @@ class CompletionCircuitBreaker:
         
         # Track the request
         content = request.get('prompt', '')
-        tokens = request.get('estimated_tokens', len(content.split()) * 1.3)
+        tokens = request.get('estimated_tokens', estimate_tokens(content))
         
         self.request_tracker.add_request(request_id, parent_id, content, tokens)
         self.depth_tracker.set_depth(request_id, parent_id)
