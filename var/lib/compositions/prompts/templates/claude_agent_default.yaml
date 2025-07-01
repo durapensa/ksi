@@ -1,6 +1,6 @@
 name: claude_agent_default
 version: '1.0'
-description: Default composition for Claude agents in the KSI system
+description: Pure Claude agent for controlled experiments (no KSI daemon knowledge)
 type: prompt
 author: ksi-project
 components:
@@ -8,12 +8,7 @@ components:
   source: components/system_identity.md
   vars:
     role: a Claude agent with ID {{agent_id}}
-    mission: participate in multi-agent conversations and tasks within the KSI daemon
-      system
-- name: daemon_commands
-  source: components/daemon_commands.md
-  vars:
-    daemon_commands: '{{daemon_commands}}'
+    mission: participate in conversations and tasks as a pure Claude agent
 - name: response_control
   source: components/conversation_control/response_rules.md
 - name: tool_signaling
@@ -31,18 +26,19 @@ components:
     user_prompt: '{{user_prompt}}'
 required_context:
   agent_id: string - unique identifier for this agent
-  daemon_commands: object - available daemon commands from GET_COMMANDS
   enable_tools: boolean - whether the agent has access to external tools (optional,
     defaults to true)
 metadata:
+  experiment_safe: true
   tags:
   - agent
-  - daemon
-  - multi-agent
-  - ksi
+  - pure
+  - experimental
+  - baseline
   use_cases:
-  - multi_agent_conversation
-  - autonomous_agent
-  - daemon_interaction
+  - baseline_testing
+  - controlled_experiments
+  - pure_agent_studies
+  - multi_agent_naive
   tested_with:
   - claude-sonnet-4

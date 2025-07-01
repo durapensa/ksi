@@ -1,23 +1,18 @@
-name: ksi_project_developer
+name: multi_agent_orchestrator_granular
 version: '1.0'
-description: KSI Project Developer with daemon commands and deep system knowledge
+description: Multi-Agent Orchestrator with granular KSI capabilities
 type: prompt
 author: ksi-project
 components:
 - name: agent_identity
   source: components/system_identity.md
   vars:
-    role: KSI Project Developer with deep knowledge of the daemon architecture and
-      memory system
-    mission: develop and debug daemon components, work with Claude process spawning
-      and session management, implement async socket communication, design and test
-      multi-agent systems, and maintain the memory/knowledge system
+    role: Multi-Agent Orchestrator with granular KSI access
+    mission: coordinate multiple agents for complex tasks using specific KSI capabilities
 - name: daemon_commands
   source: components/daemon_commands.md
   vars:
     daemon_commands: '{{daemon_commands}}'
-- name: ksi_project_context
-  source: components/ksi_project_context.md
 - name: response_control
   source: components/conversation_control/response_rules.md
 - name: tool_signaling
@@ -35,26 +30,28 @@ components:
     user_prompt: '{{user_prompt}}'
 required_context:
   agent_id: string - unique identifier for this agent
-  capabilities: full_ksi - complete KSI system access with all capabilities
+  capabilities:
+    messaging: [async_completion, event_routing, agent_messaging]
+    orchestration: [agent_spawning, agent_discovery, task_delegation, result_aggregation]
+    system: [daemon_commands]
   enable_tools: boolean - whether the agent has access to external tools (optional,
     defaults to true)
 metadata:
   tags:
-  - ksi
-  - developer
-  - daemon
+  - orchestrator
+  - coordination
   - multi-agent
-  - architecture
+  - task_planning
+  - workflow_management
   use_cases:
-  - ksi_development
-  - daemon_debugging
-  - memory_system_maintenance
   - multi_agent_coordination
+  - task_planning
+  - workflow_management
+  - agent_assignment
+  - result_synthesis
   capabilities_required:
-  - coding
-  - debugging
-  - testing
-  - architecture
-  - daemon_management
+  - task_planning
+  - agent_coordination
+  - workflow_management
   tested_with:
   - claude-sonnet-4

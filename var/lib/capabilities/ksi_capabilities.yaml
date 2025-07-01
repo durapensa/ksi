@@ -1,0 +1,73 @@
+# KSI Capability Schema
+# Declarative mapping of capabilities to required KSI context variables
+#
+# This file defines what KSI context each capability requires, enabling
+# pure declarative composition without hardcoded logic in Python.
+
+capability_groups:
+  
+  # Communication and messaging capabilities
+  messaging:
+    async_completion:
+      description: Make async completion requests to other agents
+      context: [daemon_commands]
+      
+    event_routing:
+      description: Route events through the daemon system
+      context: [daemon_commands, daemon_events]
+      
+    agent_messaging:
+      description: Send messages to other agents in the system
+      context: [daemon_commands]
+      
+    conversation_state:
+      description: Access and manage conversation history
+      context: [daemon_events]
+
+  # Multi-agent orchestration capabilities  
+  orchestration:
+    agent_spawning:
+      description: Spawn new agents with specific compositions
+      context: [daemon_commands, daemon_events]
+      
+    agent_discovery:
+      description: Discover existing agents in the system
+      context: [daemon_events]
+      
+    task_delegation:
+      description: Delegate tasks to other agents
+      context: [daemon_commands, daemon_events]
+      
+    result_aggregation:
+      description: Collect and aggregate results from multiple agents
+      context: [daemon_events]
+
+  # System introspection and management
+  system:
+    daemon_commands:
+      description: Access daemon command discovery and execution
+      context: [daemon_commands]
+      
+    plugin_introspection:
+      description: Introspect available plugins and events
+      context: [daemon_events]
+      
+    system_health:
+      description: Monitor daemon and system health
+      context: [daemon_commands, daemon_events]
+      
+    memory_access:
+      description: Access KSI memory and knowledge systems
+      context: [daemon_commands, daemon_events]
+
+  # Full KSI access (everything current and future)
+  full_ksi:
+    all:
+      description: Complete KSI system access with all capabilities
+      context: [daemon_commands, daemon_events, ksi_capabilities]
+      future_proof: true  # Automatically includes new capabilities
+
+# Metadata
+schema_version: "1.0"
+last_updated: "2025-07-01"
+description: "Declarative capability schema for KSI context resolution"

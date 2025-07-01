@@ -92,6 +92,7 @@ class KSIBaseConfig(BaseSettings):
     compositions_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/compositions"
     fragments_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/fragments"
     schemas_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/schemas"
+    capabilities_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/capabilities"
     
     # Network settings
     socket_timeout: float = DEFAULT_SOCKET_TIMEOUT
@@ -153,6 +154,7 @@ class KSIBaseConfig(BaseSettings):
             self.compositions_dir,   # var/lib/compositions
             self.fragments_dir,      # var/lib/fragments
             self.schemas_dir,        # var/lib/schemas
+            self.capabilities_dir,   # var/lib/capabilities
             self.daemon_log_dir,     # var/logs/daemon
             self.daemon_tmp_dir,     # var/tmp
             self.experiments_cognitive_dir,  # var/experiments/cognitive

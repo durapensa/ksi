@@ -39,6 +39,10 @@ state_manager = None  # For shared state operations only
 FRAGMENTS_BASE = config.fragments_dir
 COMPOSITIONS_BASE = config.compositions_dir
 SCHEMAS_BASE = config.schemas_dir
+CAPABILITIES_BASE = config.capabilities_dir
+
+# Capability schema cache
+_capability_schema_cache = None
 
 
 # Per-plugin TypedDict definitions (optional type safety)
@@ -139,6 +143,23 @@ class Composition:
         for comp_data in data.get('components', []):
             components.append(CompositionComponent(**comp_data))
         
+        # Merge variables and required_context for capability detection
+        variables = data.get('variables', {}).copy()
+        required_context = data.get('required_context', {})
+        
+        # Convert required_context entries to variable definitions
+        for var_name, var_spec in required_context.items():
+            if var_name not in variables:
+                if isinstance(var_spec, str):
+                    # Simple string specification like "string - description"
+                    variables[var_name] = {'description': var_spec}
+                elif isinstance(var_spec, dict):
+                    # Complex specification with nested structure
+                    variables[var_name] = {'default': var_spec}
+                else:
+                    # Direct value
+                    variables[var_name] = {'default': var_spec}
+        
         return cls(
             name=data['name'],
             type=data['type'],
@@ -148,7 +169,7 @@ class Composition:
             extends=data.get('extends'),
             mixins=data.get('mixins', []),
             components=components,
-            variables=data.get('variables', {}),
+            variables=variables,
             metadata=data.get('metadata', {})
         )
 
@@ -198,26 +219,105 @@ def evaluate_condition(condition: str, variables: Dict[str, Any]) -> bool:
         return bool(condition)
 
 
+def _load_capability_schema() -> Dict[str, Any]:
+    """Load capability schema from declarative YAML file."""
+    global _capability_schema_cache
+    
+    if _capability_schema_cache is not None:
+        return _capability_schema_cache
+    
+    schema_file = CAPABILITIES_BASE / "ksi_capabilities.yaml"
+    
+    try:
+        if not schema_file.exists():
+            logger.error(f"Capability schema file not found: {schema_file}")
+            return {"capability_groups": {}}
+        
+        with open(schema_file, 'r') as f:
+            schema = yaml.safe_load(f)
+        
+        _capability_schema_cache = schema
+        logger.debug(f"Loaded capability schema from {schema_file}")
+        return schema
+        
+    except Exception as e:
+        logger.error(f"Failed to load capability schema: {e}")
+        return {"capability_groups": {}}
+
+
+def _resolve_ksi_capabilities_from_requirements(required_capabilities) -> Set[str]:
+    """Map capability requirements to KSI context using declarative schema."""
+    schema = _load_capability_schema()
+    capability_groups = schema.get("capability_groups", {})
+    ksi_context_vars = set()
+    
+    # Handle full_ksi special case
+    if required_capabilities == 'full_ksi' or (isinstance(required_capabilities, list) and 'full_ksi' in required_capabilities):
+        full_ksi_def = capability_groups.get("full_ksi", {}).get("all", {})
+        ksi_context_vars.update(full_ksi_def.get("context", []))
+        return ksi_context_vars
+    
+    # Handle granular capability requirements
+    if isinstance(required_capabilities, dict):
+        for group_name, requested_caps in required_capabilities.items():
+            group_def = capability_groups.get(group_name, {})
+            
+            if isinstance(requested_caps, list):
+                for cap_name in requested_caps:
+                    cap_def = group_def.get(cap_name, {})
+                    context_needed = cap_def.get("context", [])
+                    ksi_context_vars.update(context_needed)
+                    logger.debug(f"Capability {group_name}.{cap_name} requires context: {context_needed}")
+            else:
+                logger.warning(f"Invalid capability format for group {group_name}: {requested_caps}")
+    
+    return ksi_context_vars
+
+
 def _should_resolve_ksi_context(composition: Composition) -> bool:
-    """Check composition metadata to determine if KSI context should be resolved."""
-    return composition.metadata.get("ksi_aware", False)
+    """Infer KSI context needs from declared capability requirements."""
+    # Check if composition declares capabilities in required_context
+    required_capabilities = None
+    
+    # Look for capabilities in the composition's variable definitions
+    for var_name, var_def in composition.variables.items():
+        if var_name == 'capabilities':
+            required_capabilities = var_def.get('default') if isinstance(var_def, dict) else var_def
+            break
+    
+    if not required_capabilities:
+        return False
+    
+    # Resolve what KSI context is needed for these capabilities
+    needed_context = _resolve_ksi_capabilities_from_requirements(required_capabilities)
+    return len(needed_context) > 0
 
 
 def _resolve_ksi_context_variables(variables: Dict[str, Any], composition: Composition) -> None:
-    """Resolve special KSI context variables from daemon cache based on metadata."""
+    """Resolve special KSI context variables from daemon cache based on required context."""
     
-    # Only resolve KSI variables for compositions that declare ksi_aware: true
-    if not _should_resolve_ksi_context(composition):
-        logger.debug(f"Skipping KSI resolution for non-KSI composition: {composition.name}")
+    # Get the specific KSI context variables needed for this composition's capabilities
+    required_capabilities = None
+    for var_name, var_def in composition.variables.items():
+        if var_name == 'capabilities':
+            required_capabilities = var_def.get('default') if isinstance(var_def, dict) else var_def
+            break
+    
+    if not required_capabilities:
+        logger.debug(f"Skipping KSI resolution for composition without capability requirements: {composition.name}")
         return
     
-    ksi_context_vars = {
-        "daemon_events": "daemon_events",
-        "daemon_commands": "daemon_commands", 
-        "ksi_capabilities": "ksi_capabilities"
-    }
+    # Determine which KSI context variables are needed
+    needed_context_vars = _resolve_ksi_capabilities_from_requirements(required_capabilities)
     
-    for var_name, cache_key in ksi_context_vars.items():
+    if not needed_context_vars:
+        logger.debug(f"No KSI context needed for composition capabilities: {composition.name}")
+        return
+    
+    logger.debug(f"Resolving KSI context for {composition.name}: {needed_context_vars}")
+    
+    # Resolve only the needed KSI context variables
+    for var_name in needed_context_vars:
         # Resolve if variable is not set or is a template placeholder
         should_resolve = (
             var_name not in variables or  # Not set at all
@@ -227,10 +327,10 @@ def _resolve_ksi_context_variables(variables: Dict[str, Any], composition: Compo
         
         if should_resolve:
             try:
-                cached_value = get_ksi_context_variable(cache_key)
+                cached_value = get_ksi_context_variable(var_name)
                 if cached_value is not None:
                     variables[var_name] = cached_value
-                    logger.debug(f"Resolved KSI context variable: {var_name} for KSI-aware composition")
+                    logger.debug(f"Resolved KSI context variable: {var_name} for capability-driven composition")
                 else:
                     logger.warning(f"KSI context variable not available: {var_name}")
                     variables[var_name] = f"KSI context not available: {var_name}"
@@ -323,16 +423,16 @@ async def _score_composition_for_context(composition: Composition, context: Sele
         score += 2
         reasons.append("Tested composition")
     
-    # KSI awareness requirement check
-    if context.requirements and 'ksi_aware' in context.requirements:
-        required_ksi = context.requirements['ksi_aware']
-        comp_ksi = composition.metadata.get('ksi_aware', False)
-        if required_ksi == comp_ksi:
+    # KSI context requirement check
+    if context.requirements and 'ksi_context' in context.requirements:
+        required_ksi = context.requirements['ksi_context']
+        comp_has_ksi = _should_resolve_ksi_context(composition)
+        if required_ksi == comp_has_ksi:
             score += 15
-            reasons.append(f"KSI awareness requirement met: {comp_ksi}")
-        elif required_ksi and not comp_ksi:
+            reasons.append(f"KSI context requirement met: {comp_has_ksi}")
+        elif required_ksi and not comp_has_ksi:
             score -= 20
-            reasons.append("KSI awareness required but not provided")
+            reasons.append("KSI context required but composition has no KSI dependencies")
     
     return score, reasons
 
@@ -1165,6 +1265,50 @@ async def handle_validate_context(data: Dict[str, Any]) -> Dict[str, Any]:
         
     except Exception as e:
         logger.error(f"Context validation failed: {e}")
+        return {'error': str(e)}
+
+
+@event_handler("composition:capabilities")
+async def handle_get_capabilities(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Get available KSI capabilities from declarative schema."""
+    try:
+        schema = _load_capability_schema()
+        capability_groups = schema.get("capability_groups", {})
+        
+        # Optional filtering by group
+        group_filter = data.get("group")
+        if group_filter:
+            if group_filter in capability_groups:
+                filtered_groups = {group_filter: capability_groups[group_filter]}
+            else:
+                return {
+                    'status': 'error',
+                    'error': f'Capability group not found: {group_filter}'
+                }
+        else:
+            filtered_groups = capability_groups
+        
+        # Transform for response
+        capabilities = {}
+        for group_name, group_caps in filtered_groups.items():
+            capabilities[group_name] = {}
+            for cap_name, cap_def in group_caps.items():
+                capabilities[group_name][cap_name] = {
+                    'description': cap_def.get('description', ''),
+                    'context_required': cap_def.get('context', []),
+                    'future_proof': cap_def.get('future_proof', False)
+                }
+        
+        return {
+            'status': 'success',
+            'capabilities': capabilities,
+            'schema_version': schema.get('schema_version', 'unknown'),
+            'total_groups': len(capabilities),
+            'total_capabilities': sum(len(group) for group in capabilities.values())
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get capabilities: {e}")
         return {'error': str(e)}
 
 
