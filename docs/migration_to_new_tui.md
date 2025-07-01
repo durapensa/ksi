@@ -188,6 +188,28 @@ class CustomMessageBubble(MessageBubble):
 
 ## Troubleshooting
 
+### "Application requires an interactive terminal" Error
+
+The new TUI apps include safety checks to prevent corruption when run in non-interactive environments:
+
+```bash
+Error: This application requires an interactive terminal.
+
+Common reasons for this error:
+• Running in a CI/automation environment
+• Output is redirected to a file or pipe
+• Running in a non-interactive script
+• Terminal doesn't support interactive features
+
+To use this app, run it directly in a terminal.
+```
+
+**Solutions:**
+- Run directly in a terminal: `./ksi-chat` (not in scripts)
+- Don't redirect output: `./ksi-chat` not `./ksi-chat > file.txt`
+- Use `--help` to see usage (works in any environment)
+- For automation, use the original interfaces or daemon socket directly
+
 ### Connection Issues
 
 Both old and new interfaces connect to the same daemon:

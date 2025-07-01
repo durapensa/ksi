@@ -33,12 +33,30 @@ The TUI applications are included with KSI. No additional installation needed.
 
 ## Usage
 
+### Prerequisites
+
+The TUI applications require an interactive terminal with:
+- TTY support (stdin/stdout must be terminals)
+- Minimum 80x24 size (larger recommended)
+- 256 color support preferred
+- Not running in CI/automation environments
+
+The apps automatically detect and prevent startup in non-interactive environments.
+
 ### ksi-chat
 
 Beautiful chat interface for Claude conversations:
 
 ```bash
+# From the KSI project root
 ./ksi-chat
+
+# Or with Python
+python3 ksi-chat
+
+# Specify model
+./ksi-chat --model sonnet
+./ksi-chat --model opus
 ```
 
 Features:
@@ -61,7 +79,14 @@ Keyboard shortcuts:
 Real-time system monitoring dashboard:
 
 ```bash
+# From the KSI project root
 ./ksi-monitor
+
+# Or with Python
+python3 ksi-monitor
+
+# Custom update interval
+./ksi-monitor --update-interval 0.5
 ```
 
 Features:

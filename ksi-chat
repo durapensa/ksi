@@ -8,13 +8,13 @@ through the KSI daemon.
 
 import sys
 import argparse
-import asyncio
 from pathlib import Path
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-from ksi_tui.apps.chat import main
+# Import utilities for terminal checking
+from ksi_tui.utils import check_terminal_requirements, exit_with_error
 
 
 if __name__ == "__main__":
@@ -49,8 +49,13 @@ Use arrow keys to navigate input history.
     
     args = parser.parse_args()
     
+    # Check terminal requirements after argument parsing (allows --help to work)
+    is_suitable, error_msg = check_terminal_requirements()
+    if not is_suitable:
+        exit_with_error(error_msg)
+    
     try:
-        # Run the chat app
+        # Import and run the chat app (only after terminal check passes)
         from ksi_tui.apps.chat import ChatApp
         app = ChatApp(
             client_id=args.client_id,

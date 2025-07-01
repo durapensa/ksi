@@ -11,6 +11,11 @@ from .formatting import (
     format_number,
     pluralize,
 )
+from .terminal import (
+    is_interactive_terminal,
+    check_terminal_requirements,
+    exit_with_error,
+)
 
 __all__ = [
     "format_timestamp",
@@ -20,4 +25,7 @@ __all__ = [
     "truncate_text",
     "format_number",
     "pluralize",
+    "is_interactive_terminal",
+    "check_terminal_requirements", 
+    "exit_with_error",
 ]
