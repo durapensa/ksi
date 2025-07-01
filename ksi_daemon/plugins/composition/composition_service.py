@@ -246,30 +246,134 @@ def _load_capability_schema() -> Dict[str, Any]:
 
 
 def _resolve_ksi_capabilities_from_requirements(required_capabilities) -> Set[str]:
-    """Map capability requirements to KSI context using declarative schema."""
+    """Map plugin-based capability requirements to KSI context using discovery-driven schema with [all]/[exclude] patterns."""
     schema = _load_capability_schema()
+    plugin_capabilities = schema.get("plugin_capabilities", {})
     capability_groups = schema.get("capability_groups", {})
     ksi_context_vars = set()
     
-    # Handle full_ksi special case
-    if required_capabilities == 'full_ksi' or (isinstance(required_capabilities, list) and 'full_ksi' in required_capabilities):
-        full_ksi_def = capability_groups.get("full_ksi", {}).get("all", {})
-        ksi_context_vars.update(full_ksi_def.get("context", []))
+    # Handle simple string capability groups (minimal, standard, orchestrator, full_ksi)
+    if isinstance(required_capabilities, str):
+        group_def = capability_groups.get(required_capabilities, {})
+        if group_def:
+            ksi_context_vars.update(group_def.get("context_required", []))
+            logger.debug(f"Capability group '{required_capabilities}' requires context: {group_def.get('context_required', [])}")
+            return ksi_context_vars
+    
+    # Handle [all] at top level - grant all plugins
+    if required_capabilities == "all" or (isinstance(required_capabilities, list) and "all" in required_capabilities):
+        for plugin_def in plugin_capabilities.values():
+            ksi_context_vars.update(plugin_def.get("context_required", []))
+        logger.debug(f"[all] pattern requires context from all plugins: {ksi_context_vars}")
         return ksi_context_vars
     
-    # Handle granular capability requirements
+    # Handle full_ksi special case (backwards compatibility)
+    if required_capabilities == 'full_ksi' or (isinstance(required_capabilities, list) and 'full_ksi' in required_capabilities):
+        full_ksi_def = capability_groups.get("full_ksi", {})
+        ksi_context_vars.update(full_ksi_def.get("context_required", []))
+        return ksi_context_vars
+    
+    # Handle complex capability requirements with [all]/[exclude] patterns
     if isinstance(required_capabilities, dict):
-        for group_name, requested_caps in required_capabilities.items():
-            group_def = capability_groups.get(group_name, {})
+        # Handle top-level [all] with exclusions
+        if "plugins" in required_capabilities:
+            requested_plugins = required_capabilities["plugins"]
+            excluded_plugins = set(required_capabilities.get("exclude", []))
+            excluded_events = set(required_capabilities.get("exclude_events", []))
             
-            if isinstance(requested_caps, list):
-                for cap_name in requested_caps:
-                    cap_def = group_def.get(cap_name, {})
-                    context_needed = cap_def.get("context", [])
-                    ksi_context_vars.update(context_needed)
-                    logger.debug(f"Capability {group_name}.{cap_name} requires context: {context_needed}")
+            # Handle [all] plugins pattern
+            if "all" in requested_plugins:
+                # Start with all plugins
+                for plugin_name, plugin_def in plugin_capabilities.items():
+                    if plugin_name not in excluded_plugins:
+                        context_needed = plugin_def.get("context_required", [])
+                        ksi_context_vars.update(context_needed)
+                        logger.debug(f"[all] plugin '{plugin_name}' requires context: {context_needed}")
             else:
-                logger.warning(f"Invalid capability format for group {group_name}: {requested_caps}")
+                # Specific plugin list
+                for plugin_name in requested_plugins:
+                    if plugin_name != "all" and plugin_name not in excluded_plugins:
+                        plugin_def = plugin_capabilities.get(plugin_name, {})
+                        context_needed = plugin_def.get("context_required", [])
+                        ksi_context_vars.update(context_needed)
+                        logger.debug(f"Plugin '{plugin_name}' requires context: {context_needed}")
+        else:
+            # Per-plugin event specifications with [all]/[exclude] support
+            for plugin_name, plugin_spec in required_capabilities.items():
+                plugin_def = plugin_capabilities.get(plugin_name, {})
+                if not plugin_def:
+                    logger.warning(f"Unknown plugin capability: {plugin_name}")
+                    continue
+                
+                available_events = plugin_def.get("events", [])
+                context_needed = plugin_def.get("context_required", [])
+                
+                # Handle different plugin specification formats
+                if isinstance(plugin_spec, dict):
+                    # Complex plugin specification with events and exclusions
+                    requested_events = plugin_spec.get("events", [])
+                    excluded_events = set(plugin_spec.get("exclude", []))
+                    
+                    if "all" in requested_events:
+                        # All events from this plugin except excluded
+                        granted_events = [e for e in available_events if e not in excluded_events]
+                        if granted_events:
+                            ksi_context_vars.update(context_needed)
+                            logger.debug(f"Plugin '{plugin_name}' [all] events (excluding {excluded_events}) requires context: {context_needed}")
+                    else:
+                        # Specific events only
+                        granted_events = [e for e in requested_events if e in available_events and e not in excluded_events]
+                        if granted_events:
+                            ksi_context_vars.update(context_needed)
+                            logger.debug(f"Plugin '{plugin_name}' events {granted_events} requires context: {context_needed}")
+                            
+                elif isinstance(plugin_spec, list):
+                    # Simple event list or [all]
+                    if "all" in plugin_spec:
+                        # All events from this plugin
+                        ksi_context_vars.update(context_needed)
+                        logger.debug(f"Plugin '{plugin_name}' [all] events requires context: {context_needed}")
+                    else:
+                        # Specific events
+                        granted_events = [e for e in plugin_spec if e in available_events]
+                        if granted_events:
+                            ksi_context_vars.update(context_needed)
+                            logger.debug(f"Plugin '{plugin_name}' events {granted_events} requires context: {context_needed}")
+                else:
+                    # Simple plugin access (backward compatibility)
+                    ksi_context_vars.update(context_needed)
+                    logger.debug(f"Plugin '{plugin_name}' (full access) requires context: {context_needed}")
+    
+    # Handle simple plugin list (with [all] support)
+    elif isinstance(required_capabilities, list):
+        excluded_items = set()
+        
+        # Extract exclusions if present
+        if any(isinstance(item, dict) and "exclude" in item for item in required_capabilities):
+            for item in required_capabilities:
+                if isinstance(item, dict) and "exclude" in item:
+                    excluded_items.update(item["exclude"])
+        
+        for capability in required_capabilities:
+            if isinstance(capability, dict):
+                continue  # Skip exclude specs, already processed
+                
+            if capability == "all":
+                # Grant all plugins except excluded
+                for plugin_name, plugin_def in plugin_capabilities.items():
+                    if plugin_name not in excluded_items:
+                        ksi_context_vars.update(plugin_def.get("context_required", []))
+                        logger.debug(f"[all] capability granted plugin '{plugin_name}'")
+            elif capability in capability_groups and capability not in excluded_items:
+                # It's a capability group
+                group_def = capability_groups[capability]
+                ksi_context_vars.update(group_def.get("context_required", []))
+            elif capability in plugin_capabilities and capability not in excluded_items:
+                # It's a plugin name
+                plugin_def = plugin_capabilities[capability]
+                ksi_context_vars.update(plugin_def.get("context_required", []))
+            elif capability not in excluded_items:
+                logger.warning(f"Unknown capability: {capability}")
     
     return ksi_context_vars
 

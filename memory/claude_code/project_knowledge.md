@@ -551,14 +551,46 @@ for plugin in plugin_manager.get_plugins():
 
 ## Implementation Priorities
 
-### Next Priority: Agent System Activation
-1. **Agent System Activation** (3-4 days) 🚀
-   - Create first working agents WITH security constraints ✅
-   - Implement permission-aware orchestration patterns
-   - Leverage completed permission system for safe execution
-   - Test multi-agent collaboration with sandboxes
-   - **Prerequisites**: ✅ Event persistence + ✅ isolation controls COMPLETE
-   - **Impact**: Demonstrate system value proposition safely
+### Current Priority: Self-Modifying Composition System 🚀 (NEXT)
+1. **Pure Declarative Admin System** (2-3 days)
+   - **Vision**: Claude agents with admin capabilities modify KSI system through pure composition
+   - **Architecture**: Zero hardcoded patterns - admin is just another plugin capability
+   - **Implementation**: Extend schema + create admin compositions + implement admin plugins
+   - **Safety**: Built into declarative exclusion patterns and validation
+   - **Impact**: Self-evolving AI system where admin capabilities are purely compositional
+
+#### Pure Declarative Approach
+```yaml
+# ksi_capabilities.yaml extension
+plugin_capabilities:
+  file_plugin:
+    events: [file:read, file:write, file:backup, file:rollback]
+    context_required: [daemon_commands]
+  config_plugin:
+    events: [config:get, config:set, config:validate]
+    context_required: [daemon_commands, daemon_events]
+
+# system_admin.yaml - just another composition
+required_context:
+  capabilities:
+    plugins: [composition_plugin, file_plugin, config_plugin]
+    exclude_events: [file:delete, config:reset]  # Safety through exclusion
+```
+
+#### Implementation Plan
+- **Extend Capability Schema**: Add file_plugin, config_plugin to ksi_capabilities.yaml
+- **Create Admin Compositions**: system_admin.yaml, composition_editor.yaml, schema_manager.yaml
+- **Implement Admin Plugins**: Pure event handlers for file/config operations
+- **Safety Through Composition**: Use exclude patterns for dangerous operations
+- **No Special Logic**: Everything flows through existing declarative system
+
+### Completed Priority: Agent System Foundation
+1. **Agent System Infrastructure** ✅ COMPLETE
+   - Declarative capability system with plugin-native architecture
+   - Zero hardcoded logic - pure configuration-driven behavior  
+   - Enhanced security with granular permission boundaries
+   - **Prerequisites**: ✅ Event persistence + ✅ isolation controls + ✅ capability system
+   - **Impact**: Foundation ready for self-modifying agent deployment
 
 ### Production Optimization
 4. **Performance Optimization** (2-3 days)
@@ -668,6 +700,61 @@ var/lib/
   - Full audit trail of all permission operations
 - **Integration**: Seamless with agent spawn/terminate, completion service, monitoring
 - **Impact**: Safe agent experimentation environment ready for use
+
+### Declarative KSI Capability System ✅ (REVOLUTIONARY)
+- **Status**: Complete plugin-native implementation with discovery-driven architecture
+- **Architecture**: Zero hardcoded capability logic - pure declarative configuration
+- **Schema**: `var/lib/capabilities/ksi_capabilities.yaml` (tracked in git)
+- **Key Innovation**: Plugin-based capabilities mapped to actual events from `system:discover`
+
+#### Plugin-Native Architecture
+```yaml
+# Plugin-based capability declarations
+plugin_capabilities:
+  completion_plugin:
+    events: [completion:async, completion:status, completion:cancel]
+    context_required: [daemon_commands]
+  agent_plugin:  
+    events: [agent:spawn, agent:list, agent:terminate]
+    context_required: [daemon_commands, daemon_events]
+```
+
+#### Capability Groups with Safety Patterns
+- **minimal**: Basic completion only (`completion_plugin`)
+- **standard**: Completion + conversation (`completion_plugin`, `conversation_plugin`)
+- **orchestrator**: Multi-agent coordination (4 plugins)
+- **full_ksi**: Everything current + auto-expansion for future plugins
+- **[all]/[exclude]**: Advanced permission patterns for precise control
+
+#### Composition Integration
+```yaml
+# Compositions declare precise plugin needs
+required_context:
+  capabilities: orchestrator  # Simple group
+  # OR
+  capabilities:
+    plugins: [completion_plugin, agent_plugin]
+    exclude: [system_plugin]  # Safety restrictions
+```
+
+#### Smart Context Resolution
+- **Discovery-Driven**: Capabilities auto-updated from `system:discover` 
+- **Plugin-Aligned**: Maps directly to real plugin events
+- **Future-Proof**: New plugins automatically included in schema
+- **Introspectable**: `composition:capabilities` event for runtime queries
+- **Zero Maintenance**: No Python code changes for new capabilities
+
+#### Security & Safety Features
+- **Granular Control**: Per-plugin, per-event permission boundaries
+- **Safety Patterns**: `[exclude]` for removing dangerous capabilities
+- **Experimental Control**: Pure vs KSI-aware agent selection
+- **Audit Trail**: All capability resolutions logged with reasoning
+
+#### Impact
+- **First Truly Declarative Agent System**: All behavior configuration-driven
+- **Self-Evolving**: System capabilities grow automatically with plugins
+- **Plugin-Native**: Perfect alignment with KSI's plugin architecture
+- **Security Boundaries**: Precise permission control for agent isolation
 
 ## Modern TUI System ✅ (NEW)
 

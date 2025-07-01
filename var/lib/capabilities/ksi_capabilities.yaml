@@ -1,73 +1,97 @@
-# KSI Capability Schema
-# Declarative mapping of capabilities to required KSI context variables
+# KSI Plugin-Based Capability Schema
+# Discovery-driven mapping of plugin capabilities to required KSI context
 #
-# This file defines what KSI context each capability requires, enabling
-# pure declarative composition without hardcoded logic in Python.
+# This schema defines what KSI context each plugin's events require,
+# enabling precise, plugin-native capability declarations in compositions.
 
+# Plugin-based capability definitions
+plugin_capabilities:
+  
+  # Completion plugin - async completion requests
+  completion_plugin:
+    events: [completion:async, completion:status, completion:cancel, completion:list]
+    context_required: [daemon_commands]
+    description: "Async completion requests and management"
+    
+  # Agent plugin - agent lifecycle management  
+  agent_plugin:
+    events: [agent:spawn, agent:list, agent:status, agent:terminate, agent:get]
+    context_required: [daemon_commands, daemon_events]
+    description: "Agent spawning and lifecycle management"
+    
+  # Conversation plugin - conversation management
+  conversation_plugin:
+    events: [conversation:list, conversation:get, conversation:create, conversation:active, conversation:terminate]
+    context_required: [daemon_events]
+    description: "Conversation tracking and management"
+    
+  # Composition plugin - intelligent composition selection
+  composition_plugin:
+    events: [composition:select, composition:suggest, composition:validate_context, composition:discover, composition:get]
+    context_required: [daemon_events]
+    description: "Intelligent composition selection and validation"
+    
+  # State plugin - persistent state management
+  state_plugin:
+    events: [state:get, state:set, state:delete, state:list, state:clear]
+    context_required: [daemon_commands]
+    description: "Persistent state storage and retrieval"
+    
+  # System plugin - core system operations
+  system_plugin:
+    events: [system:health, system:discover, system:shutdown, system:status]
+    context_required: [daemon_commands, daemon_events]
+    description: "Core system introspection and management"
+    
+  # File plugin - safe file operations with backup/rollback
+  file_plugin:
+    events: [file:read, file:write, file:backup, file:rollback, file:list, file:validate]
+    context_required: [daemon_commands]
+    description: "Safe file operations with automatic backup and rollback capabilities"
+    
+  # Config plugin - configuration management
+  config_plugin:
+    events: [config:get, config:set, config:validate, config:reload, config:backup, config:rollback]
+    context_required: [daemon_commands, daemon_events]
+    description: "Configuration management with validation and rollback"
+
+# Special capability groups
 capability_groups:
   
-  # Communication and messaging capabilities
-  messaging:
-    async_completion:
-      description: Make async completion requests to other agents
-      context: [daemon_commands]
-      
-    event_routing:
-      description: Route events through the daemon system
-      context: [daemon_commands, daemon_events]
-      
-    agent_messaging:
-      description: Send messages to other agents in the system
-      context: [daemon_commands]
-      
-    conversation_state:
-      description: Access and manage conversation history
-      context: [daemon_events]
-
-  # Multi-agent orchestration capabilities  
-  orchestration:
-    agent_spawning:
-      description: Spawn new agents with specific compositions
-      context: [daemon_commands, daemon_events]
-      
-    agent_discovery:
-      description: Discover existing agents in the system
-      context: [daemon_events]
-      
-    task_delegation:
-      description: Delegate tasks to other agents
-      context: [daemon_commands, daemon_events]
-      
-    result_aggregation:
-      description: Collect and aggregate results from multiple agents
-      context: [daemon_events]
-
-  # System introspection and management
-  system:
-    daemon_commands:
-      description: Access daemon command discovery and execution
-      context: [daemon_commands]
-      
-    plugin_introspection:
-      description: Introspect available plugins and events
-      context: [daemon_events]
-      
-    system_health:
-      description: Monitor daemon and system health
-      context: [daemon_commands, daemon_events]
-      
-    memory_access:
-      description: Access KSI memory and knowledge systems
-      context: [daemon_commands, daemon_events]
-
-  # Full KSI access (everything current and future)
+  # Minimal access - basic completion only
+  minimal:
+    plugins: [completion_plugin]
+    description: "Basic completion access for isolated agents"
+    context_required: [daemon_commands]
+    
+  # Standard access - completion + conversation
+  standard:
+    plugins: [completion_plugin, conversation_plugin]
+    description: "Standard agent capabilities for most use cases"
+    context_required: [daemon_commands, daemon_events]
+    
+  # Orchestrator access - agent management capabilities
+  orchestrator:
+    plugins: [completion_plugin, agent_plugin, conversation_plugin, composition_plugin]
+    description: "Multi-agent orchestration capabilities"
+    context_required: [daemon_commands, daemon_events]
+    
+  # Full KSI access - everything current and future
   full_ksi:
-    all:
-      description: Complete KSI system access with all capabilities
-      context: [daemon_commands, daemon_events, ksi_capabilities]
-      future_proof: true  # Automatically includes new capabilities
+    plugins: ["*"]  # All plugins
+    description: "Complete KSI system access with all current and future plugins"
+    context_required: [daemon_commands, daemon_events, ksi_capabilities]
+    future_proof: true
+    auto_discover: true  # Automatically includes new plugins
+
+# Dynamic capability resolution
+dynamic_discovery:
+  enabled: true
+  source_event: "system:discover"
+  cache_ttl_seconds: 300  # 5 minutes
+  auto_update_plugins: true
 
 # Metadata
-schema_version: "1.0"
+schema_version: "2.0"
 last_updated: "2025-07-01"
-description: "Declarative capability schema for KSI context resolution"
+description: "Plugin-native capability schema based on discovery results"

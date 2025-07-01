@@ -42,7 +42,10 @@ components:
 required_context:
   agent_role: string - agent's role in the organization
   agent_mission: string - agent's primary mission
-  daemon_commands: object - available daemon commands
+  capabilities:
+    messaging: [async_completion, event_routing, agent_messaging]
+    orchestration: [agent_discovery, task_delegation, result_aggregation]
+    system: [daemon_commands]
   enable_mcp: boolean - whether MCP tools are enabled
 optional_context:
   pending_completion_result: boolean - whether there's a completion result to inject

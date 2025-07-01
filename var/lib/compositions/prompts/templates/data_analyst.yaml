@@ -32,7 +32,9 @@ components:
     user_prompt: '{{user_prompt}}'
 required_context:
   agent_id: string - unique identifier for this agent
-  daemon_commands: object - available daemon commands from GET_COMMANDS
+  capabilities:
+    messaging: [async_completion, event_routing]
+    system: [daemon_commands]
   enable_tools: boolean - whether the agent has access to external tools (optional,
     defaults to false)
 metadata:
