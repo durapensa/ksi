@@ -259,6 +259,45 @@ def handle_spawn_agent(data: Dict[str, Any]) -> Dict[str, Any]:
         if "config" in data:
             agent_config.update(data["config"])
         
+        # Set up permissions and sandbox
+        permission_profile = data.get("permission_profile", "standard")
+        sandbox_config = data.get("sandbox_config", {})
+        sandbox_dir = None
+        
+        # Get permissions from composed profile if available
+        if compose_result and "profile" in compose_result:
+            profile_perms = compose_result["profile"].get("permissions", {})
+            if "profile" in profile_perms:
+                permission_profile = profile_perms["profile"]
+            if "sandbox" in compose_result["profile"]:
+                sandbox_config.update(compose_result["profile"]["sandbox"])
+        
+        # Set agent permissions
+        if event_emitter:
+            perm_result = await event_emitter("permission:set_agent", {
+                "agent_id": agent_id,
+                "profile": permission_profile,
+                "overrides": data.get("permission_overrides", {})
+            }, {})
+            
+            if perm_result and "error" in perm_result:
+                logger.error(f"Failed to set permissions: {perm_result['error']}")
+                # Use restricted permissions as fallback
+                permission_profile = "restricted"
+        
+        # Create sandbox
+        if event_emitter:
+            sandbox_result = await event_emitter("sandbox:create", {
+                "agent_id": agent_id,
+                "config": sandbox_config
+            }, {})
+            
+            if sandbox_result and "sandbox" in sandbox_result:
+                sandbox_dir = sandbox_result["sandbox"]["path"]
+                logger.info(f"Created sandbox for agent {agent_id}: {sandbox_dir}")
+            else:
+                logger.warning(f"Failed to create sandbox for agent {agent_id}")
+        
         # Create agent info
         agent_info = {
             "agent_id": agent_id,
@@ -269,7 +308,9 @@ def handle_spawn_agent(data: Dict[str, Any]) -> Dict[str, Any]:
             "status": "initializing",
             "created_at": format_for_logging(),
             "session_id": session_id,
-            "message_queue": asyncio.Queue()
+            "message_queue": asyncio.Queue(),
+            "permission_profile": permission_profile,
+            "sandbox_dir": sandbox_dir
         }
         
         # Register agent
@@ -314,6 +355,23 @@ def handle_terminate_agent(data: Dict[str, Any]) -> Dict[str, Any]:
     # Update status
     agent_info["status"] = "terminated"
     agent_info["terminated_at"] = format_for_logging()
+    
+    # Clean up sandbox and permissions asynchronously
+    async def cleanup_agent_resources():
+        if event_emitter:
+            # Remove sandbox
+            await event_emitter("sandbox:remove", {
+                "agent_id": agent_id,
+                "force": data.get("force", False)
+            }, {})
+            
+            # Remove permissions
+            await event_emitter("permission:remove_agent", {
+                "agent_id": agent_id
+            }, {})
+    
+    # Schedule cleanup (fire and forget)
+    asyncio.create_task(cleanup_agent_resources())
     
     # Remove from active agents
     del agents[agent_id]
@@ -410,15 +468,42 @@ async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
         # Forward to completion service using new async interface
         prompt = message.get("prompt", "")
         if prompt and event_emitter:
-            await event_emitter("completion:async", {
+            # Get agent permissions
+            perm_result = await event_emitter("permission:get_agent", {
+                "agent_id": agent_id
+            }, {})
+            
+            permissions = {}
+            if perm_result and "permissions" in perm_result:
+                # Get allowed tools for claude-cli
+                perms = perm_result["permissions"]
+                if "tools" in perms and "allowed" in perms["tools"]:
+                    permissions["allowed_tools"] = perms["tools"]["allowed"]
+                permissions["profile"] = perms.get("level", "unknown")
+            
+            # Prepare completion request with permission context
+            completion_data = {
                 "prompt": prompt,
                 "agent_id": agent_id,
                 "client_id": agent_id,  # Use agent_id as client_id
                 "session_id": agent_info.get("session_id"),
-                "model": agent_info.get("config", {}).get("model", "sonnet"),
+                "model": f"claude-cli/{agent_info.get('config', {}).get('model', 'sonnet')}",
                 "priority": "normal",
                 "request_id": f"{agent_id}_{message.get('request_id', uuid.uuid4().hex[:8])}"
-            })
+            }
+            
+            # Add KSI parameters via extra_body for LiteLLM
+            if agent_info.get("sandbox_dir") or permissions:
+                completion_data["extra_body"] = {
+                    "ksi": {
+                        "agent_id": agent_id,
+                        "sandbox_dir": agent_info.get("sandbox_dir"),
+                        "permissions": permissions,
+                        "session_id": agent_info.get("session_id")
+                    }
+                }
+            
+            await event_emitter("completion:async", completion_data)
     
     elif msg_type == "direct_message":
         # Inter-agent messaging

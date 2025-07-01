@@ -315,6 +315,15 @@ async def handle_completion_request(data: Dict[str, Any], context: Dict[str, Any
         if session_id:
             completion_params["metadata"] = {"session_id": session_id}
         
+        # Pass through extra_body for provider-specific parameters
+        if "extra_body" in data:
+            completion_params["extra_body"] = data["extra_body"]
+        
+        # Add any other provider-specific parameters
+        for key in ["tools", "tool_choice", "disallowed_tools", "max_turns"]:
+            if key in data:
+                completion_params[key] = data[key]
+        
         # Call LiteLLM
         response = await litellm.acompletion(**completion_params)
         

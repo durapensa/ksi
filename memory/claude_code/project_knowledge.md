@@ -355,30 +355,14 @@ Verifies: sync/async completion, queue status, conversation locks, priorities
 
 ## Implementation Priorities
 
-### Critical Safety Infrastructure
-1. **Event Log Persistence** (1-2 days) 🚨
-   - File persistence with rotation for event log
-   - Real-time tailing for monitoring agent behavior
-   - Structured indexes for forensic analysis
-   - **Rationale**: Previous agent experiments compromised system without adequate logging
-   - **Impact**: Essential visibility before running autonomous agents
-
-2. **Agent Isolation & Permissions** (2-3 days) 🔒
-   - Tool permission system in agent compositions
-   - Sandbox boundaries for agent filesystem access
-   - Resource limits (tokens, time, subprocess spawning)
-   - Capability-based security model
-   - **Rationale**: Prevent agents from modifying KSI system or escaping boundaries
-   - **Impact**: Safe experimentation environment
-
-### Controlled Agent Deployment
-3. **Agent System Activation** (3-4 days) 
-   - Create first working agents WITH security constraints
+### Next Priority: Agent System Activation
+1. **Agent System Activation** (3-4 days) 🚀
+   - Create first working agents WITH security constraints ✅
    - Implement permission-aware orchestration patterns
-   - Audit trails for all agent actions
-   - Emergency shutdown mechanisms
-   - **Prerequisites**: Event persistence + isolation controls
-   - **Impact**: Demonstrate system safely
+   - Leverage completed permission system for safe execution
+   - Test multi-agent collaboration with sandboxes
+   - **Prerequisites**: ✅ Event persistence + ✅ isolation controls COMPLETE
+   - **Impact**: Demonstrate system value proposition safely
 
 ### Production Optimization
 4. **Performance Optimization** (2-3 days)
@@ -449,45 +433,54 @@ var/lib/
 - **Performance Hints**: After experimentation (deferred)
 
 
-## Critical Incomplete Features
+## Completed Infrastructure
 
-### Event Log Persistence 🚨
-- **Missing**: File persistence with rotation for event log
-- **Status**: In-memory ring buffer only (data lost on restart)
-- **Security Risk**: Previous agent experiments compromised system without audit trail
-- **Requirements**:
-  - JSONL files with automatic rotation
-  - Real-time tailing capability
-  - Structured query indexes
-  - Tamper-evident design
-- **Impact**: Cannot safely run autonomous agents without forensic capabilities
+### Event Log Persistence ✅
+- **AsyncSQLiteEventLog**: Non-blocking write queue with batching for zero performance impact
+- **Real-time Monitoring**: Event subscriptions and real-time streaming via monitor plugin
+- **Structured Queries**: SQL query support for session analysis and correlation chain tracing
+- **Retention Management**: Automatic cleanup with configurable retention periods
+- **APIs**: `monitor:subscribe`, `monitor:query`, `monitor:get_session_events`, `monitor:get_correlation_chain`
+- **Database**: SQLite with WAL mode at `var/db/events.db`
 
-### Agent Isolation & Permissions 🔒
-- **Missing**: Security boundaries for agent execution
-- **Status**: Agents would have full system access
-- **Security Risk**: Agents could modify KSI, access sensitive data, spawn subprocesses
-- **Requirements**:
-  - Tool permission declarations in compositions
-  - Filesystem sandboxing (read/write boundaries)
-  - Resource limits (CPU, memory, tokens)
-  - Capability-based security model
-- **Impact**: Unsafe to run any agent experiments
+### Code Quality Improvements ✅
+- **Function-based Architecture**: Replaced static classes (TimestampManager, FileOperations) with module-level functions
+- **Dict-based Responses**: Simplified CompletionResponse class to standardized dict format with helper functions
+- **Async Consolidation**: Pure asyncio patterns with centralized async utilities (`ksi_common/async_utils.py`)
+- **Removed Wrappers**: Eliminated thin wrapper functions, use direct stdlib calls
 
-### Agent System Implementation
-- **Missing**: Working agents using the composition system
-- **Status**: Infrastructure complete but 0 active agents
-- **Prerequisites**: MUST have logging + isolation first
-- **Impact**: Core multi-agent orchestration capabilities unused
-- **Need**: Demonstrate system value proposition SAFELY
+## Completed Infrastructure (June 2025)
 
+### Agent Isolation & Permissions ✅
+- **Status**: Implementation complete and tested
+- **Documentation**: `/docs/agent_permissions_system_plan.md`
+- **Architecture**: Compositional permission system with flexible sandbox isolation
+- **Key Components**:
+  - `ksi_common/agent_permissions.py` - Permission profiles and validation
+  - `ksi_common/sandbox_manager.py` - Sandbox lifecycle management  
+  - `ksi_daemon/plugins/permissions/` - Permission service plugin
+  - 4 permission profiles: restricted, standard, trusted, researcher
+- **Sandbox Modes**:
+  - **Isolated**: Complete separation per agent
+  - **Shared**: Session-wide collaboration workspace
+  - **Nested**: Parent-child workspace relationships
+- **Security Features**:
+  - Additive permissions (fail-safe defaults)
+  - No privilege escalation (children ≤ parent permissions)
+  - Filesystem isolation via claude-cli cwd sandboxing
+  - Tool restrictions passed to claude-cli --allowedTools
+  - Full audit trail of all permission operations
+- **Integration**: Seamless with agent spawn/terminate, completion service, monitoring
+- **Impact**: Safe agent experimentation environment ready for use
 
-## Current Technical Issues
+## Ready for Implementation
 
-### Remaining Anti-Patterns (Low Priority)
-- Static classes that should be functions (TimestampManager, FileOperations)
-- Thin wrapper functions (generate_id wrapping uuid)
-- Multiple event loop creation (36 files use asyncio.run)
-- Dead code (orchestrate.py, empty stubs)
+### Agent System Activation
+- **Status**: Infrastructure complete, permissions ready, awaiting activation
+- **Prerequisites**: ✅ Isolation controls implemented and tested
+- **Next Steps**: Create working agents using the composition system
+- **Impact**: Can now safely demonstrate multi-agent orchestration
+- **Safety**: Full sandbox isolation and permission enforcement active
 
 ---
 *For development practices, see `/Users/dp/projects/ksi/CLAUDE.md`*

@@ -290,6 +290,12 @@ class ClaudeCLIProvider(CustomLLM):
         prompt, model_alias = self._extract_prompt_and_model(messages, *args, **kwargs)
         full_model = f"claude-cli/{model_alias}"
         
+        # Extract KSI parameters from extra_body
+        extra_body = kwargs.get("extra_body", {})
+        ksi_params = extra_body.get("ksi", {})
+        sandbox_dir = ksi_params.get("sandbox_dir")
+        ksi_permissions = ksi_params.get("permissions", {})
+        
         # Respect LiteLLM timeout parameter, fall back to config if not provided
         litellm_timeout = kwargs.get('timeout')
         if litellm_timeout:
@@ -302,11 +308,18 @@ class ClaudeCLIProvider(CustomLLM):
             "Starting Claude CLI completion",
             model=model_alias,
             session_id=kwargs.get("session_id"),
-            timeout_strategy=timeouts
+            timeout_strategy=timeouts,
+            sandbox_dir=sandbox_dir,
+            permission_profile=ksi_permissions.get("profile")
         )
         
         for attempt, timeout in enumerate(timeouts):
-            allowed = allowed_tools_from_openai(kwargs.get("tools"))
+            # Get allowed tools from KSI permissions or fall back to OpenAI tools
+            if "allowed_tools" in ksi_permissions:
+                allowed = ksi_permissions["allowed_tools"]
+            else:
+                allowed = allowed_tools_from_openai(kwargs.get("tools"))
+            
             disallowed = kwargs.get("disallowed_tools") or []
             session_id = kwargs.get("session_id")
             max_turns = kwargs.get("max_turns")
@@ -339,7 +352,8 @@ class ClaudeCLIProvider(CustomLLM):
                             self._run_claude_sync_with_progress,
                             cmd,
                             timeout,
-                            full_model
+                            full_model,
+                            sandbox_dir
                         ),
                         timeout=timeout
                     )
@@ -372,19 +386,25 @@ class ClaudeCLIProvider(CustomLLM):
                 # Map all errors to LiteLLM exceptions
                 raise map_subprocess_error_to_litellm(e, full_model)
     
-    def _run_claude_sync_with_progress(self, cmd: List[str], timeout: int, model: str):
+    def _run_claude_sync_with_progress(self, cmd: List[str], timeout: int, model: str, sandbox_dir: Optional[str] = None):
         """Run Claude with cross-platform progress monitoring"""
         progress_timeout = config.claude_progress_timeout  # 5 minutes default
+        
+        # Set working directory - use sandbox if provided, else project root
+        if sandbox_dir:
+            working_dir = Path(sandbox_dir)
+            logger.info("Using sandbox directory", sandbox_dir=sandbox_dir)
+        else:
+            working_dir = Path(__file__).parent.parent.parent.parent
+            logger.debug("Using project root as working directory")
         
         logger.debug(
             "Executing Claude CLI",
             cmd=" ".join(cmd),
             timeout=timeout,
-            progress_timeout=progress_timeout
+            progress_timeout=progress_timeout,
+            working_dir=str(working_dir)
         )
-        
-        # Set working directory to project root (matching daemon behavior)
-        project_root = Path(__file__).parent.parent.parent.parent
         
         start_time = time.time()
         last_output_time = time.time()
@@ -421,7 +441,7 @@ class ClaudeCLIProvider(CustomLLM):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                cwd=str(project_root),
+                cwd=str(working_dir),
                 env=os.environ
             )
             

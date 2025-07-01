@@ -1,0 +1,16 @@
+# Read-only tool permissions
+name: read_only_tools
+type: permission_fragment
+version: 1.0.0
+description: Tools for read-only file access
+
+tools:
+  allowed:
+    - Read
+    - Grep
+    - Glob
+    - LS
+  disallowed:
+    - Write
+    - Edit
+    - MultiEdit
