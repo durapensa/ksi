@@ -89,11 +89,11 @@ class SimpleDaemonCore:
             if result:
                 logger.info("Startup result", result=result)
         
-        # Pass context to plugins (including event_router for monitoring)
+        # Pass context to plugins (minimal, following pluggy best practices)
         plugin_context = {
-            "event_router": self.event_router,
-            "emit_event": self.event_router.route_event,  # Allow plugins to emit events
-            "plugin_loader": self.plugin_loader,  # For plugin management
+            "event_router": self.event_router,  # For monitoring plugins
+            "emit_event": self.event_router.route_event,  # Standardized event emission
+            "plugin_manager": self.plugin_loader.pm,  # Pluggy plugin manager (single source)
             "shutdown_event": self.shutdown_event,  # Allow plugins to trigger shutdown
             # Infrastructure services
             "state_manager": self.state_manager,

@@ -17,7 +17,8 @@ from typing import Optional, Dict, List, Tuple, Any
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ksi_client import EventChatClient, MultiAgentClient
-from ksi_common import TimestampManager, config, configure_structlog
+from ksi_common.timestamps import timestamp_utc, format_for_display, parse_iso_timestamp, utc_to_local, filename_timestamp, display_timestamp
+from ksi_common import config, configure_structlog
 import structlog
 
 from textual.app import App, ComposeResult
@@ -393,8 +394,8 @@ class ChatInterface(App):
         for session_id, timestamp, message_count in self.available_sessions[:20]:  # Show last 20
             # Format timestamp for display (convert UTC to local)
             try:
-                dt = TimestampManager.parse_iso_timestamp(timestamp)
-                local_dt = TimestampManager.utc_to_local(dt)
+                dt = parse_iso_timestamp(timestamp)
+                local_dt = utc_to_local(dt)
                 time_str = local_dt.strftime('%Y-%m-%d %H:%M')
             except (ValueError, TypeError, AttributeError):
                 time_str = timestamp[:19] if len(timestamp) > 19 else timestamp
@@ -459,8 +460,8 @@ class ChatInterface(App):
             time_str = ""
             if conv_info.get('last_message'):
                 try:
-                    dt = TimestampManager.parse_iso_timestamp(conv_info['last_message'])
-                    local_dt = TimestampManager.utc_to_local(dt)
+                    dt = parse_iso_timestamp(conv_info['last_message'])
+                    local_dt = utc_to_local(dt)
                     time_str = f" {local_dt.strftime('%m/%d %H:%M')}"
                 except (ValueError, TypeError, AttributeError):
                     # Fallback for malformed timestamps
@@ -538,8 +539,8 @@ class ChatInterface(App):
         time_str = ""
         if timestamp:
             try:
-                dt = TimestampManager.parse_iso_timestamp(timestamp)
-                local_dt = TimestampManager.utc_to_local(dt)
+                dt = parse_iso_timestamp(timestamp)
+                local_dt = utc_to_local(dt)
                 time_str = f" [dim]({local_dt.strftime('%H:%M:%S')})[/]"
             except (ValueError, TypeError, AttributeError):
                 # Fallback if timestamp parsing fails
@@ -569,7 +570,7 @@ class ChatInterface(App):
             entry = {
                 "type": "user" if sender == "You" else "claude",
                 "content": content,
-                "timestamp": timestamp or TimestampManager.timestamp_utc(),
+                "timestamp": timestamp or timestamp_utc(),
                 "sender": sender
             }
             self.current_conversation.append(entry)
@@ -1240,7 +1241,7 @@ class ChatInterface(App):
     async def _export_conversation_from_file(self, session_id: str) -> None:
         """Fallback method to export conversation directly from file"""
         # Determine export filename (use local time for user convenience)
-        timestamp = TimestampManager.filename_timestamp(utc=False)
+        timestamp = filename_timestamp(utc=False)
         export_dir = config.state_dir / 'exports'
         export_dir.mkdir(exist_ok=True)
         export_file = export_dir / f'conversation_{session_id}_{timestamp}.md'
@@ -1248,7 +1249,7 @@ class ChatInterface(App):
         try:
             # Build markdown content
             md_lines = [f"# Conversation Export: {session_id}\n"]
-            md_lines.append(f"*Exported on {TimestampManager.display_timestamp('%Y-%m-%d %H:%M:%S', utc=False)}*\n")
+            md_lines.append(f"*Exported on {display_timestamp('%Y-%m-%d %H:%M:%S', utc=False)}*\n")
             md_lines.append("---\n")
             
             # Load conversation from log file
@@ -1272,8 +1273,8 @@ class ChatInterface(App):
                                 
                                 # Format timestamp (convert UTC to local for display)
                                 try:
-                                    dt = TimestampManager.parse_iso_timestamp(timestamp)
-                                    local_dt = TimestampManager.utc_to_local(dt)
+                                    dt = parse_iso_timestamp(timestamp)
+                                    local_dt = utc_to_local(dt)
                                     time_str = local_dt.strftime('%Y-%m-%d %H:%M:%S')
                                 except (ValueError, TypeError, AttributeError):
                                     time_str = timestamp
@@ -1477,8 +1478,8 @@ async def test_mode(args):
                 for conv in conversations:
                     print(f"  - {conv['session_id']}: {conv['message_count']} messages")
                     if conv.get('last_timestamp'):
-                        dt = TimestampManager.parse_iso_timestamp(conv['last_timestamp'])
-                        local_dt = TimestampManager.utc_to_local(dt)
+                        dt = parse_iso_timestamp(conv['last_timestamp'])
+                        local_dt = utc_to_local(dt)
                         print(f"    Last: {local_dt.strftime('%Y-%m-%d %H:%M:%S')}")
             else:
                 print(f"✗ Failed to list conversations: {result}")
@@ -1525,12 +1526,12 @@ async def test_mode(args):
                 print(f"  Total messages: {result.get('total_messages', 0)}")
                 print(f"  Total size: {result.get('total_size_mb', 0):.2f} MB")
                 if result.get('earliest_timestamp'):
-                    dt = TimestampManager.parse_iso_timestamp(result['earliest_timestamp'])
-                    local_dt = TimestampManager.utc_to_local(dt)
+                    dt = parse_iso_timestamp(result['earliest_timestamp'])
+                    local_dt = utc_to_local(dt)
                     print(f"  Earliest: {local_dt.strftime('%Y-%m-%d %H:%M:%S')}")
                 if result.get('latest_timestamp'):
-                    dt = TimestampManager.parse_iso_timestamp(result['latest_timestamp'])
-                    local_dt = TimestampManager.utc_to_local(dt)
+                    dt = parse_iso_timestamp(result['latest_timestamp'])
+                    local_dt = utc_to_local(dt)
                     print(f"  Latest: {local_dt.strftime('%Y-%m-%d %H:%M:%S')}")
             else:
                 print(f"✗ Failed to get stats: {result}")

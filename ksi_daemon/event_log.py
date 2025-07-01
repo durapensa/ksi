@@ -17,7 +17,7 @@ from pathlib import Path
 import fnmatch
 from contextlib import contextmanager
 
-from ksi_common import TimestampManager
+from ksi_common.timestamps import timestamp_utc, format_for_logging, parse_iso_timestamp
 from ksi_common.logging import get_bound_logger
 from ksi_common.config import config
 
@@ -209,7 +209,7 @@ class DaemonEventLog:
         
         # Try to parse ISO timestamp
         try:
-            dt = TimestampManager.parse_iso_timestamp(time_input)
+            dt = parse_iso_timestamp(time_input)
             return dt.timestamp()
         except Exception:
             # Fallback: treat as relative time (e.g., "10m" for 10 minutes ago)

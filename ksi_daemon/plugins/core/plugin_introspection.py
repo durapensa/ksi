@@ -155,8 +155,7 @@ def ksi_plugin_context(context: Dict[str, Any]):
     """Receive plugin context to get access to plugin manager."""
     global plugin_manager
     
-    # Get the plugin manager from the loader
-    plugin_loader = context.get("plugin_loader")
-    if plugin_loader:
-        plugin_manager = plugin_loader.pm
+    # Get the plugin manager directly (pluggy best practice)
+    plugin_manager = context.get("plugin_manager")
+    if plugin_manager:
         logger.info(f"Plugin introspection ready, found {len(list(plugin_manager.list_name_plugin()))} plugins")

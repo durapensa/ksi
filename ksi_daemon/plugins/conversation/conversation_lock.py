@@ -14,7 +14,7 @@ from typing import Dict, Any, Optional, List, Set, Tuple
 import pluggy
 
 from ksi_daemon.plugin_utils import plugin_metadata
-from ksi_common import TimestampManager
+from ksi_common.timestamps import timestamp_utc
 from ksi_common.logging import get_bound_logger
 
 # Plugin metadata

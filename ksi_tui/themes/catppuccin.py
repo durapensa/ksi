@@ -39,36 +39,7 @@ CATPPUCCIN_MOCHA = {
 # CSS for Catppuccin theme
 CATPPUCCIN_CSS = """
 /* Catppuccin Mocha Theme for KSI TUI */
-
-/* CSS Variables for easy color access */
-:root {
-    --rosewater: #f5e0dc;
-    --flamingo: #f2cdcd;
-    --pink: #f5c2e7;
-    --mauve: #cba6f7;
-    --red: #f38ba8;
-    --maroon: #eba0ac;
-    --peach: #fab387;
-    --yellow: #f9e2af;
-    --green: #a6e3a1;
-    --teal: #94e2d5;
-    --sky: #89dceb;
-    --sapphire: #74c7ec;
-    --blue: #89b4fa;
-    --lavender: #b4befe;
-    --text: #cdd6f4;
-    --subtext1: #bac2de;
-    --subtext0: #a6adc8;
-    --overlay2: #9399b2;
-    --overlay1: #7f849c;
-    --overlay0: #6c7086;
-    --surface2: #585b70;
-    --surface1: #45475a;
-    --surface0: #313244;
-    --base: #1e1e2e;
-    --mantle: #181825;
-    --crust: #11111b;
-}
+/* Using Textual CSS syntax with color variables */
 
 /* Base application styling */
 App {
@@ -104,33 +75,24 @@ App {
     height: 1;
 }
 
-/* Messages and chat bubbles */
+/* Messages and chat bubbles - simplified to avoid display issues */
 .message {
-    background: var(--surface0);
-    border: none;
-    padding: 1;
-    margin: 1 0;
 }
 
 .message-user {
-    background: var(--blue) 20%;
-    border-left: thick var(--blue);
+    background: var(--surface1);
 }
 
 .message-assistant {
-    background: var(--green) 20%;
-    border-left: thick var(--green);
+    background: var(--surface0);  
 }
 
 .message-system {
-    background: var(--overlay0) 20%;
-    border-left: thick var(--overlay0);
-    color: var(--subtext0);
+    background: var(--surface0);
 }
 
 .message-error {
-    background: var(--red) 20%;
-    border-left: thick var(--red);
+    background: var(--surface0);
     color: var(--red);
 }
 
@@ -343,15 +305,13 @@ Footer {
     color: var(--yellow);
 }
 
-/* Animations */
+/* Animation alternatives (Textual doesn't support @keyframes) */
 .fade-in {
-    opacity: 0;
-    animate: opacity 200ms ease-out forwards;
+    opacity: 80%;
 }
 
 .slide-in {
-    offset-x: -100%;
-    animate: offset-x 300ms ease-out forwards;
+    /* Simple alternative without animation */
 }
 
 /* Utility classes */
@@ -391,8 +351,14 @@ Footer {
 """
 
 def get_theme_css() -> str:
-    """Get the complete Catppuccin theme CSS."""
-    return CATPPUCCIN_CSS
+    """Get the complete Catppuccin theme CSS with variables replaced."""
+    css = CATPPUCCIN_CSS
+    
+    # Replace all var() references with actual colors
+    for name, color in CATPPUCCIN_MOCHA.items():
+        css = css.replace(f"var(--{name})", color)
+    
+    return css
 
 def get_color(name: str) -> str:
     """Get a specific color from the Catppuccin palette."""

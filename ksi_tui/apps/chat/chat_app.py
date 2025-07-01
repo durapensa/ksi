@@ -19,6 +19,7 @@ from textual.containers import Container, Horizontal, Vertical, ScrollableContai
 from textual.widgets import Header, Footer, Input, Button, Label, LoadingIndicator
 from textual.message import Message
 from textual import events, work
+from textual.events import Key
 from textual.worker import Worker, WorkerState
 
 # Import our components and services
@@ -35,6 +36,23 @@ from ksi_tui.services import (
     ConnectionError as ServiceConnectionError,
 )
 from ksi_tui.themes import theme_manager
+from ksi_common.config import config
+from ksi_common.logging import configure_structlog, get_bound_logger
+
+# Configure structured logging BEFORE any TUI operations to prevent screen corruption
+log_file = config.get_client_log_file()  # Auto-detects from sys.argv[0]
+log_file.parent.mkdir(parents=True, exist_ok=True)
+
+# Configure structlog with file output and no console output for TUI
+configure_structlog(
+    log_level=config.log_level,
+    log_format="console",  # Human-readable format for log files
+    log_file=log_file,
+    disable_console_in_tui=True  # Automatically disables console in TUI mode
+)
+
+# Set up logging
+logger = get_bound_logger("ksi_chat_app", version="1.0.0")
 
 
 class ChatInput(Input):
@@ -45,7 +63,7 @@ class ChatInput(Input):
         self.history: List[str] = []
         self.history_index = -1
     
-    def on_key(self, event: events.Key) -> None:
+    def on_key(self, event: Key) -> None:
         """Handle special keys for history navigation."""
         if event.key == "up":
             if self.history and self.history_index < len(self.history) - 1:
@@ -88,122 +106,118 @@ class SessionInfo(Container):
 class ChatApp(App):
     """The main chat application."""
     
-    CSS = theme_manager.css + """
+    @property 
+    def CSS(self) -> str:
+        """Get CSS with theme colors applied."""
+        return theme_manager.css + f"""
     /* App-specific styles */
-    ChatApp {
-        background: var(--base);
-    }
+    ChatApp {{
+        background: {theme_manager.get_color('base')};
+    }}
     
     /* Header */
-    Header {
-        background: var(--mantle);
-        color: var(--text);
-    }
+    Header {{
+        background: {theme_manager.get_color('mantle')};
+        color: {theme_manager.get_color('text')};
+    }}
     
     /* Main layout */
-    #main-container {
+    #main-container {{
         height: 100%;
-        background: var(--base);
-    }
+        background: {theme_manager.get_color('base')};
+    }}
     
     /* Session info bar */
-    .session-info {
+    .session-info {{
         height: 3;
-        background: var(--surface0);
-        border-bottom: tall var(--surface1);
+        background: {theme_manager.get_color('surface0')};
+        border-bottom: tall {theme_manager.get_color('surface1')};
         padding: 1;
         align: center middle;
-    }
+    }}
     
-    .session-label {
+    .session-label {{
         width: auto;
         margin-right: 1;
-        color: var(--subtext0);
-    }
+        color: {theme_manager.get_color('subtext0')};
+    }}
     
-    .session-value {
+    .session-value {{
         width: auto;
         margin-right: 2;
-        color: var(--lavender);
+        color: {theme_manager.get_color('lavender')};
         text-style: bold;
-    }
+    }}
     
-    .session-button {
+    .session-button {{
         width: auto;
         height: 1;
         min-width: 8;
         margin: 0 1;
-    }
+    }}
     
     /* Message area */
-    #message-container {
+    #message-container {{
         height: 1fr;
-        background: var(--base);
-        border: round var(--surface0);
+        background: {theme_manager.get_color('base')};
+        border: round {theme_manager.get_color('surface0')};
         margin: 1;
-    }
+    }}
     
-    MessageList {
-        padding: 1;
+    MessageList {{
         scrollbar-size: 1 1;
-    }
+    }}
     
     /* Input area */
-    #input-container {
+    #input-container {{
         height: 5;
         padding: 0 1 1 1;
-    }
+    }}
     
-    #input-wrapper {
+    #input-wrapper {{
         height: 3;
         layout: horizontal;
         align: center middle;
-    }
+    }}
     
-    #message-input {
+    #message-input {{
         width: 1fr;
         height: 3;
         margin-right: 1;
-    }
+    }}
     
-    #send-button {
+    #send-button {{
         width: 10;
         height: 3;
-    }
+    }}
     
     /* Connection status */
-    #connection-container {
+    #connection-container {{
         dock: bottom;
         height: 1;
-        background: var(--surface0);
-        border-top: tall var(--surface1);
+        background: {theme_manager.get_color('surface0')};
+        border-top: tall {theme_manager.get_color('surface1')};
         padding: 0 1;
         align: left middle;
-    }
+    }}
     
     /* Loading state */
-    .thinking-indicator {
+    .thinking-indicator {{
         dock: bottom;
         height: 1;
-        background: var(--surface0);
+        background: {theme_manager.get_color('surface0')};
         align: center middle;
         display: none;
-    }
+    }}
     
-    .thinking-indicator.visible {
+    .thinking-indicator.visible {{
         display: block;
-    }
+    }}
     
-    /* Animations */
-    @keyframes pulse {
-        0% { opacity: 1.0; }
-        50% { opacity: 0.5; }
-        100% { opacity: 1.0; }
-    }
-    
-    .thinking {
-        animation: pulse 1.5s ease-in-out infinite;
-    }
+    /* Thinking indicator styling */
+    .thinking {{
+        opacity: 70%;
+    }}
     """
     
     BINDINGS = [
@@ -217,18 +231,27 @@ class ChatApp(App):
     
     def __init__(
         self,
-        client_id: str = "ksi-chat",
-        model: str = "sonnet",
+        client_id: Optional[str] = None,
+        model: Optional[str] = None,
     ):
         """Initialize the chat app."""
         super().__init__()
-        self.client_id = client_id
-        self.model = model
+        
+        # Use config defaults if not provided
+        self.client_id = client_id or config.tui_chat_client_id
+        self.model = model or "sonnet"  # Default for display purposes
+        
+        # Convert simple model names to provider format
+        actual_model = model or "sonnet"
+        if actual_model in ["sonnet", "opus", "haiku"]:
+            service_model = f"claude-cli/{actual_model}"
+        else:
+            service_model = actual_model
         
         # Services
         self.chat_service = ChatService(
-            client_id=client_id,
-            model=model,
+            client_id=self.client_id,
+            model=service_model,
         )
         
         # State
@@ -244,8 +267,8 @@ class ChatApp(App):
             # Session info
             yield SessionInfo()
             
-            # Message area
-            with ScrollableContainer(id="message-container"):
+            # Message area - simplified container
+            with Container(id="message-container"):
                 yield MessageList(id="messages")
             
             # Thinking indicator
@@ -278,11 +301,18 @@ class ChatApp(App):
         self.title = "KSI Chat"
         self.sub_title = "Chat with Claude"
         
+        # Set up message handler
+        def handle_message(msg: ChatMessage):
+            # Since worker runs on main thread now, call directly
+            self._display_message(msg)
+        
+        self.chat_service.add_message_handler(handle_message)
+        
         # Focus input
         self.query_one("#message-input").focus()
         
         # Connect to daemon
-        await self._connect_to_daemon()
+        self._connect_to_daemon()
     
     @work(exclusive=True)
     async def _connect_to_daemon(self) -> None:
@@ -330,9 +360,12 @@ class ChatApp(App):
         elif event.button.id == "switch-session":
             self.action_switch_session()
     
-    @work(exclusive=True, thread=True)
+    @work(exclusive=True)
     async def _send_message(self, content: str) -> None:
         """Send a message to Claude."""
+        # DEBUG: Check input content
+        logger.info("_send_message called", content_length=len(content), content_preview=content[:50], full_content=content)
+        
         # Add to history
         input_widget = self.query_one("#message-input", ChatInput)
         input_widget.add_to_history(content)
@@ -499,20 +532,12 @@ class ChatApp(App):
             pass
         self.exit()
     
-    async def on_mount(self) -> None:
-        """Setup when app is mounted."""
-        # Set up message handler
-        def handle_message(msg: ChatMessage):
-            # This runs in the service thread, so we need to post to main thread
-            self.call_from_thread(self._display_message, msg)
-        
-        self.chat_service.add_message_handler(handle_message)
-        
-        # Call parent mount
-        await super().on_mount()
     
     def _display_message(self, msg: ChatMessage) -> None:
         """Display a message in the UI."""
+        # DEBUG: Check message received by display handler  
+        logger.info("_display_message called", sender=msg.sender, content_length=len(msg.content), content_preview=msg.content[:50], full_content=msg.content)
+        
         messages = self.query_one("#messages", MessageList)
         
         # Map sender to message type

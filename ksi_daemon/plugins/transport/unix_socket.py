@@ -28,6 +28,7 @@ logger = get_bound_logger("unix_socket_transport", version="2.0.0")
 server = None
 event_emitter: Optional[Callable] = None
 client_connections = {}
+client_subscriptions = {}  # client_id -> set of event patterns they're subscribed to
 
 # Plugin info
 PLUGIN_INFO = {
@@ -134,6 +135,9 @@ async def handle_client(reader, writer):
     finally:
         # Clean up
         del client_connections[client_id]
+        # Clean up subscriptions
+        if client_id in client_subscriptions:
+            del client_subscriptions[client_id]
         writer.close()
         await writer.wait_closed()
         logger.debug(f"Client disconnected: {client_addr}")
@@ -262,6 +266,63 @@ def ksi_create_transport(transport_type: str, config: Dict[str, Any]):
     socket_path = os.path.join(socket_dir, "daemon.sock")
     
     return UnixSocketTransport(socket_path)
+
+
+@hookimpl  
+def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
+    """Handle events and broadcast to subscribed clients."""
+    
+    # Only broadcast certain events to avoid overwhelming clients
+    broadcastable_events = {
+        "completion:result",
+        "completion:progress", 
+        "completion:error",
+        "completion:cancelled"
+    }
+    
+    if event_name in broadcastable_events:
+        # Create event message to broadcast
+        event_message = {
+            "event": event_name,
+            "data": data,
+            "timestamp": context.get("timestamp", "")
+        }
+        
+        # Add correlation_id if present in context
+        correlation_id = context.get("correlation_id")
+        if correlation_id:
+            event_message["correlation_id"] = correlation_id
+        
+        # Broadcast to all connected clients
+        # Note: For now broadcasting to all clients, but we could add
+        # subscription filtering here if needed
+        asyncio.create_task(broadcast_event(event_message))
+
+
+async def broadcast_event(event_message: Dict[str, Any]):
+    """Broadcast an event to all connected clients."""
+    if not client_connections:
+        return
+        
+    logger.debug(f"Broadcasting event {event_message.get('event')} to {len(client_connections)} clients")
+    
+    # Send to all connected clients
+    disconnect_clients = []
+    for client_id, writer in client_connections.items():
+        try:
+            message_str = json.dumps(event_message) + '\n'
+            writer.write(message_str.encode())
+            await writer.drain()
+        except Exception as e:
+            logger.warning(f"Failed to send event to client {client_id}: {e}")
+            disconnect_clients.append(client_id)
+    
+    # Clean up disconnected clients
+    for client_id in disconnect_clients:
+        if client_id in client_connections:
+            del client_connections[client_id]
+        if client_id in client_subscriptions:
+            del client_subscriptions[client_id]
 
 
 @hookimpl

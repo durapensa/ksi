@@ -43,6 +43,7 @@ from ksi_tui.utils import (
     format_bytes,
     format_number,
 )
+from ksi_common.config import config
 
 
 class HealthPanel(Container):
@@ -212,14 +213,17 @@ class MetricsPanel(Container):
 class MonitorApp(App):
     """The main monitoring dashboard application."""
     
-    CSS = theme_manager.css + """
+    @property
+    def CSS(self) -> str:
+        """Get CSS with theme colors applied."""
+        return theme_manager.css + f"""
     /* App-specific styles */
-    MonitorApp {
-        background: var(--base);
-    }
+    MonitorApp {{
+        background: {theme_manager.get_color('base')};
+    }}
     
     /* Dashboard grid layout */
-    #dashboard {
+    #dashboard {{
         layout: grid;
         grid-size: 3 2;
         grid-columns: 1fr 3fr 1fr;
@@ -227,92 +231,92 @@ class MonitorApp(App):
         height: 100%;
         padding: 1;
         gap: 1;
-    }
+    }}
     
     /* Panels */
-    .panel {
-        background: var(--mantle);
-        border: round var(--surface1);
+    .panel {{
+        background: {theme_manager.get_color('mantle')};
+        border: round {theme_manager.get_color('surface1')};
         padding: 1;
         overflow: auto;
-    }
+    }}
     
-    .panel-header {
-        background: var(--surface0);
-        color: var(--lavender);
+    .panel-header {{
+        background: {theme_manager.get_color('surface0')};
+        color: {theme_manager.get_color('lavender')};
         text-style: bold;
         padding: 0 1;
         height: 1;
         margin-bottom: 1;
-    }
+    }}
     
     /* Health panel */
-    .health-panel {
+    .health-panel {{
         grid-column-span: 1;
-    }
+    }}
     
-    .health-status {
+    .health-status {{
         text-style: bold;
         margin-bottom: 1;
-    }
+    }}
     
-    .status-healthy {
-        color: var(--green);
-    }
+    .status-healthy {{
+        color: {theme_manager.get_color('green')};
+    }}
     
-    .status-degraded {
-        color: var(--yellow);
-    }
+    .status-degraded {{
+        color: {theme_manager.get_color('yellow')};
+    }}
     
-    .status-error {
-        color: var(--red);
-    }
+    .status-error {{
+        color: {theme_manager.get_color('red')};
+    }}
     
-    .health-details {
-        color: var(--subtext0);
-    }
+    .health-details {{
+        color: {theme_manager.get_color('subtext0')};
+    }}
     
     /* Control panel */
-    .control-panel {
+    .control-panel {{
         grid-column-span: 1;
         layout: vertical;
-    }
+    }}
     
-    .control-panel Button {
+    .control-panel Button {{
         width: 100%;
         margin-bottom: 1;
-    }
+    }}
     
     /* Agent panel */
-    .agent-panel {
+    .agent-panel {{
         grid-row-span: 2;
-    }
+    }}
     
-    .agent-tree {
+    .agent-tree {{
         height: 100%;
-    }
+    }}
     
     /* Event stream panel */
-    .event-panel {
+    .event-panel {{
         grid-column-span: 1;
         grid-row-span: 2;
-    }
+    }}
     
     /* Metrics panel */
-    .metrics-panel {
+    .metrics-panel {{
         grid-column-span: 1;
         grid-row-span: 2;
-    }
+    }}
     
     /* Connection status */
-    #connection-container {
+    #connection-container {{
         dock: bottom;
         height: 1;
-        background: var(--surface0);
-        border-top: tall var(--surface1);
+        background: {theme_manager.get_color('surface0')};
+        border-top: tall {theme_manager.get_color('surface1')};
         padding: 0 1;
         align: left middle;
-    }
+    }}
     """
     
     BINDINGS = [
@@ -326,16 +330,16 @@ class MonitorApp(App):
     
     def __init__(
         self,
-        client_id: str = "ksi-monitor",
-        update_interval: float = 1.0,
+        client_id: Optional[str] = None,
+        update_interval: Optional[float] = None,
     ):
         """Initialize the monitor app."""
         super().__init__()
-        self.client_id = client_id
-        self.update_interval = update_interval
+        self.client_id = client_id or config.tui_monitor_client_id
+        self.update_interval = update_interval or config.tui_monitor_update_interval
         
         # Services
-        self.monitor_service = MonitorService(client_id=client_id)
+        self.monitor_service = MonitorService(client_id=self.client_id)
         
         # State
         self.paused = False

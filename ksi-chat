@@ -47,9 +47,71 @@ Use arrow keys to navigate input history.
         help="Client ID for daemon connection"
     )
     
+    # Testing flags
+    parser.add_argument(
+        "--test-completion",
+        metavar="PROMPT",
+        help="Test completion with given prompt and exit (non-interactive)"
+    )
+    
+    parser.add_argument(
+        "--test-connection",
+        action="store_true",
+        help="Test daemon connection and exit (non-interactive)"
+    )
+    
+    parser.add_argument(
+        "--stdout",
+        metavar="PROMPT",
+        help="Send prompt and output response to stdout (non-interactive)"
+    )
+    
     args = parser.parse_args()
     
-    # Check terminal requirements after argument parsing (allows --help to work)
+    # For testing modes, skip terminal requirements
+    if args.test_completion or args.test_connection or args.stdout:
+        import asyncio
+        from ksi_client import EventChatClient
+        
+        async def test_mode():
+            try:
+                async with EventChatClient(client_id=args.client_id) as client:
+                    if args.test_connection:
+                        health = await client.health_check()
+                        print(f"✓ Connection successful")
+                        print(f"  Status: {health.get('status', 'unknown')}")
+                        print(f"  Daemon: {health.get('daemon_version', 'unknown')}")
+                        return
+                    
+                    if args.test_completion:
+                        print(f"Testing completion with model: {args.model}")
+                        print(f"Prompt: {args.test_completion}")
+                        print("Waiting for response...")
+                        
+                        response, session_id = await client.send_prompt(
+                            args.test_completion, 
+                            model=args.model
+                        )
+                        
+                        print(f"\n✓ Completion successful")
+                        print(f"  Session ID: {session_id}")
+                        print(f"  Response: {response}")
+                    
+                    if args.stdout:
+                        response, session_id = await client.send_prompt(
+                            args.stdout, 
+                            model=args.model
+                        )
+                        print(response)
+                        
+            except Exception as e:
+                print(f"✗ Test failed: {e}", file=sys.stderr)
+                sys.exit(1)
+        
+        asyncio.run(test_mode())
+        sys.exit(0)
+    
+    # Check terminal requirements for interactive mode
     is_suitable, error_msg = check_terminal_requirements()
     if not is_suitable:
         exit_with_error(error_msg)

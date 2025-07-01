@@ -16,6 +16,7 @@ import json
 from ksi_common.logging import get_bound_logger
 from typing import Dict, List, Any, Optional, Callable
 import pluggy
+from ksi_daemon.plugin_utils import event_handler
 
 # Hook implementation marker
 hookimpl = pluggy.HookimplMarker("ksi")
@@ -130,49 +131,32 @@ def ksi_startup(config):
 
 
 @hookimpl
-def ksi_plugin_loaded(plugin_name: str, plugin_instance: Any):
-    """Track loaded plugins and their events."""
+def ksi_plugin_context(context):
+    """Receive the plugin manager context."""
     global plugin_manager
-    
-    # Try to discover events from the plugin
-    if hasattr(plugin_instance, 'ksi_handle_event'):
-        # This plugin handles events
-        logger.info(f"Discovering events from plugin: {plugin_name}")
-        
-        # Store reference to handler
-        if plugin_name not in event_registry:
-            event_registry[plugin_name] = {
-                'plugin_name': plugin_name,
-                'handler': plugin_instance.ksi_handle_event,
-                'events': {}
-            }
-        
-        # Try to extract metadata if available
-        if hasattr(plugin_instance, 'PLUGIN_INFO'):
-            info = plugin_instance.PLUGIN_INFO
-            event_registry[plugin_name]['description'] = info.get('description', '')
-            event_registry[plugin_name]['version'] = info.get('version', '')
+    plugin_manager = context.get('plugin_manager')
 
 
 @hookimpl
 def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
-    """Handle discovery-related events."""
+    """Handle discovery-related events using decorated handlers."""
     
-    if event_name == "system:discover":
-        # List all available events
-        return handle_discover_events(data)
+    # Look for decorated handlers
+    import sys
+    module = sys.modules[__name__]
     
-    elif event_name == "system:help":
-        # Get help for a specific event
-        return handle_event_help(data)
-    
-    elif event_name == "system:capabilities":
-        # Get daemon capabilities summary
-        return handle_capabilities(data)
+    for name, obj in inspect.getmembers(module):
+        if inspect.isfunction(obj) and hasattr(obj, '_ksi_event_name'):
+            if obj._ksi_event_name == event_name:
+                return obj(data)
     
     return None
 
 
+# Decorate the event handlers
+
+
+@event_handler("system:discover")
 def handle_discover_events(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Discover all available events in the system.
@@ -187,273 +171,35 @@ def handle_discover_events(data: Dict[str, Any]) -> Dict[str, Any]:
     namespace_filter = data.get('namespace')
     include_internal = data.get('include_internal', False)
     
-    # Collect all known events
+    # Collect all known events from plugins dynamically
     events_by_namespace = {}
     
-    # Hardcoded core events (should be generated from actual handlers)
-    core_events = {
-        "system": [
-            {
-                "event": "system:health",
-                "summary": "Check daemon health status",
-                "parameters": {}
-            },
-            {
-                "event": "system:shutdown",
-                "summary": "Gracefully shutdown the daemon",
-                "parameters": {
-                    "force": {"type": "bool", "required": False, "default": "False"}
-                }
-            },
-            {
-                "event": "system:discover",
-                "summary": "Discover available events",
-                "parameters": {
-                    "namespace": {"type": "str", "required": False},
-                    "include_internal": {"type": "bool", "required": False, "default": "False"}
-                }
-            },
-            {
-                "event": "system:help",
-                "summary": "Get detailed help for an event",
-                "parameters": {
-                    "event": {"type": "str", "required": True}
-                }
-            }
-        ],
-        "completion": [
-            {
-                "event": "completion:request",
-                "summary": "Request a synchronous completion",
-                "parameters": {
-                    "prompt": {
-                        "type": "str", 
-                        "required": True,
-                        "description": "The prompt text to send to the LLM",
-                        "min_length": 1,
-                        "max_length": 100000
-                    },
-                    "model": {
-                        "type": "str", 
-                        "required": False, 
-                        "default": "sonnet",
-                        "description": "The model to use for completion",
-                        "allowed_values": ["sonnet", "opus", "haiku", "gpt-4", "gpt-3.5-turbo"]
-                    },
-                    "session_id": {
-                        "type": "str", 
-                        "required": False,
-                        "description": "Session ID for conversation continuity",
-                        "pattern": "^[a-zA-Z0-9-_]+$"
-                    },
-                    "temperature": {
-                        "type": "float", 
-                        "required": False, 
-                        "default": "0.7",
-                        "description": "Sampling temperature for the model",
-                        "min": 0.0,
-                        "max": 2.0
-                    }
-                }
-            },
-            {
-                "event": "completion:async",
-                "summary": "Request an asynchronous completion",
-                "parameters": {
-                    "prompt": {"type": "str", "required": True},
-                    "model": {"type": "str", "required": False},
-                    "session_id": {"type": "str", "required": False}
-                }
-            }
-        ],
-        "agent": [
-            {
-                "event": "agent:spawn",
-                "summary": "Spawn a new agent",
-                "parameters": {
-                    "agent_id": {"type": "str", "required": False},
-                    "profile": {"type": "str", "required": False},
-                    "config": {"type": "dict", "required": False}
-                }
-            },
-            {
-                "event": "agent:terminate",
-                "summary": "Terminate an agent",
-                "parameters": {
-                    "agent_id": {"type": "str", "required": True}
-                }
-            },
-            {
-                "event": "agent:list",
-                "summary": "List active agents",
-                "parameters": {}
-            },
-            {
-                "event": "agent:send_message",
-                "summary": "Send a message to an agent",
-                "parameters": {
-                    "agent_id": {
-                        "type": "str", 
-                        "required": True,
-                        "description": "The ID of the agent to send the message to",
-                        "pattern": "^[a-zA-Z0-9-_:]+$"
-                    },
-                    "message": {
-                        "type": "dict", 
-                        "required": True,
-                        "description": "The message payload to send",
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "content": {"type": "string"},
-                                "metadata": {"type": "object"}
-                            }
-                        }
-                    }
-                }
-            }
-        ],
-        "state": [
-            {
-                "event": "state:get",
-                "summary": "Get a state value",
-                "parameters": {
-                    "key": {"type": "str", "required": True},
-                    "namespace": {"type": "str", "required": False}
-                }
-            },
-            {
-                "event": "state:set",
-                "summary": "Set a state value",
-                "parameters": {
-                    "key": {
-                        "type": "str", 
-                        "required": True,
-                        "description": "The state key to set",
-                        "pattern": "^[a-zA-Z0-9-_:.]+$",
-                        "max_length": 255
-                    },
-                    "value": {
-                        "type": "Any", 
-                        "required": True,
-                        "description": "The value to store (can be any JSON-serializable type)"
-                    },
-                    "namespace": {
-                        "type": "str", 
-                        "required": False,
-                        "description": "Optional namespace for the key",
-                        "pattern": "^[a-zA-Z0-9-_]+$",
-                        "max_length": 100
-                    }
-                }
-            },
-            {
-                "event": "state:delete",
-                "summary": "Delete a state value",
-                "parameters": {
-                    "key": {"type": "str", "required": True},
-                    "namespace": {"type": "str", "required": False}
-                }
-            }
-        ],
-        "message": [
-            {
-                "event": "message:subscribe",
-                "summary": "Subscribe to message events",
-                "parameters": {
-                    "event_types": {"type": "list", "required": False}
-                }
-            },
-            {
-                "event": "message:publish",
-                "summary": "Publish a message",
-                "parameters": {
-                    "event_type": {"type": "str", "required": True},
-                    "data": {"type": "dict", "required": True},
-                    "target": {"type": "str", "required": False}
-                }
-            }
-        ],
-        "conversation": [
-            {
-                "event": "conversation:list",
-                "summary": "List available conversations",
-                "parameters": {
-                    "limit": {
-                        "type": "int", 
-                        "required": False, 
-                        "default": "100",
-                        "description": "Maximum number of conversations to return",
-                        "min": 1,
-                        "max": 1000
-                    },
-                    "offset": {
-                        "type": "int", 
-                        "required": False, 
-                        "default": "0",
-                        "description": "Number of conversations to skip",
-                        "min": 0
-                    },
-                    "sort_by": {"type": "str", "required": False, "default": "last_timestamp"},
-                    "start_date": {"type": "str", "required": False},
-                    "end_date": {"type": "str", "required": False}
-                }
-            },
-            {
-                "event": "conversation:search",
-                "summary": "Search conversations by content",
-                "parameters": {
-                    "query": {
-                        "type": "str", 
-                        "required": True,
-                        "description": "Search query string",
-                        "min_length": 1,
-                        "max_length": 500
-                    },
-                    "limit": {"type": "int", "required": False, "default": "50"},
-                    "search_in": {"type": "list", "required": False, "default": "['content']"}
-                }
-            },
-            {
-                "event": "conversation:get",
-                "summary": "Get a specific conversation",
-                "parameters": {
-                    "session_id": {"type": "str", "required": True},
-                    "limit": {"type": "int", "required": False, "default": "1000"},
-                    "offset": {"type": "int", "required": False, "default": "0"}
-                }
-            },
-            {
-                "event": "conversation:export",
-                "summary": "Export a conversation",
-                "parameters": {
-                    "session_id": {"type": "str", "required": True},
-                    "format": {
-                        "type": "str", 
-                        "required": False, 
-                        "default": "markdown",
-                        "description": "Export format for the conversation",
-                        "allowed_values": ["markdown", "json", "text", "html"]
-                    }
-                }
-            },
-            {
-                "event": "conversation:stats",
-                "summary": "Get conversation statistics",
-                "parameters": {}
-            }
-        ]
-    }
+    # If we have plugin manager, collect events from all plugins
+    if plugin_manager:
+        # Get all plugins
+        for plugin in plugin_manager.get_plugins():
+            # Check if plugin implements ksi_describe_events
+            if hasattr(plugin, 'ksi_describe_events'):
+                try:
+                    plugin_events = plugin.ksi_describe_events()
+                    if plugin_events:
+                        # Merge events by namespace
+                        for namespace, events in plugin_events.items():
+                            if namespace not in events_by_namespace:
+                                events_by_namespace[namespace] = []
+                            events_by_namespace[namespace].extend(events)
+                except Exception as e:
+                    logger.error(f"Error collecting events from plugin: {e}")
+    
+    # All events now come from dynamic plugin discovery only
     
     # Filter by namespace if requested
     if namespace_filter:
         filtered = {}
-        for ns, events in core_events.items():
+        for ns, events in events_by_namespace.items():
             if ns == namespace_filter or ns.startswith(namespace_filter + ':'):
                 filtered[ns] = events
         events_by_namespace = filtered
-    else:
-        events_by_namespace = core_events
     
     # Filter out internal events if requested
     if not include_internal:
@@ -472,15 +218,16 @@ def handle_discover_events(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+@event_handler("system:help")
 def handle_event_help(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Get detailed help for a specific event.
     
-    Parameters:
-        event: The event name to get help for (required)
+    Args:
+        event (str): The event name to get help for (required)
     
     Returns:
-        Detailed event documentation
+        Detailed event documentation including parameters and examples
     """
     event_name = data.get('event')
     if not event_name:
@@ -492,8 +239,8 @@ def handle_event_help(data: Dict[str, Any]) -> Dict[str, Any]:
     else:
         return {"error": f"Invalid event format: {event_name}. Use namespace:event"}
     
-    # Get all events
-    all_events = handle_discover_events({})
+    # Get all events including internal ones
+    all_events = handle_discover_events({"include_internal": True})
     events_in_namespace = all_events['events'].get(namespace, [])
     
     # Find the specific event
@@ -578,6 +325,12 @@ def ksi_shutdown():
     """Clean up on shutdown."""
     logger.info("Event discovery service stopped")
 
+
+# Add self-describing events for discovery
+from ksi_daemon.plugin_utils import create_ksi_describe_events_hook
+
+# The discovery plugin itself can be discovered!
+ksi_describe_events = create_ksi_describe_events_hook(__name__)
 
 # Module-level marker for plugin discovery
 ksi_plugin = True

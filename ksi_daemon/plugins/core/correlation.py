@@ -9,7 +9,7 @@ complex event chains in the KSI daemon system.
 from typing import Dict, Any, Optional
 import pluggy
 
-from ksi_daemon.plugin_utils import plugin_metadata
+from ksi_daemon.plugin_utils import plugin_metadata, event_handler, create_ksi_describe_events_hook
 from ksi_daemon import correlation
 from ksi_common.logging import get_bound_logger
 
@@ -40,31 +40,31 @@ def ksi_startup(config):
 
 @hookimpl
 def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
-    """Handle correlation-related events."""
+    """Handle correlation-related events using decorated handlers."""
     
-    if event_name == "correlation:trace":
-        return handle_get_trace(data)
+    # Look for decorated handlers
+    import sys
+    import inspect
+    module = sys.modules[__name__]
     
-    elif event_name == "correlation:chain":
-        return handle_get_trace_chain(data)
-    
-    elif event_name == "correlation:tree":
-        return handle_get_trace_tree(data)
-    
-    elif event_name == "correlation:stats":
-        return handle_get_stats(data)
-    
-    elif event_name == "correlation:cleanup":
-        return handle_cleanup(data)
-    
-    elif event_name == "correlation:current":
-        return handle_get_current(data)
+    for name, obj in inspect.getmembers(module):
+        if inspect.isfunction(obj) and hasattr(obj, '_ksi_event_name'):
+            if obj._ksi_event_name == event_name:
+                return obj(data)
     
     return None
 
 
+@event_handler("correlation:trace")
 def handle_get_trace(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Get a specific correlation trace."""
+    """Get a specific correlation trace.
+    
+    Parameters:
+        correlation_id: The correlation ID to retrieve trace for
+    
+    Returns:
+        Trace information including timing, data, and children
+    """
     correlation_id = data.get("correlation_id")
     
     if not correlation_id:
@@ -91,8 +91,16 @@ def handle_get_trace(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+@event_handler("correlation:chain")
 def handle_get_trace_chain(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Get the full trace chain for a correlation ID."""
+    """Get the full trace chain for a correlation ID.
+    
+    Parameters:
+        correlation_id: The correlation ID to retrieve chain for
+    
+    Returns:
+        Full chain of traces from root to leaf
+    """
     correlation_id = data.get("correlation_id")
     
     if not correlation_id:
@@ -121,8 +129,16 @@ def handle_get_trace_chain(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+@event_handler("correlation:tree")
 def handle_get_trace_tree(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Get the full trace tree for a correlation ID."""
+    """Get the full trace tree for a correlation ID.
+    
+    Parameters:
+        correlation_id: The correlation ID to retrieve tree for
+    
+    Returns:
+        Hierarchical tree of all related traces
+    """
     correlation_id = data.get("correlation_id")
     
     if not correlation_id:
@@ -136,8 +152,13 @@ def handle_get_trace_tree(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+@event_handler("correlation:stats")
 def handle_get_stats(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Get correlation tracking statistics."""
+    """Get correlation tracking statistics.
+    
+    Returns:
+        Statistics about active and completed traces
+    """
     stats = correlation.get_correlation_stats()
     
     return {
@@ -145,8 +166,16 @@ def handle_get_stats(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+@event_handler("correlation:cleanup")
 def handle_cleanup(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Clean up old correlation traces."""
+    """Clean up old correlation traces.
+    
+    Parameters:
+        max_age_hours: Maximum age in hours for traces to keep (default: 24)
+    
+    Returns:
+        Number of traces cleaned up
+    """
     max_age_hours = data.get("max_age_hours", 24)
     
     try:
@@ -159,8 +188,13 @@ def handle_cleanup(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+@event_handler("correlation:current")
 def handle_get_current(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Get current correlation context."""
+    """Get current correlation context.
+    
+    Returns:
+        Current and parent correlation IDs
+    """
     return {
         "current_correlation_id": correlation.get_current_correlation_id(),
         "parent_correlation_id": correlation.get_parent_correlation_id()
@@ -183,3 +217,6 @@ def ksi_shutdown():
 
 # Module-level marker for plugin discovery
 ksi_plugin = True
+
+# Enable event discovery
+ksi_describe_events = create_ksi_describe_events_hook(__name__)

@@ -1,0 +1,37 @@
+{
+  "generated_at": "2025-07-01T10:53:36.154977",
+  "total_tests": 1,
+  "test_results": [
+    {
+      "test_name": "system_prerequisites_check",
+      "test_file": "test_enhanced_integration.py",
+      "status": "passed",
+      "start_time": 1751381616.1548212,
+      "end_time": 1751381616.1549299,
+      "duration": 0.0001087188720703125,
+      "error_message": null,
+      "details": {
+        "daemon_socket_exists": false,
+        "python_version_ok": true,
+        "required_modules_available": {
+          "asyncio": true,
+          "json": true,
+          "pathlib": true,
+          "unittest.mock": true
+        },
+        "test_files_exist": {
+          "test_claude_cli_provider_direct.py": true,
+          "test_error_propagation.py": true,
+          "test_agent_messaging_multisocket.py": false,
+          "test_result_logger.py": true
+        },
+        "daemon_running": false,
+        "system_ready": false
+      },
+      "prompt_used": null,
+      "response_received": null,
+      "start_time_iso": "2025-07-01T10:53:36.154821",
+      "end_time_iso": "2025-07-01T10:53:36.154930"
+    }
+  ]
+}

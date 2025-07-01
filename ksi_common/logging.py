@@ -300,7 +300,7 @@ async def agent_context(agent_id: str, session_id: Optional[str] = None):
         yield
 
 
-def log_event(logger: structlog.stdlib.BoundLogger, event_name: str, **event_data):
+def log_event(logger, event_name: str, **event_data):
     """Log a structured event with automatic context inclusion."""
     # Remove 'event' key from event_data if it exists to avoid conflict
     # since we're passing event_name as first argument

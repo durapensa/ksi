@@ -32,10 +32,11 @@ class SimpleEventRouter:
         Initialize the event router.
         
         Args:
-            plugin_loader: The plugin loader instance
+            plugin_loader: The plugin loader instance (for stats only)
         """
-        self.plugin_loader = plugin_loader
-        self.plugin_manager = plugin_loader.pm
+        # Extract what we actually need
+        self.plugin_manager = plugin_loader.pm  # The pluggy PluginManager
+        self.loaded_plugins = plugin_loader.loaded_plugins  # For stats
         
         # Direct event routing without intermediate subscriptions
         self.pending_requests: Dict[str, asyncio.Future] = {}
@@ -301,5 +302,5 @@ class SimpleEventRouter:
             **self.stats,
             "pending_requests": len(self.pending_requests),
             "active_transports": len(self.transports),
-            "loaded_plugins": len(self.plugin_loader.loaded_plugins)
+            "loaded_plugins": len(self.loaded_plugins)
         }

@@ -10,7 +10,7 @@ import sqlite3
 import json
 from pathlib import Path
 from ksi_common.logging import get_bound_logger
-from ksi_common import TimestampManager
+from ksi_common.timestamps import timestamp_utc
 from ksi_common.config import config
 
 class SessionAndSharedStateManager:
@@ -141,7 +141,7 @@ class SessionAndSharedStateManager:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 key, value_json, namespace, owner_agent_id, scope,
-                TimestampManager.timestamp_utc(), expires_at, metadata_json
+                timestamp_utc(), expires_at, metadata_json
             ))
         
         self.logger.info(f"Set shared state: {key} (owner: {owner_agent_id}, scope: {scope})")

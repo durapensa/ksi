@@ -92,21 +92,21 @@ class ChatService:
     
     def __init__(
         self,
-        client_id: str = "chat_service",
+        client_id: Optional[str] = None,
         socket_path: Optional[str] = None,
-        model: str = "sonnet",
+        model: Optional[str] = None,
     ):
         """
         Initialize the chat service.
         
         Args:
-            client_id: Client identifier
-            socket_path: Path to daemon socket
-            model: Default model to use
+            client_id: Client identifier (default from config)
+            socket_path: Path to daemon socket (default from config)
+            model: Default model to use (default from config)
         """
-        self.client_id = client_id
+        self.client_id = client_id or config.tui_chat_client_id
         self.socket_path = socket_path or str(config.socket_path)
-        self.model = model
+        self.model = model or config.tui_default_model
         
         # Client instances
         self._chat_client: Optional[EventChatClient] = None

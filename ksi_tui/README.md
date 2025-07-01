@@ -29,11 +29,28 @@ The KSI TUI package provides a collection of modern terminal applications design
 
 ## Installation
 
-The TUI applications are included with KSI. No additional installation needed.
+### Prerequisites
+
+1. **Activate the virtual environment** (required):
+   ```bash
+   source .venv/bin/activate
+   ```
+
+2. **Install dependencies** (if not already done):
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Start the KSI daemon**:
+   ```bash
+   ./daemon_control.py start
+   ```
+
+The TUI applications are included with KSI and ready to use once dependencies are installed.
 
 ## Usage
 
-### Prerequisites
+### Terminal Requirements
 
 The TUI applications require an interactive terminal with:
 - TTY support (stdin/stdout must be terminals)

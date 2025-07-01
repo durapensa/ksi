@@ -15,7 +15,7 @@ import pluggy
 
 from ksi_common.config import config
 from ksi_common import parse_iso_timestamp, filename_timestamp, display_timestamp, utc_to_local
-from ksi_daemon.plugin_utils import plugin_metadata
+from ksi_daemon.plugin_utils import plugin_metadata, event_handler, create_ksi_describe_events_hook
 from ksi_common.logging import get_bound_logger
 
 # Plugin metadata
@@ -56,25 +56,21 @@ def ksi_startup(config):
 
 @hookimpl
 def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
-    """Handle conversation-related events."""
+    """Handle conversation-related events using decorated handlers."""
     
-    if event_name == "conversation:list":
-        return handle_list_conversations(data, context)
+    # Look for decorated handlers
+    import sys
+    import inspect
+    module = sys.modules[__name__]
     
-    elif event_name == "conversation:search":
-        return handle_search_conversations(data, context)
-    
-    elif event_name == "conversation:get":
-        return handle_get_conversation(data, context)
-    
-    elif event_name == "conversation:export":
-        return handle_export_conversation(data, context)
-    
-    elif event_name == "conversation:stats":
-        return handle_conversation_stats(data, context)
-    
-    elif event_name == "conversation:active":
-        return handle_active_conversations(data, context)
+    for name, obj in inspect.getmembers(module):
+        if inspect.isfunction(obj) and hasattr(obj, '_ksi_event_name'):
+            if obj._ksi_event_name == event_name:
+                # These handlers need context, so pass it
+                if 'context' in inspect.signature(obj).parameters:
+                    return obj(data, context)
+                else:
+                    return obj(data)
     
     return None
 
@@ -175,6 +171,7 @@ def refresh_conversation_cache() -> None:
     logger.info(f"Refreshed conversation cache: {len(conversation_cache)} conversations")
 
 
+@event_handler("conversation:list")
 def handle_list_conversations(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
     """List available conversations with metadata."""
     try:
@@ -246,6 +243,7 @@ def handle_list_conversations(data: Dict[str, Any], context: Dict[str, Any]) -> 
         return {"error": f"Failed to list conversations: {str(e)}"}
 
 
+@event_handler("conversation:search")
 def handle_search_conversations(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
     """Search conversations by content."""
     try:
@@ -353,6 +351,7 @@ def handle_search_conversations(data: Dict[str, Any], context: Dict[str, Any]) -
         return {"error": f"Search failed: {str(e)}"}
 
 
+@event_handler("conversation:get")
 def handle_get_conversation(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
     """Get a specific conversation with full message history."""
     try:
@@ -521,6 +520,7 @@ def get_message_bus_conversation(
     }
 
 
+@event_handler("conversation:export")
 def handle_export_conversation(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
     """Export conversation to markdown or JSON format."""
     try:
@@ -641,6 +641,7 @@ def handle_export_conversation(data: Dict[str, Any], context: Dict[str, Any]) ->
         return {"error": f"Export failed: {str(e)}"}
 
 
+@event_handler("conversation:stats")
 def handle_conversation_stats(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
     """Get statistics about conversations."""
     try:
@@ -681,6 +682,7 @@ def handle_conversation_stats(data: Dict[str, Any], context: Dict[str, Any]) -> 
         return {"error": f"Failed to get stats: {str(e)}"}
 
 
+@event_handler("conversation:active")
 def handle_active_conversations(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
     """Find active conversations from recent COMPLETION_RESULT messages."""
     try:
@@ -781,3 +783,6 @@ def ksi_shutdown():
 
 # Module-level marker for plugin discovery
 ksi_plugin = True
+
+# Enable event discovery
+ksi_describe_events = create_ksi_describe_events_hook(__name__)

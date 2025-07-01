@@ -13,11 +13,20 @@ Environment Variables:
     KSI_STATE_DIR - State directory (default: var/state)
     KSI_SOCKET_TIMEOUT - Socket timeout in seconds (default: 5.0)
     KSI_DEBUG - Enable debug mode (default: false)
+    
+    TUI Configuration:
+    KSI_TUI_DEFAULT_MODEL - Default model for TUI apps (default: claude-cli/sonnet)
+    KSI_TUI_CHAT_CLIENT_ID - Client ID for chat app (default: ksi-chat)
+    KSI_TUI_MONITOR_CLIENT_ID - Client ID for monitor app (default: ksi-monitor)
+    KSI_TUI_MONITOR_UPDATE_INTERVAL - Monitor refresh interval (default: 1.0)
+    KSI_TUI_THEME - Default TUI theme (default: catppuccin)
 
 Example:
     export KSI_SOCKET_PATH=/custom/daemon.sock
     export KSI_LOG_LEVEL=DEBUG
-    python3 chat.py
+    export KSI_TUI_DEFAULT_MODEL=claude-cli/opus
+    export KSI_TUI_MONITOR_UPDATE_INTERVAL=0.5
+    ./ksi-chat
 """
 
 from pydantic_settings import BaseSettings
@@ -114,6 +123,13 @@ class KSIBaseConfig(BaseSettings):
     
     # Test timeouts (in seconds)
     test_completion_timeout: int = 120     # 2 minutes for tests
+    
+    # TUI Application Configuration
+    tui_default_model: str = "claude-cli/sonnet"  # Default model for TUI apps
+    tui_chat_client_id: str = "ksi-chat"         # Default client ID for chat
+    tui_monitor_client_id: str = "ksi-monitor"   # Default client ID for monitor
+    tui_monitor_update_interval: float = 1.0     # Monitor refresh interval (seconds)
+    tui_theme: str = "catppuccin"                # Default TUI theme
     
     # Model configuration - same as ksi_daemon
     model_config = {

@@ -9,7 +9,7 @@ Supports filtering, pagination, and statistics.
 from typing import Dict, Any, List, Optional
 import pluggy
 
-from ksi_daemon.plugin_utils import plugin_metadata
+from ksi_daemon.plugin_utils import plugin_metadata, event_handler, create_ksi_describe_events_hook
 from ksi_common.logging import get_bound_logger
 
 # Plugin metadata
@@ -34,34 +34,23 @@ def ksi_startup(config):
 
 @hookimpl
 def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
-    """Handle monitor-related events."""
+    """Handle monitor-related events using decorated handlers."""
     
-    # Test automatic context binding
-    logger.info(f"Handling monitor event: {event_name}")
-    
-    if event_name == "monitor:get_events":
-        return handle_get_events(data)
-    
-    elif event_name == "monitor:get_stats":
-        return handle_get_stats(data)
-        
-    elif event_name == "monitor:clear_log":
-        return handle_clear_log(data)
-    
-    elif event_name == "monitor:subscribe":
+    # Special case for subscribe/unsubscribe which need context
+    if event_name == "monitor:subscribe":
         return handle_subscribe(data, context)
-    
     elif event_name == "monitor:unsubscribe":
         return handle_unsubscribe(data, context)
     
-    elif event_name == "monitor:query":
-        return handle_query(data)
+    # Look for decorated handlers
+    import sys
+    import inspect
+    module = sys.modules[__name__]
     
-    elif event_name == "monitor:get_session_events":
-        return handle_get_session_events(data)
-    
-    elif event_name == "monitor:get_correlation_chain":
-        return handle_get_correlation_chain(data)
+    for name, obj in inspect.getmembers(module):
+        if inspect.isfunction(obj) and hasattr(obj, '_ksi_event_name'):
+            if obj._ksi_event_name == event_name:
+                return obj(data)
     
     return None
 
@@ -73,6 +62,7 @@ def ksi_plugin_context(context):
     event_router = context.get("event_router")
 
 
+@event_handler("monitor:get_events")
 def handle_get_events(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Query event log with filtering and pagination.
@@ -133,6 +123,7 @@ def handle_get_events(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": f"Query failed: {str(e)}"}
 
 
+@event_handler("monitor:get_stats")
 def handle_get_stats(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Get event log statistics.
@@ -159,6 +150,7 @@ def handle_get_stats(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": f"Stats failed: {str(e)}"}
 
 
+@event_handler("monitor:clear_log")
 def handle_clear_log(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Clear event log (admin operation).
@@ -267,6 +259,7 @@ def handle_unsubscribe(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[st
         return {"error": f"Unsubscribe failed: {str(e)}"}
 
 
+@event_handler("monitor:query")
 def handle_query(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Execute custom SQL query against event database.
@@ -314,6 +307,7 @@ def handle_query(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": f"Query failed: {str(e)}"}
 
 
+@event_handler("monitor:get_session_events")
 def handle_get_session_events(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Get all events for a specific session.
@@ -376,6 +370,7 @@ def handle_get_session_events(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": f"Query failed: {str(e)}"}
 
 
+@event_handler("monitor:get_correlation_chain")
 def handle_get_correlation_chain(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Get all events in a correlation chain.
@@ -447,3 +442,6 @@ def handle_get_correlation_chain(data: Dict[str, Any]) -> Dict[str, Any]:
 
 # Module-level marker for plugin discovery
 ksi_plugin = True
+
+# Enable event discovery
+ksi_describe_events = create_ksi_describe_events_hook(__name__)

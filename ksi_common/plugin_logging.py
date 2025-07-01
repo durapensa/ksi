@@ -24,7 +24,7 @@ import structlog
 # Use structlog's contextvar system for automatic integration
 # This ensures the contextvars are automatically included in log records
 
-def get_plugin_logger(plugin_name: str, **extra_context) -> structlog.stdlib.BoundLogger:
+def get_plugin_logger(plugin_name: str, **extra_context):
     """
     Get a properly configured logger for a KSI plugin.
     
@@ -167,7 +167,7 @@ class RequestContextManager:
 
 
 # Backward compatibility: maintain existing logger creation pattern
-def get_ksi_plugin_logger(plugin_name: str) -> structlog.stdlib.BoundLogger:
+def get_ksi_plugin_logger(plugin_name: str):
     """
     Backward compatibility alias for get_plugin_logger.
     
@@ -177,7 +177,7 @@ def get_ksi_plugin_logger(plugin_name: str) -> structlog.stdlib.BoundLogger:
 
 
 # Migration helper: convert existing logger patterns
-def migrate_plugin_logger(old_logger_name: str) -> structlog.stdlib.BoundLogger:
+def migrate_plugin_logger(old_logger_name: str):
     """
     Migration helper to convert existing plugin logger patterns to new system.
     

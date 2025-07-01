@@ -10,7 +10,7 @@ import json
 from typing import Dict, Any, Optional
 import pluggy
 
-from ksi_daemon.plugin_utils import plugin_metadata
+from ksi_daemon.plugin_utils import plugin_metadata, event_handler, create_ksi_describe_events_hook
 from ksi_common.logging import get_bound_logger
 
 # Plugin metadata
@@ -49,60 +49,29 @@ def ksi_plugin_context(context):
 
 @hookimpl
 def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
-    """Handle state-related events."""
+    """Handle state-related events using decorated handlers."""
     
     if not state_manager:
         return {"error": "State infrastructure not available"}
     
-    # Get operation
-    if event_name == "state:get":
-        return handle_get(data)
+    # Look for decorated handlers
+    import sys
+    import inspect
+    module = sys.modules[__name__]
     
-    # Set operation
-    elif event_name == "state:set":
-        return handle_set(data)
+    for name, obj in inspect.getmembers(module):
+        if inspect.isfunction(obj) and hasattr(obj, '_ksi_event_name'):
+            if obj._ksi_event_name == event_name:
+                return obj(data)
     
-    # Delete operation
-    elif event_name == "state:delete":
-        return handle_delete(data)
-    
-    # List keys
-    elif event_name == "state:list":
-        return handle_list(data)
-    
-    # Clear namespace
-    elif event_name == "state:clear":
-        return handle_clear(data)
-    
-    # Session operations
-    elif event_name == "state:session:update":
-        return handle_session_update(data)
-    
-    elif event_name == "state:session:get":
-        return handle_session_get(data)
-    
-    # Async state operations
-    elif event_name == "async_state:push":
-        return handle_async_push(data)
-    
-    elif event_name == "async_state:pop":
-        return handle_async_pop(data)
-    
-    elif event_name == "async_state:get_queue":
-        return handle_async_get_queue(data)
-    
-    elif event_name == "async_state:get_keys":
-        return handle_async_get_keys(data)
-    
-    elif event_name == "async_state:queue_length":
-        return handle_async_queue_length(data)
-    
-    elif event_name == "async_state:delete":
+    # Legacy async_state operations handler (until we migrate all handlers)
+    if event_name == "async_state:delete":
         return handle_async_delete(data)
     
     return None
 
 
+@event_handler("state:get")
 def handle_get(data: Dict[str, Any]) -> Dict[str, Any]:
     """Handle state get operation."""
     namespace = data.get("namespace", "global")
@@ -130,6 +99,7 @@ def handle_get(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+@event_handler("state:set")
 def handle_set(data: Dict[str, Any]) -> Dict[str, Any]:
     """Handle state set operation."""
     namespace = data.get("namespace", "global") 
@@ -158,6 +128,7 @@ def handle_set(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+@event_handler("state:delete")
 def handle_delete(data: Dict[str, Any]) -> Dict[str, Any]:
     """Handle state delete operation."""
     namespace = data.get("namespace", "global")
@@ -184,6 +155,7 @@ def handle_delete(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+@event_handler("state:list")
 def handle_list(data: Dict[str, Any]) -> Dict[str, Any]:
     """Handle state list operation."""
     namespace = data.get("namespace")
@@ -227,6 +199,7 @@ def handle_list(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+@event_handler("state:clear")
 def handle_clear(data: Dict[str, Any]) -> Dict[str, Any]:
     """Handle state clear operation."""
     namespace = data.get("namespace")
@@ -261,6 +234,7 @@ def handle_clear(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+@event_handler("state:session:update")
 def handle_session_update(data: Dict[str, Any]) -> Dict[str, Any]:
     """Handle session update."""
     session_id = data.get("session_id")
@@ -280,6 +254,7 @@ def handle_session_update(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+@event_handler("state:session:get")
 def handle_session_get(data: Dict[str, Any]) -> Dict[str, Any]:
     """Handle session get."""
     session_id = data.get("session_id")
@@ -300,6 +275,7 @@ def handle_session_get(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # Async state handler functions
+@event_handler("async_state:push")
 async def handle_async_push(data: Dict[str, Any]) -> Dict[str, Any]:
     """Handle async state push operation."""
     if not async_state:
@@ -326,6 +302,7 @@ async def handle_async_push(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+@event_handler("async_state:pop")
 async def handle_async_pop(data: Dict[str, Any]) -> Dict[str, Any]:
     """Handle async state pop operation."""
     if not async_state:
@@ -351,6 +328,7 @@ async def handle_async_pop(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+@event_handler("async_state:get_queue")
 async def handle_async_get_queue(data: Dict[str, Any]) -> Dict[str, Any]:
     """Handle async state get queue operation."""
     if not async_state:
@@ -377,6 +355,7 @@ async def handle_async_get_queue(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+@event_handler("async_state:get_keys")
 async def handle_async_get_keys(data: Dict[str, Any]) -> Dict[str, Any]:
     """Handle async state get keys operation."""
     if not async_state:
@@ -400,6 +379,7 @@ async def handle_async_get_keys(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+@event_handler("async_state:queue_length")
 async def handle_async_queue_length(data: Dict[str, Any]) -> Dict[str, Any]:
     """Handle async state queue length operation."""
     if not async_state:
@@ -424,6 +404,7 @@ async def handle_async_queue_length(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+@event_handler("async_state:delete")
 async def handle_async_delete(data: Dict[str, Any]) -> Dict[str, Any]:
     """Handle async state delete operation."""
     if not async_state:
@@ -450,3 +431,6 @@ async def handle_async_delete(data: Dict[str, Any]) -> Dict[str, Any]:
 
 # Module-level marker for plugin discovery
 ksi_plugin = True
+
+# Enable event discovery
+ksi_describe_events = create_ksi_describe_events_hook(__name__)

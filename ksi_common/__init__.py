@@ -35,7 +35,6 @@ from .timestamps import (
     format_for_message_bus,
     get_timezone_offset,
     ensure_utc_suffix,
-    TimestampManager  # Deprecated, for backward compatibility
 )
 from .paths import KSIPaths
 from .config import KSIBaseConfig, config
@@ -96,9 +95,6 @@ from .completion_format import (
     extract_usage,
     extract_cost,
     extract_model,
-    # Deprecated classes
-    CompletionResponse,
-    ProviderHelpers,
 )
 
 __all__ = [
@@ -123,7 +119,6 @@ __all__ = [
     "format_for_message_bus",
     "get_timezone_offset",
     "ensure_utc_suffix",
-    "TimestampManager",  # Deprecated
     
     # Config instance
     "config",
@@ -182,7 +177,4 @@ __all__ = [
     "extract_usage",
     "extract_cost",
     "extract_model",
-    # Deprecated
-    "CompletionResponse",
-    "ProviderHelpers",
 ]

@@ -15,7 +15,7 @@ import hashlib
 import json
 
 from ksi_common.logging import get_bound_logger
-from ksi_common import TimestampManager
+from ksi_common.timestamps import timestamp_utc
 
 logger = get_bound_logger("circuit_breakers", version="1.0.0")
 

@@ -15,8 +15,8 @@ from typing import Dict, Any, Optional, List, Set
 from dataclasses import dataclass, field
 import pluggy
 
-from ksi_daemon.plugin_utils import plugin_metadata
-from ksi_common import TimestampManager
+from ksi_daemon.plugin_utils import plugin_metadata, event_handler, create_ksi_describe_events_hook
+from ksi_common.timestamps import timestamp_utc, format_for_logging
 from ksi_common.logging import get_bound_logger
 from ksi_common.config import config
 
@@ -255,7 +255,7 @@ async def resolve_composition(
         'composition': composition.name,
         'type': composition.type,
         'version': composition.version,
-        'resolved_at': TimestampManager.format_for_logging()
+        'resolved_at': format_for_logging()
     }
     
     return result
@@ -308,59 +308,22 @@ async def compose_prompt(name: str, variables: Optional[Dict[str, Any]] = None) 
 # Event handlers
 @hookimpl
 def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
-    """Handle composition events."""
+    """Handle composition-related events using decorated handlers."""
     
-    if event_name == "composition:compose":
-        # Generic composition
-        return handle_compose(data)
+    # Look for decorated handlers
+    import sys
+    import inspect
+    module = sys.modules[__name__]
     
-    elif event_name == "composition:profile":
-        # Profile-specific composition
-        return handle_compose_profile(data)
-    
-    elif event_name == "composition:prompt":
-        # Prompt-specific composition
-        return handle_compose_prompt(data)
-    
-    elif event_name == "composition:validate":
-        # Validate composition
-        return handle_validate(data)
-    
-    elif event_name == "composition:discover":
-        # Discover available compositions
-        return handle_discover(data)
-    
-    elif event_name == "composition:list":
-        # List compositions by type
-        return handle_list(data)
-    
-    elif event_name == "composition:get":
-        # Get composition definition
-        return handle_get(data)
-    
-    elif event_name == "composition:reload":
-        # Reload compositions from disk
-        return handle_reload(data)
-    
-    elif event_name == "composition:load_tree":
-        # Universal tree loading based on declared strategy
-        return handle_load_tree(data)
-    
-    elif event_name == "composition:load_bulk":
-        # Universal bulk loading for agent efficiency
-        return handle_load_bulk(data)
-    
-    elif event_name == "composition:select":
-        # Dynamic composition selection
-        return handle_select_composition(data)
-    
-    elif event_name == "composition:create":
-        # Runtime composition creation
-        return handle_create_composition(data)
+    for name, obj in inspect.getmembers(module):
+        if inspect.isfunction(obj) and hasattr(obj, '_ksi_event_name'):
+            if obj._ksi_event_name == event_name:
+                return obj(data)
     
     return None
 
 
+@event_handler("composition:compose")
 async def handle_compose(data: Dict[str, Any]) -> Dict[str, Any]:
     """Handle generic composition request."""
     name = data.get('name')
@@ -382,6 +345,7 @@ async def handle_compose(data: Dict[str, Any]) -> Dict[str, Any]:
         return {'error': str(e)}
 
 
+@event_handler("composition:profile")
 async def handle_compose_profile(data: Dict[str, Any]) -> Dict[str, Any]:
     """Handle profile composition request."""
     name = data.get('name')
@@ -401,6 +365,7 @@ async def handle_compose_profile(data: Dict[str, Any]) -> Dict[str, Any]:
         return {'error': str(e)}
 
 
+@event_handler("composition:prompt")
 async def handle_compose_prompt(data: Dict[str, Any]) -> Dict[str, Any]:
     """Handle prompt composition request."""
     name = data.get('name')
@@ -420,6 +385,7 @@ async def handle_compose_prompt(data: Dict[str, Any]) -> Dict[str, Any]:
         return {'error': str(e)}
 
 
+@event_handler("composition:validate")
 async def handle_validate(data: Dict[str, Any]) -> Dict[str, Any]:
     """Validate a composition."""
     name = data.get('name')
@@ -463,6 +429,7 @@ async def handle_validate(data: Dict[str, Any]) -> Dict[str, Any]:
         }
 
 
+@event_handler("composition:discover")
 async def handle_discover(data: Dict[str, Any]) -> Dict[str, Any]:
     """Discover available compositions using index."""
     if not composition_index:
@@ -478,6 +445,7 @@ async def handle_discover(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+@event_handler("composition:list")
 async def handle_list(data: Dict[str, Any]) -> Dict[str, Any]:
     """List all compositions of a given type."""
     comp_type = data.get('type', 'all')
@@ -500,6 +468,7 @@ async def handle_list(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+@event_handler("composition:get")
 async def handle_get(data: Dict[str, Any]) -> Dict[str, Any]:
     """Get a composition definition."""
     name = data.get('name')
@@ -542,6 +511,7 @@ async def handle_get(data: Dict[str, Any]) -> Dict[str, Any]:
         return {'error': str(e)}
 
 
+@event_handler("composition:reload")
 async def handle_reload(data: Dict[str, Any]) -> Dict[str, Any]:
     """Reload compositions by rebuilding index."""
     if not composition_index:
@@ -559,6 +529,7 @@ async def handle_reload(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+@event_handler("composition:load_tree")
 async def handle_load_tree(data: Dict[str, Any]) -> Dict[str, Any]:
     """Universal tree loading based on composition's declared strategy."""
     if not composition_index:
@@ -622,6 +593,7 @@ async def handle_load_tree(data: Dict[str, Any]) -> Dict[str, Any]:
         return {'error': str(e)}
 
 
+@event_handler("composition:load_bulk")
 async def handle_load_bulk(data: Dict[str, Any]) -> Dict[str, Any]:
     """Universal bulk loading for agent efficiency."""
     if not composition_index:
@@ -655,6 +627,7 @@ async def handle_load_bulk(data: Dict[str, Any]) -> Dict[str, Any]:
         return {'error': str(e)}
 
 
+@event_handler("composition:select")
 async def handle_select_composition(data: Dict[str, Any]) -> Dict[str, Any]:
     """Handle dynamic composition selection based on context."""
     try:
@@ -705,6 +678,7 @@ async def handle_select_composition(data: Dict[str, Any]) -> Dict[str, Any]:
         return {'error': str(e)}
 
 
+@event_handler("composition:create")
 async def handle_create_composition(data: Dict[str, Any]) -> Dict[str, Any]:
     """Handle runtime composition creation."""
     try:
@@ -755,7 +729,7 @@ async def handle_create_composition(data: Dict[str, Any]) -> Dict[str, Any]:
         # Add metadata for dynamic composition
         composition['metadata'].update({
             'dynamic': True,
-            'created_at': TimestampManager.format_for_logging(),
+            'created_at': format_for_logging(),
             'parent_agent': data.get('agent_id')
         })
         
@@ -814,3 +788,6 @@ def ksi_shutdown():
 
 # Module-level marker for plugin discovery
 ksi_plugin = True
+
+# Enable event discovery
+ksi_describe_events = create_ksi_describe_events_hook(__name__)

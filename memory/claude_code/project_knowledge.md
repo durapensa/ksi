@@ -262,6 +262,121 @@ Verifies: sync/async completion, queue status, conversation locks, priorities
 - **Agent state**: Plain keys for agent-specific
 - **SQLite backend**: `var/db/agent_shared_state.db`
 
+## Python Introspection Patterns for Discovery
+
+### Event Handler Decorator Pattern
+```python
+@event_handler("permission:list_profiles")
+def handle_list_profiles(data: Dict[str, Any]) -> Dict[str, Any]:
+    """List available permission profiles.
+    
+    Returns:
+        profiles: Dictionary containing all permission profiles
+    """
+    return {"profiles": {...}}
+```
+
+The decorator automatically extracts:
+- Event name from decorator argument
+- Summary from first line of docstring
+- Parameters from function signature and type hints
+- Return info from docstring Returns section
+
+### Metadata Extraction from Functions
+```python
+def _extract_metadata(func: Callable) -> Dict[str, Any]:
+    # 1. Extract docstring and parse sections
+    docstring = inspect.getdoc(func)
+    
+    # 2. Get function signature and type hints
+    sig = inspect.signature(func)
+    type_hints = get_type_hints(func)
+    
+    # 3. Parse parameter documentation from docstring
+    # Supports Args:, Parameters:, Returns: sections
+    
+    # 4. Build complete event metadata
+    return {
+        "event": event_name,
+        "summary": first_line_of_docstring,
+        "parameters": extracted_params
+    }
+```
+
+### Dynamic Namespace Pattern (Client)
+```python
+class EventNamespace:
+    def __getattr__(self, event_name: str) -> Callable:
+        # Handle Python keywords (async -> async_)
+        if event_name == "async_":
+            event_name = "async"
+        
+        # Create method dynamically
+        async def event_method(**kwargs):
+            return await self._client.send_event(full_event, kwargs)
+        
+        # Add metadata from discovery
+        event_method.__doc__ = discovered_doc
+        return event_method
+
+# Usage: client.completion.async_(...) 
+```
+
+### Plugin Self-Description
+```python
+@hookimpl
+def ksi_describe_events() -> Dict[str, List[Dict[str, Any]]]:
+    """Auto-discover events from decorated handlers."""
+    return collect_event_metadata(sys.modules[__name__])
+```
+
+Plugins describe their own events by:
+1. Decorating handlers with `@event_handler`
+2. Implementing `ksi_describe_events` hook
+3. Discovery service aggregates from all plugins
+
+### Docstring Parameter Parsing
+```python
+# Regex pattern for parameter documentation
+param_pattern = re.compile(r'^\s*(\w+)\s*(?:\(([^)]+)\))?\s*:\s*(.+)$')
+
+# Parses:
+#   agent_id (str): The agent ID to query
+# Into:
+#   {"agent_id": {"type": "str", "description": "The agent ID to query"}}
+```
+
+### Type Annotation Introspection
+```python
+# Convert Python type annotations to discovery metadata
+type_map = {
+    str: "str",
+    int: "int", 
+    float: "float",
+    bool: "bool",
+    list: "list",
+    dict: "dict",
+    Optional[str]: "str (optional)"
+}
+```
+
+### Discovery Aggregation Pattern
+```python
+# Discovery service collects from all plugins
+all_events = {}
+for plugin in plugin_manager.get_plugins():
+    if hasattr(plugin, 'ksi_describe_events'):
+        plugin_events = plugin.ksi_describe_events()
+        merge_events(all_events, plugin_events)
+```
+
+### Key Benefits
+1. **Zero Maintenance**: Event metadata lives with implementation
+2. **Type Safety**: Extracted from actual function signatures
+3. **Self-Documenting**: Docstrings become API documentation
+4. **DRY Principle**: Single source of truth for events
+5. **IDE Support**: Generated stubs from introspection
+
 ## Common Issues
 
 ### Socket Not Found

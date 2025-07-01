@@ -13,7 +13,7 @@ from typing import Dict, Any, Optional, List
 import pluggy
 
 from ksi_common.logging import get_bound_logger
-from ksi_daemon.plugin_utils import plugin_metadata
+from ksi_daemon.plugin_utils import plugin_metadata, event_handler, create_ksi_describe_events_hook
 from ksi_common.config import config
 from ksi_common import timestamp_utc
 from ksi_daemon.plugins.injection.injection_types import (
@@ -178,68 +178,90 @@ def ksi_ready():
     }
 
 
+@event_handler("injection:status")
+def handle_injection_status(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Get injection router status."""
+    return {
+        "queued_count": injection_queue.qsize() if injection_queue else 0,
+        "metadata_count": len(injection_metadata_store),
+        "blocked_count": len(circuit_breaker.blocked_requests),
+        "state_manager_available": state_manager is not None,
+        "event_emitter_available": event_emitter is not None
+    }
+
+
+@event_handler("injection:inject")
+def handle_injection_inject(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle unified injection request."""
+    # Unified injection handler - convert to typed interface
+    try:
+        # Parse mode and position enums
+        mode = InjectionMode(data.get("mode", "next"))
+        position = InjectionPosition(data.get("position", "before_prompt"))
+        
+        # Create typed request
+        request = InjectionRequest(
+            content=data.get("content", ""),
+            mode=mode,
+            position=position,
+            session_id=data.get("session_id"),
+            priority=data.get("priority", "normal"),
+            metadata=data.get("metadata", {})
+        )
+        
+        # Process using typed interface
+        return process_injection(request)
+    except ValueError as e:
+        return {"status": "error", "error": str(e)}
+
+
+@event_handler("injection:batch")
+def handle_injection_batch(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle batch injection request."""
+    injections = data.get("injections", [])
+    return inject_batch(injections)
+
+
+@event_handler("injection:list")
+def handle_injection_list(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle list injections request."""
+    session_id = data.get("session_id")
+    return list_pending_injections(session_id)
+
+
+@event_handler("injection:clear")
+def handle_injection_clear(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle clear injections request."""
+    session_id = data.get("session_id")
+    mode = data.get("mode")
+    return clear_injections(session_id, mode)
+
+
 @hookimpl
 def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
-    """Handle injection-related events."""
+    """Handle injection-related events using decorated handlers."""
     
-    if event_name == "completion:result":
-        # Return async coroutine for daemon to await
-        return handle_completion_result(data, context)
+    # Look for decorated handlers
+    import sys
+    import inspect
+    module = sys.modules[__name__]
     
-    elif event_name == "injection:execute":
-        # Return async coroutine for daemon to await
-        return execute_injection(data, context)
-    
-    elif event_name == "injection:status":
-        return {
-            "queued_count": injection_queue.qsize() if injection_queue else 0,
-            "metadata_count": len(injection_metadata_store),
-            "blocked_count": len(circuit_breaker.blocked_requests),
-            "state_manager_available": state_manager is not None,
-            "event_emitter_available": event_emitter is not None
-        }
-    
-    # New unified injection events
-    elif event_name == "injection:inject":
-        # Unified injection handler - convert to typed interface
-        try:
-            # Parse mode and position enums
-            mode = InjectionMode(data.get("mode", "next"))
-            position = InjectionPosition(data.get("position", "before_prompt"))
-            
-            # Create typed request
-            request = InjectionRequest(
-                content=data.get("content", ""),
-                mode=mode,
-                position=position,
-                session_id=data.get("session_id"),
-                priority=data.get("priority", "normal"),
-                metadata=data.get("metadata", {})
-            )
-            
-            # Process using typed interface
-            return process_injection(request)
-        except ValueError as e:
-            return {"status": "error", "error": str(e)}
-    
-    elif event_name == "injection:batch":
-        # Batch injection support
-        return inject_batch(data.get("injections", []))
-    
-    elif event_name == "injection:list":
-        # List pending injections
-        return list_pending_injections(data.get("session_id"))
-    
-    elif event_name == "injection:clear":
-        # Clear injections
-        return clear_injections(
-            data.get("session_id"),
-            data.get("mode")
-        )
+    for name, obj in inspect.getmembers(module):
+        if inspect.isfunction(obj) and hasattr(obj, '_ksi_event_name'):
+            if obj._ksi_event_name == event_name:
+                # Handle async functions that need context
+                if inspect.iscoroutinefunction(obj):
+                    if 'context' in inspect.signature(obj).parameters:
+                        return obj(data, context)
+                    else:
+                        return obj(data)
+                else:
+                    return obj(data)
     
     return None
 
 
+@event_handler("completion:result")
 async def handle_completion_result(data: Dict[str, Any], context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Process completion result and queue injection if configured."""
     
@@ -379,6 +401,7 @@ async def handle_completion_result(data: Dict[str, Any], context: Dict[str, Any]
         }
 
 
+@event_handler("injection:execute")
 async def execute_injection(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
     """Execute a queued injection by creating a new completion request."""
     
@@ -970,7 +993,7 @@ async def process_injection(request: InjectionRequest) -> InjectionResult:
         result = await event_emitter("claude:completion:result", {
             "session_id": request.session_id,
             "injection": injection_data,
-            "timestamp": TimestampManager.format_for_logging()
+            "timestamp": format_for_logging()
         }, {})
         
         return InjectionResult(
@@ -997,7 +1020,7 @@ async def process_injection(request: InjectionRequest) -> InjectionResult:
             "position": request.position.value,
             "priority": request.priority,
             "metadata": request.metadata,
-            "timestamp": TimestampManager.format_for_logging()
+            "timestamp": format_for_logging()
         }
         
         try:
@@ -1069,3 +1092,6 @@ def ksi_shutdown():
 
 # Module marker
 ksi_plugin = True
+
+# Enable event discovery
+ksi_describe_events = create_ksi_describe_events_hook(__name__)

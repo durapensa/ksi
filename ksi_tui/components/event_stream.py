@@ -306,6 +306,10 @@ class EventStreamWidget(Container):
         self._event_handler = handler
 
 
+# Alias for backward compatibility
+EventStream = EventStreamWidget
+
+
 # CSS for EventStream components
 EVENT_STREAM_CSS = """
 /* Event stream container */

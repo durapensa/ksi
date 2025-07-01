@@ -15,7 +15,7 @@ from typing import Dict, Any, Optional, List, Set
 from datetime import datetime
 import pluggy
 
-from ksi_daemon.plugin_utils import plugin_metadata
+from ksi_daemon.plugin_utils import plugin_metadata, event_handler, create_ksi_describe_events_hook
 from ksi_common import format_for_logging
 from ksi_common.async_utils import run_sync
 from ksi_common.config import config
@@ -82,72 +82,23 @@ def ksi_startup(config):
 
 @hookimpl
 def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
-    """Handle agent-related events."""
+    """Handle agent-related events using decorated handlers."""
     
-    # Agent lifecycle events
-    if event_name == "agent:spawn":
-        return handle_spawn_agent(data)
+    # Look for decorated handlers
+    import sys
+    import inspect
+    module = sys.modules[__name__]
     
-    elif event_name == "agent:terminate":
-        return handle_terminate_agent(data)
-    
-    elif event_name == "agent:restart":
-        return handle_restart_agent(data)
-    
-    # Agent registry events
-    elif event_name == "agent:register":
-        return handle_register_agent(data)
-    
-    elif event_name == "agent:unregister":
-        return handle_unregister_agent(data)
-    
-    elif event_name == "agent:list":
-        return handle_list_agents(data)
-    
-    # Identity events  
-    elif event_name == "agent:create_identity":
-        return handle_create_identity(data)
-    
-    elif event_name == "agent:update_identity":
-        return handle_update_identity(data)
-    
-    elif event_name == "agent:remove_identity":
-        return handle_remove_identity(data)
-    
-    elif event_name == "agent:list_identities":
-        return handle_list_identities(data)
-    
-    elif event_name == "agent:get_identity":
-        return handle_get_identity(data)
-    
-    # Task routing
-    elif event_name == "agent:route_task":
-        return handle_route_task(data)
-    
-    elif event_name == "agent:get_capabilities":
-        return handle_get_capabilities(data)
-    
-    # Message handling
-    elif event_name == "agent:send_message":
-        return handle_send_message(data)
-    
-    elif event_name == "agent:broadcast":
-        return handle_broadcast(data)
-    
-    # Dynamic composition events
-    elif event_name == "agent:update_composition":
-        return handle_update_composition(data)
-    
-    elif event_name == "agent:discover_peers":
-        return handle_discover_peers(data)
-    
-    elif event_name == "agent:negotiate_roles":
-        return handle_negotiate_roles(data)
+    for name, obj in inspect.getmembers(module):
+        if inspect.isfunction(obj) and hasattr(obj, '_ksi_event_name'):
+            if obj._ksi_event_name == event_name:
+                return obj(data)
     
     return None
 
 
 # Agent lifecycle handlers
+@event_handler("agent:spawn")
 def handle_spawn_agent(data: Dict[str, Any]) -> Dict[str, Any]:
     """Spawn a new agent thread with optional profile."""
     agent_id = data.get("agent_id") or f"agent_{uuid.uuid4().hex[:8]}"
@@ -335,6 +286,7 @@ def handle_spawn_agent(data: Dict[str, Any]) -> Dict[str, Any]:
     return _spawn_with_composition()
 
 
+@event_handler("agent:terminate")
 def handle_terminate_agent(data: Dict[str, Any]) -> Dict[str, Any]:
     """Terminate an agent thread."""
     agent_id = data.get("agent_id")
@@ -384,6 +336,7 @@ def handle_terminate_agent(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+@event_handler("agent:restart")
 def handle_restart_agent(data: Dict[str, Any]) -> Dict[str, Any]:
     """Restart an agent."""
     agent_id = data.get("agent_id")
@@ -534,6 +487,7 @@ async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
 
 
 # Agent registry handlers
+@event_handler("agent:register")
 def handle_register_agent(data: Dict[str, Any]) -> Dict[str, Any]:
     """Register an external agent."""
     agent_id = data.get("agent_id")
@@ -560,6 +514,7 @@ def handle_register_agent(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+@event_handler("agent:unregister")
 def handle_unregister_agent(data: Dict[str, Any]) -> Dict[str, Any]:
     """Unregister an agent."""
     agent_id = data.get("agent_id")
@@ -575,6 +530,7 @@ def handle_unregister_agent(data: Dict[str, Any]) -> Dict[str, Any]:
     return {"error": f"Agent {agent_id} not found"}
 
 
+@event_handler("agent:list")
 def handle_list_agents(data: Dict[str, Any]) -> Dict[str, Any]:
     """List registered agents."""
     filter_status = data.get("status")
@@ -598,6 +554,7 @@ def handle_list_agents(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # Identity handlers
+@event_handler("agent:create_identity")
 def handle_create_identity(data: Dict[str, Any]) -> Dict[str, Any]:
     """Create a new agent identity."""
     agent_id = data.get("agent_id") or f"agent_{uuid.uuid4().hex[:8]}"
@@ -622,6 +579,7 @@ def handle_create_identity(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+@event_handler("agent:update_identity")
 def handle_update_identity(data: Dict[str, Any]) -> Dict[str, Any]:
     """Update an agent identity."""
     agent_id = data.get("agent_id")
@@ -647,6 +605,7 @@ def handle_update_identity(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+@event_handler("agent:remove_identity")
 def handle_remove_identity(data: Dict[str, Any]) -> Dict[str, Any]:
     """Remove an agent identity."""
     agent_id = data.get("agent_id")
@@ -663,6 +622,7 @@ def handle_remove_identity(data: Dict[str, Any]) -> Dict[str, Any]:
     return {"error": f"Identity for {agent_id} not found"}
 
 
+@event_handler("agent:list_identities")
 def handle_list_identities(data: Dict[str, Any]) -> Dict[str, Any]:
     """List agent identities."""
     identity_list = []
@@ -681,6 +641,7 @@ def handle_list_identities(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+@event_handler("agent:get_identity")
 def handle_get_identity(data: Dict[str, Any]) -> Dict[str, Any]:
     """Get a specific agent identity."""
     agent_id = data.get("agent_id")
@@ -698,6 +659,7 @@ def handle_get_identity(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # Task routing handlers
+@event_handler("agent:route_task")
 def handle_route_task(data: Dict[str, Any]) -> Dict[str, Any]:
     """Route a task to an appropriate agent."""
     task = data.get("task", {})
@@ -715,6 +677,7 @@ def handle_route_task(data: Dict[str, Any]) -> Dict[str, Any]:
     return {"error": "No available agents"}
 
 
+@event_handler("agent:get_capabilities")
 def handle_get_capabilities(data: Dict[str, Any]) -> Dict[str, Any]:
     """Get capabilities of an agent or all agents."""
     agent_id = data.get("agent_id")
@@ -771,6 +734,7 @@ def ksi_shutdown():
 
 
 # Message handling functions
+@event_handler("agent:send_message")
 def handle_send_message(data: Dict[str, Any]) -> Dict[str, Any]:
     """Send a message to an agent."""
     agent_id = data.get("agent_id")
@@ -791,6 +755,7 @@ def handle_send_message(data: Dict[str, Any]) -> Dict[str, Any]:
     return {"error": "Agent message queue not available"}
 
 
+@event_handler("agent:broadcast")
 def handle_broadcast(data: Dict[str, Any]) -> Dict[str, Any]:
     """Broadcast a message to all agents."""
     message = data.get("message", {})
@@ -815,6 +780,7 @@ def handle_broadcast(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # Dynamic composition handlers
+@event_handler("agent:update_composition")
 def handle_update_composition(data: Dict[str, Any]) -> Dict[str, Any]:
     """Handle agent composition update request."""
     agent_id = data.get("agent_id")
@@ -913,6 +879,7 @@ def handle_update_composition(data: Dict[str, Any]) -> Dict[str, Any]:
     return run_sync(_update_composition())
 
 
+@event_handler("agent:discover_peers")
 def handle_discover_peers(data: Dict[str, Any]) -> Dict[str, Any]:
     """Discover other agents and their capabilities."""
     requesting_agent = data.get("agent_id")
@@ -954,6 +921,7 @@ def handle_discover_peers(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+@event_handler("agent:negotiate_roles")
 def handle_negotiate_roles(data: Dict[str, Any]) -> Dict[str, Any]:
     """Coordinate role negotiation between agents."""
     participants = data.get("participants", [])
@@ -998,3 +966,6 @@ def handle_negotiate_roles(data: Dict[str, Any]) -> Dict[str, Any]:
 
 # Module-level marker for plugin discovery
 ksi_plugin = True
+
+# Enable event discovery
+ksi_describe_events = create_ksi_describe_events_hook(__name__)

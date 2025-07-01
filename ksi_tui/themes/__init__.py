@@ -12,7 +12,7 @@ from .catppuccin import get_theme_css, get_color, CATPPUCCIN_MOCHA
 THEMES = {
     "catppuccin": {
         "name": "Catppuccin Mocha",
-        "css": get_theme_css(),
+        "css_func": get_theme_css,
         "colors": CATPPUCCIN_MOCHA,
     }
 }
@@ -37,7 +37,9 @@ class ThemeManager:
     @property
     def css(self) -> str:
         """Get the complete CSS for the current theme."""
-        theme_css = THEMES.get(self._current_theme, {}).get("css", "")
+        theme_data = THEMES.get(self._current_theme, {})
+        css_func = theme_data.get("css_func")
+        theme_css = css_func() if css_func else ""
         return f"{theme_css}\n{self._custom_css}" if self._custom_css else theme_css
     
     def get_color(self, name: str) -> str:

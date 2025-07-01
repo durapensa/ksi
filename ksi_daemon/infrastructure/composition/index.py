@@ -18,7 +18,7 @@ from typing import Dict, Any, List, Optional
 from contextlib import contextmanager
 
 from ksi_common.logging import get_bound_logger
-from ksi_common import TimestampManager
+from ksi_common.timestamps import timestamp_utc, format_for_logging
 from ksi_common.config import config
 
 logger = get_bound_logger("composition_index", version="1.0.0")
@@ -87,7 +87,7 @@ def initialize(db_path: Optional[Path] = None):
             INSERT OR IGNORE INTO composition_repositories 
             (id, type, path, status, created_at) 
             VALUES ('local', 'local', ?, 'active', ?)
-        ''', (str(config.compositions_dir), TimestampManager.format_for_logging()))
+        ''', (str(config.compositions_dir), format_for_logging()))
         
         conn.commit()
     finally:
@@ -159,7 +159,7 @@ def index_composition_file(file_path: Path) -> bool:
                 loading_strategy,
                 metadata.get('mutable', False),
                 metadata.get('ephemeral', False),
-                TimestampManager.format_for_logging()
+                format_for_logging()
             ))
             conn.commit()
         

@@ -8,6 +8,7 @@ Integrates with the composition system to apply permissions from profiles.
 from __future__ import annotations
 
 import asyncio
+import inspect
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 import yaml
@@ -23,6 +24,7 @@ from ksi_common.sandbox_manager import (
 )
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
+from ksi_daemon.plugin_utils import event_handler, create_ksi_describe_events_hook
 
 hookimpl = pluggy.HookimplMarker("ksi")
 logger = get_bound_logger(__name__)
@@ -30,6 +32,8 @@ logger = get_bound_logger(__name__)
 # Global instances
 permission_manager: Optional[PermissionManager] = None
 sandbox_manager: Optional[SandboxManager] = None
+
+# Global instances will be initialized in ksi_startup
 
 
 @hookimpl
@@ -56,46 +60,30 @@ def ksi_startup(config):
 
 @hookimpl
 def ksi_handle_event(event_name: str, data: dict, context: dict):
-    """Handle permission-related events"""
+    """Handle permission and sandbox events using decorated handlers."""
     
-    if event_name == "permission:get_profile":
-        return handle_get_profile(data)
+    # Look for decorated handlers
+    import sys
+    module = sys.modules[__name__]
     
-    elif event_name == "permission:set_agent":
-        return handle_set_agent_permissions(data)
-    
-    elif event_name == "permission:validate_spawn":
-        return handle_validate_spawn(data)
-    
-    elif event_name == "permission:get_agent":
-        return handle_get_agent_permissions(data)
-    
-    elif event_name == "permission:remove_agent":
-        return handle_remove_agent_permissions(data)
-    
-    elif event_name == "permission:list_profiles":
-        return handle_list_profiles(data)
-    
-    elif event_name == "sandbox:create":
-        return handle_create_sandbox(data)
-    
-    elif event_name == "sandbox:get":
-        return handle_get_sandbox(data)
-    
-    elif event_name == "sandbox:remove":
-        return handle_remove_sandbox(data)
-    
-    elif event_name == "sandbox:list":
-        return handle_list_sandboxes(data)
-    
-    elif event_name == "sandbox:stats":
-        return handle_sandbox_stats(data)
+    for name, obj in inspect.getmembers(module):
+        if inspect.isfunction(obj) and hasattr(obj, '_ksi_event_name'):
+            if obj._ksi_event_name == event_name:
+                return obj(data)
     
     return None
 
 
+@event_handler("permission:get_profile")
 def handle_get_profile(data: dict) -> dict:
-    """Get a permission profile by level"""
+    """Get details of a specific permission profile.
+    
+    Args:
+        level (str): The permission level/profile name (one of: restricted, standard, trusted, researcher)
+    
+    Returns:
+        profile: The permission profile details
+    """
     level = data.get("level")
     if not level:
         return {"error": "Missing required parameter: level"}
@@ -109,8 +97,20 @@ def handle_get_profile(data: dict) -> dict:
     }
 
 
+@event_handler("permission:set_agent")
 def handle_set_agent_permissions(data: dict) -> dict:
-    """Set permissions for an agent"""
+    """Set permissions for an agent.
+    
+    Args:
+        agent_id (str): The agent ID to set permissions for
+        profile (str): Base profile to use (optional, defaults: restricted)
+        permissions (dict): Full permission object (optional)
+        overrides (dict): Permission overrides to apply (optional)
+    
+    Returns:
+        agent_id: The agent ID
+        permissions: The applied permissions
+    """
     agent_id = data.get("agent_id")
     if not agent_id:
         return {"error": "Missing required parameter: agent_id"}
@@ -194,8 +194,18 @@ def apply_permission_overrides(permissions: AgentPermissions, overrides: dict) -
     return AgentPermissions.from_dict(perm_dict)
 
 
+@event_handler("permission:validate_spawn")
 def handle_validate_spawn(data: dict) -> dict:
-    """Validate if a parent can spawn a child with given permissions"""
+    """Validate if parent can spawn child with given permissions.
+    
+    Args:
+        parent_id (str): The parent agent ID
+        child_permissions (dict): The requested permissions for the child agent
+    
+    Returns:
+        valid: Whether the spawn is allowed
+        parent_id: The parent agent ID
+    """
     parent_id = data.get("parent_id")
     child_permissions = data.get("child_permissions")
     
@@ -215,8 +225,17 @@ def handle_validate_spawn(data: dict) -> dict:
     }
 
 
+@event_handler("permission:get_agent")
 def handle_get_agent_permissions(data: dict) -> dict:
-    """Get permissions for an agent"""
+    """Get permissions for a specific agent.
+    
+    Args:
+        agent_id (str): The agent ID to query permissions for
+    
+    Returns:
+        agent_id: The agent ID
+        permissions: The agent's permissions
+    """
     agent_id = data.get("agent_id")
     if not agent_id:
         return {"error": "Missing required parameter: agent_id"}
@@ -231,8 +250,17 @@ def handle_get_agent_permissions(data: dict) -> dict:
     }
 
 
+@event_handler("permission:remove_agent")
 def handle_remove_agent_permissions(data: dict) -> dict:
-    """Remove permissions for an agent"""
+    """Remove permissions for an agent.
+    
+    Args:
+        agent_id (str): The agent ID to remove permissions for
+    
+    Returns:
+        agent_id: The agent ID
+        status: Removal status (removed)
+    """
     agent_id = data.get("agent_id")
     if not agent_id:
         return {"error": "Missing required parameter: agent_id"}
@@ -245,8 +273,13 @@ def handle_remove_agent_permissions(data: dict) -> dict:
     }
 
 
+@event_handler("permission:list_profiles")
 def handle_list_profiles(data: dict) -> dict:
-    """List available permission profiles"""
+    """List available permission profiles.
+    
+    Returns:
+        profiles: Dictionary containing all permission profiles with their tools and capabilities
+    """
     profiles = {}
     for level, profile in permission_manager.profiles.items():
         profiles[level.value] = {
@@ -261,8 +294,23 @@ def handle_list_profiles(data: dict) -> dict:
     return {"profiles": profiles}
 
 
+@event_handler("sandbox:create")
 def handle_create_sandbox(data: dict) -> dict:
-    """Create a sandbox for an agent"""
+    """Create a new sandbox for an agent.
+    
+    Args:
+        agent_id (str): The agent ID
+        config (dict): Sandbox configuration (optional)
+            mode (str): Sandbox isolation mode (optional, default: isolated, allowed: isolated, shared, readonly)
+            parent_agent_id (str): Parent agent for nested sandboxes (optional)
+            session_id (str): Session ID for shared sandboxes (optional)
+            parent_share (str): Parent sharing mode (optional)
+            session_share (bool): Enable session sharing (optional)
+    
+    Returns:
+        agent_id: The agent ID
+        sandbox: The created sandbox details
+    """
     agent_id = data.get("agent_id")
     if not agent_id:
         return {"error": "Missing required parameter: agent_id"}
@@ -288,8 +336,17 @@ def handle_create_sandbox(data: dict) -> dict:
         return {"error": f"Failed to create sandbox: {str(e)}"}
 
 
+@event_handler("sandbox:get")
 def handle_get_sandbox(data: dict) -> dict:
-    """Get sandbox information for an agent"""
+    """Get sandbox information for an agent.
+    
+    Args:
+        agent_id (str): The agent ID
+    
+    Returns:
+        agent_id: The agent ID
+        sandbox: The sandbox details
+    """
     agent_id = data.get("agent_id")
     if not agent_id:
         return {"error": "Missing required parameter: agent_id"}
@@ -304,8 +361,18 @@ def handle_get_sandbox(data: dict) -> dict:
     }
 
 
+@event_handler("sandbox:remove")
 def handle_remove_sandbox(data: dict) -> dict:
-    """Remove a sandbox"""
+    """Remove an agent's sandbox.
+    
+    Args:
+        agent_id (str): The agent ID
+        force (bool): Force removal even with nested children (optional, default: false)
+    
+    Returns:
+        agent_id: The agent ID
+        removed: Whether the sandbox was removed
+    """
     agent_id = data.get("agent_id")
     if not agent_id:
         return {"error": "Missing required parameter: agent_id"}
@@ -319,8 +386,14 @@ def handle_remove_sandbox(data: dict) -> dict:
     }
 
 
+@event_handler("sandbox:list")
 def handle_list_sandboxes(data: dict) -> dict:
-    """List all active sandboxes"""
+    """List all active sandboxes.
+    
+    Returns:
+        sandboxes: List of active sandbox details
+        count: Total number of sandboxes
+    """
     sandboxes = sandbox_manager.list_sandboxes()
     
     return {
@@ -329,8 +402,13 @@ def handle_list_sandboxes(data: dict) -> dict:
     }
 
 
+@event_handler("sandbox:stats")
 def handle_sandbox_stats(data: dict) -> dict:
-    """Get sandbox statistics"""
+    """Get sandbox statistics.
+    
+    Returns:
+        stats: Sandbox usage statistics
+    """
     stats = sandbox_manager.get_sandbox_stats()
     return {"stats": stats}
 
@@ -423,6 +501,9 @@ def ksi_plugin_info():
         ]
     }
 
+
+# Auto-generate discovery hook from decorated handlers
+ksi_describe_events = create_ksi_describe_events_hook(__name__)
 
 # Mark as a KSI plugin
 ksi_plugin = True

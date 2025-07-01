@@ -12,8 +12,9 @@ from collections import defaultdict
 import time
 import pluggy
 
-from ksi_daemon.plugin_utils import plugin_metadata
-from ksi_common import TimestampManager, log_event, agent_context
+from ksi_daemon.plugin_utils import plugin_metadata, event_handler, create_ksi_describe_events_hook
+from ksi_common.timestamps import timestamp_utc
+from ksi_common.logging import log_event, agent_context
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 
@@ -123,7 +124,7 @@ class MessageBus:
             'id': str(time.time()),
             'type': event_type,
             'from': from_agent,
-            'timestamp': TimestampManager.format_for_message_bus(),
+            'timestamp': timestamp_utc(),
             **payload
         }
         
@@ -344,7 +345,7 @@ class MessageBus:
             message = {
                 'type': event_type,
                 'from': from_agent,
-                'timestamp': TimestampManager.format_for_message_bus(),
+                'timestamp': timestamp_utc(),
                 **payload
             }
             
@@ -382,26 +383,10 @@ def ksi_startup(config):
 
 @hookimpl
 def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
-    """Handle message bus events."""
+    """Handle message bus events using decorated handlers."""
     
-    # Subscribe to events
-    if event_name == "message:subscribe":
-        return handle_subscribe(data)
-    
-    # Unsubscribe from events
-    elif event_name == "message:unsubscribe":
-        return handle_unsubscribe(data)
-    
-    # Publish message
-    elif event_name == "message:publish":
-        return handle_publish(data)
-    
-    # Get subscriptions
-    elif event_name == "message:subscriptions":
-        return handle_get_subscriptions(data)
-    
-    # Legacy PUBLISH/SUBSCRIBE command support
-    elif event_name == "transport:message" and data.get("command") == "PUBLISH":
+    # Handle legacy transport:message events by converting them
+    if event_name == "transport:message" and data.get("command") == "PUBLISH":
         # Convert legacy format
         params = data.get("parameters", {})
         return handle_publish({
@@ -422,9 +407,20 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
     elif event_name == "message_bus:stats":
         return {"stats": message_bus.get_stats()}
     
+    # Look for decorated handlers
+    import sys
+    import inspect
+    module = sys.modules[__name__]
+    
+    for name, obj in inspect.getmembers(module):
+        if inspect.isfunction(obj) and hasattr(obj, '_ksi_event_name'):
+            if obj._ksi_event_name == event_name:
+                return obj(data)
+    
     return None
 
 
+@event_handler("message:subscribe")
 def handle_subscribe(data: Dict[str, Any]) -> Dict[str, Any]:
     """Handle subscription request."""
     agent_id = data.get("agent_id")
@@ -455,6 +451,7 @@ def handle_subscribe(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": "Subscription failed - agent not connected"}
 
 
+@event_handler("message:unsubscribe")
 def handle_unsubscribe(data: Dict[str, Any]) -> Dict[str, Any]:
     """Handle unsubscription request."""
     agent_id = data.get("agent_id")
@@ -483,6 +480,7 @@ def handle_unsubscribe(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+@event_handler("message:publish")
 async def handle_publish(data: Dict[str, Any]) -> Dict[str, Any]:
     """Handle message publication."""
     agent_id = data.get("agent_id")
@@ -503,6 +501,7 @@ async def handle_publish(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+@event_handler("message:subscriptions")
 def handle_get_subscriptions(data: Dict[str, Any]) -> Dict[str, Any]:
     """Get subscription information."""
     agent_id = data.get("agent_id")
@@ -544,3 +543,6 @@ def ksi_shutdown():
 
 # Module-level marker for plugin discovery
 ksi_plugin = True
+
+# Enable event discovery
+ksi_describe_events = create_ksi_describe_events_hook(__name__)

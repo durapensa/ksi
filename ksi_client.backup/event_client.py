@@ -598,19 +598,29 @@ class EventChatClient(EventBasedClient):
         # Note: session_id=None is valid for starting new conversations
         # Claude CLI will provide session_id in response
         
+        # Convert simple model names to provider format
+        if model in ["sonnet", "opus", "haiku"]:
+            service_model = f"claude-cli/{model}"
+        else:
+            service_model = model
+        
         # Get completion
         result = await self.create_completion_sync(
             prompt=prompt,
-            model=model,
+            model=service_model,
             session_id=session_id
         )
         
         # Parse standardized completion response and extract text
         completion_response = parse_completion_response(result)
-        response_text = completion_response.get_text()
+        
+        # Import helper functions
+        from ksi_common.completion_format import get_response_text, get_response_session_id
+        
+        response_text = get_response_text(completion_response)
         
         # Extract session ID from response (might be updated by provider)
-        response_session_id = completion_response.get_session_id() or session_id
+        response_session_id = get_response_session_id(completion_response) or session_id
         self.current_session_id = response_session_id
         
         return response_text, response_session_id

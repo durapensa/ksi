@@ -13,7 +13,7 @@ from datetime import datetime, timezone, timedelta
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from ksi_client import AsyncClient
-from ksi_common import TimestampManager
+from ksi_common.timestamps import timestamp_utc
 
 
 class ConversationPluginTester:

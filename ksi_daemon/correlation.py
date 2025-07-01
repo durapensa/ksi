@@ -266,7 +266,7 @@ def _sanitize_data(data: Any) -> Any:
         return data
 
 
-def get_correlation_logger(name: str) -> structlog.stdlib.BoundLogger:
+def get_correlation_logger(name: str):
     """
     Get a logger that automatically includes correlation ID in all log messages.
     

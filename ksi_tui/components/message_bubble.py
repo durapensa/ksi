@@ -13,10 +13,11 @@ from datetime import datetime
 from typing import Optional, Literal
 
 from textual.app import ComposeResult
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
 from textual.widgets import Static
 from textual.reactive import reactive
 from textual import events
+from textual.events import Click
 
 
 MessageType = Literal["user", "assistant", "system", "error"]
@@ -27,10 +28,10 @@ class MessageBubble(Container):
     
     # CSS classes for different message types
     BUBBLE_CLASSES = {
-        "user": "message message-user",
-        "assistant": "message message-assistant", 
-        "system": "message message-system",
-        "error": "message message-error",
+        "user": ["message", "message-user"],
+        "assistant": ["message", "message-assistant"], 
+        "system": ["message", "message-system"],
+        "error": ["message", "message-error"],
     }
     
     # Sender display names
@@ -73,31 +74,15 @@ class MessageBubble(Container):
         self.sender_name = sender_name or self.SENDER_NAMES.get(sender_type, "Unknown")
         self.timestamp = timestamp or datetime.now()
         
-        # Add appropriate CSS classes
-        self.add_class(self.BUBBLE_CLASSES.get(sender_type, "message"))
-        # Add fade-in animation
-        self.add_class("fade-in")
+        # Apply minimal CSS classes
+        bubble_classes = self.BUBBLE_CLASSES.get(sender_type, ["message"])
+        for css_class in bubble_classes:
+            self.add_class(css_class)
     
     def compose(self) -> ComposeResult:
-        """Compose the message bubble UI."""
-        with Vertical():
-            # Header with sender and timestamp
-            with Horizontal(classes="message-header"):
-                yield Static(
-                    self.sender_name,
-                    classes=f"message-sender sender-{self.sender_type}"
-                )
-                yield Static(
-                    self._format_timestamp(self.timestamp),
-                    classes="message-timestamp dim"
-                )
-            
-            # Message content
-            yield Static(
-                self.content,
-                markup=True,
-                classes="message-content"
-            )
+        """Compose the message bubble with minimal layout."""
+        # Single static widget with sender and content
+        yield Static(f"[{self.sender_name}] {self.content}", markup=False)
     
     def _format_timestamp(self, timestamp: datetime) -> str:
         """Format timestamp for display."""
@@ -107,7 +92,7 @@ class MessageBubble(Container):
         # Otherwise show date and time
         return timestamp.strftime("%Y-%m-%d %H:%M:%S")
     
-    async def on_click(self, event: events.Click) -> None:
+    async def on_click(self, event: Click) -> None:
         """Handle click events for copying content."""
         if event.ctrl:
             # Copy content to clipboard
@@ -175,73 +160,27 @@ class MessageList(Container):
         """Clear all messages from the list."""
         self.remove_children()
     
-    def on_scroll(self, event: events.Scroll) -> None:
+    def watch_scroll_y(self, scroll_y: float) -> None:
         """Track scroll position to determine auto-scroll behavior."""
         # If user scrolls up, disable auto-scroll
         # If they scroll to bottom, re-enable it
         viewport = self.size.height
-        scroll_y = self.scroll_y
         max_scroll = self.virtual_size.height - viewport
         
         # Consider "at bottom" if within 10 lines of the end
         self._auto_scroll = (max_scroll - scroll_y) < 10
 
 
-# Convenience CSS for message components
+# Convenience CSS for message components - simplified to avoid spacing issues
 MESSAGE_CSS = """
 /* Message list container */
 MessageList {
     height: 100%;
     overflow-y: scroll;
-    padding: 1;
 }
 
-/* Message bubble base */
+/* Message bubble base - minimal styling */
 .message {
     width: 100%;
-    margin-bottom: 1;
-}
-
-/* Message header */
-.message-header {
-    height: 1;
-    margin-bottom: 1;
-}
-
-.message-sender {
-    width: auto;
-    text-style: bold;
-}
-
-.message-timestamp {
-    text-align: right;
-    width: 1fr;
-}
-
-/* Message content */
-.message-content {
-    padding: 0 1;
-}
-
-/* Sender-specific styling */
-.sender-user {
-    color: var(--blue);
-}
-
-.sender-assistant {
-    color: var(--green);
-}
-
-.sender-system {
-    color: var(--overlay1);
-}
-
-.sender-error {
-    color: var(--red);
-}
-
-/* Code block styling within messages */
-.message-content .syntax {
-    margin: 1 0;
 }
 """

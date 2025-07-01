@@ -21,8 +21,8 @@ from dataclasses import dataclass, field
 import re
 import pluggy
 
-from ksi_daemon.plugin_utils import plugin_metadata
-from ksi_common import TimestampManager
+from ksi_daemon.plugin_utils import plugin_metadata, event_handler, create_ksi_describe_events_hook
+from ksi_common.timestamps import timestamp_utc, format_for_logging
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 
@@ -408,73 +408,91 @@ def ksi_startup(config):
     }
 
 
+@event_handler("orchestration:start")
+def handle_orchestration_start(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Start a new orchestration."""
+    pattern = data.get("pattern")
+    vars = data.get("vars", {})
+    
+    if not pattern:
+        return {"error": "pattern required"}
+    
+    # Return coroutine for async execution
+    return orchestration_plugin.start_orchestration(pattern, vars)
+
+
+@event_handler("orchestration:message")
+def handle_orchestration_message(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Route a message within an orchestration."""
+    return orchestration_plugin.route_message(data)
+
+
+@event_handler("orchestration:status")
+def handle_orchestration_status(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Get orchestration status."""
+    orchestration_id = data.get("orchestration_id")
+    
+    if orchestration_id:
+        if orchestration_id in orchestrations:
+            instance = orchestrations[orchestration_id]
+            return {
+                "orchestration_id": orchestration_id,
+                "state": instance.state,
+                "pattern": instance.pattern_name,
+                "agents": {
+                    aid: {"spawned": info.spawned, "profile": info.profile}
+                    for aid, info in instance.agents.items()
+                },
+                "message_count": instance.message_count,
+                "duration": time.time() - instance.start_time
+            }
+        else:
+            return {"error": "Orchestration not found"}
+    else:
+        # Return all orchestrations
+        return {
+            "orchestrations": {
+                oid: {
+                    "state": inst.state,
+                    "pattern": inst.pattern_name,
+                    "agent_count": len(inst.agents),
+                    "message_count": inst.message_count
+                }
+                for oid, inst in orchestrations.items()
+            }
+        }
+
+
+@event_handler("orchestration:terminate")
+def handle_orchestration_terminate(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Manually terminate an orchestration."""
+    orchestration_id = data.get("orchestration_id")
+    
+    if not orchestration_id or orchestration_id not in orchestrations:
+        return {"error": "Orchestration not found"}
+    
+    instance = orchestrations[orchestration_id]
+    
+    async def _terminate():
+        await orchestration_plugin._terminate_orchestration(instance, "manual")
+        return {"status": "terminated"}
+    
+    return _terminate()
+
+
 @hookimpl
 def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
-    """Handle orchestration-related events."""
+    """Handle orchestration-related events using decorated handlers."""
     
-    if event_name == "orchestration:start":
-        # Start a new orchestration
-        pattern = data.get("pattern")
-        vars = data.get("vars", {})
-        
-        if not pattern:
-            return {"error": "pattern required"}
-        
-        # Return coroutine for async execution
-        return orchestration_plugin.start_orchestration(pattern, vars)
+    # Look for decorated handlers
+    import sys
+    import inspect
+    module = sys.modules[__name__]
     
-    elif event_name == "orchestration:message":
-        # Route a message within an orchestration
-        return orchestration_plugin.route_message(data)
-    
-    elif event_name == "orchestration:status":
-        # Get orchestration status
-        orchestration_id = data.get("orchestration_id")
-        
-        if orchestration_id:
-            if orchestration_id in orchestrations:
-                instance = orchestrations[orchestration_id]
-                return {
-                    "orchestration_id": orchestration_id,
-                    "state": instance.state,
-                    "pattern": instance.pattern_name,
-                    "agents": {
-                        aid: {"spawned": info.spawned, "profile": info.profile}
-                        for aid, info in instance.agents.items()
-                    },
-                    "message_count": instance.message_count,
-                    "duration": time.time() - instance.start_time
-                }
-            else:
-                return {"error": "Orchestration not found"}
-        else:
-            # Return all orchestrations
-            return {
-                "orchestrations": {
-                    oid: {
-                        "state": inst.state,
-                        "pattern": inst.pattern_name,
-                        "agent_count": len(inst.agents),
-                        "message_count": inst.message_count
-                    }
-                    for oid, inst in orchestrations.items()
-                }
-            }
-    
-    elif event_name == "orchestration:terminate":
-        # Manually terminate an orchestration
-        orchestration_id = data.get("orchestration_id")
-        
-        if not orchestration_id or orchestration_id not in orchestrations:
-            return {"error": "Orchestration not found"}
-        
-        instance = orchestrations[orchestration_id]
-        
-        async def _terminate():
-            await orchestration_plugin._terminate_orchestration(instance, "manual")
-            return {"status": "terminated"}
-        
-        return _terminate()
+    for name, obj in inspect.getmembers(module):
+        if inspect.isfunction(obj) and hasattr(obj, '_ksi_event_name'):
+            if obj._ksi_event_name == event_name:
+                return obj(data)
     
     return None
 
@@ -501,3 +519,6 @@ def ksi_shutdown():
 
 # Module-level marker for plugin discovery
 ksi_plugin = True
+
+# Enable event discovery
+ksi_describe_events = create_ksi_describe_events_hook(__name__)

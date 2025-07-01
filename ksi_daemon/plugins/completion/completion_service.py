@@ -21,7 +21,7 @@ import pluggy
 import asyncio
 import litellm
 
-from ksi_daemon.plugin_utils import plugin_metadata
+from ksi_daemon.plugin_utils import plugin_metadata, event_handler, create_ksi_describe_events_hook
 from ksi_common import timestamp_utc, create_completion_response, parse_completion_response, get_response_session_id
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
@@ -160,8 +160,9 @@ def ksi_ready():
 
 @hookimpl
 def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
-    """Handle completion-related events."""
+    """Handle completion-related events using decorated handlers."""
     
+    # Special handling for completion:async - needs context
     if event_name == "completion:async":
         # Smart hybrid: event-driven + per-session fork prevention
         # Create a coroutine wrapper for consistent async handling
@@ -169,44 +170,80 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
             return await handle_async_completion_smart(data, context)
         return _handle_async()
     
-    elif event_name == "completion:cancel":
-        # Cancel an active completion
-        request_id = data.get("request_id")
-        if request_id in active_completions:
-            completion_info = active_completions[request_id]
-            task = completion_info.get("task")
-            
-            if task and not task.done():
-                # Actually cancel the running task
-                task.cancel()
-                logger.info(f"Cancelled completion task {request_id}")
-                return {"status": "cancelled", "method": "task_cancelled"}
-            else:
-                # Task not found or already done
-                active_completions.pop(request_id, None)
-                return {"status": "cancelled", "method": "removed_from_tracking"}
-        return {"status": "not_found"}
+    # Look for decorated handlers
+    import sys
+    import inspect
+    module = sys.modules[__name__]
     
-    elif event_name == "completion:status":
-        # asyncio architecture status
-        return {
-            "architecture": "asyncio",
-            "task_group_active": completion_task_group is not None,
-            "active_count": len(active_completions),
-            "active_requests": list(active_completions.keys()),
-            "active_sessions": list(active_sessions),
-            "session_queues": {
-                session_id: queue.qsize() 
-                for session_id, queue in session_processors.items()
-            },
-            "session_queue_count": len(session_processors)
-        }
+    for name, obj in inspect.getmembers(module):
+        if inspect.isfunction(obj) and hasattr(obj, '_ksi_event_name'):
+            if obj._ksi_event_name == event_name:
+                return obj(data)
     
-    elif event_name == "completion:session_status":
-        # Detailed per-session status
-        session_id = data.get("session_id")
-        if not session_id:
-            return {"error": "session_id required"}
+    return None
+
+
+@event_handler("completion:cancel")
+def handle_cancel_completion(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Cancel an active completion request.
+    
+    Parameters:
+        request_id: The request ID to cancel
+    
+    Returns:
+        Cancellation status
+    """
+    request_id = data.get("request_id")
+    if request_id in active_completions:
+        completion_info = active_completions[request_id]
+        task = completion_info.get("task")
+        
+        if task and not task.done():
+            # Actually cancel the running task
+            task.cancel()
+            logger.info(f"Cancelled completion task {request_id}")
+            return {"status": "cancelled", "method": "task_cancelled"}
+        else:
+            # Task not found or already done
+            active_completions.pop(request_id, None)
+            return {"status": "cancelled", "method": "removed_from_tracking"}
+    return {"status": "not_found"}
+
+
+@event_handler("completion:status")
+def handle_completion_status(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Get completion service status.
+    
+    Returns:
+        Service status including active requests and sessions
+    """
+    return {
+        "architecture": "asyncio",
+        "task_group_active": completion_task_group is not None,
+        "active_count": len(active_completions),
+        "active_requests": list(active_completions.keys()),
+        "active_sessions": list(active_sessions),
+        "session_queues": {
+            session_id: queue.qsize() 
+            for session_id, queue in session_processors.items()
+        },
+        "session_queue_count": len(session_processors)
+    }
+
+
+@event_handler("completion:session_status")
+def handle_session_status(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Get detailed per-session status.
+    
+    Parameters:
+        session_id: The session ID to query
+    
+    Returns:
+        Session status including queue size and active state
+    """
+    session_id = data.get("session_id")
+    if not session_id:
+        return {"error": "session_id required"}
             
         return {
             "session_id": session_id,
@@ -561,11 +598,12 @@ async def process_single_completion(data: Dict[str, Any], context: Dict[str, Any
         
         # Emit progress event
         if event_emitter and callable(event_emitter):
+            correlation_id = context.get("correlation_id") if context else None
             await event_emitter("completion:progress", {
                 "request_id": request_id,
                 "status": "processing",
                 "message": "Processing completion"
-            }, {})
+            }, correlation_id)
         
         # Process the completion
         result = await handle_completion_request(data, context)
@@ -575,7 +613,8 @@ async def process_single_completion(data: Dict[str, Any], context: Dict[str, Any
         
         # Emit result event (will trigger injection router)
         if event_emitter and callable(event_emitter):
-            await event_emitter("completion:result", result, {})
+            correlation_id = context.get("correlation_id") if context else None
+            await event_emitter("completion:result", result, correlation_id)
         
         logger.info(f"Completed request {request_id}")
         
@@ -584,20 +623,22 @@ async def process_single_completion(data: Dict[str, Any], context: Dict[str, Any
         
         # Emit cancellation event
         if event_emitter and callable(event_emitter):
+            correlation_id = context.get("correlation_id") if context else None
             await event_emitter("completion:cancelled", {
                 "request_id": request_id,
                 "message": "Request was cancelled"
-            }, {})
+            }, correlation_id)
         raise
         
     except Exception as e:
         logger.error(f"Completion error for {request_id}: {e}", exc_info=True)
         # Emit error event
         if event_emitter and callable(event_emitter):
+            correlation_id = context.get("correlation_id") if context else None
             await event_emitter("completion:error", {
                 "request_id": request_id,
                 "error": str(e)
-            }, {})
+            }, correlation_id)
     
     finally:
         # Clean up
@@ -627,3 +668,6 @@ def ksi_shutdown():
 
 # Module-level marker for plugin discovery
 ksi_plugin = True
+
+# Enable event discovery
+ksi_describe_events = create_ksi_describe_events_hook(__name__)

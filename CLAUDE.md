@@ -98,6 +98,15 @@ Essential development practices for Claude Code when working with KSI.
 - **Complete transitions** - when moving files/features, verify functionality then remove old locations
 - **System integrity** - ensure system functions as designed after cleanup
 
+### Simplification Patterns (Pluggy Best Practices)
+- **Single source of truth** - Don't pass redundant objects (e.g., both plugin_loader and plugin_manager)
+- **Minimal context** - Pass only what plugins actually need in ksi_plugin_context
+- **Direct access** - Use plugin_manager directly, not through intermediate objects
+- **Consistent naming** - Use the same name for the same concept everywhere (emit_event)
+- **No unnecessary wrappers** - Avoid wrapping pluggy functionality unless adding value
+- **Module-level simplicity** - Plugins are simple modules with functions, not complex classes
+- **Avoid confusion** - Don't create multiple ways to access the same functionality
+
 ### Cleanup Philosophy
 - **Distinguish legacy from incomplete** - "Legacy" means truly obsolete; "Incomplete" means work-in-progress
 - **Never remove intended functionality** - Even if it looks unused, it might be part of planned architecture
@@ -129,7 +138,7 @@ Essential development practices for Claude Code when working with KSI.
   - Tool usage: `var/logs/daemon/tool_usage.jsonl`
 - **Logging configuration** - The daemon configures logging at startup based on environment variables
   - Logging is automatically configured when importing from ksi_daemon
-  - Plugins should use `from ksi_daemon.plugin_utils import get_logger` (deprecated) or `from ksi_common.logging import get_logger`
+  - Plugins should use `from ksi_common.logging import get_bound_logger`
 
 ## Project Organization
 
