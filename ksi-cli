@@ -1,0 +1,358 @@
+#!/usr/bin/env python3
+"""
+ksi-cli - Command-line interface for KSI daemon
+
+A safe, controlled CLI wrapper around ksi_client that's perfect for
+use with Claude's restricted Bash tool access.
+
+Examples:
+    ksi-cli send completion:async --prompt "Hello" --model claude-cli/sonnet
+    ksi-cli send state:set --key mykey --value '{"data": "test"}'
+    ksi-cli discover
+    ksi-cli help completion:async
+    ksi-cli list conversations --limit 10
+"""
+
+import asyncio
+import json
+import sys
+import argparse
+from typing import Dict, Any, Optional
+from pathlib import Path
+
+from ksi_client import EventClient
+from ksi_client.exceptions import KSIError
+
+
+class KSICLIError(Exception):
+    """CLI-specific errors."""
+    pass
+
+
+class KSICLI:
+    """Command-line interface for KSI daemon."""
+    
+    def __init__(self, socket_path: Optional[Path] = None):
+        self.socket_path = socket_path
+        self.client: Optional[EventClient] = None
+    
+    async def setup(self):
+        """Initialize client connection."""
+        self.client = EventClient(
+            client_id="ksi-cli",
+            socket_path=self.socket_path
+        )
+        await self.client.__aenter__()
+    
+    async def teardown(self):
+        """Clean up client connection."""
+        if self.client:
+            await self.client.__aexit__(None, None, None)
+    
+    async def send_event(self, event_name: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Send an event and return the response."""
+        return await self.client.send_event(event_name, data)
+    
+    async def discover(self, namespace: Optional[str] = None) -> None:
+        """Discover and display available events."""
+        data = {}
+        if namespace:
+            data["namespace"] = namespace
+        
+        result = await self.send_event("system:discover", data)
+        
+        # Pretty print discovery results
+        print(f"KSI Events ({result.get('total_events', 0)} available)")
+        print("=" * 60)
+        
+        for ns, events in result.get('events', {}).items():
+            print(f"\n{ns}:")
+            for event in events:
+                summary = event.get('summary', 'No description')
+                # Truncate long summaries
+                if len(summary) > 50:
+                    summary = summary[:47] + "..."
+                print(f"  {event['event']:<30} {summary}")
+    
+    async def help(self, event_name: str) -> None:
+        """Get detailed help for an event."""
+        result = await self.send_event("system:help", {"event": event_name})
+        
+        if "error" in result:
+            print(f"Error: {result['error']}")
+            return
+        
+        # Pretty print help
+        print(f"Event: {result.get('event', event_name)}")
+        print(f"Namespace: {result.get('namespace', 'unknown')}")
+        print(f"\n{result.get('summary', 'No description')}")
+        
+        # Parameters
+        if params := result.get('parameters'):
+            print("\nParameters:")
+            for name, info in params.items():
+                req = " (required)" if info.get('required') else " (optional)"
+                desc = info.get('description', '')
+                print(f"  --{name}{req}")
+                if desc:
+                    print(f"      {desc}")
+                if default := info.get('default'):
+                    print(f"      Default: {default}")
+                if values := info.get('allowed_values'):
+                    print(f"      Allowed: {', '.join(values)}")
+        
+        # Examples
+        if examples := result.get('examples'):
+            print("\nExamples:")
+            for i, ex in enumerate(examples, 1):
+                print(f"\n  Example {i}: {ex.get('description', '')}")
+                # Show as CLI command
+                cmd = f"ksi-cli send {event_name}"
+                for key, value in ex.get('data', {}).items():
+                    if isinstance(value, (dict, list)):
+                        cmd += f" --{key} '{json.dumps(value)}'"
+                    else:
+                        cmd += f" --{key} {value}"
+                print(f"  $ {cmd}")
+    
+    async def list_conversations(self, limit: int = 10) -> None:
+        """List recent conversations."""
+        result = await self.send_event("conversation:list", {"limit": limit})
+        
+        convos = result.get('conversations', [])
+        if not convos:
+            print("No conversations found")
+            return
+        
+        print(f"Recent Conversations (showing {len(convos)} of {result.get('total', len(convos))})")
+        print("=" * 80)
+        
+        for conv in convos:
+            session_id = conv.get('session_id', 'unknown')[:8]
+            timestamp = conv.get('last_timestamp', 'unknown')
+            msg_count = conv.get('message_count', 0)
+            first_msg = conv.get('first_message', '')[:40]
+            
+            print(f"\n{session_id}... | {timestamp} | {msg_count} messages")
+            if first_msg:
+                print(f"  First: {first_msg}...")
+    
+    async def get_state(self, key: str, namespace: str = "default") -> None:
+        """Get a state value."""
+        result = await self.send_event("state:get", {
+            "key": key,
+            "namespace": namespace
+        })
+        
+        if result.get('found'):
+            value = result.get('value')
+            if isinstance(value, (dict, list)):
+                print(json.dumps(value, indent=2))
+            else:
+                print(value)
+        else:
+            print(f"Key not found: {key} (namespace: {namespace})")
+    
+    async def set_state(self, key: str, value: Any, namespace: str = "default") -> None:
+        """Set a state value."""
+        result = await self.send_event("state:set", {
+            "key": key,
+            "value": value,
+            "namespace": namespace
+        })
+        
+        if result.get('status') == 'set':
+            print(f"✓ Set {key} = {value} in namespace '{namespace}'")
+        else:
+            print(f"Failed to set state: {result}")
+
+
+def parse_event_data(args: argparse.Namespace) -> Dict[str, Any]:
+    """Parse event data from command-line arguments."""
+    data = {}
+    
+    # Convert namespace to dict, excluding special attributes
+    for key, value in vars(args).items():
+        if key in ['command', 'event', 'func', 'socket_path', 'json', 'output', 'args']:
+            continue
+        if value is not None:
+            # Try to parse JSON values
+            if isinstance(value, str) and (value.startswith('{') or value.startswith('[')):
+                try:
+                    data[key] = json.loads(value)
+                except json.JSONDecodeError:
+                    data[key] = value
+            else:
+                data[key] = value
+    
+    return data
+
+
+async def main():
+    """Main CLI entry point."""
+    parser = argparse.ArgumentParser(
+        description="KSI Command-Line Interface",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Send a completion request
+  ksi-cli send completion:async --prompt "Hello" --model claude-cli/sonnet
+  
+  # Set state
+  ksi-cli send state:set --key config --value '{"theme": "dark"}' --namespace user
+  
+  # Discover events
+  ksi-cli discover
+  ksi-cli discover --namespace completion
+  
+  # Get help
+  ksi-cli help completion:async
+  
+  # List conversations
+  ksi-cli list conversations
+  
+  # Get state value
+  ksi-cli get state --key config --namespace user
+  
+  # Raw JSON mode (for complex requests)
+  ksi-cli send completion:async --json '{"prompt": "Hello", "model": "claude-cli/sonnet"}'
+"""
+    )
+    
+    parser.add_argument(
+        "--socket-path",
+        type=Path,
+        help="Path to KSI daemon socket (default: var/run/daemon.sock)"
+    )
+    
+    subparsers = parser.add_subparsers(dest="command", help="Commands")
+    
+    # Send command - the main workhorse
+    send_parser = subparsers.add_parser("send", help="Send an event to KSI")
+    send_parser.add_argument("event", help="Event name (e.g., completion:async)")
+    send_parser.add_argument("--json", help="Provide event data as JSON")
+    send_parser.add_argument("--output", choices=["json", "pretty"], default="pretty",
+                           help="Output format")
+    
+    # Dynamic argument parsing for send command
+    # We'll add arguments based on what's provided
+    send_parser.add_argument("args", nargs=argparse.REMAINDER,
+                           help="Event parameters as --key value pairs")
+    
+    # Discover command
+    discover_parser = subparsers.add_parser("discover", help="Discover available events")
+    discover_parser.add_argument("--namespace", help="Filter by namespace")
+    
+    # Help command
+    help_parser = subparsers.add_parser("help", help="Get help for an event")
+    help_parser.add_argument("event", help="Event name to get help for")
+    
+    # List command
+    list_parser = subparsers.add_parser("list", help="List various resources")
+    list_parser.add_argument("resource", choices=["conversations", "states"],
+                           help="Resource to list")
+    list_parser.add_argument("--limit", type=int, default=10, help="Maximum results")
+    
+    # Get command (for state)
+    get_parser = subparsers.add_parser("get", help="Get resource")
+    get_parser.add_argument("resource", choices=["state"], help="Resource type")
+    get_parser.add_argument("--key", required=True, help="Key to get")
+    get_parser.add_argument("--namespace", default="default", help="Namespace")
+    
+    # Parse initial args to get command
+    args, unknown = parser.parse_known_args()
+    
+    # For send command, parse the remaining arguments
+    if args.command == "send" and unknown:
+        # Create a new parser for the specific event
+        event_parser = argparse.ArgumentParser(prog=f"ksi-cli send {args.event}")
+        
+        # Add arguments from unknown
+        i = 0
+        while i < len(unknown):
+            if unknown[i].startswith('--'):
+                key = unknown[i][2:]
+                event_parser.add_argument(f'--{key}', default=None)
+            i += 1
+        
+        # Parse the event-specific arguments
+        event_args = event_parser.parse_args(unknown)
+        
+        # Merge with main args
+        for key, value in vars(event_args).items():
+            setattr(args, key, value)
+    
+    # Execute command
+    cli = KSICLI(socket_path=args.socket_path)
+    
+    try:
+        await cli.setup()
+        
+        if args.command == "send":
+            # Parse event data
+            if args.json:
+                data = json.loads(args.json)
+            else:
+                data = parse_event_data(args)
+            
+            # Send event
+            result = await cli.send_event(args.event, data)
+            
+            # Output result
+            if args.output == "json":
+                print(json.dumps(result, indent=2))
+            else:
+                # Pretty print based on event type
+                if "error" in result:
+                    print(f"Error: {result['error']}")
+                elif args.event == "completion:async":
+                    print(f"Request ID: {result.get('request_id', 'unknown')}")
+                    print(f"Status: {result.get('status', 'unknown')}")
+                    if session_id := result.get('session_id'):
+                        print(f"Session ID: {session_id}")
+                else:
+                    # Generic pretty print
+                    for key, value in result.items():
+                        if isinstance(value, (dict, list)):
+                            print(f"{key}:")
+                            print(f"  {json.dumps(value, indent=2)}")
+                        else:
+                            print(f"{key}: {value}")
+        
+        elif args.command == "discover":
+            await cli.discover(args.namespace)
+        
+        elif args.command == "help":
+            await cli.help(args.event)
+        
+        elif args.command == "list":
+            if args.resource == "conversations":
+                await cli.list_conversations(args.limit)
+        
+        elif args.command == "get":
+            if args.resource == "state":
+                await cli.get_state(args.key, args.namespace)
+        
+        else:
+            parser.print_help()
+            return 1
+        
+        return 0
+        
+    except KSIError as e:
+        print(f"KSI Error: {e}", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    finally:
+        await cli.teardown()
+
+
+def run():
+    """Synchronous entry point."""
+    sys.exit(asyncio.run(main()))
+
+
+if __name__ == "__main__":
+    run()

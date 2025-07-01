@@ -73,7 +73,19 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
 
 @event_handler("state:get")
 def handle_get(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle state get operation."""
+    """
+    Get a value from shared state.
+    
+    Args:
+        namespace (str): The namespace to get from (default: "global")
+        key (str): The key to retrieve (required)
+    
+    Returns:
+        Dictionary with value, found status, namespace, and key
+    
+    Example:
+        {"namespace": "agent", "key": "session_data"}
+    """
     namespace = data.get("namespace", "global")
     key = data.get("key", "")
     
@@ -101,7 +113,21 @@ def handle_get(data: Dict[str, Any]) -> Dict[str, Any]:
 
 @event_handler("state:set")
 def handle_set(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle state set operation."""
+    """
+    Set a value in shared state.
+    
+    Args:
+        namespace (str): The namespace to set in (default: "global")
+        key (str): The key to set (required)
+        value (any): The value to store (required)
+        metadata (dict): Optional metadata to attach (default: {})
+    
+    Returns:
+        Dictionary with status, namespace, and key
+    
+    Example:
+        {"namespace": "agent", "key": "config", "value": {"timeout": 30}}
+    """
     namespace = data.get("namespace", "global") 
     key = data.get("key", "")
     value = data.get("value")
@@ -130,7 +156,19 @@ def handle_set(data: Dict[str, Any]) -> Dict[str, Any]:
 
 @event_handler("state:delete")
 def handle_delete(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle state delete operation."""
+    """
+    Delete a key from shared state.
+    
+    Args:
+        namespace (str): The namespace to delete from (default: "global")
+        key (str): The key to delete (required)
+    
+    Returns:
+        Dictionary with status (deleted/not_found), namespace, and key
+    
+    Example:
+        {"namespace": "agent", "key": "temp_data"}
+    """
     namespace = data.get("namespace", "global")
     key = data.get("key", "")
     
@@ -157,7 +195,19 @@ def handle_delete(data: Dict[str, Any]) -> Dict[str, Any]:
 
 @event_handler("state:list")
 def handle_list(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle state list operation."""
+    """
+    List keys in shared state.
+    
+    Args:
+        namespace (str): Filter by namespace (optional)
+        pattern (str): Filter by pattern substring (optional)
+    
+    Returns:
+        Dictionary with keys array, count, namespace, and pattern
+    
+    Example:
+        {"namespace": "agent", "pattern": "session"}
+    """
     namespace = data.get("namespace")
     pattern = data.get("pattern")
     
@@ -201,7 +251,18 @@ def handle_list(data: Dict[str, Any]) -> Dict[str, Any]:
 
 @event_handler("state:clear")
 def handle_clear(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle state clear operation."""
+    """
+    Clear all keys in a namespace.
+    
+    Args:
+        namespace (str): The namespace to clear (required)
+    
+    Returns:
+        Dictionary with status, namespace, and keys_deleted count
+    
+    Example:
+        {"namespace": "temp"}
+    """
     namespace = data.get("namespace")
     
     if not namespace:
@@ -236,7 +297,19 @@ def handle_clear(data: Dict[str, Any]) -> Dict[str, Any]:
 
 @event_handler("state:session:update")
 def handle_session_update(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle session update."""
+    """
+    Update session output data.
+    
+    Args:
+        session_id (str): The session ID to update (required)
+        output (any): The output data to store (required)
+    
+    Returns:
+        Dictionary with status and session_id
+    
+    Example:
+        {"session_id": "abc123", "output": {"result": "completed"}}
+    """
     session_id = data.get("session_id")
     output = data.get("output")
     
@@ -256,7 +329,18 @@ def handle_session_update(data: Dict[str, Any]) -> Dict[str, Any]:
 
 @event_handler("state:session:get")
 def handle_session_get(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle session get."""
+    """
+    Get session output data.
+    
+    Args:
+        session_id (str): The session ID to retrieve (required)
+    
+    Returns:
+        Dictionary with session_id, output, and found status
+    
+    Example:
+        {"session_id": "abc123"}
+    """
     session_id = data.get("session_id")
     
     if not session_id:
@@ -277,7 +361,21 @@ def handle_session_get(data: Dict[str, Any]) -> Dict[str, Any]:
 # Async state handler functions
 @event_handler("async_state:push")
 async def handle_async_push(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle async state push operation."""
+    """
+    Push a value to an async state queue.
+    
+    Args:
+        namespace (str): The namespace for the queue (required)
+        key (str): The queue key (required)
+        data (any): The data to push to the queue (required)
+        ttl_seconds (int): Optional time-to-live in seconds
+    
+    Returns:
+        Dictionary with status, position in queue, namespace, and key
+    
+    Example:
+        {"namespace": "events", "key": "incoming", "data": {"type": "click"}, "ttl_seconds": 3600}
+    """
     if not async_state:
         return {"error": "Async state infrastructure not available"}
         
@@ -304,7 +402,19 @@ async def handle_async_push(data: Dict[str, Any]) -> Dict[str, Any]:
 
 @event_handler("async_state:pop")
 async def handle_async_pop(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle async state pop operation."""
+    """
+    Pop a value from an async state queue.
+    
+    Args:
+        namespace (str): The namespace for the queue (required)
+        key (str): The queue key (required)
+    
+    Returns:
+        Dictionary with status, data (if found), found status, namespace, and key
+    
+    Example:
+        {"namespace": "events", "key": "incoming"}
+    """
     if not async_state:
         return {"error": "Async state infrastructure not available"}
         
@@ -330,7 +440,20 @@ async def handle_async_pop(data: Dict[str, Any]) -> Dict[str, Any]:
 
 @event_handler("async_state:get_queue")
 async def handle_async_get_queue(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle async state get queue operation."""
+    """
+    Get all values from an async state queue without removing them.
+    
+    Args:
+        namespace (str): The namespace for the queue (required)
+        key (str): The queue key (required)
+        limit (int): Maximum number of items to return (optional)
+    
+    Returns:
+        Dictionary with status, data array, count, namespace, and key
+    
+    Example:
+        {"namespace": "events", "key": "incoming", "limit": 10}
+    """
     if not async_state:
         return {"error": "Async state infrastructure not available"}
         
@@ -357,7 +480,18 @@ async def handle_async_get_queue(data: Dict[str, Any]) -> Dict[str, Any]:
 
 @event_handler("async_state:get_keys")
 async def handle_async_get_keys(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle async state get keys operation."""
+    """
+    Get all queue keys in a namespace.
+    
+    Args:
+        namespace (str): The namespace to list keys from (required)
+    
+    Returns:
+        Dictionary with status, keys array, count, and namespace
+    
+    Example:
+        {"namespace": "events"}
+    """
     if not async_state:
         return {"error": "Async state infrastructure not available"}
         
@@ -381,7 +515,19 @@ async def handle_async_get_keys(data: Dict[str, Any]) -> Dict[str, Any]:
 
 @event_handler("async_state:queue_length")
 async def handle_async_queue_length(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle async state queue length operation."""
+    """
+    Get the length of an async state queue.
+    
+    Args:
+        namespace (str): The namespace for the queue (required)
+        key (str): The queue key (required)
+    
+    Returns:
+        Dictionary with status, length, namespace, and key
+    
+    Example:
+        {"namespace": "events", "key": "incoming"}
+    """
     if not async_state:
         return {"error": "Async state infrastructure not available"}
         
@@ -406,7 +552,19 @@ async def handle_async_queue_length(data: Dict[str, Any]) -> Dict[str, Any]:
 
 @event_handler("async_state:delete")
 async def handle_async_delete(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle async state delete operation."""
+    """
+    Delete an entire async state queue.
+    
+    Args:
+        namespace (str): The namespace for the queue (required)
+        key (str): The queue key (required)
+    
+    Returns:
+        Dictionary with status, deleted flag, namespace, and key
+    
+    Example:
+        {"namespace": "events", "key": "old_queue"}
+    """
     if not async_state:
         return {"error": "Async state infrastructure not available"}
         
