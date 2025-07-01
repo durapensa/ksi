@@ -29,10 +29,6 @@ from ksi_common import timestamp_utc, create_completion_response, parse_completi
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 
-# Import injection systems
-from ksi_daemon.plugins.injection.injection_router import queue_completion_with_injection
-from ksi_daemon.plugins.injection.circuit_breakers import check_completion_allowed
-
 # Import claude_cli_litellm_provider to ensure provider registration
 from ksi_daemon.plugins.completion import claude_cli_litellm_provider
 
@@ -450,9 +446,17 @@ async def handle_async_completion_smart(data: Dict[str, Any], context: Dict[str,
     # Check if injection is requested
     injection_config = data.get("injection_config")
     if injection_config and injection_config.get('enabled'):
-        # Store injection metadata with injection router
-        request_id = queue_completion_with_injection(data)
-        data['request_id'] = request_id
+        # Queue injection metadata through event system
+        injection_result = await event_emitter("injection:queue", {
+            'id': request_id,
+            'injection_config': injection_config,
+            'circuit_breaker_config': data.get('circuit_breaker_config', {}),
+            'request_id': request_id  # Pass through for compatibility
+        })
+        # Update request_id if injection system provides one
+        if injection_result and isinstance(injection_result, dict) and 'request_id' in injection_result:
+            request_id = injection_result['request_id']
+            data['request_id'] = request_id
     
     # Smart routing based on session state
     if not session_id:
@@ -614,10 +618,26 @@ async def process_single_completion(data: Dict[str, Any], context: Dict[str, Any
         # Add request ID to result
         result["request_id"] = request_id
         
-        # Emit result event (will trigger injection router)
+        # Emit result event for monitoring/logging
         if event_emitter and callable(event_emitter):
             correlation_id = context.get("correlation_id") if context else None
             await event_emitter("completion:result", result, correlation_id)
+        
+        # Check if injection processing is needed
+        injection_config = data.get("injection_config")
+        if injection_config and injection_config.get('enabled') and event_emitter:
+            # Explicitly tell injection to process this result
+            injection_result = await event_emitter("injection:process_result", {
+                "request_id": request_id,
+                "result": result,
+                "injection_metadata": {
+                    "injection_config": injection_config,
+                    "circuit_breaker_config": data.get('circuit_breaker_config', {})
+                }
+            })
+            
+            if injection_result and injection_result.get("status") != "error":
+                logger.debug(f"Injection processing completed for {request_id}: {injection_result}")
         
         logger.info(f"Completed request {request_id}")
         

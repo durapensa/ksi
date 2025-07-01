@@ -551,7 +551,17 @@ for plugin in plugin_manager.get_plugins():
 
 ## Implementation Priorities
 
-### Current Priority: Self-Modifying Composition System 🚀 (NEXT)
+### Current Priority: Plugin Decoupling for True Compositionality 🔓 (CRITICAL)
+1. **Eliminate Cross-Plugin Dependencies** (1-2 days)
+   - **Vision**: Plugins communicate only through events, never through direct imports
+   - **Critical Issues Found**:
+     - completion_service directly imports from injection plugin
+     - Hardcoded event knowledge across plugins
+     - Global state proliferation
+     - Circular dependencies between plugins
+   - **Impact**: True plugin independence enabling dynamic composition
+
+### Next Priority: Self-Modifying Composition System 🚀
 1. **Pure Declarative Admin System** (2-3 days)
    - **Vision**: Claude agents with admin capabilities modify KSI system through pure composition
    - **Architecture**: Zero hardcoded patterns - admin is just another plugin capability
@@ -797,6 +807,90 @@ required_context:
 - Old interfaces remain available during transition
 - New apps are simpler with focused functionality
 - See `/docs/migration_to_new_tui.md` for details
+
+## Plugin Decoupling Architecture (NEW PRIORITY)
+
+### Problems Identified
+1. **Direct Cross-Plugin Imports**
+   - completion_service imports injection functions directly
+   - Creates hard dependencies between plugins
+   - Prevents independent plugin deployment/modification
+
+2. **Hardcoded Event Knowledge**
+   - Plugins have explicit knowledge of other plugins' events
+   - orchestration_plugin hardcodes "agent:spawn"
+   - injection_router hardcodes "completion:result"
+
+3. **Global State Anti-Pattern**
+   - Nearly every plugin uses global variables
+   - Shared mutable state creates implicit coupling
+   - Makes testing and reasoning about behavior difficult
+
+4. **Circular Dependencies**
+   - Completion depends on Injection (imports)
+   - Injection depends on Completion (handles events)
+
+### Proposed Declarative Solutions
+
+#### 1. Event-Only Communication
+```python
+# BEFORE (Direct coupling):
+from ksi_daemon.plugins.injection.injection_router import queue_completion_with_injection
+queue_completion_with_injection(data)
+
+# AFTER (Event-based):
+await event_emitter("injection:queue", {"completion_data": data})
+```
+
+#### 2. Declarative Event Routing
+```yaml
+# Plugin declares its interactions in YAML
+plugin: completion
+provides: 
+  events: [completion:async, completion:status, completion:result]
+consumes:
+  - event: injection:queue
+    optional: true
+    fallback: direct_processing
+```
+
+#### 3. Plugin Capability Contracts
+```yaml
+# Each plugin declares capabilities without importing
+plugin_capabilities:
+  completion:
+    requires: []  # No hard dependencies
+    optional_integrations: ["injection", "conversation"]
+    emits: ["completion:result", "completion:error"]
+    handles: ["completion:async", "completion:cancel"]
+```
+
+#### 4. Functional State Management
+- Replace globals with explicit context passing
+- Use immutable data structures where possible
+- State changes only through events
+
+### Implementation Plan
+1. **Phase 1**: Decouple completion from injection ✅ COMPLETE
+   - Removed direct imports from completion_service
+   - Changed to event-based communication via "injection:queue"
+   - Created explicit "injection:process_result" event
+   - Completion service now explicitly controls injection flow
+2. **Phase 2**: Create declarative routing system (IN PROGRESS)
+3. **Phase 3**: Remove all cross-plugin imports
+4. **Phase 4**: Implement capability contracts
+
+### Progress Update (Phase 1 Complete)
+- **Completed**: Removed circular dependency between completion and injection plugins
+- **Key Changes**:
+  - completion_service no longer imports from injection plugin
+  - completion_service explicitly calls "injection:process_result" when needed
+  - injection_router no longer listens for "completion:result" (decoupled)
+  - All communication now through event system
+- **Remaining Coupling**:
+  - orchestration_plugin calls agent: events directly
+  - agent_service calls completion:async directly  
+  - injection_router calls completion:async for direct injections
 
 ## Ready for Implementation
 

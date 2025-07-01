@@ -215,6 +215,14 @@ def handle_injection_inject(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"status": "error", "error": str(e)}
 
 
+@event_handler("injection:queue")
+def handle_injection_queue(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle queue injection metadata request from completion service."""
+    # This replaces the direct function call from completion service
+    request_id = _queue_completion_with_injection(data)
+    return {"request_id": request_id}
+
+
 @event_handler("injection:batch")
 def handle_injection_batch(data: Dict[str, Any]) -> Dict[str, Any]:
     """Handle batch injection request."""
@@ -241,6 +249,13 @@ def handle_injection_clear(data: Dict[str, Any]) -> Dict[str, Any]:
 def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, Any]):
     """Handle injection-related events using decorated handlers."""
     
+    # Special handling for injection:process_result - needs context
+    if event_name == "injection:process_result":
+        # Return coroutine for async handling
+        async def _handle_async():
+            return await handle_injection_process_result(data, context)
+        return _handle_async()
+    
     # Look for decorated handlers
     import sys
     import inspect
@@ -261,35 +276,38 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
     return None
 
 
-@event_handler("completion:result")
-async def handle_completion_result(data: Dict[str, Any], context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Process completion result and queue injection if configured."""
+@event_handler("injection:process_result")
+async def handle_injection_process_result(data: Dict[str, Any], context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Process a completion result for injection - explicitly called by completion service."""
     
     request_id = data.get('request_id')
-    completion_text = data.get('result') or data.get('completion_text', '')
+    result_data = data.get('result', {})
+    injection_metadata = data.get('injection_metadata', {})
+    
+    completion_text = result_data.get('result') or result_data.get('completion_text', '')
     
     # Check for error responses
-    if data.get('status') == 'error':
+    if result_data.get('status') == 'error':
         logger.warning(f"Completion error for {request_id}, skipping injection")
-        return None
-    
-    # Retrieve injection metadata
-    injection_metadata = get_injection_metadata(request_id)
+        return {"status": "skipped", "reason": "completion_error"}
     
     if not injection_metadata:
-        logger.debug(f"No injection metadata for {request_id}")
-        return None
+        logger.error(f"No injection metadata provided for {request_id}")
+        return {"status": "error", "error": "Missing injection metadata"}
     
     injection_config = injection_metadata.get('injection_config', {})
     
     if not injection_config.get('enabled'):
         logger.debug(f"Injection not enabled for {request_id}")
-        return None
+        return {"status": "skipped", "reason": "not_enabled"}
     
     # Check if this is already an injection (prevent recursion)
     if injection_metadata.get('is_injection'):
         logger.debug(f"Skipping injection for injected completion {request_id}")
-        return None
+        return {"status": "skipped", "reason": "is_injection"}
+    
+    # Store metadata for circuit breaker
+    store_injection_metadata(request_id, injection_metadata)
     
     # Check circuit breakers
     if not circuit_breaker.check_injection_allowed(injection_metadata):
@@ -302,16 +320,16 @@ async def handle_completion_result(data: Dict[str, Any], context: Dict[str, Any]
                 "reason": "circuit_breaker"
             }))
         
-        return {"injection:blocked": {"request_id": request_id}}
+        return {"status": "blocked", "reason": "circuit_breaker", "request_id": request_id}
     
     # Compose injection content
     try:
         injection_content = compose_injection_content(
-            completion_text, data, injection_metadata
+            completion_text, result_data, injection_metadata
         )
     except Exception as e:
         logger.error(f"Failed to compose injection for {request_id}: {e}")
-        return {"error": f"Injection composition failed: {e}"}
+        return {"status": "error", "error": f"Injection composition failed: {e}"}
     
     # Determine injection mode
     injection_mode = injection_config.get('mode', 'next')  # Default to "next" mode
@@ -346,11 +364,10 @@ async def handle_completion_result(data: Dict[str, Any], context: Dict[str, Any]
         logger.info(f"Queued {queued_count} direct injections for request {request_id}")
         
         return {
-            "injection:queued": {
-                "request_id": request_id,
-                "target_count": queued_count,
-                "mode": "direct"
-            }
+            "status": "queued",
+            "request_id": request_id,
+            "target_count": queued_count,
+            "mode": "direct"
         }
     
     else:  # next mode
@@ -393,11 +410,10 @@ async def handle_completion_result(data: Dict[str, Any], context: Dict[str, Any]
         logger.info(f"Stored {stored_count} next-mode injections for request {request_id}")
         
         return {
-            "injection:stored": {
-                "request_id": request_id,
-                "target_count": stored_count,
-                "mode": "next"
-            }
+            "status": "stored",
+            "request_id": request_id,
+            "target_count": stored_count,
+            "mode": "next"
         }
 
 
@@ -934,9 +950,9 @@ Please consider whether this result warrants any follow-up actions or communicat
     return triggers.get(trigger_type, triggers['general'])
 
 
-# Public interface for other plugins
-def queue_completion_with_injection(request: Dict[str, Any]) -> str:
-    """Queue a completion request with injection metadata."""
+# Internal function - now only accessed via injection:queue event
+def _queue_completion_with_injection(request: Dict[str, Any]) -> str:
+    """Queue a completion request with injection metadata (internal)."""
     
     # Generate request ID if not provided
     request_id = request.get('id') or f"req_{int(time.time() * 1000)}"
