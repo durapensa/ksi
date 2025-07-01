@@ -12,6 +12,7 @@ Enhanced completion service that integrates with:
 import asyncio
 import json
 import os
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -21,7 +22,7 @@ import pluggy
 import asyncio
 import litellm
 
-from ksi_daemon.plugin_utils import plugin_metadata, event_handler, create_ksi_describe_events_hook
+from ksi_daemon.plugin_utils import plugin_metadata, event_handler, create_ksi_describe_events_hook, collect_event_metadata
 from ksi_common import timestamp_utc, create_completion_response, parse_completion_response, get_response_session_id
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
@@ -669,5 +670,83 @@ def ksi_shutdown():
 # Module-level marker for plugin discovery
 ksi_plugin = True
 
-# Enable event discovery
-ksi_describe_events = create_ksi_describe_events_hook(__name__)
+# Custom event discovery to include completion:async
+def ksi_describe_events() -> Dict[str, List[Dict[str, Any]]]:
+    """Describe events provided by completion service."""
+    # Get auto-discovered events first
+    events = collect_event_metadata(sys.modules[__name__])
+    
+    # Manually add completion:async since it's handled specially
+    completion_events = events.get('completion', [])
+    completion_events.insert(0, {
+        'event': 'completion:async',
+        'summary': 'Request an async completion from an LLM provider.',
+        'parameters': {
+            'prompt': {
+                'description': 'The prompt text to send to the LLM',
+                'required': True,
+                'type': 'str'
+            },
+            'model': {
+                'description': 'Model to use (e.g., claude-cli/sonnet, gpt-4)',
+                'required': True,
+                'type': 'str'
+            },
+            'request_id': {
+                'description': 'Unique request ID for tracking (auto-generated if not provided)',
+                'required': False,
+                'type': 'str'
+            },
+            'session_id': {
+                'description': 'Session ID for conversation continuity (omit for new session)',
+                'required': False,
+                'type': 'str'
+            },
+            'temperature': {
+                'description': 'Sampling temperature (0.0-2.0)',
+                'required': False,
+                'type': 'float',
+                'default': '0.7'
+            },
+            'max_tokens': {
+                'description': 'Maximum tokens to generate',
+                'required': False,
+                'type': 'int',
+                'default': '4000'
+            },
+            'priority': {
+                'description': 'Request priority level',
+                'required': False,
+                'type': 'str',
+                'default': 'normal',
+                'allowed_values': ['critical', 'high', 'normal', 'low', 'background']
+            },
+            'injection_config': {
+                'description': 'Configuration for injection system',
+                'required': False,
+                'type': 'dict'
+            },
+            'agent_config': {
+                'description': 'Agent configuration including permission_profile',
+                'required': False,
+                'type': 'dict'
+            }
+        },
+        'examples': [{
+            'description': 'Basic completion request',
+            'data': {
+                'prompt': 'Hello, how are you?',
+                'model': 'claude-cli/sonnet'
+            }
+        }, {
+            'description': 'Continue conversation with session',
+            'data': {
+                'prompt': 'Can you elaborate on that?',
+                'model': 'claude-cli/sonnet',
+                'session_id': 'abc-123-def'
+            }
+        }]
+    })
+    
+    events['completion'] = completion_events
+    return events

@@ -71,13 +71,13 @@ Use arrow keys to navigate input history.
     # For testing modes, skip terminal requirements
     if args.test_completion or args.test_connection or args.stdout:
         import asyncio
-        from ksi_client import EventChatClient
+        from ksi_client import EventClient
         
         async def test_mode():
             try:
-                async with EventChatClient(client_id=args.client_id) as client:
+                async with EventClient(client_id=args.client_id) as client:
                     if args.test_connection:
-                        health = await client.health_check()
+                        health = await client.send_event("system:health")
                         print(f"✓ Connection successful")
                         print(f"  Status: {health.get('status', 'unknown')}")
                         print(f"  Daemon: {health.get('daemon_version', 'unknown')}")
@@ -88,21 +88,38 @@ Use arrow keys to navigate input history.
                         print(f"Prompt: {args.test_completion}")
                         print("Waiting for response...")
                         
-                        response, session_id = await client.send_prompt(
-                            args.test_completion, 
-                            model=args.model
+                        # Convert simple model names to provider format
+                        if args.model in ["sonnet", "opus", "haiku"]:
+                            service_model = f"claude-cli/{args.model}"
+                        else:
+                            service_model = args.model
+                        
+                        response = await client.completion.async_(
+                            prompt=args.test_completion,
+                            model=service_model
                         )
+                        
+                        # Extract text and session_id from response
+                        response_text = response.get('response', response.get('result', ''))
+                        session_id = response.get('session_id', 'unknown')
                         
                         print(f"\n✓ Completion successful")
                         print(f"  Session ID: {session_id}")
-                        print(f"  Response: {response}")
+                        print(f"  Response: {response_text}")
                     
                     if args.stdout:
-                        response, session_id = await client.send_prompt(
-                            args.stdout, 
-                            model=args.model
+                        # Convert simple model names to provider format
+                        if args.model in ["sonnet", "opus", "haiku"]:
+                            service_model = f"claude-cli/{args.model}"
+                        else:
+                            service_model = args.model
+                        
+                        response = await client.completion.async_(
+                            prompt=args.stdout,
+                            model=service_model
                         )
-                        print(response)
+                        response_text = response.get('response', response.get('result', ''))
+                        print(response_text)
                         
             except Exception as e:
                 print(f"✗ Test failed: {e}", file=sys.stderr)
