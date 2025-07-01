@@ -11,20 +11,9 @@ Provides decorators that capture comprehensive metadata including:
 
 from typing import Dict, Any, Optional, Callable, List, Type, TypedDict
 from dataclasses import dataclass, field
-from enum import Enum
 from functools import wraps
 
 from ksi_daemon.plugin_utils import _extract_metadata, _registry
-
-class EventCategory(Enum):
-    """Categories for event classification."""
-    CORE = "core"           # Core system functionality
-    DATA = "data"           # Data storage/retrieval
-    COMPUTE = "compute"     # Computational/processing
-    NETWORK = "network"     # Network operations
-    CONTROL = "control"     # Control flow/orchestration
-    MONITORING = "monitoring"  # System monitoring
-    SECURITY = "security"   # Security/permissions
 
 @dataclass
 class EventParameter:
@@ -77,12 +66,13 @@ class EventExample:
 
 def enhanced_event_handler(
     event_name: str,
-    category: EventCategory = EventCategory.CORE,
     summary: Optional[str] = None,
     description: Optional[str] = None,
     parameters: Optional[List[EventParameter]] = None,
     examples: Optional[List[EventExample]] = None,
     data_type: Optional[Type[TypedDict]] = None,
+    # Declarative metadata
+    tags: Optional[List[str]] = None,
     # Performance hints
     async_response: bool = False,
     typical_duration_ms: Optional[int] = None,
@@ -107,12 +97,12 @@ def enhanced_event_handler(
     
     Args:
         event_name: The event name (e.g., "state:set")
-        category: Event category for classification
         summary: Brief one-line summary
         description: Detailed description
         parameters: List of EventParameter definitions
         examples: List of EventExample definitions
         data_type: Optional TypedDict for type safety
+        tags: Optional list of declarative tags for categorization
         async_response: Whether this returns immediately with async processing
         typical_duration_ms: Typical execution time in milliseconds
         has_side_effects: Whether this modifies system state
@@ -136,7 +126,6 @@ def enhanced_event_handler(
         # Add enhanced metadata
         enhanced_metadata = {
             **base_metadata,
-            "category": category.value,
             "performance": {
                 "async_response": async_response,
                 "typical_duration_ms": typical_duration_ms,
@@ -157,6 +146,8 @@ def enhanced_event_handler(
             enhanced_metadata["description"] = description
         if examples:
             enhanced_metadata["examples"] = [ex.to_dict() for ex in examples]
+        if tags:
+            enhanced_metadata["tags"] = tags
         if best_practices:
             enhanced_metadata["best_practices"] = best_practices
         if common_errors:
@@ -171,7 +162,6 @@ def enhanced_event_handler(
         func._ksi_event_name = event_name
         func._ksi_event_metadata = enhanced_metadata
         func._ksi_data_type = data_type
-        func._ksi_category = category
         
         # Keep backward compatibility
         func._event_patterns = [event_name]

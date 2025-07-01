@@ -17,7 +17,7 @@ import pluggy
 from ksi_common.config import config
 from ksi_common import parse_iso_timestamp, filename_timestamp, display_timestamp, utc_to_local
 from ksi_daemon.plugin_utils import plugin_metadata, event_handler, create_ksi_describe_events_hook
-from ksi_daemon.enhanced_decorators import enhanced_event_handler, EventCategory
+from ksi_daemon.enhanced_decorators import enhanced_event_handler
 from ksi_common.logging import get_bound_logger
 
 # Plugin metadata
@@ -285,7 +285,7 @@ def handle_list_conversations(data: ConversationListData, context: Dict[str, Any
 
 @enhanced_event_handler(
     "conversation:search",
-    category=EventCategory.QUERY,
+    tags=["query", "search"],
     typical_duration_ms=1500,
     has_cost=False,
     best_practices=["Use specific search terms for better results", "Content search covers both user and Claude messages"]

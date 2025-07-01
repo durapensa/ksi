@@ -24,7 +24,7 @@ import asyncio
 import litellm
 
 from ksi_daemon.plugin_utils import plugin_metadata, event_handler, create_ksi_describe_events_hook, collect_event_metadata
-from ksi_daemon.enhanced_decorators import enhanced_event_handler, EventCategory
+from ksi_daemon.enhanced_decorators import enhanced_event_handler
 from ksi_common import timestamp_utc, create_completion_response, parse_completion_response, get_response_session_id
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
@@ -202,7 +202,7 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
 
 @enhanced_event_handler(
     "completion:cancel",
-    category=EventCategory.CONTROL,
+    tags=["control", "cancellation"],
     has_side_effects=True,
     typical_duration_ms=50,
     best_practices=["Check if request exists before cancelling"]

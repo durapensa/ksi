@@ -17,7 +17,7 @@ from datetime import datetime
 import pluggy
 
 from ksi_daemon.plugin_utils import plugin_metadata, event_handler, create_ksi_describe_events_hook
-from ksi_daemon.enhanced_decorators import enhanced_event_handler, EventCategory
+from ksi_daemon.enhanced_decorators import enhanced_event_handler
 from ksi_common import format_for_logging
 from ksi_common.async_utils import run_sync
 from ksi_common.config import config
@@ -757,7 +757,7 @@ def ksi_shutdown():
 # Message handling functions
 @enhanced_event_handler(
     "agent:send_message",
-    category=EventCategory.MESSAGING,
+    tags=["messaging", "async"],
     async_response=True,
     has_side_effects=True,
     best_practices=["Ensure agent exists before sending message", "Messages are queued if agent is busy"]

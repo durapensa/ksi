@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 import pluggy
 
 from ksi_daemon.plugin_utils import plugin_metadata, event_handler, create_ksi_describe_events_hook
-from ksi_daemon.enhanced_decorators import enhanced_event_handler, EventCategory
+from ksi_daemon.enhanced_decorators import enhanced_event_handler
 from ksi_common.timestamps import timestamp_utc, format_for_logging
 from ksi_common.logging import get_bound_logger
 from ksi_common.config import config
@@ -813,7 +813,7 @@ async def handle_compose_prompt(data: Dict[str, Any]) -> Dict[str, Any]:
 
 @enhanced_event_handler(
     "composition:validate",
-    category=EventCategory.CORE,
+    tags=["validation", "core"],
     typical_duration_ms=200,
     has_side_effects=False,
     best_practices=["Validate compositions before using in production", "Check for circular dependencies"]
@@ -1102,7 +1102,7 @@ async def handle_load_bulk(data: Dict[str, Any]) -> Dict[str, Any]:
 
 @enhanced_event_handler(
     "composition:select",
-    category=EventCategory.CONTROL,
+    tags=["orchestration", "intelligent"],
     typical_duration_ms=800,
     has_cost=True,
     best_practices=["Provide clear task description for better selection", "Include relevant capabilities"]
