@@ -11,11 +11,13 @@ import json
 import yaml
 import re
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Set
+from typing import Dict, Any, Optional, List, Set, TypedDict
+from typing_extensions import NotRequired
 from dataclasses import dataclass, field
 import pluggy
 
 from ksi_daemon.plugin_utils import plugin_metadata, event_handler, create_ksi_describe_events_hook
+from ksi_daemon.enhanced_decorators import enhanced_event_handler, EventCategory
 from ksi_common.timestamps import timestamp_utc, format_for_logging
 from ksi_common.logging import get_bound_logger
 from ksi_common.config import config
@@ -36,6 +38,48 @@ state_manager = None  # For shared state operations only
 FRAGMENTS_BASE = config.fragments_dir
 COMPOSITIONS_BASE = config.compositions_dir
 SCHEMAS_BASE = config.schemas_dir
+
+
+# Per-plugin TypedDict definitions (optional type safety)
+class CompositionComposeData(TypedDict):
+    """Type-safe data for composition:compose."""
+    name: str
+    type: NotRequired[str]
+    variables: NotRequired[Dict[str, Any]]
+
+class CompositionProfileData(TypedDict):
+    """Type-safe data for composition:profile."""
+    name: str
+    variables: NotRequired[Dict[str, Any]]
+
+class CompositionPromptData(TypedDict):
+    """Type-safe data for composition:prompt."""
+    name: str
+    variables: NotRequired[Dict[str, Any]]
+
+class CompositionValidateData(TypedDict):
+    """Type-safe data for composition:validate."""
+    name: str
+    type: NotRequired[str]
+
+class CompositionListData(TypedDict):
+    """Type-safe data for composition:list."""
+    type: NotRequired[str]
+
+class CompositionGetData(TypedDict):
+    """Type-safe data for composition:get."""
+    name: str
+    type: NotRequired[str]
+
+class CompositionSelectData(TypedDict):
+    """Type-safe data for composition:select."""
+    agent_id: NotRequired[str]
+    role: NotRequired[str]
+    capabilities: NotRequired[List[str]]
+    task: NotRequired[str]
+    style: NotRequired[str]
+    context: NotRequired[Dict[str, Any]]
+    max_suggestions: NotRequired[int]
 
 
 @dataclass
@@ -324,7 +368,7 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
 
 
 @event_handler("composition:compose")
-async def handle_compose(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_compose(data: CompositionComposeData) -> Dict[str, Any]:
     """Handle generic composition request."""
     name = data.get('name')
     comp_type = data.get('type')
@@ -346,7 +390,7 @@ async def handle_compose(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("composition:profile")
-async def handle_compose_profile(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_compose_profile(data: CompositionProfileData) -> Dict[str, Any]:
     """Handle profile composition request."""
     name = data.get('name')
     variables = data.get('variables', {})
@@ -385,8 +429,14 @@ async def handle_compose_prompt(data: Dict[str, Any]) -> Dict[str, Any]:
         return {'error': str(e)}
 
 
-@event_handler("composition:validate")
-async def handle_validate(data: Dict[str, Any]) -> Dict[str, Any]:
+@enhanced_event_handler(
+    "composition:validate",
+    category=EventCategory.VALIDATION,
+    typical_duration_ms=200,
+    has_side_effects=False,
+    best_practices=["Validate compositions before using in production", "Check for circular dependencies"]
+)
+async def handle_validate(data: CompositionValidateData) -> Dict[str, Any]:
     """Validate a composition."""
     name = data.get('name')
     comp_type = data.get('type')
@@ -446,7 +496,7 @@ async def handle_discover(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("composition:list")
-async def handle_list(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_list(data: CompositionListData) -> Dict[str, Any]:
     """List all compositions of a given type."""
     comp_type = data.get('type', 'all')
     
@@ -469,7 +519,7 @@ async def handle_list(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("composition:get")
-async def handle_get(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_get(data: CompositionGetData) -> Dict[str, Any]:
     """Get a composition definition."""
     name = data.get('name')
     comp_type = data.get('type')
@@ -627,8 +677,14 @@ async def handle_load_bulk(data: Dict[str, Any]) -> Dict[str, Any]:
         return {'error': str(e)}
 
 
-@event_handler("composition:select")
-async def handle_select_composition(data: Dict[str, Any]) -> Dict[str, Any]:
+@enhanced_event_handler(
+    "composition:select",
+    category=EventCategory.AI_COORDINATION,
+    typical_duration_ms=800,
+    has_cost=True,
+    best_practices=["Provide clear task description for better selection", "Include relevant capabilities"]
+)
+async def handle_select_composition(data: CompositionSelectData) -> Dict[str, Any]:
     """Handle dynamic composition selection based on context."""
     try:
         # Import selector dynamically to avoid circular imports

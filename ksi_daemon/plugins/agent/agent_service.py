@@ -11,11 +11,13 @@ import asyncio
 import json
 import uuid
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Set
+from typing import Dict, Any, Optional, List, Set, TypedDict
+from typing_extensions import NotRequired
 from datetime import datetime
 import pluggy
 
 from ksi_daemon.plugin_utils import plugin_metadata, event_handler, create_ksi_describe_events_hook
+from ksi_daemon.enhanced_decorators import enhanced_event_handler, EventCategory
 from ksi_common import format_for_logging
 from ksi_common.async_utils import run_sync
 from ksi_common.config import config
@@ -40,6 +42,22 @@ identity_storage_path = config.identity_storage_path
 
 # Event emitter reference (set during context)
 event_emitter = None
+
+
+# Per-plugin TypedDict definitions (optional type safety)
+class AgentTerminateData(TypedDict):
+    """Type-safe data for agent:terminate."""
+    agent_id: str
+    force: NotRequired[bool]
+
+class AgentListData(TypedDict):
+    """Type-safe data for agent:list."""
+    status: NotRequired[str]
+
+class AgentSendMessageData(TypedDict):
+    """Type-safe data for agent:send_message."""
+    agent_id: str
+    message: Dict[str, Any]
 
 
 # Helper functions
@@ -287,7 +305,7 @@ def handle_spawn_agent(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("agent:terminate")
-def handle_terminate_agent(data: Dict[str, Any]) -> Dict[str, Any]:
+def handle_terminate_agent(data: AgentTerminateData) -> Dict[str, Any]:
     """Terminate an agent thread."""
     agent_id = data.get("agent_id")
     
@@ -531,7 +549,7 @@ def handle_unregister_agent(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("agent:list")
-def handle_list_agents(data: Dict[str, Any]) -> Dict[str, Any]:
+def handle_list_agents(data: AgentListData) -> Dict[str, Any]:
     """List registered agents."""
     filter_status = data.get("status")
     
@@ -734,8 +752,14 @@ def ksi_shutdown():
 
 
 # Message handling functions
-@event_handler("agent:send_message")
-def handle_send_message(data: Dict[str, Any]) -> Dict[str, Any]:
+@enhanced_event_handler(
+    "agent:send_message",
+    category=EventCategory.MESSAGING,
+    async_response=True,
+    has_side_effects=True,
+    best_practices=["Ensure agent exists before sending message", "Messages are queued if agent is busy"]
+)
+def handle_send_message(data: AgentSendMessageData) -> Dict[str, Any]:
     """Send a message to an agent."""
     agent_id = data.get("agent_id")
     message = data.get("message", {})

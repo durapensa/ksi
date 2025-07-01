@@ -16,13 +16,15 @@ import sys
 import time
 import uuid
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, TypedDict
+from typing_extensions import NotRequired
 import pluggy
 
 import asyncio
 import litellm
 
 from ksi_daemon.plugin_utils import plugin_metadata, event_handler, create_ksi_describe_events_hook, collect_event_metadata
+from ksi_daemon.enhanced_decorators import enhanced_event_handler, EventCategory
 from ksi_common import timestamp_utc, create_completion_response, parse_completion_response, get_response_session_id
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
@@ -58,6 +60,20 @@ event_emitter = None
 
 # Shutdown event reference (set during startup)
 shutdown_event = None
+
+
+# Per-plugin TypedDict definitions (optional type safety)
+class CompletionCancelData(TypedDict):
+    """Type-safe data for completion:cancel."""
+    request_id: str
+
+class CompletionStatusData(TypedDict):
+    """Type-safe data for completion:status."""
+    pass  # No parameters
+
+class CompletionSessionStatusData(TypedDict):
+    """Type-safe data for completion:session_status."""
+    session_id: str
 
 
 def get_completion_task_group():
@@ -184,16 +200,15 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
     return None
 
 
-@event_handler("completion:cancel")
-def handle_cancel_completion(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Cancel an active completion request.
-    
-    Parameters:
-        request_id: The request ID to cancel
-    
-    Returns:
-        Cancellation status
-    """
+@enhanced_event_handler(
+    "completion:cancel",
+    category=EventCategory.CONTROL,
+    has_side_effects=True,
+    typical_duration_ms=50,
+    best_practices=["Check if request exists before cancelling"]
+)
+def handle_cancel_completion(data: CompletionCancelData) -> Dict[str, Any]:
+    """Cancel an active completion request."""
     request_id = data.get("request_id")
     if request_id in active_completions:
         completion_info = active_completions[request_id]
@@ -212,12 +227,8 @@ def handle_cancel_completion(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("completion:status")
-def handle_completion_status(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Get completion service status.
-    
-    Returns:
-        Service status including active requests and sessions
-    """
+def handle_completion_status(data: CompletionStatusData) -> Dict[str, Any]:
+    """Get completion service status."""
     return {
         "architecture": "asyncio",
         "task_group_active": completion_task_group is not None,
@@ -233,27 +244,18 @@ def handle_completion_status(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("completion:session_status")
-def handle_session_status(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Get detailed per-session status.
-    
-    Parameters:
-        session_id: The session ID to query
-    
-    Returns:
-        Session status including queue size and active state
-    """
+def handle_session_status(data: CompletionSessionStatusData) -> Dict[str, Any]:
+    """Get detailed per-session status."""
     session_id = data.get("session_id")
     if not session_id:
         return {"error": "session_id required"}
-            
-        return {
-            "session_id": session_id,
-            "active": session_id in active_sessions,
-            "queued": session_processors.get(session_id, asyncio.Queue()).qsize() if session_id in session_processors else 0,
-            "has_queue": session_id in session_processors
-        }
     
-    return None
+    return {
+        "session_id": session_id,
+        "active": session_id in active_sessions,
+        "queued": session_processors.get(session_id, asyncio.Queue()).qsize() if session_id in session_processors else 0,
+        "has_queue": session_id in session_processors
+    }
 
 
 async def handle_completion_request(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:

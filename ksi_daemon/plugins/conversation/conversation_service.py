@@ -8,7 +8,8 @@ Assumes all messages have proper timestamps - drops malformed entries.
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Any
+from typing import Dict, List, Optional, Set, Any, TypedDict
+from typing_extensions import NotRequired
 import hashlib
 
 import pluggy
@@ -16,6 +17,7 @@ import pluggy
 from ksi_common.config import config
 from ksi_common import parse_iso_timestamp, filename_timestamp, display_timestamp, utc_to_local
 from ksi_daemon.plugin_utils import plugin_metadata, event_handler, create_ksi_describe_events_hook
+from ksi_daemon.enhanced_decorators import enhanced_event_handler, EventCategory
 from ksi_common.logging import get_bound_logger
 
 # Plugin metadata
@@ -35,6 +37,44 @@ cache_timestamp: Optional[datetime] = None
 cache_ttl_seconds = 60  # Refresh cache every minute
 responses_dir_path = None
 exports_dir = None
+
+
+# Per-plugin TypedDict definitions (optional type safety)
+class ConversationListData(TypedDict):
+    """Type-safe data for conversation:list."""
+    limit: NotRequired[int]
+    offset: NotRequired[int]
+    sort_by: NotRequired[str]
+    reverse: NotRequired[bool]
+    start_date: NotRequired[str]
+    end_date: NotRequired[str]
+
+class ConversationSearchData(TypedDict):
+    """Type-safe data for conversation:search."""
+    query: str
+    limit: NotRequired[int]
+    search_in: NotRequired[List[str]]
+
+class ConversationGetData(TypedDict):
+    """Type-safe data for conversation:get."""
+    session_id: str
+    limit: NotRequired[int]
+    offset: NotRequired[int]
+    conversation_id: NotRequired[str]
+
+class ConversationExportData(TypedDict):
+    """Type-safe data for conversation:export."""
+    session_id: str
+    format: NotRequired[str]
+
+class ConversationStatsData(TypedDict):
+    """Type-safe data for conversation:stats."""
+    pass  # No parameters
+
+class ConversationActiveData(TypedDict):
+    """Type-safe data for conversation:active."""
+    max_lines: NotRequired[int]
+    max_age_hours: NotRequired[int]
 
 
 def ensure_directories():
@@ -172,7 +212,7 @@ def refresh_conversation_cache() -> None:
 
 
 @event_handler("conversation:list")
-def handle_list_conversations(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+def handle_list_conversations(data: ConversationListData, context: Dict[str, Any]) -> Dict[str, Any]:
     """List available conversations with metadata."""
     try:
         # Refresh cache if needed
@@ -243,8 +283,14 @@ def handle_list_conversations(data: Dict[str, Any], context: Dict[str, Any]) -> 
         return {"error": f"Failed to list conversations: {str(e)}"}
 
 
-@event_handler("conversation:search")
-def handle_search_conversations(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+@enhanced_event_handler(
+    "conversation:search",
+    category=EventCategory.QUERY,
+    typical_duration_ms=1500,
+    has_cost=False,
+    best_practices=["Use specific search terms for better results", "Content search covers both user and Claude messages"]
+)
+def handle_search_conversations(data: ConversationSearchData, context: Dict[str, Any]) -> Dict[str, Any]:
     """Search conversations by content."""
     try:
         query = data.get('query', '').lower()
@@ -352,7 +398,7 @@ def handle_search_conversations(data: Dict[str, Any], context: Dict[str, Any]) -
 
 
 @event_handler("conversation:get")
-def handle_get_conversation(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+def handle_get_conversation(data: ConversationGetData, context: Dict[str, Any]) -> Dict[str, Any]:
     """Get a specific conversation with full message history."""
     try:
         session_id = data.get('session_id')
@@ -521,7 +567,7 @@ def get_message_bus_conversation(
 
 
 @event_handler("conversation:export")
-def handle_export_conversation(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+def handle_export_conversation(data: ConversationExportData, context: Dict[str, Any]) -> Dict[str, Any]:
     """Export conversation to markdown or JSON format."""
     try:
         session_id = data.get('session_id')
@@ -642,7 +688,7 @@ def handle_export_conversation(data: Dict[str, Any], context: Dict[str, Any]) ->
 
 
 @event_handler("conversation:stats")
-def handle_conversation_stats(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+def handle_conversation_stats(data: ConversationStatsData, context: Dict[str, Any]) -> Dict[str, Any]:
     """Get statistics about conversations."""
     try:
         # Refresh cache if needed
@@ -683,7 +729,7 @@ def handle_conversation_stats(data: Dict[str, Any], context: Dict[str, Any]) -> 
 
 
 @event_handler("conversation:active")
-def handle_active_conversations(data: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+def handle_active_conversations(data: ConversationActiveData, context: Dict[str, Any]) -> Dict[str, Any]:
     """Find active conversations from recent COMPLETION_RESULT messages."""
     try:
         # Parameters

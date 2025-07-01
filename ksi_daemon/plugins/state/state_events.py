@@ -7,14 +7,36 @@ All actual state functionality is provided by daemon infrastructure.
 """
 
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, TypedDict
+from typing_extensions import NotRequired
 import pluggy
 
 from ksi_daemon.plugin_utils import plugin_metadata, event_handler, create_ksi_describe_events_hook
-from ksi_daemon.event_types import (
-    StateSetData, StateGetData, StateDeleteData, StateListData
-)
 from ksi_common.logging import get_bound_logger
+
+
+# Per-plugin TypedDict definitions (optional type safety)
+class StateSetData(TypedDict):
+    """Type-safe data for state:set."""
+    key: str
+    value: Any
+    namespace: NotRequired[str]
+    metadata: NotRequired[Dict[str, Any]]
+
+class StateGetData(TypedDict):
+    """Type-safe data for state:get."""
+    key: str
+    namespace: NotRequired[str]
+
+class StateDeleteData(TypedDict):
+    """Type-safe data for state:delete."""
+    key: str
+    namespace: NotRequired[str]
+
+class StateListData(TypedDict):
+    """Type-safe data for state:list."""
+    namespace: NotRequired[str]
+    pattern: NotRequired[str]
 
 # Plugin metadata
 plugin_metadata("state_events", version="4.0.0", 

@@ -90,8 +90,14 @@ def event_handler(event_name: str, data_type: Optional[Type[TypedDict]] = None):
     - TypedDict structure (if provided)
     - Docstring documentation
     
-    Usage with TypedDict:
-        from ksi_daemon.event_types import StateSetData
+    Usage with TypedDict (per-plugin pattern):
+        from typing import TypedDict, Dict, Any
+        from typing_extensions import NotRequired
+        
+        class StateSetData(TypedDict):
+            key: str
+            value: Any
+            namespace: NotRequired[str]
         
         @event_handler("state:set", data_type=StateSetData)
         def handle_state_set(data: StateSetData) -> Dict[str, Any]:
