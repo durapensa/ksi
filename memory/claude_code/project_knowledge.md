@@ -473,6 +473,48 @@ var/lib/
 - **Integration**: Seamless with agent spawn/terminate, completion service, monitoring
 - **Impact**: Safe agent experimentation environment ready for use
 
+## Modern TUI System ✅ (NEW)
+
+### Overview
+- **Status**: Core implementation complete with ksi-chat and ksi-monitor
+- **Architecture**: Component-based with clean separation of concerns
+- **Location**: `ksi_tui/` package with modular structure
+- **Documentation**: `/docs/migration_to_new_tui.md` for transition guide
+
+### Completed Applications
+1. **ksi-chat**: Focused chat interface
+   - Clean, distraction-free design
+   - Automatic session management
+   - Real-time connection status
+   - Export to markdown/JSON
+   - Beautiful message rendering
+
+2. **ksi-monitor**: Real-time monitoring dashboard
+   - Multi-pane dashboard layout
+   - Live event stream with filtering
+   - Agent tree view with details
+   - Performance metrics with graphs
+   - System health indicators
+
+### Architecture Components
+- **Components**: Reusable UI widgets (`MessageBubble`, `EventStream`, `MetricsBar`, `ConnectionStatus`)
+- **Services**: Clean abstractions (`ChatService`, `MonitorService`)
+- **Themes**: Catppuccin-inspired dark theme with CSS variables
+- **Utils**: Formatting utilities for consistent display
+
+### Design Principles
+- **Focused Applications**: Each app does one thing well
+- **Component-Based**: Reusable widgets for consistency
+- **Service Layer**: Business logic separated from UI
+- **Reactive**: Automatic UI updates with reactive attributes
+- **Keyboard-First**: Intuitive shortcuts for all operations
+- **Beautiful**: Consistent Catppuccin theme throughout
+
+### Migration Path
+- Old interfaces remain available during transition
+- New apps are simpler with focused functionality
+- See `/docs/migration_to_new_tui.md` for details
+
 ## Ready for Implementation
 
 ### Agent System Activation
@@ -481,6 +523,17 @@ var/lib/
 - **Next Steps**: Create working agents using the composition system
 - **Impact**: Can now safely demonstrate multi-agent orchestration
 - **Safety**: Full sandbox isolation and permission enforcement active
+
+### Remaining TUI Applications
+1. **ksi-history**: Conversation browser with search
+   - Full-text search across sessions
+   - Timeline visualization
+   - Bulk export functionality
+   
+2. **ksi-agents**: Multi-agent coordinator
+   - Agent spawn/terminate controls
+   - Conversation flow visualization
+   - Permission management UI
 
 ---
 *For development practices, see `/Users/dp/projects/ksi/CLAUDE.md`*

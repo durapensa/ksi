@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+"""
+ksi-monitor - Real-time system monitoring dashboard for KSI.
+
+A modern TUI monitoring application built with Textual for observing
+KSI daemon activity, agents, and system health.
+"""
+
+import sys
+import argparse
+from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent))
+
+from ksi_tui.apps.monitor import main
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="KSI Monitor - Real-time system dashboard",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Keyboard shortcuts:
+  Ctrl+R    Refresh dashboard
+  Ctrl+C    Clear event stream
+  Ctrl+P    Pause/Resume monitoring
+  Ctrl+F    Focus event filter
+  Ctrl+Q    Quit
+  F1        Help
+  
+Event filter patterns:
+  agent:*         All agent events
+  completion:*    All completion events
+  *:error         All error events
+  agent:spawn     Specific event type
+"""
+    )
+    
+    parser.add_argument(
+        "--update-interval",
+        type=float,
+        default=1.0,
+        help="Dashboard update interval in seconds (default: 1.0)"
+    )
+    
+    parser.add_argument(
+        "--client-id",
+        default="ksi-monitor",
+        help="Client ID for daemon connection"
+    )
+    
+    args = parser.parse_args()
+    
+    try:
+        # Run the monitor app
+        from ksi_tui.apps.monitor import MonitorApp
+        app = MonitorApp(
+            client_id=args.client_id,
+            update_interval=args.update_interval,
+        )
+        app.run()
+    except KeyboardInterrupt:
+        print("\nGoodbye!")
+        sys.exit(0)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)

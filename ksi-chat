@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+"""
+ksi-chat - Beautiful, focused chat interface for KSI.
+
+A modern TUI chat application built with Textual for conversing with Claude
+through the KSI daemon.
+"""
+
+import sys
+import argparse
+import asyncio
+from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent))
+
+from ksi_tui.apps.chat import main
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="KSI Chat - Beautiful chat interface for Claude",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Keyboard shortcuts:
+  Ctrl+N    New session
+  Ctrl+S    Switch session
+  Ctrl+E    Export session
+  Ctrl+L    Clear display
+  Ctrl+Q    Quit
+  F1        Help
+  
+Use arrow keys to navigate input history.
+"""
+    )
+    
+    parser.add_argument(
+        "--model",
+        choices=["sonnet", "opus", "haiku"],
+        default="sonnet",
+        help="Claude model to use (default: sonnet)"
+    )
+    
+    parser.add_argument(
+        "--client-id",
+        default="ksi-chat",
+        help="Client ID for daemon connection"
+    )
+    
+    args = parser.parse_args()
+    
+    try:
+        # Run the chat app
+        from ksi_tui.apps.chat import ChatApp
+        app = ChatApp(
+            client_id=args.client_id,
+            model=args.model,
+        )
+        app.run()
+    except KeyboardInterrupt:
+        print("\nGoodbye!")
+        sys.exit(0)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
