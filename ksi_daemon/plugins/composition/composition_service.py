@@ -77,10 +77,32 @@ class CompositionSelectData(TypedDict):
     agent_id: NotRequired[str]
     role: NotRequired[str]
     capabilities: NotRequired[List[str]]
-    task: NotRequired[str]
-    style: NotRequired[str]
-    context: NotRequired[Dict[str, Any]]
+    task_description: NotRequired[str]
+    preferred_style: NotRequired[str]
+    context_variables: NotRequired[Dict[str, Any]]
     max_suggestions: NotRequired[int]
+    requirements: NotRequired[Dict[str, Any]]
+
+
+@dataclass
+class SelectionContext:
+    """Context for intelligent composition selection."""
+    agent_id: str
+    role: Optional[str] = None
+    capabilities: Optional[List[str]] = None
+    task_description: Optional[str] = None
+    preferred_style: Optional[str] = None
+    context_variables: Optional[Dict[str, Any]] = None
+    requirements: Optional[Dict[str, Any]] = None
+
+
+@dataclass 
+class SelectionResult:
+    """Result of intelligent composition selection."""
+    composition_name: str
+    score: float
+    reasons: List[str]
+    fallback_used: bool = False
 
 
 @dataclass
@@ -176,8 +198,19 @@ def evaluate_condition(condition: str, variables: Dict[str, Any]) -> bool:
         return bool(condition)
 
 
-def _resolve_ksi_context_variables(variables: Dict[str, Any]) -> None:
-    """Resolve special KSI context variables from daemon cache."""
+def _should_resolve_ksi_context(composition: Composition) -> bool:
+    """Check composition metadata to determine if KSI context should be resolved."""
+    return composition.metadata.get("ksi_aware", False)
+
+
+def _resolve_ksi_context_variables(variables: Dict[str, Any], composition: Composition) -> None:
+    """Resolve special KSI context variables from daemon cache based on metadata."""
+    
+    # Only resolve KSI variables for compositions that declare ksi_aware: true
+    if not _should_resolve_ksi_context(composition):
+        logger.debug(f"Skipping KSI resolution for non-KSI composition: {composition.name}")
+        return
+    
     ksi_context_vars = {
         "daemon_events": "daemon_events",
         "daemon_commands": "daemon_commands", 
@@ -197,13 +230,121 @@ def _resolve_ksi_context_variables(variables: Dict[str, Any]) -> None:
                 cached_value = get_ksi_context_variable(cache_key)
                 if cached_value is not None:
                     variables[var_name] = cached_value
-                    logger.debug(f"Resolved KSI context variable: {var_name}")
+                    logger.debug(f"Resolved KSI context variable: {var_name} for KSI-aware composition")
                 else:
                     logger.warning(f"KSI context variable not available: {var_name}")
                     variables[var_name] = f"KSI context not available: {var_name}"
             except Exception as e:
                 logger.error(f"Error resolving KSI context variable {var_name}: {e}")
                 variables[var_name] = f"Error loading {var_name}"
+
+
+async def _score_composition_for_context(composition: Composition, context: SelectionContext) -> tuple[float, List[str]]:
+    """Score a composition against selection context using multi-factor algorithm."""
+    score = 0.0
+    reasons = []
+    
+    # 1. Role matching (weight: 30%)
+    if context.role and composition.metadata.get('role'):
+        if context.role.lower() == composition.metadata['role'].lower():
+            score += 30
+            reasons.append(f"Exact role match: {context.role}")
+        elif context.role.lower() in composition.metadata.get('compatible_roles', []):
+            score += 20
+            reasons.append(f"Compatible role: {context.role}")
+    
+    # Check suitable_for field
+    if context.role and composition.metadata.get('suitable_for'):
+        suitable_for = composition.metadata['suitable_for']
+        if isinstance(suitable_for, list) and context.role.lower() in [s.lower() for s in suitable_for]:
+            score += 25
+            reasons.append(f"Listed as suitable for: {context.role}")
+    
+    # 2. Capability requirements (weight: 25%)
+    if context.capabilities:
+        comp_caps_required = composition.metadata.get('required_capabilities', [])
+        comp_caps_provided = composition.metadata.get('provides_capabilities', [])
+        
+        # Check if composition requires capabilities the agent has
+        if comp_caps_required:
+            matching_caps = set(context.capabilities) & set(comp_caps_required)
+            if matching_caps:
+                cap_score = (len(matching_caps) / len(comp_caps_required)) * 25
+                score += cap_score
+                reasons.append(f"Capability match: {', '.join(matching_caps)}")
+        
+        # Check if composition provides capabilities the agent needs  
+        if comp_caps_provided:
+            useful_caps = set(comp_caps_provided) & set(context.capabilities)
+            if useful_caps:
+                score += 10
+                reasons.append(f"Provides useful capabilities: {', '.join(useful_caps)}")
+    
+    # 3. Task relevance (weight: 25%)
+    if context.task_description:
+        task_keywords = context.task_description.lower().split()
+        
+        # Check description
+        desc_matches = sum(1 for kw in task_keywords if kw in composition.description.lower())
+        if desc_matches:
+            score += min(desc_matches * 5, 15)
+            reasons.append(f"Description matches task ({desc_matches} keywords)")
+        
+        # Check tags
+        comp_tags = [tag.lower() for tag in composition.metadata.get('tags', [])]
+        tag_matches = sum(1 for kw in task_keywords if any(kw in tag for tag in comp_tags))
+        if tag_matches:
+            score += min(tag_matches * 3, 10)
+            reasons.append(f"Tags match task ({tag_matches} matches)")
+    
+    # 4. Style preference (weight: 10%)
+    if context.preferred_style:
+        comp_style = composition.metadata.get('style', '').lower()
+        if context.preferred_style.lower() in comp_style:
+            score += 10
+            reasons.append(f"Style match: {context.preferred_style}")
+    
+    # 5. Quality indicators (weight: 10%)
+    # Prefer newer versions
+    try:
+        version = float(composition.version)
+        if version >= 2.0:
+            score += 5
+            reasons.append("Recent version")
+    except (ValueError, TypeError):
+        pass
+    
+    # Prefer well-documented compositions
+    if len(composition.metadata.get('use_cases', [])) >= 2:
+        score += 3
+        reasons.append("Well-documented use cases")
+    
+    if composition.metadata.get('tested', False):
+        score += 2
+        reasons.append("Tested composition")
+    
+    # KSI awareness requirement check
+    if context.requirements and 'ksi_aware' in context.requirements:
+        required_ksi = context.requirements['ksi_aware']
+        comp_ksi = composition.metadata.get('ksi_aware', False)
+        if required_ksi == comp_ksi:
+            score += 15
+            reasons.append(f"KSI awareness requirement met: {comp_ksi}")
+        elif required_ksi and not comp_ksi:
+            score -= 20
+            reasons.append("KSI awareness required but not provided")
+    
+    return score, reasons
+
+
+def _get_fallback_selection() -> SelectionResult:
+    """Get fallback selection when no composition can be found."""
+    return SelectionResult(
+        composition_name='claude_agent_default',
+        score=0.0,
+        reasons=['Fallback: No suitable composition found'],
+        fallback_used=True
+    )
 
 
 def evaluate_conditions(conditions: Dict[str, List[str]], variables: Dict[str, Any]) -> bool:
@@ -292,7 +433,7 @@ async def resolve_composition(
             variables[var_name] = var_def['default']
     
     # Resolve special KSI context variables 
-    _resolve_ksi_context_variables(variables)
+    _resolve_ksi_context_variables(variables, composition)
     
     # Process components
     for component in composition.components:
@@ -307,7 +448,7 @@ async def resolve_composition(
         comp_vars = {**variables, **component.vars}
         
         # Resolve KSI context variables in comp_vars (handles component-level overrides)
-        _resolve_ksi_context_variables(comp_vars)
+        _resolve_ksi_context_variables(comp_vars, composition)
         
         # Process component based on type
         if component.source:
@@ -518,17 +659,58 @@ async def handle_validate(data: CompositionValidateData) -> Dict[str, Any]:
 
 @event_handler("composition:discover")
 async def handle_discover(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Discover available compositions using index."""
+    """Discover available compositions using index with optional metadata filtering."""
     if not composition_index:
         return {'error': 'Composition index not available'}
     
     # Use index for fast discovery
     discovered = composition_index.discover(data)
     
+    # Apply metadata filtering if specified
+    metadata_filter = data.get('metadata_filter')
+    if metadata_filter:
+        filtered_compositions = []
+        for comp_info in discovered:
+            try:
+                # Load composition to get full metadata
+                composition = await load_composition(comp_info['name'])
+                metadata = composition.metadata
+                
+                # Check if all filter criteria match
+                matches = True
+                for key, expected_value in metadata_filter.items():
+                    actual_value = metadata.get(key)
+                    
+                    if isinstance(expected_value, list):
+                        # For list filters, check if there's any overlap
+                        if not isinstance(actual_value, list):
+                            actual_value = [actual_value] if actual_value else []
+                        if not set(expected_value) & set(actual_value):
+                            matches = False
+                            break
+                    else:
+                        # For scalar filters, check exact match
+                        if actual_value != expected_value:
+                            matches = False
+                            break
+                
+                if matches:
+                    # Add metadata to composition info
+                    comp_info_with_metadata = {**comp_info, 'metadata': metadata}
+                    filtered_compositions.append(comp_info_with_metadata)
+                    
+            except Exception as e:
+                logger.warning(f"Failed to load composition {comp_info['name']} for filtering: {e}")
+                continue
+        
+        discovered = filtered_compositions
+        logger.debug(f"Filtered compositions by metadata: {len(discovered)} matches")
+    
     return {
         'status': 'success',
         'compositions': discovered,
-        'count': len(discovered)
+        'count': len(discovered),
+        'filtered': metadata_filter is not None
     }
 
 
@@ -722,52 +904,267 @@ async def handle_load_bulk(data: Dict[str, Any]) -> Dict[str, Any]:
     best_practices=["Provide clear task description for better selection", "Include relevant capabilities"]
 )
 async def handle_select_composition(data: CompositionSelectData) -> Dict[str, Any]:
-    """Handle dynamic composition selection based on context."""
+    """Handle intelligent composition selection using sophisticated scoring algorithm."""
     try:
-        # Import selector dynamically to avoid circular imports
-        from prompts.composition_selector import CompositionSelector, SelectionContext
-        
         # Build selection context
         context = SelectionContext(
             agent_id=data.get('agent_id', 'unknown'),
             role=data.get('role'),
             capabilities=data.get('capabilities', []),
-            task_description=data.get('task'),
-            preferred_style=data.get('style'),
-            context_variables=data.get('context', {})
+            task_description=data.get('task_description'),
+            preferred_style=data.get('preferred_style'),
+            context_variables=data.get('context_variables', {}),
+            requirements=data.get('requirements', {})
         )
         
-        # Use selector to find best composition
-        selector = CompositionSelector()
-        result = await selector.select_composition(context)
+        # Get all available compositions
+        if not composition_index:
+            logger.error("Composition index not available")
+            fallback = _get_fallback_selection()
+            return {
+                'status': 'error',
+                'selected': fallback.composition_name,
+                'score': fallback.score,
+                'reasons': fallback.reasons,
+                'fallback_used': True,
+                'error': 'Composition index not available'
+            }
         
-        # Get additional suggestions if requested
+        # Discover all compositions  
+        discovered = composition_index.discover({})
+        if not discovered:
+            logger.warning("No compositions found for selection")
+            fallback = _get_fallback_selection()
+            return {
+                'status': 'success',
+                'selected': fallback.composition_name,
+                'score': fallback.score,
+                'reasons': fallback.reasons,
+                'fallback_used': True
+            }
+        
+        # Score each composition
+        scored_compositions = []
+        for comp_info in discovered:
+            try:
+                # Load full composition for metadata
+                composition = await load_composition(comp_info['name'])
+                score, reasons = await _score_composition_for_context(composition, context)
+                
+                if score > 0:
+                    scored_compositions.append((comp_info['name'], score, reasons, composition))
+            except Exception as e:
+                logger.warning(f"Failed to score composition {comp_info['name']}: {e}")
+                continue
+        
+        # Select best composition
+        if scored_compositions:
+            # Sort by score (highest first)
+            scored_compositions.sort(key=lambda x: x[1], reverse=True)
+            best_name, best_score, best_reasons, best_composition = scored_compositions[0]
+            
+            result = SelectionResult(
+                composition_name=best_name,
+                score=best_score,
+                reasons=best_reasons,
+                fallback_used=False
+            )
+            
+            logger.info(f"Selected composition '{best_name}' for {context.agent_id} (score: {best_score:.2f})")
+        else:
+            logger.warning(f"No suitable composition found for {context.agent_id}, using fallback")
+            result = _get_fallback_selection()
+        
+        # Prepare response
+        response = {
+            'status': 'success',
+            'selected': result.composition_name,
+            'score': result.score,
+            'reasons': result.reasons,
+            'fallback_used': result.fallback_used
+        }
+        
+        # Add suggestions if requested
         max_suggestions = data.get('max_suggestions', 1)
-        suggestions = []
-        
-        if max_suggestions > 1:
-            # Get all scored compositions from selector
-            all_compositions = await selector.get_scored_compositions(context)
+        if max_suggestions > 1 and scored_compositions:
             suggestions = [
                 {
                     'name': name,
                     'score': score,
                     'reasons': reasons
                 }
-                for name, score, reasons in all_compositions[:max_suggestions]
+                for name, score, reasons, _ in scored_compositions[:max_suggestions]
             ]
+            response['suggestions'] = suggestions
         
-        return {
-            'status': 'success',
-            'selected': result.composition_name,
-            'score': result.score,
-            'reasons': result.reasons,
-            'suggestions': suggestions,
-            'fallback_used': result.fallback_used
-        }
+        return response
         
     except Exception as e:
         logger.error(f"Composition selection failed: {e}")
+        fallback = _get_fallback_selection()
+        return {
+            'status': 'error',
+            'selected': fallback.composition_name,
+            'score': fallback.score,
+            'reasons': fallback.reasons + [f"Error: {str(e)}"],
+            'fallback_used': True,
+            'error': str(e)
+        }
+
+
+@event_handler("composition:suggest")
+async def handle_suggest_compositions(data: CompositionSelectData) -> Dict[str, Any]:
+    """Get top N composition suggestions for the given context."""
+    try:
+        # Build selection context
+        context = SelectionContext(
+            agent_id=data.get('agent_id', 'unknown'),
+            role=data.get('role'),
+            capabilities=data.get('capabilities', []),
+            task_description=data.get('task_description'),
+            preferred_style=data.get('preferred_style'),
+            context_variables=data.get('context_variables', {}),
+            requirements=data.get('requirements', {})
+        )
+        
+        max_suggestions = data.get('max_suggestions', 3)
+        
+        # Get all available compositions
+        if not composition_index:
+            return {'error': 'Composition index not available'}
+        
+        discovered = composition_index.discover({})
+        if not discovered:
+            return {
+                'status': 'success',
+                'suggestions': [],
+                'count': 0
+            }
+        
+        # Score all compositions
+        scored_results = []
+        for comp_info in discovered:
+            try:
+                composition = await load_composition(comp_info['name'])
+                score, reasons = await _score_composition_for_context(composition, context)
+                
+                if score > 0:
+                    scored_results.append({
+                        'name': comp_info['name'],
+                        'score': score,
+                        'reasons': reasons,
+                        'description': composition.description,
+                        'metadata': composition.metadata
+                    })
+            except Exception as e:
+                logger.warning(f"Failed to score composition {comp_info['name']}: {e}")
+                continue
+        
+        # Sort by score and return top N
+        scored_results.sort(key=lambda x: x['score'], reverse=True)
+        suggestions = scored_results[:max_suggestions]
+        
+        return {
+            'status': 'success',
+            'suggestions': suggestions,
+            'count': len(suggestions),
+            'total_evaluated': len(discovered)
+        }
+        
+    except Exception as e:
+        logger.error(f"Composition suggestion failed: {e}")
+        return {'error': str(e)}
+
+
+@event_handler("composition:validate_context")
+async def handle_validate_context(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate that a composition will work with the given context."""
+    composition_name = data.get('composition_name')
+    context_vars = data.get('context', {})
+    
+    if not composition_name:
+        return {'error': 'composition_name is required'}
+    
+    try:
+        # Load the composition
+        composition = await load_composition(composition_name)
+        
+        # Check required context variables
+        missing_context = []
+        invalid_types = []
+        
+        for var_name, var_def in composition.variables.items():
+            if var_name not in context_vars:
+                # Check if there's a default
+                if 'default' not in var_def:
+                    missing_context.append(var_name)
+            else:
+                # Type validation (basic)
+                expected_type = var_def.get('type')
+                if expected_type:
+                    actual_value = context_vars[var_name]
+                    # Simple type checking
+                    type_valid = True
+                    if expected_type == 'string' and not isinstance(actual_value, str):
+                        type_valid = False
+                    elif expected_type == 'number' and not isinstance(actual_value, (int, float)):
+                        type_valid = False
+                    elif expected_type == 'boolean' and not isinstance(actual_value, bool):
+                        type_valid = False
+                    elif expected_type == 'array' and not isinstance(actual_value, list):
+                        type_valid = False
+                    elif expected_type == 'object' and not isinstance(actual_value, dict):
+                        type_valid = False
+                    
+                    if not type_valid:
+                        invalid_types.append({
+                            'variable': var_name,
+                            'expected': expected_type,
+                            'actual': type(actual_value).__name__
+                        })
+        
+        # Check if composition has required capabilities
+        required_caps = composition.metadata.get('required_capabilities', [])
+        provided_caps = context_vars.get('capabilities', [])
+        missing_capabilities = []
+        
+        if required_caps:
+            missing_capabilities = [cap for cap in required_caps if cap not in provided_caps]
+        
+        # Determine if valid
+        is_valid = not missing_context and not invalid_types and not missing_capabilities
+        
+        result = {
+            'status': 'success',
+            'valid': is_valid,
+            'composition_name': composition_name
+        }
+        
+        if missing_context:
+            result['missing_context'] = missing_context
+        
+        if invalid_types:
+            result['invalid_types'] = invalid_types
+        
+        if missing_capabilities:
+            result['missing_capabilities'] = missing_capabilities
+        
+        if is_valid:
+            result['message'] = 'Context validation passed'
+        else:
+            issues = []
+            if missing_context:
+                issues.append(f"{len(missing_context)} missing variables")
+            if invalid_types:
+                issues.append(f"{len(invalid_types)} type mismatches")
+            if missing_capabilities:
+                issues.append(f"{len(missing_capabilities)} missing capabilities")
+            result['message'] = f"Validation failed: {', '.join(issues)}"
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Context validation failed: {e}")
         return {'error': str(e)}
 
 
