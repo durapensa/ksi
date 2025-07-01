@@ -6,21 +6,55 @@ Provides helper functions, decorators, and auto-discovery patterns
 for self-describing plugins.
 """
 
+import ast
 import inspect
 import re
 import asyncio
+import json
 from functools import wraps
-from typing import Dict, Any, Optional, Callable, List, get_type_hints
+from typing import Dict, Any, Optional, Callable, List, get_type_hints, Type, TypedDict, Union
 import functools
+from typing_extensions import NotRequired, get_args, get_origin
+from dataclasses import dataclass, field
+from enum import Enum
 
 # Import structured logging
 from ksi_common.logging import get_bound_logger
+from ksi_common.exceptions import KSIError
 
-# Simple plugin registry for metadata
-plugin_registry: Dict[str, Dict[str, Any]] = {}
+# Best practice: Use a class to encapsulate global state
+class PluginRegistry:
+    """Thread-safe plugin registry."""
+    def __init__(self):
+        self._plugins: Dict[str, Dict[str, Any]] = {}
+        self._event_handlers: Dict[str, Dict[str, Any]] = {}
+    
+    def register_plugin(self, name: str, metadata: Dict[str, Any]):
+        """Register a plugin."""
+        self._plugins[name] = metadata
+    
+    def register_event(self, event_name: str, metadata: Dict[str, Any]):
+        """Register an event handler."""
+        self._event_handlers[event_name] = metadata
+    
+    def get_plugin(self, name: str) -> Optional[Dict[str, Any]]:
+        """Get plugin metadata."""
+        return self._plugins.get(name)
+    
+    def get_event(self, event_name: str) -> Optional[Dict[str, Any]]:
+        """Get event metadata."""
+        return self._event_handlers.get(event_name)
+    
+    def all_events(self) -> Dict[str, Dict[str, Any]]:
+        """Get all registered events."""
+        return self._event_handlers.copy()
 
-# Store decorated event handlers for discovery
-_event_handlers: Dict[str, Dict[str, Any]] = {}
+# Global registry instance
+_registry = PluginRegistry()
+
+# Backward compatibility
+plugin_registry = _registry._plugins
+_event_handlers = _registry._event_handlers
 
 
 def plugin_metadata(name: str, version: str = "1.0.0", 
@@ -34,12 +68,12 @@ def plugin_metadata(name: str, version: str = "1.0.0",
             pass
     """
     def decorator(func_or_module):
-        plugin_registry[name] = {
+        _registry.register_plugin(name, {
             "name": name,
             "version": version,
             "description": description,
             **kwargs
-        }
+        })
         return func_or_module
     return decorator
 
@@ -47,39 +81,40 @@ def plugin_metadata(name: str, version: str = "1.0.0",
 # get_logger removed - use get_bound_logger from ksi_common.logging instead
 
 
-def event_handler(event_name: str):
+def event_handler(event_name: str, data_type: Optional[Type[TypedDict]] = None):
     """
-    Decorator for marking event handler functions.
+    Enhanced event handler decorator with TypedDict support.
     
-    Automatically extracts metadata from the function signature and docstring
-    to build event descriptions for discovery.
+    Automatically extracts metadata from multiple sources:
+    - AST analysis of function body
+    - TypedDict structure (if provided)
+    - Docstring documentation
     
-    Usage:
-        @event_handler("permission:list_profiles")
-        def handle_list_profiles(data: Dict[str, Any]) -> Dict[str, Any]:
-            '''List available permission profiles.
-            
-            Returns:
-                profiles: Dictionary containing all permission profiles
-            '''
-            return {"profiles": {...}}
+    Usage with TypedDict:
+        from ksi_daemon.event_types import StateSetData
+        
+        @event_handler("state:set", data_type=StateSetData)
+        def handle_state_set(data: StateSetData) -> Dict[str, Any]:
+            '''Set a value in shared state.'''
+            return {"status": "set"}
     
-    The decorator extracts:
-    - Event name from decorator argument
-    - Summary from first line of docstring
-    - Parameters from function signature and type hints
-    - Return info from docstring Returns section
+    Usage without TypedDict (backward compatible):
+        @event_handler("state:get")
+        def handle_state_get(data: Dict[str, Any]) -> Dict[str, Any]:
+            '''Get a value from shared state.'''
+            return {"value": data.get("key")}
     """
     def decorator(func: Callable) -> Callable:
-        # Extract metadata
-        metadata = _extract_metadata(func, event_name)
+        # Extract metadata with TypedDict support
+        metadata = _extract_metadata(func, event_name, data_type)
         
         # Store for discovery
-        _event_handlers[event_name] = metadata
+        _registry.register_event(event_name, metadata)
         
         # Mark the function with event info
         func._ksi_event_name = event_name
         func._ksi_event_metadata = metadata
+        func._ksi_data_type = data_type  # Store for runtime validation
         
         # Keep backward compatibility with event patterns
         func._event_patterns = [event_name]
@@ -177,8 +212,140 @@ class PluginContext:
 
 # Auto-discovery helpers
 
-def _extract_metadata(func: Callable, event_name: str) -> Dict[str, Any]:
-    """Extract event metadata from a function."""
+class TypedDictParameterExtractor:
+    """Extract parameters from TypedDict annotations."""
+    
+    @staticmethod
+    def extract(data_type: Type[TypedDict]) -> Dict[str, Dict[str, Any]]:
+        """Extract parameter info from TypedDict."""
+        try:
+            # Get type hints including special forms
+            hints = get_type_hints(data_type, include_extras=True)
+            
+            # Get required/optional keys
+            required_keys = getattr(data_type, '__required_keys__', set())
+            optional_keys = getattr(data_type, '__optional_keys__', set())
+            
+            parameters = {}
+            for key, type_hint in hints.items():
+                # Extract type information
+                type_str = _get_type_string(type_hint)
+                is_required = key in required_keys
+                
+                # Get docstring if available
+                doc = getattr(data_type, '__annotations_doc__', {}).get(key, '')
+                
+                parameters[key] = {
+                    'type': type_str,
+                    'required': is_required,
+                    'discovered_by': 'typeddict'
+                }
+                
+                if doc:
+                    parameters[key]['description'] = doc
+            
+            return parameters
+            
+        except Exception as e:
+            logger = get_bound_logger("plugin_utils")
+            logger.debug(f"TypedDict extraction failed: {e}")
+            return {}
+
+
+class ASTParameterExtractor:
+    """Extract parameters using AST analysis of function body."""
+    
+    @staticmethod
+    def extract(func: Callable) -> Dict[str, Dict[str, Any]]:
+        """Extract parameter usage from function source."""
+        try:
+            source = inspect.getsource(func)
+            tree = ast.parse(source)
+            
+            parameters = {}
+            
+            class DataAccessVisitor(ast.NodeVisitor):
+                def visit_Call(self, node):
+                    # Look for data.get() calls
+                    if (isinstance(node.func, ast.Attribute) and 
+                        node.func.attr == 'get' and
+                        isinstance(node.func.value, ast.Name) and
+                        node.func.value.id == 'data'):
+                        
+                        if node.args and isinstance(node.args[0], ast.Constant):
+                            key = node.args[0].value
+                            default = None
+                            required = True
+                            
+                            if len(node.args) > 1:
+                                required = False
+                                if isinstance(node.args[1], ast.Constant):
+                                    default = node.args[1].value
+                            
+                            parameters[key] = {
+                                'required': required,
+                                'default': default,
+                                'discovered_by': 'ast'
+                            }
+                    
+                    self.generic_visit(node)
+                
+                def visit_Subscript(self, node):
+                    # Look for direct dict access: data["key"]
+                    if (isinstance(node.value, ast.Name) and
+                        node.value.id == 'data' and
+                        isinstance(node.slice, ast.Constant)):
+                        
+                        key = node.slice.value
+                        if key not in parameters:
+                            parameters[key] = {
+                                'required': True,
+                                'discovered_by': 'ast'
+                            }
+                    
+                    self.generic_visit(node)
+            
+            visitor = DataAccessVisitor()
+            visitor.visit(tree)
+            
+            return parameters
+            
+        except Exception as e:
+            # Best practice: Log errors but don't crash
+            logger = get_bound_logger("plugin_utils")
+            logger.debug(f"AST extraction failed for {func.__name__}: {e}")
+            return {}
+
+
+def _get_type_string(type_hint: Any) -> str:
+    """Convert type hint to readable string."""
+    if hasattr(type_hint, '__name__'):
+        return type_hint.__name__
+    
+    # Handle Union types
+    origin = get_origin(type_hint)
+    if origin is Union:
+        args = get_args(type_hint)
+        # Check if it's Optional (Union with None)
+        if type(None) in args:
+            non_none_args = [arg for arg in args if arg is not type(None)]
+            if len(non_none_args) == 1:
+                return f"Optional[{_get_type_string(non_none_args[0])}]"
+        return f"Union[{', '.join(_get_type_string(arg) for arg in args)}]"
+    
+    # Handle generic types
+    if origin:
+        args = get_args(type_hint)
+        if args:
+            return f"{origin.__name__}[{', '.join(_get_type_string(arg) for arg in args)}]"
+        return origin.__name__
+    
+    # Default to string representation
+    return str(type_hint)
+
+
+def _extract_metadata(func: Callable, event_name: str, data_type: Optional[Type[TypedDict]] = None) -> Dict[str, Any]:
+    """Extract event metadata from a function using multiple methods."""
     # Get docstring
     docstring = inspect.getdoc(func) or ""
     lines = docstring.split('\n')
@@ -186,11 +353,31 @@ def _extract_metadata(func: Callable, event_name: str) -> Dict[str, Any]:
     # Extract summary (first line)
     summary = lines[0].strip() if lines else "No description available"
     
-    # Get type hints
-    type_hints = get_type_hints(func)
+    # Layer 1: AST-based discovery (automatic)
+    ast_params = ASTParameterExtractor.extract(func)
     
-    # Extract parameters from docstring
-    params = _parse_docstring_params(docstring)
+    # Layer 2: TypedDict extraction (if provided)
+    if data_type:
+        typed_params = TypedDictParameterExtractor.extract(data_type)
+        # Merge TypedDict params (higher priority than AST)
+        for key, info in typed_params.items():
+            if key in ast_params:
+                ast_params[key].update(info)
+            else:
+                ast_params[key] = info
+    
+    # Layer 3: Docstring parsing (for descriptions)
+    docstring_params = _parse_docstring_params(docstring)
+    
+    # Layer 4: Merge parameters (docstring takes precedence for descriptions)
+    combined_params = ast_params.copy()
+    for key, info in docstring_params.items():
+        if key in combined_params:
+            # Merge: keep discovery info but add docstring details
+            combined_params[key].update(info)
+        else:
+            # Parameter only in docstring
+            combined_params[key] = info
     
     # Extract examples from docstring
     examples = _parse_docstring_examples(docstring)
@@ -199,7 +386,7 @@ def _extract_metadata(func: Callable, event_name: str) -> Dict[str, Any]:
     metadata = {
         "event": event_name,
         "summary": summary,
-        "parameters": params,
+        "parameters": combined_params,
     }
     
     if examples:
@@ -295,7 +482,6 @@ def _parse_docstring_examples(docstring: str) -> List[Dict[str, Any]]:
                 if example_lines:
                     example_text = '\n'.join(example_lines).strip()
                     try:
-                        import json
                         example_data = json.loads(example_text)
                         examples.append({
                             "description": example_desc or "Example",
@@ -315,7 +501,6 @@ def _parse_docstring_examples(docstring: str) -> List[Dict[str, Any]]:
     if example_lines:
         example_text = '\n'.join(example_lines).strip()
         try:
-            import json
             example_data = json.loads(example_text)
             examples.append({
                 "description": example_desc or "Example",

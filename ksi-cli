@@ -263,20 +263,21 @@ Examples:
     args, unknown = parser.parse_known_args()
     
     # For send command, parse the remaining arguments
-    if args.command == "send" and unknown:
+    # Use args.args instead of unknown since we're using REMAINDER
+    if args.command == "send" and hasattr(args, 'args') and args.args:
         # Create a new parser for the specific event
         event_parser = argparse.ArgumentParser(prog=f"ksi-cli send {args.event}")
         
-        # Add arguments from unknown
+        # Add arguments from args.args (the REMAINDER)
         i = 0
-        while i < len(unknown):
-            if unknown[i].startswith('--'):
-                key = unknown[i][2:]
+        while i < len(args.args):
+            if args.args[i].startswith('--'):
+                key = args.args[i][2:]
                 event_parser.add_argument(f'--{key}', default=None)
             i += 1
         
         # Parse the event-specific arguments
-        event_args = event_parser.parse_args(unknown)
+        event_args = event_parser.parse_args(args.args)
         
         # Merge with main args
         for key, value in vars(event_args).items():

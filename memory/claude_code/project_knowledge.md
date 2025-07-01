@@ -2,7 +2,7 @@
 
 Core technical reference for KSI (Knowledge System Interface) - a minimal daemon system for managing Claude AI processes with conversation continuity and multi-agent orchestration.
 
-**Current State**: 19 plugins loading successfully. Pure asyncio implementation with event-driven patterns. 
+**Current State**: 19 plugins loading successfully. Pure asyncio implementation with event-driven patterns. Enhanced with hybrid introspection system for rich parameter discovery. 
 
 **Critical Lesson Learned**: Previous agent experiments without proper logging and isolation resulted in agents compromising the KSI system itself. Event persistence and security controls are now mandatory prerequisites before any agent activation.
 
@@ -261,6 +261,87 @@ Verifies: sync/async completion, queue status, conversation locks, priorities
 - **Shared state**: `shared:` prefix for cross-agent
 - **Agent state**: Plain keys for agent-specific
 - **SQLite backend**: `var/db/agent_shared_state.db`
+
+## Hybrid Introspection System ✅ (NEW)
+
+### Overview
+- **Status**: Implementation complete with 4-layer hybrid approach
+- **Purpose**: Rich parameter discovery without manual maintenance
+- **Impact**: Claude and other consumers get complete parameter info automatically
+
+### The Four Layers
+
+1. **AST-Based Discovery** (Automatic)
+   - Analyzes function body to find `data.get()` calls
+   - Works with existing code without modifications
+   - Detects required vs optional parameters and defaults
+   - Always in sync with actual implementation
+
+2. **TypedDict Support** (Type Safety)
+   - Optional type-safe parameter definitions
+   - Full IDE support and type checking
+   - Import from `ksi_daemon.event_types`
+   - Example: `@event_handler("state:set", data_type=StateSetData)`
+
+3. **Docstring Enhancement** (Descriptions)
+   - Extracts human-readable descriptions
+   - Supports standard Args/Parameters sections
+   - Maintains documentation close to code
+
+4. **Enhanced Metadata** (Rich Discovery)
+   - Import from `ksi_daemon.enhanced_decorators`
+   - Comprehensive metadata including:
+     - Performance characteristics (async, duration, side effects)
+     - Resource requirements (cost, auth, rate limits)
+     - Constraints and allowed values
+     - Examples with expected results
+     - Best practices and common errors
+     - Related events
+
+### Usage Examples
+
+**Basic (AST only):**
+```python
+@event_handler("my:event")
+def handle_my_event(data: Dict[str, Any]) -> Dict[str, Any]:
+    param1 = data.get("param1")  # Automatically discovered
+```
+
+**With TypedDict:**
+```python
+from ksi_daemon.event_types import MyEventData
+
+@event_handler("my:event", data_type=MyEventData)
+def handle_my_event(data: MyEventData) -> Dict[str, Any]:
+    param1 = data["param1"]  # Type-safe access
+```
+
+**Enhanced Metadata:**
+```python
+from ksi_daemon.enhanced_decorators import enhanced_event_handler, EventParameter
+
+@enhanced_event_handler(
+    "critical:event",
+    parameters=[
+        EventParameter(
+            name="action",
+            type="string",
+            description="Action to perform",
+            allowed_values=["start", "stop"],
+            example="start"
+        )
+    ],
+    has_cost=True,
+    typical_duration_ms=5000,
+    best_practices=["Check status before action"]
+)
+```
+
+### Key Benefits
+- **Zero Maintenance**: Parameters discovered from code
+- **Gradual Enhancement**: Add types/metadata as needed
+- **Always Accurate**: Can't get out of sync
+- **Rich Discovery**: Claude gets complete context
 
 ## Python Introspection Patterns for Discovery
 

@@ -11,6 +11,9 @@ from typing import Dict, Any, Optional
 import pluggy
 
 from ksi_daemon.plugin_utils import plugin_metadata, event_handler, create_ksi_describe_events_hook
+from ksi_daemon.event_types import (
+    StateSetData, StateGetData, StateDeleteData, StateListData
+)
 from ksi_common.logging import get_bound_logger
 
 # Plugin metadata
@@ -54,6 +57,7 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
     if not state_manager:
         return {"error": "State infrastructure not available"}
     
+    
     # Look for decorated handlers
     import sys
     import inspect
@@ -71,8 +75,8 @@ def ksi_handle_event(event_name: str, data: Dict[str, Any], context: Dict[str, A
     return None
 
 
-@event_handler("state:get")
-def handle_get(data: Dict[str, Any]) -> Dict[str, Any]:
+@event_handler("state:get", data_type=StateGetData)
+def handle_get(data: StateGetData) -> Dict[str, Any]:
     """
     Get a value from shared state.
     
@@ -111,8 +115,8 @@ def handle_get(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
-@event_handler("state:set")
-def handle_set(data: Dict[str, Any]) -> Dict[str, Any]:
+@event_handler("state:set", data_type=StateSetData)
+def handle_set(data: StateSetData) -> Dict[str, Any]:
     """
     Set a value in shared state.
     
@@ -154,8 +158,8 @@ def handle_set(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
-@event_handler("state:delete")
-def handle_delete(data: Dict[str, Any]) -> Dict[str, Any]:
+@event_handler("state:delete", data_type=StateDeleteData)
+def handle_delete(data: StateDeleteData) -> Dict[str, Any]:
     """
     Delete a key from shared state.
     
@@ -193,8 +197,8 @@ def handle_delete(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
-@event_handler("state:list")
-def handle_list(data: Dict[str, Any]) -> Dict[str, Any]:
+@event_handler("state:list", data_type=StateListData)
+def handle_list(data: StateListData) -> Dict[str, Any]:
     """
     List keys in shared state.
     
