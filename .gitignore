@@ -206,6 +206,7 @@ var/data/
 var/experiments/
 var/exports/
 var/state/
+var/sandbox/
 
 # Temporary agent profiles
 var/lib/compositions/profiles/agents/temp_*
