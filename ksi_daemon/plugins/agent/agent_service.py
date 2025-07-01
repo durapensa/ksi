@@ -21,7 +21,6 @@ from ksi_daemon.enhanced_decorators import enhanced_event_handler, EventCategory
 from ksi_common import format_for_logging
 from ksi_common.async_utils import run_sync
 from ksi_common.config import config
-from ksi_daemon.file_operations import load_json, save_json
 from ksi_common.logging import get_bound_logger
 
 # Plugin metadata
@@ -65,7 +64,8 @@ def load_identities():
     """Load agent identities from disk."""
     if identity_storage_path.exists():
         try:
-            loaded_identities = load_json(identity_storage_path, default={})
+            with open(identity_storage_path, 'r') as f:
+                loaded_identities = json.load(f)
             if loaded_identities:
                 identities.update(loaded_identities)
                 logger.info(f"Loaded {len(identities)} agent identities")
@@ -76,7 +76,10 @@ def load_identities():
 def save_identities():
     """Save agent identities to disk."""
     try:
-        save_json(identity_storage_path, identities)
+        # Ensure parent directory exists
+        identity_storage_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(identity_storage_path, 'w') as f:
+            json.dump(identities, f, indent=2)
         logger.debug(f"Saved {len(identities)} identities")
     except Exception as e:
         logger.error(f"Failed to save identities: {e}")

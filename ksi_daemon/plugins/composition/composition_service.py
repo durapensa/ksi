@@ -21,6 +21,7 @@ from ksi_daemon.enhanced_decorators import enhanced_event_handler, EventCategory
 from ksi_common.timestamps import timestamp_utc, format_for_logging
 from ksi_common.logging import get_bound_logger
 from ksi_common.config import config
+from ksi_daemon.core_plugin import get_ksi_context_variable
 
 # Plugin metadata
 plugin_metadata("composition_service", version="1.0.0",
@@ -175,6 +176,36 @@ def evaluate_condition(condition: str, variables: Dict[str, Any]) -> bool:
         return bool(condition)
 
 
+def _resolve_ksi_context_variables(variables: Dict[str, Any]) -> None:
+    """Resolve special KSI context variables from daemon cache."""
+    ksi_context_vars = {
+        "daemon_events": "daemon_events",
+        "daemon_commands": "daemon_commands", 
+        "ksi_capabilities": "ksi_capabilities"
+    }
+    
+    for var_name, cache_key in ksi_context_vars.items():
+        # Resolve if variable is not set or is a template placeholder
+        should_resolve = (
+            var_name not in variables or  # Not set at all
+            variables[var_name] == f"{{{{{var_name}}}}}" or  # Template placeholder  
+            isinstance(variables[var_name], str) and variables[var_name].startswith("{{") and variables[var_name].endswith("}}")  # Any template
+        )
+        
+        if should_resolve:
+            try:
+                cached_value = get_ksi_context_variable(cache_key)
+                if cached_value is not None:
+                    variables[var_name] = cached_value
+                    logger.debug(f"Resolved KSI context variable: {var_name}")
+                else:
+                    logger.warning(f"KSI context variable not available: {var_name}")
+                    variables[var_name] = f"KSI context not available: {var_name}"
+            except Exception as e:
+                logger.error(f"Error resolving KSI context variable {var_name}: {e}")
+                variables[var_name] = f"Error loading {var_name}"
+
+
 def evaluate_conditions(conditions: Dict[str, List[str]], variables: Dict[str, Any]) -> bool:
     """Evaluate complex condition expressions."""
     if 'all_of' in conditions:
@@ -260,6 +291,9 @@ async def resolve_composition(
         if var_name not in variables and 'default' in var_def:
             variables[var_name] = var_def['default']
     
+    # Resolve special KSI context variables 
+    _resolve_ksi_context_variables(variables)
+    
     # Process components
     for component in composition.components:
         # Check conditions
@@ -271,6 +305,9 @@ async def resolve_composition(
         
         # Merge component vars with global vars
         comp_vars = {**variables, **component.vars}
+        
+        # Resolve KSI context variables in comp_vars (handles component-level overrides)
+        _resolve_ksi_context_variables(comp_vars)
         
         # Process component based on type
         if component.source:
@@ -431,7 +468,7 @@ async def handle_compose_prompt(data: Dict[str, Any]) -> Dict[str, Any]:
 
 @enhanced_event_handler(
     "composition:validate",
-    category=EventCategory.VALIDATION,
+    category=EventCategory.CORE,
     typical_duration_ms=200,
     has_side_effects=False,
     best_practices=["Validate compositions before using in production", "Check for circular dependencies"]
@@ -679,7 +716,7 @@ async def handle_load_bulk(data: Dict[str, Any]) -> Dict[str, Any]:
 
 @enhanced_event_handler(
     "composition:select",
-    category=EventCategory.AI_COORDINATION,
+    category=EventCategory.CONTROL,
     typical_duration_ms=800,
     has_cost=True,
     best_practices=["Provide clear task description for better selection", "Include relevant capabilities"]
@@ -732,6 +769,118 @@ async def handle_select_composition(data: CompositionSelectData) -> Dict[str, An
     except Exception as e:
         logger.error(f"Composition selection failed: {e}")
         return {'error': str(e)}
+
+
+@event_handler("composition:get_path") 
+async def handle_get_path(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Get the file path for a composition."""
+    full_name = data.get("full_name")
+    
+    if not full_name:
+        return {"error": "full_name is required"}
+    
+    if not composition_index:
+        return {"error": "Composition index not available"}
+    
+    try:
+        path = composition_index.get_path(full_name)
+        
+        if path:
+            return {
+                "status": "success",
+                "full_name": full_name,
+                "path": str(path),
+                "found": True
+            }
+        else:
+            return {
+                "status": "not_found",
+                "full_name": full_name,
+                "found": False
+            }
+    except Exception as e:
+        logger.error(f"Failed to get composition path: {e}")
+        return {"error": str(e)}
+
+
+@event_handler("composition:get_metadata")
+async def handle_get_metadata(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Get metadata for a composition."""
+    full_name = data.get("full_name")
+    
+    if not full_name:
+        return {"error": "full_name is required"}
+    
+    if not composition_index:
+        return {"error": "Composition index not available"}
+    
+    try:
+        metadata = composition_index.get_metadata(full_name)
+        
+        if metadata:
+            return {
+                "status": "success",
+                "full_name": full_name,
+                "metadata": metadata,
+                "found": True
+            }
+        else:
+            return {
+                "status": "not_found",
+                "full_name": full_name,
+                "found": False
+            }
+    except Exception as e:
+        logger.error(f"Failed to get composition metadata: {e}")
+        return {"error": str(e)}
+
+
+@event_handler("composition:rebuild_index")
+async def handle_rebuild_index(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Rebuild the composition index."""
+    repository_id = data.get("repository_id", "local")
+    
+    if not composition_index:
+        return {"error": "Composition index not available"}
+    
+    try:
+        indexed_count = composition_index.rebuild_index(repository_id)
+        
+        return {
+            "status": "success",
+            "repository_id": repository_id,
+            "indexed_count": indexed_count
+        }
+    except Exception as e:
+        logger.error(f"Failed to rebuild composition index: {e}")
+        return {"error": str(e)}
+
+
+@event_handler("composition:index_file")
+async def handle_index_file(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Index a single composition file."""
+    file_path = data.get("file_path")
+    
+    if not file_path:
+        return {"error": "file_path is required"}
+    
+    if not composition_index:
+        return {"error": "Composition index not available"}
+    
+    try:
+        from pathlib import Path
+        path = Path(file_path)
+        
+        success = composition_index.index_composition_file(path)
+        
+        return {
+            "status": "success" if success else "failed",
+            "file_path": file_path,
+            "indexed": success
+        }
+    except Exception as e:
+        logger.error(f"Failed to index composition file: {e}")
+        return {"error": str(e)}
 
 
 @event_handler("composition:create")

@@ -23,6 +23,10 @@ from .infrastructure.composition import index as composition_index
 
 logger = get_bound_logger("core_plugin", version="2.0.0")
 
+# Global KSI context cache for agent spawning
+_global_ksi_context_cache = {}
+_daemon_core_instance = None
+
 
 class SimpleDaemonCore:
     """
@@ -54,6 +58,9 @@ class SimpleDaemonCore:
         # Infrastructure instances
         self.state_manager = None
         self.composition_index = None
+        
+        # KSI context cache for agent spawning
+        self.ksi_context_cache = {}
     
     async def initialize(self) -> None:
         """Initialize the daemon."""
@@ -110,6 +117,9 @@ class SimpleDaemonCore:
             logger.warning(f"Failed to pass plugin context: {e}")
             # Don't fail startup - this is optional
         
+        # Cache KSI context for agent spawning after all plugins initialized
+        await self._cache_ksi_context()
+        
         # Initialize transports
         await self.event_router.initialize_transports({
             "transports": {
@@ -121,6 +131,10 @@ class SimpleDaemonCore:
         })
         
         logger.info("Plugin daemon initialized")
+        
+        # Store instance globally for context access
+        global _daemon_core_instance
+        _daemon_core_instance = self
     
     async def run(self) -> None:
         """Run the daemon main loop with proper sync/async separation."""
@@ -206,6 +220,86 @@ class SimpleDaemonCore:
         logger.info(f"Received signal {signum}, setting shutdown event directly")
         self.shutdown_event.set()
     
+    async def _cache_ksi_context(self) -> None:
+        """Cache KSI context for agent spawning after all plugins are initialized."""
+        try:
+            logger.info("Caching KSI context for agent spawning...")
+            
+            # Get full event discovery
+            discovery_result = await self.event_router.route_event("system:discover", {})
+            
+            if discovery_result and "events" in discovery_result:
+                events = discovery_result["events"]
+                
+                # Cache raw events
+                self.ksi_context_cache["daemon_events"] = events
+                
+                # Extract and cache capabilities
+                capabilities = set()
+                for namespace_events in events.values():
+                    for event in namespace_events:
+                        # Extract capabilities from event metadata
+                        if event_caps := event.get("capabilities"):
+                            capabilities.update(event_caps)
+                
+                self.ksi_context_cache["ksi_capabilities"] = list(capabilities)
+                
+                # Format daemon commands for markdown component
+                self.ksi_context_cache["daemon_commands"] = self._format_daemon_commands(events)
+                
+                # Cache summary for logging
+                total_events = sum(len(namespace_events) for namespace_events in events.values())
+                
+                logger.info(f"Cached KSI context: {total_events} events across {len(events)} namespaces")
+                
+                # Update global cache
+                _global_ksi_context_cache.update(self.ksi_context_cache)
+                
+            else:
+                logger.warning("Failed to discover events for KSI context cache")
+                # Initialize empty cache
+                self.ksi_context_cache = {
+                    "daemon_events": {},
+                    "ksi_capabilities": [],
+                    "daemon_commands": "No events discovered"
+                }
+                
+        except Exception as e:
+            logger.error(f"Failed to cache KSI context: {e}", exc_info=True)
+            # Initialize empty cache on error
+            self.ksi_context_cache = {
+                "daemon_events": {},
+                "ksi_capabilities": [],
+                "daemon_commands": "Error loading events"
+            }
+    
+    def _format_daemon_commands(self, events: Dict[str, Any]) -> str:
+        """Format events as markdown for daemon_commands component."""
+        lines = ["# Available KSI Daemon Events\n"]
+        
+        for namespace, namespace_events in events.items():
+            lines.append(f"## {namespace.title()} Events\n")
+            
+            for event in namespace_events:
+                event_name = event.get("event", "unknown")
+                summary = event.get("summary", "No description")
+                
+                lines.append(f"**{event_name}**: {summary}")
+                
+                # Add parameters if available
+                if params := event.get("parameters"):
+                    lines.append("  - Parameters:")
+                    for param_name, param_info in params.items():
+                        req = "required" if param_info.get("required") else "optional"
+                        desc = param_info.get("description", "")
+                        lines.append(f"    - `{param_name}` ({req}): {desc}")
+                
+                lines.append("")  # Empty line between events
+            
+            lines.append("")  # Empty line between namespaces
+        
+        return "\n".join(lines)
+    
     async def shutdown(self) -> None:
         """Shutdown the daemon."""
         if not self.running:
@@ -231,6 +325,16 @@ class SimpleDaemonCore:
             
         except (OSError, RuntimeError) as e:
             logger.error("Error during shutdown", error=str(e), exc_info=True)
+
+
+def get_ksi_context_cache() -> Dict[str, Any]:
+    """Get the global KSI context cache for agent spawning."""
+    return _global_ksi_context_cache.copy()
+
+
+def get_ksi_context_variable(var_name: str) -> Any:
+    """Get a specific KSI context variable."""
+    return _global_ksi_context_cache.get(var_name)
 
 
 async def run_daemon():
