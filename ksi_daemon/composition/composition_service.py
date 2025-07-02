@@ -6,7 +6,7 @@ Composition Service Module - Event handlers for composition system
 import asyncio
 import json
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Set, TypedDict
+from typing import Dict, Any, Optional, List, Set, TypedDict, Tuple
 from typing_extensions import NotRequired
 from dataclasses import dataclass
 
@@ -399,7 +399,273 @@ async def handle_index_file(data: Dict[str, Any]) -> Dict[str, Any]:
         return {'error': str(e)}
 
 
+@event_handler("composition:select")
+async def handle_select_composition(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Select the best composition for given context using intelligent scoring."""
+    try:
+        # Build selection context from request data
+        context = SelectionContext(
+            agent_id=data.get('agent_id', 'unknown'),
+            role=data.get('role'),
+            capabilities=data.get('capabilities', []),
+            task_description=data.get('task'),
+            preferred_style=data.get('style'),
+            context_variables=data.get('context', {}),
+            requirements=data.get('requirements', {})
+        )
+        
+        # Get best composition
+        result = await _select_composition_for_context(context)
+        
+        # Get additional suggestions if requested
+        max_suggestions = data.get('max_suggestions', 1)
+        suggestions = []
+        
+        if max_suggestions > 1:
+            # Get all scored compositions
+            all_scored = await _get_scored_compositions(context)
+            suggestions = [
+                {
+                    'name': name,
+                    'score': score,
+                    'reasons': reasons
+                }
+                for name, score, reasons in all_scored[:max_suggestions]
+            ]
+        
+        return {
+            'status': 'success',
+            'selected': result.composition_name,
+            'score': result.score,
+            'reasons': result.reasons,
+            'suggestions': suggestions,
+            'fallback_used': result.fallback_used
+        }
+        
+    except Exception as e:
+        logger.error(f"Composition selection failed: {e}")
+        return {'error': str(e)}
+
+
+@event_handler("composition:create")
+async def handle_create_composition(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Create a dynamic composition at runtime."""
+    try:
+        name = data.get('name')
+        if not name:
+            # Generate unique name
+            import uuid
+            name = f"dynamic_{uuid.uuid4().hex[:8]}"
+        
+        comp_type = data.get('type', 'profile')
+        base_composition = data.get('extends', 'base_agent')
+        
+        # Build composition structure
+        composition = {
+            'name': name,
+            'type': comp_type,
+            'version': '1.0.0',
+            'description': data.get('description', f'Dynamically created {comp_type}'),
+            'author': data.get('author', 'dynamic_agent'),
+            'extends': base_composition,
+            'components': [],
+            'metadata': data.get('metadata', {})
+        }
+        
+        # Add components
+        if 'components' in data:
+            composition['components'] = data['components']
+        else:
+            # Default components based on type
+            if comp_type == 'profile':
+                composition['components'] = [
+                    {
+                        'name': 'agent_config',
+                        'inline': data.get('config', {
+                            'role': data.get('role', 'assistant'),
+                            'model': data.get('model', 'sonnet'),
+                            'capabilities': data.get('capabilities', []),
+                            'tools': data.get('tools', [])
+                        })
+                    }
+                ]
+                if 'prompt' in data:
+                    composition['components'].append({
+                        'name': 'prompt',
+                        'template': data['prompt']
+                    })
+        
+        # Add metadata for dynamic composition
+        composition['metadata'].update({
+            'dynamic': True,
+            'created_at': format_for_logging(),
+            'parent_agent': data.get('agent_id')
+        })
+        
+        # Save to state manager as dynamic composition
+        if state_manager:
+            dynamic_cache_key = f"dynamic_composition:{name}"
+            state_manager.set_shared_state(dynamic_cache_key, composition)
+            logger.info(f"Created dynamic composition: {name}")
+        
+        return {
+            'status': 'success',
+            'name': name,
+            'composition': composition,
+            'message': f'Created dynamic composition: {name}'
+        }
+        
+    except Exception as e:
+        logger.error(f"Dynamic composition creation failed: {e}")
+        return {'error': str(e)}
+
+
 # Core Composition Functions
+
+async def _select_composition_for_context(context: SelectionContext) -> SelectionResult:
+    """Select the best composition for the given context using scoring algorithm."""
+    # Get all available compositions with metadata
+    discovered = composition_index.discover({
+        'type': 'profile',  # Focus on profiles for agent compositions
+        'include_metadata': True
+    })
+    
+    if not discovered:
+        return _get_fallback_selection()
+    
+    # Score each composition
+    scored = []
+    for comp_info in discovered:
+        score, reasons = _score_composition_for_context(comp_info, context)
+        if score > 0:
+            scored.append((comp_info['name'], score, reasons))
+    
+    # Sort by score
+    if scored:
+        scored.sort(key=lambda x: x[1], reverse=True)
+        best_name, best_score, best_reasons = scored[0]
+        
+        logger.info(f"Selected composition '{best_name}' for {context.agent_id} (score: {best_score:.2f})")
+        
+        return SelectionResult(
+            composition_name=best_name,
+            score=best_score,
+            reasons=best_reasons,
+            fallback_used=False
+        )
+    else:
+        logger.warning(f"No suitable composition found for {context.agent_id}, using fallback")
+        return _get_fallback_selection()
+
+
+async def _get_scored_compositions(context: SelectionContext) -> List[Tuple[str, float, List[str]]]:
+    """Get all compositions scored for the context."""
+    discovered = composition_index.discover({
+        'type': 'profile',
+        'include_metadata': True
+    })
+    
+    scored = []
+    for comp_info in discovered:
+        score, reasons = _score_composition_for_context(comp_info, context)
+        if score > 0:
+            scored.append((comp_info['name'], score, reasons))
+    
+    scored.sort(key=lambda x: x[1], reverse=True)
+    return scored
+
+
+def _score_composition_for_context(comp_info: Dict[str, Any], context: SelectionContext) -> Tuple[float, List[str]]:
+    """Score a composition against the selection context."""
+    score = 0.0
+    reasons = []
+    
+    metadata = comp_info.get('metadata', {})
+    
+    # 1. Role matching (weight: 30%)
+    if context.role and metadata.get('role'):
+        if context.role.lower() == metadata['role'].lower():
+            score += 30
+            reasons.append(f"Exact role match: {context.role}")
+        elif context.role.lower() in metadata.get('compatible_roles', []):
+            score += 20
+            reasons.append(f"Compatible role: {context.role}")
+    
+    # 2. Capability requirements (weight: 25%)
+    if context.capabilities:
+        comp_caps = metadata.get('capabilities_required', [])
+        comp_provides = metadata.get('capabilities_provided', [])
+        
+        # Check if composition requires capabilities the agent has
+        if comp_caps:
+            matching_caps = set(context.capabilities) & set(comp_caps)
+            if matching_caps:
+                cap_score = (len(matching_caps) / len(comp_caps)) * 25
+                score += cap_score
+                reasons.append(f"Capability match: {', '.join(matching_caps)}")
+        
+        # Check if composition provides capabilities the agent needs
+        if comp_provides:
+            useful_caps = set(comp_provides) & set(context.capabilities)
+            if useful_caps:
+                score += 10
+                reasons.append(f"Provides useful capabilities: {', '.join(useful_caps)}")
+    
+    # 3. Task relevance (weight: 25%)
+    if context.task_description:
+        task_keywords = context.task_description.lower().split()
+        
+        # Check description
+        desc_matches = sum(1 for kw in task_keywords if kw in comp_info.get('description', '').lower())
+        if desc_matches:
+            score += min(desc_matches * 5, 15)
+            reasons.append(f"Description matches task ({desc_matches} keywords)")
+        
+        # Check tags
+        comp_tags = [tag.lower() for tag in metadata.get('tags', [])]
+        tag_matches = sum(1 for kw in task_keywords if any(kw in tag for tag in comp_tags))
+        if tag_matches:
+            score += min(tag_matches * 3, 10)
+            reasons.append(f"Tags match task ({tag_matches} matches)")
+    
+    # 4. Style preference (weight: 10%)
+    if context.preferred_style:
+        comp_style = metadata.get('style', '').lower()
+        if context.preferred_style.lower() in comp_style:
+            score += 10
+            reasons.append(f"Style match: {context.preferred_style}")
+    
+    # 5. General quality indicators (weight: 10%)
+    # Prefer newer versions
+    try:
+        version = float(comp_info.get('version', '1.0'))
+        if version >= 2.0:
+            score += 5
+            reasons.append("Recent version")
+    except:
+        pass
+    
+    # Prefer well-documented compositions
+    if len(metadata.get('use_cases', [])) >= 2:
+        score += 3
+        reasons.append("Well-documented use cases")
+    
+    if metadata.get('tested', False):
+        score += 2
+        reasons.append("Tested composition")
+    
+    return score, reasons
+
+
+def _get_fallback_selection() -> SelectionResult:
+    """Get fallback composition when no suitable match found."""
+    return SelectionResult(
+        composition_name='base_agent',
+        score=0.0,
+        reasons=['Fallback: no suitable composition found'],
+        fallback_used=True
+    )
+
 
 async def load_composition(name: str, comp_type: Optional[str] = None) -> Composition:
     """Load a composition with caching support."""

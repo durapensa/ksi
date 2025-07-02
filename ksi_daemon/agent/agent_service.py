@@ -143,6 +143,10 @@ async def handle_spawn_agent(data: Dict[str, Any]) -> Dict[str, Any]:
             "max_suggestions": 3
         })
         
+        if select_result and isinstance(select_result, list):
+            # Handle multiple responses - take first one
+            select_result = select_result[0] if select_result else {}
+        
         if select_result and select_result.get("status") == "success":
             compose_name = select_result["selected"]
             logger.info(f"Dynamically selected composition: {compose_name} (score: {select_result['score']})")
@@ -194,6 +198,10 @@ async def handle_spawn_agent(data: Dict[str, Any]) -> Dict[str, Any]:
             "name": compose_name,
             "variables": comp_vars
         })
+        
+        if compose_result and isinstance(compose_result, list):
+            # Handle multiple responses - take first one
+            compose_result = compose_result[0] if compose_result else {}
         
         if compose_result and compose_result.get("status") == "success":
             profile = compose_result["profile"]
@@ -248,6 +256,9 @@ async def handle_spawn_agent(data: Dict[str, Any]) -> Dict[str, Any]:
             "overrides": data.get("permission_overrides", {})
         })
         
+        if perm_result and isinstance(perm_result, list):
+            perm_result = perm_result[0] if perm_result else {}
+        
         if perm_result and "error" in perm_result:
             logger.error(f"Failed to set permissions: {perm_result['error']}")
             # Use restricted permissions as fallback
@@ -259,6 +270,9 @@ async def handle_spawn_agent(data: Dict[str, Any]) -> Dict[str, Any]:
             "agent_id": agent_id,
             "config": sandbox_config
         })
+        
+        if sandbox_result and isinstance(sandbox_result, list):
+            sandbox_result = sandbox_result[0] if sandbox_result else {}
         
         if sandbox_result and "sandbox" in sandbox_result:
             sandbox_dir = sandbox_result["sandbox"]["path"]
@@ -795,6 +809,9 @@ async def handle_update_composition(data: Dict[str, Any]) -> Dict[str, Any]:
             "name": current_comp
         })
         
+        if comp_result and isinstance(comp_result, list):
+            comp_result = comp_result[0] if comp_result else {}
+        
         if comp_result and comp_result.get("status") == "success":
             metadata = comp_result["composition"].get("metadata", {})
             if not metadata.get("self_modifiable", False):
@@ -812,6 +829,9 @@ async def handle_update_composition(data: Dict[str, Any]) -> Dict[str, Any]:
             "adaptation_reason": reason
         }
     })
+    
+    if compose_result and isinstance(compose_result, list):
+        compose_result = compose_result[0] if compose_result else {}
     
     if compose_result and compose_result.get("status") == "success":
         new_profile = compose_result["profile"]
