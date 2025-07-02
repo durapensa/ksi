@@ -1,0 +1,2908 @@
+{
+  "generated": "2025-07-02T09:39:21.377404",
+  "total_events": 138,
+  "namespaces": [
+    "agent",
+    "api",
+    "async_state",
+    "completion",
+    "composition",
+    "config",
+    "conversation",
+    "correlation",
+    "file",
+    "injection",
+    "message",
+    "message_bus",
+    "module",
+    "monitor",
+    "orchestration",
+    "permission",
+    "sandbox",
+    "state",
+    "system",
+    "transport"
+  ],
+  "events": {
+    "system:context": {
+      "module": "ksi_daemon.core.state",
+      "handler": "handle_context",
+      "async": true,
+      "summary": "Receive infrastructure context - state manager is available.",
+      "parameters": {},
+      "triggers": []
+    },
+    "state:get": {
+      "module": "ksi_daemon.core.state",
+      "handler": "handle_get",
+      "async": true,
+      "summary": "Get a value from shared state.",
+      "parameters": {
+        "namespace": {
+          "type": "str",
+          "required": true,
+          "default": "global",
+          "description": "The namespace to get from (default: \"global\")"
+        },
+        "key": {
+          "type": "str",
+          "required": true,
+          "default": "",
+          "description": "The key to retrieve (required)"
+        }
+      },
+      "triggers": []
+    },
+    "state:set": {
+      "module": "ksi_daemon.core.state",
+      "handler": "handle_set",
+      "async": true,
+      "summary": "Set a value in shared state.",
+      "parameters": {
+        "namespace": {
+          "type": "str",
+          "required": true,
+          "default": "global",
+          "description": "The namespace to set in (default: \"global\")"
+        },
+        "key": {
+          "type": "str",
+          "required": true,
+          "default": "",
+          "description": "The key to set (required)"
+        },
+        "value": {
+          "type": "any",
+          "required": true,
+          "default": null,
+          "description": "The value to store (required)"
+        },
+        "metadata": {
+          "type": "dict",
+          "required": false,
+          "default": null,
+          "description": "Optional metadata to attach (default: {})"
+        }
+      },
+      "triggers": []
+    },
+    "state:delete": {
+      "module": "ksi_daemon.core.state",
+      "handler": "handle_delete",
+      "async": true,
+      "summary": "Delete a key from shared state.",
+      "parameters": {
+        "namespace": {
+          "type": "str",
+          "required": true,
+          "default": "global",
+          "description": "The namespace to delete from (default: \"global\")"
+        },
+        "key": {
+          "type": "str",
+          "required": true,
+          "default": "",
+          "description": "The key to delete (required)"
+        }
+      },
+      "triggers": []
+    },
+    "state:list": {
+      "module": "ksi_daemon.core.state",
+      "handler": "handle_list",
+      "async": true,
+      "summary": "List keys in shared state.",
+      "parameters": {
+        "namespace": {
+          "type": "str",
+          "required": false,
+          "default": null,
+          "description": "Filter by namespace (optional)"
+        },
+        "pattern": {
+          "type": "str",
+          "required": false,
+          "default": null,
+          "description": "Filter by pattern (optional, supports * wildcard)"
+        }
+      },
+      "triggers": []
+    },
+    "async_state:get": {
+      "module": "ksi_daemon.core.state",
+      "handler": "handle_async_get",
+      "async": true,
+      "summary": "Get value from async state.",
+      "parameters": {
+        "namespace": {
+          "type": "Any",
+          "required": false,
+          "default": "default",
+          "description": "namespace parameter"
+        },
+        "key": {
+          "type": "Any",
+          "required": false,
+          "default": "",
+          "description": "key parameter"
+        }
+      },
+      "triggers": []
+    },
+    "async_state:set": {
+      "module": "ksi_daemon.core.state",
+      "handler": "handle_async_set",
+      "async": true,
+      "summary": "Set value in async state.",
+      "parameters": {
+        "namespace": {
+          "type": "Any",
+          "required": false,
+          "default": "default",
+          "description": "namespace parameter"
+        },
+        "key": {
+          "type": "Any",
+          "required": false,
+          "default": "",
+          "description": "key parameter"
+        },
+        "value": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "value parameter"
+        }
+      },
+      "triggers": []
+    },
+    "async_state:delete": {
+      "module": "ksi_daemon.core.state",
+      "handler": "handle_async_delete",
+      "async": true,
+      "summary": "Delete key from async state.",
+      "parameters": {
+        "namespace": {
+          "type": "Any",
+          "required": false,
+          "default": "default",
+          "description": "namespace parameter"
+        },
+        "key": {
+          "type": "Any",
+          "required": false,
+          "default": "",
+          "description": "key parameter"
+        }
+      },
+      "triggers": []
+    },
+    "async_state:push": {
+      "module": "ksi_daemon.core.state",
+      "handler": "handle_async_push",
+      "async": true,
+      "summary": "Push value to async queue.",
+      "parameters": {
+        "namespace": {
+          "type": "Any",
+          "required": false,
+          "default": "default",
+          "description": "namespace parameter"
+        },
+        "queue_name": {
+          "type": "Any",
+          "required": false,
+          "default": "",
+          "description": "queue_name parameter"
+        },
+        "value": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "value parameter"
+        }
+      },
+      "triggers": []
+    },
+    "async_state:pop": {
+      "module": "ksi_daemon.core.state",
+      "handler": "handle_async_pop",
+      "async": true,
+      "summary": "Pop value from async queue.",
+      "parameters": {
+        "namespace": {
+          "type": "Any",
+          "required": false,
+          "default": "default",
+          "description": "namespace parameter"
+        },
+        "queue_name": {
+          "type": "Any",
+          "required": false,
+          "default": "",
+          "description": "queue_name parameter"
+        }
+      },
+      "triggers": []
+    },
+    "async_state:get_keys": {
+      "module": "ksi_daemon.core.state",
+      "handler": "handle_async_get_keys",
+      "async": true,
+      "summary": "Get all keys in a namespace.",
+      "parameters": {
+        "namespace": {
+          "type": "Any",
+          "required": false,
+          "default": "default",
+          "description": "namespace parameter"
+        }
+      },
+      "triggers": []
+    },
+    "async_state:queue_length": {
+      "module": "ksi_daemon.core.state",
+      "handler": "handle_async_queue_length",
+      "async": true,
+      "summary": "Get length of async queue.",
+      "parameters": {
+        "namespace": {
+          "type": "Any",
+          "required": false,
+          "default": "default",
+          "description": "namespace parameter"
+        },
+        "queue_name": {
+          "type": "Any",
+          "required": false,
+          "default": "",
+          "description": "queue_name parameter"
+        }
+      },
+      "triggers": []
+    },
+    "module:list": {
+      "module": "ksi_daemon.daemon_core",
+      "handler": "handle_list_modules",
+      "async": true,
+      "summary": "List all loaded modules.",
+      "parameters": {},
+      "triggers": []
+    },
+    "module:events": {
+      "module": "ksi_daemon.daemon_core",
+      "handler": "handle_list_events",
+      "async": true,
+      "summary": "List all registered events and patterns.",
+      "parameters": {},
+      "triggers": []
+    },
+    "module:inspect": {
+      "module": "ksi_daemon.daemon_core",
+      "handler": "handle_inspect_module",
+      "async": true,
+      "summary": "Inspect a specific module using direct function metadata.",
+      "parameters": {
+        "module_name": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "module_name parameter"
+        }
+      },
+      "triggers": []
+    },
+    "api:schema": {
+      "module": "ksi_daemon.daemon_core",
+      "handler": "handle_api_schema",
+      "async": true,
+      "summary": "Get complete API schema using direct function inspection.",
+      "parameters": {},
+      "triggers": []
+    },
+    "system:health": {
+      "module": "ksi_daemon.daemon_core",
+      "handler": "handle_system_health",
+      "async": true,
+      "summary": "System health check including module status.",
+      "parameters": {},
+      "triggers": []
+    },
+    "system:startup": {
+      "module": "ksi_daemon.core.health",
+      "handler": "handle_startup",
+      "async": true,
+      "summary": "Initialize health check plugin.",
+      "parameters": {},
+      "triggers": []
+    },
+    "system:shutdown": {
+      "module": "ksi_daemon.core.health",
+      "handler": "handle_shutdown",
+      "async": true,
+      "summary": "Clean up on shutdown.",
+      "parameters": {},
+      "triggers": []
+    },
+    "correlation:trace": {
+      "module": "ksi_daemon.core.correlation",
+      "handler": "handle_get_trace",
+      "async": true,
+      "summary": "Get a specific correlation trace.",
+      "parameters": {
+        "correlation_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "The correlation ID to retrieve trace for"
+        }
+      },
+      "triggers": []
+    },
+    "correlation:chain": {
+      "module": "ksi_daemon.core.correlation",
+      "handler": "handle_get_trace_chain",
+      "async": true,
+      "summary": "Get the full trace chain for a correlation ID.",
+      "parameters": {
+        "correlation_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "The correlation ID to retrieve chain for"
+        }
+      },
+      "triggers": []
+    },
+    "correlation:tree": {
+      "module": "ksi_daemon.core.correlation",
+      "handler": "handle_get_trace_tree",
+      "async": true,
+      "summary": "Get the full trace tree for a correlation ID.",
+      "parameters": {
+        "correlation_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "The correlation ID to retrieve tree for"
+        }
+      },
+      "triggers": []
+    },
+    "correlation:stats": {
+      "module": "ksi_daemon.core.correlation",
+      "handler": "handle_get_stats",
+      "async": true,
+      "summary": "Get correlation tracking statistics.",
+      "parameters": {},
+      "triggers": []
+    },
+    "correlation:cleanup": {
+      "module": "ksi_daemon.core.correlation",
+      "handler": "handle_cleanup",
+      "async": true,
+      "summary": "Clean up old correlation traces.",
+      "parameters": {
+        "max_age_hours": {
+          "type": "Any",
+          "required": true,
+          "default": 24,
+          "description": "Maximum age in hours for traces to keep (default: 24)"
+        }
+      },
+      "triggers": []
+    },
+    "correlation:current": {
+      "module": "ksi_daemon.core.correlation",
+      "handler": "handle_get_current",
+      "async": true,
+      "summary": "Get current correlation context.",
+      "parameters": {},
+      "triggers": []
+    },
+    "system:discover": {
+      "module": "ksi_daemon.core.discovery",
+      "handler": "handle_discover",
+      "async": true,
+      "summary": "Universal discovery endpoint - everything you need to understand KSI.",
+      "parameters": {
+        "detail": {
+          "type": "Any",
+          "required": true,
+          "default": true,
+          "description": "Include parameters and triggers (default: True)"
+        },
+        "namespace": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "Filter by namespace (optional)"
+        },
+        "event": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "Get details for specific event (optional)"
+        }
+      },
+      "triggers": []
+    },
+    "system:help": {
+      "module": "ksi_daemon.core.discovery",
+      "handler": "handle_help",
+      "async": true,
+      "summary": "Get detailed help for a specific event.",
+      "parameters": {
+        "event": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "The event name to get help for (required)"
+        }
+      },
+      "triggers": []
+    },
+    "monitor:get_events": {
+      "module": "ksi_daemon.core.monitor",
+      "handler": "handle_get_events",
+      "async": true,
+      "summary": "Query event log with filtering and pagination.",
+      "parameters": {
+        "event_patterns": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "List of event name patterns (supports wildcards)"
+        },
+        "client_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "Filter by specific client"
+        },
+        "since": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "Start time (ISO string or timestamp)"
+        },
+        "until": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "End time (ISO string or timestamp)"
+        },
+        "limit": {
+          "type": "Any",
+          "required": true,
+          "default": 100,
+          "description": "Maximum number of events to return"
+        },
+        "reverse": {
+          "type": "Any",
+          "required": true,
+          "default": true,
+          "description": "Return newest first (default True)"
+        }
+      },
+      "triggers": []
+    },
+    "monitor:get_stats": {
+      "module": "ksi_daemon.core.monitor",
+      "handler": "handle_get_stats",
+      "async": true,
+      "summary": "Get event log statistics.",
+      "parameters": {},
+      "triggers": []
+    },
+    "monitor:clear_log": {
+      "module": "ksi_daemon.core.monitor",
+      "handler": "handle_clear_log",
+      "async": true,
+      "summary": "Clear event log (admin operation).",
+      "parameters": {},
+      "triggers": []
+    },
+    "monitor:subscribe": {
+      "module": "ksi_daemon.core.monitor",
+      "handler": "handle_subscribe",
+      "async": true,
+      "summary": "Subscribe to real-time event stream.",
+      "parameters": {
+        "client_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "Client identifier"
+        },
+        "event_patterns": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "List of event name patterns (supports wildcards)"
+        },
+        "writer": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "Transport writer reference"
+        }
+      },
+      "triggers": []
+    },
+    "monitor:unsubscribe": {
+      "module": "ksi_daemon.core.monitor",
+      "handler": "handle_unsubscribe",
+      "async": true,
+      "summary": "Unsubscribe from event stream.",
+      "parameters": {
+        "client_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "Client identifier"
+        }
+      },
+      "triggers": []
+    },
+    "monitor:query": {
+      "module": "ksi_daemon.core.monitor",
+      "handler": "handle_query",
+      "async": true,
+      "summary": "Execute custom SQL query against event database.",
+      "parameters": {
+        "query": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "SQL query string"
+        },
+        "params": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "Optional query parameters (tuple)"
+        },
+        "limit": {
+          "type": "Any",
+          "required": true,
+          "default": 1000,
+          "description": "Maximum results (default 1000)"
+        }
+      },
+      "triggers": []
+    },
+    "monitor:get_session_events": {
+      "module": "ksi_daemon.core.monitor",
+      "handler": "handle_get_session_events",
+      "async": true,
+      "summary": "Get all events for a specific session.",
+      "parameters": {
+        "session_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "Session ID to query"
+        },
+        "include_memory": {
+          "type": "Any",
+          "required": true,
+          "default": true,
+          "description": "Include events from memory buffer (default True)"
+        },
+        "reverse": {
+          "type": "Any",
+          "required": true,
+          "default": true,
+          "description": "Sort newest first (default True)"
+        }
+      },
+      "triggers": []
+    },
+    "monitor:get_correlation_chain": {
+      "module": "ksi_daemon.core.monitor",
+      "handler": "handle_get_correlation_chain",
+      "async": true,
+      "summary": "Get all events in a correlation chain.",
+      "parameters": {
+        "correlation_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "Correlation ID to trace"
+        },
+        "include_memory": {
+          "type": "Any",
+          "required": true,
+          "default": true,
+          "description": "Include events from memory buffer (default True)"
+        }
+      },
+      "triggers": []
+    },
+    "system:ready": {
+      "module": "ksi_daemon.transport.unix_socket",
+      "handler": "handle_ready",
+      "async": true,
+      "summary": "Return long-running server task to keep daemon alive.",
+      "parameters": {},
+      "triggers": []
+    },
+    "transport:create": {
+      "module": "ksi_daemon.transport.unix_socket",
+      "handler": "handle_create_transport",
+      "async": true,
+      "summary": "Create Unix socket transport if requested.",
+      "parameters": {
+        "transport_type": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "transport_type parameter"
+        },
+        "config": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "config parameter"
+        }
+      },
+      "triggers": []
+    },
+    "completion:cancelled": {
+      "module": "ksi_daemon.transport.unix_socket",
+      "handler": "handle_broadcastable_event",
+      "async": true,
+      "summary": "Broadcast certain events to all connected clients.",
+      "parameters": {
+        "timestamp": {
+          "type": "Any",
+          "required": false,
+          "default": "",
+          "description": "timestamp parameter"
+        },
+        "correlation_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "correlation_id parameter"
+        }
+      },
+      "triggers": []
+    },
+    "completion:error": {
+      "module": "ksi_daemon.transport.unix_socket",
+      "handler": "handle_broadcastable_event",
+      "async": true,
+      "summary": "Broadcast certain events to all connected clients.",
+      "parameters": {
+        "timestamp": {
+          "type": "Any",
+          "required": false,
+          "default": "",
+          "description": "timestamp parameter"
+        },
+        "correlation_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "correlation_id parameter"
+        }
+      },
+      "triggers": []
+    },
+    "completion:progress": {
+      "module": "ksi_daemon.transport.unix_socket",
+      "handler": "handle_broadcastable_event",
+      "async": true,
+      "summary": "Broadcast certain events to all connected clients.",
+      "parameters": {
+        "timestamp": {
+          "type": "Any",
+          "required": false,
+          "default": "",
+          "description": "timestamp parameter"
+        },
+        "correlation_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "correlation_id parameter"
+        }
+      },
+      "triggers": []
+    },
+    "completion:result": {
+      "module": "ksi_daemon.transport.unix_socket",
+      "handler": "handle_broadcastable_event",
+      "async": true,
+      "summary": "Broadcast certain events to all connected clients.",
+      "parameters": {
+        "timestamp": {
+          "type": "Any",
+          "required": false,
+          "default": "",
+          "description": "timestamp parameter"
+        },
+        "correlation_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "correlation_id parameter"
+        }
+      },
+      "triggers": []
+    },
+    "completion:async": {
+      "module": "ksi_daemon.completion.completion_service",
+      "handler": "handle_async_completion",
+      "async": true,
+      "summary": "Handle async completion requests with smart queueing.",
+      "parameters": {
+        "session_id": {
+          "type": "Any",
+          "required": false,
+          "default": "default",
+          "description": "session_id parameter"
+        },
+        "model": {
+          "type": "Any",
+          "required": false,
+          "default": "unknown",
+          "description": "model parameter"
+        },
+        "request_id": {
+          "type": "Any",
+          "required": true,
+          "description": "request_id parameter"
+        }
+      },
+      "triggers": []
+    },
+    "completion:cancel": {
+      "module": "ksi_daemon.completion.completion_service",
+      "handler": "handle_cancel_completion",
+      "async": true,
+      "summary": "Cancel an in-progress completion.",
+      "parameters": {
+        "request_id": {
+          "type": "Any",
+          "required": true,
+          "description": "request_id parameter"
+        }
+      },
+      "triggers": []
+    },
+    "completion:status": {
+      "module": "ksi_daemon.completion.completion_service",
+      "handler": "handle_completion_status",
+      "async": true,
+      "summary": "Get status of all active completions.",
+      "parameters": {},
+      "triggers": []
+    },
+    "completion:session_status": {
+      "module": "ksi_daemon.completion.completion_service",
+      "handler": "handle_session_status",
+      "async": true,
+      "summary": "Get detailed status for a specific session.",
+      "parameters": {
+        "session_id": {
+          "type": "Any",
+          "required": true,
+          "description": "session_id parameter"
+        }
+      },
+      "triggers": []
+    },
+    "permission:get_profile": {
+      "module": "ksi_daemon.permissions.permission_service",
+      "handler": "handle_get_profile",
+      "async": true,
+      "summary": "Get details of a specific permission profile.",
+      "parameters": {
+        "level": {
+          "type": "str",
+          "required": true,
+          "default": null,
+          "description": "The permission level/profile name (one of: restricted, standard, trusted, researcher)"
+        }
+      },
+      "triggers": []
+    },
+    "permission:set_agent": {
+      "module": "ksi_daemon.permissions.permission_service",
+      "handler": "handle_set_agent_permissions",
+      "async": true,
+      "summary": "Set permissions for an agent.",
+      "parameters": {
+        "agent_id": {
+          "type": "str",
+          "required": true,
+          "default": null,
+          "description": "The agent ID to set permissions for"
+        },
+        "permissions": {
+          "type": "dict",
+          "required": false,
+          "default": null,
+          "description": "Full permission object (optional)"
+        },
+        "profile": {
+          "type": "str",
+          "required": false,
+          "default": "restricted",
+          "description": "Base profile to use (optional, defaults: restricted)"
+        },
+        "overrides": {
+          "type": "dict",
+          "required": false,
+          "default": null,
+          "description": "Permission overrides to apply (optional)"
+        }
+      },
+      "triggers": []
+    },
+    "permission:validate_spawn": {
+      "module": "ksi_daemon.permissions.permission_service",
+      "handler": "handle_validate_spawn",
+      "async": true,
+      "summary": "Validate if parent can spawn child with given permissions.",
+      "parameters": {
+        "parent_id": {
+          "type": "str",
+          "required": true,
+          "default": null,
+          "description": "The parent agent ID"
+        },
+        "child_permissions": {
+          "type": "dict",
+          "required": true,
+          "default": null,
+          "description": "The requested permissions for the child agent"
+        }
+      },
+      "triggers": []
+    },
+    "permission:get_agent": {
+      "module": "ksi_daemon.permissions.permission_service",
+      "handler": "handle_get_agent_permissions",
+      "async": true,
+      "summary": "Get permissions for a specific agent.",
+      "parameters": {
+        "agent_id": {
+          "type": "str",
+          "required": true,
+          "default": null,
+          "description": "The agent ID to query permissions for"
+        }
+      },
+      "triggers": []
+    },
+    "permission:remove_agent": {
+      "module": "ksi_daemon.permissions.permission_service",
+      "handler": "handle_remove_agent_permissions",
+      "async": true,
+      "summary": "Remove permissions for an agent.",
+      "parameters": {
+        "agent_id": {
+          "type": "str",
+          "required": true,
+          "default": null,
+          "description": "The agent ID to remove permissions for"
+        }
+      },
+      "triggers": []
+    },
+    "permission:list_profiles": {
+      "module": "ksi_daemon.permissions.permission_service",
+      "handler": "handle_list_profiles",
+      "async": true,
+      "summary": "List available permission profiles.",
+      "parameters": {},
+      "triggers": []
+    },
+    "sandbox:create": {
+      "module": "ksi_daemon.permissions.permission_service",
+      "handler": "handle_create_sandbox",
+      "async": true,
+      "summary": "Create a new sandbox for an agent.",
+      "parameters": {
+        "agent_id": {
+          "type": "str",
+          "required": true,
+          "default": null,
+          "description": "The agent ID"
+        },
+        "config": {
+          "type": "dict",
+          "required": false,
+          "default": null,
+          "description": "Sandbox configuration (optional)"
+        }
+      },
+      "triggers": []
+    },
+    "sandbox:get": {
+      "module": "ksi_daemon.permissions.permission_service",
+      "handler": "handle_get_sandbox",
+      "async": true,
+      "summary": "Get sandbox information for an agent.",
+      "parameters": {
+        "agent_id": {
+          "type": "str",
+          "required": true,
+          "default": null,
+          "description": "The agent ID"
+        }
+      },
+      "triggers": []
+    },
+    "sandbox:remove": {
+      "module": "ksi_daemon.permissions.permission_service",
+      "handler": "handle_remove_sandbox",
+      "async": true,
+      "summary": "Remove an agent's sandbox.",
+      "parameters": {
+        "agent_id": {
+          "type": "str",
+          "required": true,
+          "default": null,
+          "description": "The agent ID"
+        },
+        "force": {
+          "type": "bool",
+          "required": false,
+          "default": false,
+          "description": "Force removal even with nested children (optional, default: false)"
+        }
+      },
+      "triggers": []
+    },
+    "sandbox:list": {
+      "module": "ksi_daemon.permissions.permission_service",
+      "handler": "handle_list_sandboxes",
+      "async": true,
+      "summary": "List all active sandboxes.",
+      "parameters": {},
+      "triggers": []
+    },
+    "sandbox:stats": {
+      "module": "ksi_daemon.permissions.permission_service",
+      "handler": "handle_sandbox_stats",
+      "async": true,
+      "summary": "Get sandbox statistics.",
+      "parameters": {},
+      "triggers": []
+    },
+    "agent:spawn": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_spawn_agent",
+      "async": true,
+      "summary": "Spawn a new agent thread with optional profile.",
+      "parameters": {
+        "agent_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "agent_id parameter"
+        },
+        "profile": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "profile parameter"
+        },
+        "profile_name": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "profile_name parameter"
+        },
+        "composition": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "composition parameter"
+        },
+        "session_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "session_id parameter"
+        },
+        "spawn_mode": {
+          "type": "Any",
+          "required": false,
+          "default": "fixed",
+          "description": "spawn_mode parameter"
+        },
+        "selection_context": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "selection_context parameter"
+        },
+        "task": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "task parameter"
+        },
+        "enable_tools": {
+          "type": "Any",
+          "required": false,
+          "default": false,
+          "description": "enable_tools parameter"
+        },
+        "permission_profile": {
+          "type": "Any",
+          "required": false,
+          "default": "standard",
+          "description": "permission_profile parameter"
+        },
+        "sandbox_config": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "sandbox_config parameter"
+        },
+        "permission_overrides": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "permission_overrides parameter"
+        },
+        "config": {
+          "type": "Any",
+          "required": true,
+          "description": "config parameter"
+        },
+        "context": {
+          "type": "Any",
+          "required": true,
+          "description": "context parameter"
+        },
+        "_composition_selection": {
+          "type": "Any",
+          "required": true,
+          "description": "_composition_selection parameter"
+        }
+      },
+      "triggers": []
+    },
+    "agent:terminate": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_terminate_agent",
+      "async": true,
+      "summary": "Terminate an agent thread.",
+      "parameters": {
+        "agent_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "agent_id parameter"
+        },
+        "force": {
+          "type": "Any",
+          "required": false,
+          "default": false,
+          "description": "force parameter"
+        }
+      },
+      "triggers": []
+    },
+    "agent:restart": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_restart_agent",
+      "async": true,
+      "summary": "Restart an agent.",
+      "parameters": {
+        "agent_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "agent_id parameter"
+        }
+      },
+      "triggers": []
+    },
+    "agent:register": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_register_agent",
+      "async": true,
+      "summary": "Register an external agent.",
+      "parameters": {
+        "agent_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "agent_id parameter"
+        },
+        "info": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "info parameter"
+        }
+      },
+      "triggers": []
+    },
+    "agent:unregister": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_unregister_agent",
+      "async": true,
+      "summary": "Unregister an agent.",
+      "parameters": {
+        "agent_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "agent_id parameter"
+        }
+      },
+      "triggers": []
+    },
+    "agent:list": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_list_agents",
+      "async": true,
+      "summary": "List registered agents.",
+      "parameters": {
+        "status": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "status parameter"
+        }
+      },
+      "triggers": []
+    },
+    "agent:create_identity": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_create_identity",
+      "async": true,
+      "summary": "Create a new agent identity.",
+      "parameters": {
+        "agent_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "agent_id parameter"
+        },
+        "identity": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "identity parameter"
+        }
+      },
+      "triggers": []
+    },
+    "agent:update_identity": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_update_identity",
+      "async": true,
+      "summary": "Update an agent identity.",
+      "parameters": {
+        "agent_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "agent_id parameter"
+        },
+        "updates": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "updates parameter"
+        }
+      },
+      "triggers": []
+    },
+    "agent:remove_identity": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_remove_identity",
+      "async": true,
+      "summary": "Remove an agent identity.",
+      "parameters": {
+        "agent_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "agent_id parameter"
+        }
+      },
+      "triggers": []
+    },
+    "agent:list_identities": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_list_identities",
+      "async": true,
+      "summary": "List agent identities.",
+      "parameters": {},
+      "triggers": []
+    },
+    "agent:get_identity": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_get_identity",
+      "async": true,
+      "summary": "Get a specific agent identity.",
+      "parameters": {
+        "agent_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "agent_id parameter"
+        }
+      },
+      "triggers": []
+    },
+    "agent:route_task": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_route_task",
+      "async": true,
+      "summary": "Route a task to an appropriate agent.",
+      "parameters": {
+        "task": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "task parameter"
+        }
+      },
+      "triggers": []
+    },
+    "agent:get_capabilities": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_get_capabilities",
+      "async": true,
+      "summary": "Get capabilities of an agent or all agents.",
+      "parameters": {
+        "agent_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "agent_id parameter"
+        }
+      },
+      "triggers": []
+    },
+    "agent:send_message": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_send_message",
+      "async": true,
+      "summary": "Send a message to an agent.",
+      "parameters": {
+        "agent_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "agent_id parameter"
+        },
+        "message": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "message parameter"
+        }
+      },
+      "triggers": []
+    },
+    "agent:broadcast": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_broadcast",
+      "async": true,
+      "summary": "Broadcast a message to all agents.",
+      "parameters": {
+        "message": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "message parameter"
+        },
+        "sender": {
+          "type": "Any",
+          "required": false,
+          "default": "system",
+          "description": "sender parameter"
+        }
+      },
+      "triggers": []
+    },
+    "agent:update_composition": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_update_composition",
+      "async": true,
+      "summary": "Handle agent composition update request.",
+      "parameters": {
+        "agent_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "agent_id parameter"
+        },
+        "new_composition": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "new_composition parameter"
+        },
+        "reason": {
+          "type": "Any",
+          "required": false,
+          "default": "Adaptation required",
+          "description": "reason parameter"
+        }
+      },
+      "triggers": []
+    },
+    "agent:discover_peers": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_discover_peers",
+      "async": true,
+      "summary": "Discover other agents and their capabilities.",
+      "parameters": {
+        "agent_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "agent_id parameter"
+        },
+        "capabilities": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "capabilities parameter"
+        },
+        "roles": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "roles parameter"
+        }
+      },
+      "triggers": []
+    },
+    "agent:negotiate_roles": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_negotiate_roles",
+      "async": true,
+      "summary": "Coordinate role negotiation between agents.",
+      "parameters": {
+        "participants": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "participants parameter"
+        },
+        "type": {
+          "type": "Any",
+          "required": false,
+          "default": "collaborative",
+          "description": "type parameter"
+        },
+        "context": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "context parameter"
+        }
+      },
+      "triggers": []
+    },
+    "message:subscribe": {
+      "module": "ksi_daemon.messaging.message_bus",
+      "handler": "handle_subscribe",
+      "async": true,
+      "summary": "Handle subscription request.",
+      "parameters": {
+        "agent_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "agent_id parameter"
+        },
+        "event_types": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "event_types parameter"
+        }
+      },
+      "triggers": []
+    },
+    "message:unsubscribe": {
+      "module": "ksi_daemon.messaging.message_bus",
+      "handler": "handle_unsubscribe",
+      "async": true,
+      "summary": "Handle unsubscription request.",
+      "parameters": {
+        "agent_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "agent_id parameter"
+        },
+        "event_types": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "event_types parameter"
+        }
+      },
+      "triggers": []
+    },
+    "message:publish": {
+      "module": "ksi_daemon.messaging.message_bus",
+      "handler": "handle_publish",
+      "async": true,
+      "summary": "Handle message publication.",
+      "parameters": {
+        "agent_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "agent_id parameter"
+        },
+        "event_type": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "event_type parameter"
+        },
+        "message": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "message parameter"
+        }
+      },
+      "triggers": []
+    },
+    "message:subscriptions": {
+      "module": "ksi_daemon.messaging.message_bus",
+      "handler": "handle_get_subscriptions",
+      "async": true,
+      "summary": "Get subscription information.",
+      "parameters": {
+        "agent_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "agent_id parameter"
+        }
+      },
+      "triggers": []
+    },
+    "message_bus:stats": {
+      "module": "ksi_daemon.messaging.message_bus",
+      "handler": "handle_get_stats",
+      "async": true,
+      "summary": "Get message bus statistics.",
+      "parameters": {},
+      "triggers": []
+    },
+    "message:connect": {
+      "module": "ksi_daemon.messaging.message_bus",
+      "handler": "handle_connect_agent",
+      "async": true,
+      "summary": "Handle agent connection.",
+      "parameters": {
+        "agent_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "agent_id parameter"
+        }
+      },
+      "triggers": []
+    },
+    "message:disconnect": {
+      "module": "ksi_daemon.messaging.message_bus",
+      "handler": "handle_disconnect_agent",
+      "async": true,
+      "summary": "Handle agent disconnection.",
+      "parameters": {
+        "agent_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "agent_id parameter"
+        }
+      },
+      "triggers": []
+    },
+    "transport:message": {
+      "module": "ksi_daemon.messaging.message_bus",
+      "handler": "handle_transport_message",
+      "async": true,
+      "summary": "Handle legacy transport:message events by converting them.",
+      "parameters": {
+        "command": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "command parameter"
+        },
+        "parameters": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "parameters parameter"
+        }
+      },
+      "triggers": []
+    },
+    "orchestration:start": {
+      "module": "ksi_daemon.orchestration.orchestration_service",
+      "handler": "handle_orchestration_start",
+      "async": true,
+      "summary": "Start a new orchestration.",
+      "parameters": {
+        "pattern": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "pattern parameter"
+        },
+        "vars": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "vars parameter"
+        }
+      },
+      "triggers": []
+    },
+    "orchestration:message": {
+      "module": "ksi_daemon.orchestration.orchestration_service",
+      "handler": "handle_orchestration_message",
+      "async": true,
+      "summary": "Route a message within an orchestration.",
+      "parameters": {},
+      "triggers": []
+    },
+    "orchestration:status": {
+      "module": "ksi_daemon.orchestration.orchestration_service",
+      "handler": "handle_orchestration_status",
+      "async": true,
+      "summary": "Get orchestration status.",
+      "parameters": {
+        "orchestration_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "orchestration_id parameter"
+        }
+      },
+      "triggers": []
+    },
+    "orchestration:terminate": {
+      "module": "ksi_daemon.orchestration.orchestration_service",
+      "handler": "handle_orchestration_terminate",
+      "async": true,
+      "summary": "Manually terminate an orchestration.",
+      "parameters": {
+        "orchestration_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "orchestration_id parameter"
+        }
+      },
+      "triggers": []
+    },
+    "orchestration:list_patterns": {
+      "module": "ksi_daemon.orchestration.orchestration_service",
+      "handler": "handle_list_patterns",
+      "async": true,
+      "summary": "List available orchestration patterns.",
+      "parameters": {},
+      "triggers": []
+    },
+    "orchestration:load_pattern": {
+      "module": "ksi_daemon.orchestration.orchestration_service",
+      "handler": "handle_load_pattern",
+      "async": true,
+      "summary": "Load and validate an orchestration pattern.",
+      "parameters": {
+        "pattern": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "pattern parameter"
+        }
+      },
+      "triggers": []
+    },
+    "orchestration:get_instance": {
+      "module": "ksi_daemon.orchestration.orchestration_service",
+      "handler": "handle_get_instance",
+      "async": true,
+      "summary": "Get detailed information about an orchestration instance.",
+      "parameters": {
+        "orchestration_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "orchestration_id parameter"
+        }
+      },
+      "triggers": []
+    },
+    "composition:compose": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_compose",
+      "async": true,
+      "summary": "Handle generic composition request.",
+      "parameters": {
+        "name": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "name parameter"
+        },
+        "type": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "type parameter"
+        },
+        "variables": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "variables parameter"
+        }
+      },
+      "triggers": []
+    },
+    "composition:profile": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_compose_profile",
+      "async": true,
+      "summary": "Handle profile composition request.",
+      "parameters": {
+        "name": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "name parameter"
+        },
+        "variables": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "variables parameter"
+        }
+      },
+      "triggers": []
+    },
+    "composition:prompt": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_compose_prompt",
+      "async": true,
+      "summary": "Handle prompt composition request.",
+      "parameters": {
+        "name": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "name parameter"
+        },
+        "variables": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "variables parameter"
+        }
+      },
+      "triggers": []
+    },
+    "composition:validate": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_validate",
+      "async": true,
+      "summary": "Validate a composition.",
+      "parameters": {
+        "name": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "name parameter"
+        },
+        "type": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "type parameter"
+        }
+      },
+      "triggers": []
+    },
+    "composition:discover": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_discover",
+      "async": true,
+      "summary": "Discover available compositions using index with optional metadata filtering.",
+      "parameters": {
+        "metadata_filter": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "metadata_filter parameter"
+        }
+      },
+      "triggers": []
+    },
+    "composition:list": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_list",
+      "async": true,
+      "summary": "List all compositions of a given type.",
+      "parameters": {
+        "type": {
+          "type": "Any",
+          "required": false,
+          "default": "all",
+          "description": "type parameter"
+        }
+      },
+      "triggers": []
+    },
+    "composition:get": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_get",
+      "async": true,
+      "summary": "Get a composition definition.",
+      "parameters": {
+        "name": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "name parameter"
+        },
+        "type": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "type parameter"
+        }
+      },
+      "triggers": []
+    },
+    "composition:reload": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_reload",
+      "async": true,
+      "summary": "Reload compositions by rebuilding index.",
+      "parameters": {},
+      "triggers": []
+    },
+    "composition:load_tree": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_load_tree",
+      "async": true,
+      "summary": "Universal tree loading based on composition's declared strategy.",
+      "parameters": {
+        "name": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "name parameter"
+        },
+        "max_depth": {
+          "type": "Any",
+          "required": false,
+          "default": 5,
+          "description": "max_depth parameter"
+        }
+      },
+      "triggers": []
+    },
+    "composition:load_bulk": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_load_bulk",
+      "async": true,
+      "summary": "Universal bulk loading for agent efficiency.",
+      "parameters": {
+        "names": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "names parameter"
+        }
+      },
+      "triggers": []
+    },
+    "composition:select": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_select_composition",
+      "async": true,
+      "summary": "Handle intelligent composition selection using sophisticated scoring algorithm.",
+      "parameters": {
+        "agent_id": {
+          "type": "Any",
+          "required": false,
+          "default": "unknown",
+          "description": "agent_id parameter"
+        },
+        "role": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "role parameter"
+        },
+        "capabilities": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "capabilities parameter"
+        },
+        "task_description": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "task_description parameter"
+        },
+        "preferred_style": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "preferred_style parameter"
+        },
+        "context_variables": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "context_variables parameter"
+        },
+        "requirements": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "requirements parameter"
+        },
+        "max_suggestions": {
+          "type": "Any",
+          "required": false,
+          "default": 1,
+          "description": "max_suggestions parameter"
+        }
+      },
+      "triggers": []
+    },
+    "composition:suggest": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_suggest_compositions",
+      "async": true,
+      "summary": "Get top N composition suggestions for the given context.",
+      "parameters": {
+        "agent_id": {
+          "type": "Any",
+          "required": false,
+          "default": "unknown",
+          "description": "agent_id parameter"
+        },
+        "role": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "role parameter"
+        },
+        "capabilities": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "capabilities parameter"
+        },
+        "task_description": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "task_description parameter"
+        },
+        "preferred_style": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "preferred_style parameter"
+        },
+        "context_variables": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "context_variables parameter"
+        },
+        "requirements": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "requirements parameter"
+        },
+        "max_suggestions": {
+          "type": "Any",
+          "required": false,
+          "default": 3,
+          "description": "max_suggestions parameter"
+        }
+      },
+      "triggers": []
+    },
+    "composition:validate_context": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_validate_context",
+      "async": true,
+      "summary": "Validate that a composition will work with the given context.",
+      "parameters": {
+        "composition_name": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "composition_name parameter"
+        },
+        "context": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "context parameter"
+        }
+      },
+      "triggers": []
+    },
+    "composition:capabilities": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_get_capabilities",
+      "async": true,
+      "summary": "Get available KSI capabilities from declarative schema.",
+      "parameters": {
+        "group": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "group parameter"
+        }
+      },
+      "triggers": []
+    },
+    "composition:get_path": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_get_path",
+      "async": true,
+      "summary": "Get the file path for a composition.",
+      "parameters": {
+        "full_name": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "full_name parameter"
+        }
+      },
+      "triggers": []
+    },
+    "composition:get_metadata": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_get_metadata",
+      "async": true,
+      "summary": "Get metadata for a composition.",
+      "parameters": {
+        "full_name": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "full_name parameter"
+        }
+      },
+      "triggers": []
+    },
+    "composition:rebuild_index": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_rebuild_index",
+      "async": true,
+      "summary": "Rebuild the composition index.",
+      "parameters": {
+        "repository_id": {
+          "type": "Any",
+          "required": false,
+          "default": "local",
+          "description": "repository_id parameter"
+        }
+      },
+      "triggers": []
+    },
+    "composition:index_file": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_index_file",
+      "async": true,
+      "summary": "Index a single composition file.",
+      "parameters": {
+        "file_path": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "file_path parameter"
+        }
+      },
+      "triggers": []
+    },
+    "composition:create": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_create_composition",
+      "async": true,
+      "summary": "Handle runtime composition creation.",
+      "parameters": {
+        "name": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "name parameter"
+        },
+        "type": {
+          "type": "Any",
+          "required": false,
+          "default": "profile",
+          "description": "type parameter"
+        },
+        "extends": {
+          "type": "Any",
+          "required": false,
+          "default": "base_agent",
+          "description": "extends parameter"
+        },
+        "description": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "description parameter"
+        },
+        "author": {
+          "type": "Any",
+          "required": false,
+          "default": "dynamic_agent",
+          "description": "author parameter"
+        },
+        "metadata": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "metadata parameter"
+        },
+        "config": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "config parameter"
+        },
+        "role": {
+          "type": "Any",
+          "required": false,
+          "default": "assistant",
+          "description": "role parameter"
+        },
+        "model": {
+          "type": "Any",
+          "required": false,
+          "default": "sonnet",
+          "description": "model parameter"
+        },
+        "capabilities": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "capabilities parameter"
+        },
+        "tools": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "tools parameter"
+        },
+        "agent_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "agent_id parameter"
+        },
+        "prompt": {
+          "type": "Any",
+          "required": true,
+          "description": "prompt parameter"
+        },
+        "components": {
+          "type": "Any",
+          "required": true,
+          "description": "components parameter"
+        }
+      },
+      "triggers": []
+    },
+    "conversation:list": {
+      "module": "ksi_daemon.conversation.conversation_service",
+      "handler": "handle_list_conversations",
+      "async": true,
+      "summary": "List available conversations with metadata.",
+      "parameters": {
+        "limit": {
+          "type": "Any",
+          "required": false,
+          "default": 100,
+          "description": "limit parameter"
+        },
+        "offset": {
+          "type": "Any",
+          "required": false,
+          "default": 0,
+          "description": "offset parameter"
+        },
+        "sort_by": {
+          "type": "Any",
+          "required": false,
+          "default": "last_timestamp",
+          "description": "sort_by parameter"
+        },
+        "reverse": {
+          "type": "Any",
+          "required": false,
+          "default": true,
+          "description": "reverse parameter"
+        },
+        "start_date": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "start_date parameter"
+        },
+        "end_date": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "end_date parameter"
+        }
+      },
+      "triggers": []
+    },
+    "conversation:search": {
+      "module": "ksi_daemon.conversation.conversation_service",
+      "handler": "handle_search_conversations",
+      "async": true,
+      "summary": "Search conversations by content.",
+      "parameters": {
+        "query": {
+          "type": "Any",
+          "required": false,
+          "default": "",
+          "description": "query parameter"
+        },
+        "limit": {
+          "type": "Any",
+          "required": false,
+          "default": 50,
+          "description": "limit parameter"
+        },
+        "search_in": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "search_in parameter"
+        }
+      },
+      "triggers": []
+    },
+    "conversation:get": {
+      "module": "ksi_daemon.conversation.conversation_service",
+      "handler": "handle_get_conversation",
+      "async": true,
+      "summary": "Get a specific conversation with full message history.",
+      "parameters": {
+        "session_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "session_id parameter"
+        },
+        "limit": {
+          "type": "Any",
+          "required": false,
+          "default": 1000,
+          "description": "limit parameter"
+        },
+        "offset": {
+          "type": "Any",
+          "required": false,
+          "default": 0,
+          "description": "offset parameter"
+        },
+        "conversation_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "conversation_id parameter"
+        }
+      },
+      "triggers": []
+    },
+    "conversation:export": {
+      "module": "ksi_daemon.conversation.conversation_service",
+      "handler": "handle_export_conversation",
+      "async": true,
+      "summary": "Export conversation to markdown or JSON format.",
+      "parameters": {
+        "session_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "session_id parameter"
+        },
+        "format": {
+          "type": "Any",
+          "required": false,
+          "default": "markdown",
+          "description": "format parameter"
+        }
+      },
+      "triggers": []
+    },
+    "conversation:stats": {
+      "module": "ksi_daemon.conversation.conversation_service",
+      "handler": "handle_conversation_stats",
+      "async": true,
+      "summary": "Get statistics about conversations.",
+      "parameters": {},
+      "triggers": []
+    },
+    "conversation:active": {
+      "module": "ksi_daemon.conversation.conversation_service",
+      "handler": "handle_active_conversations",
+      "async": true,
+      "summary": "Find active conversations from recent COMPLETION_RESULT messages.",
+      "parameters": {
+        "max_lines": {
+          "type": "Any",
+          "required": false,
+          "default": 100,
+          "description": "max_lines parameter"
+        },
+        "max_age_hours": {
+          "type": "Any",
+          "required": false,
+          "default": 2160,
+          "description": "max_age_hours parameter"
+        }
+      },
+      "triggers": []
+    },
+    "conversation:acquire_lock": {
+      "module": "ksi_daemon.conversation.conversation_lock",
+      "handler": "handle_acquire_lock",
+      "async": true,
+      "summary": "Acquire lock for a conversation.",
+      "parameters": {
+        "request_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "request_id parameter"
+        },
+        "conversation_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "conversation_id parameter"
+        },
+        "metadata": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "metadata parameter"
+        }
+      },
+      "triggers": []
+    },
+    "conversation:release_lock": {
+      "module": "ksi_daemon.conversation.conversation_lock",
+      "handler": "handle_release_lock",
+      "async": true,
+      "summary": "Release a conversation lock.",
+      "parameters": {
+        "request_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "request_id parameter"
+        }
+      },
+      "triggers": []
+    },
+    "conversation:fork_detected": {
+      "module": "ksi_daemon.conversation.conversation_lock",
+      "handler": "handle_fork_detected",
+      "async": true,
+      "summary": "Handle fork detection.",
+      "parameters": {
+        "request_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "request_id parameter"
+        },
+        "expected_conversation_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "expected_conversation_id parameter"
+        },
+        "actual_conversation_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "actual_conversation_id parameter"
+        }
+      },
+      "triggers": []
+    },
+    "conversation:lock_status": {
+      "module": "ksi_daemon.conversation.conversation_lock",
+      "handler": "handle_lock_status",
+      "async": true,
+      "summary": "Get lock status for a conversation.",
+      "parameters": {
+        "conversation_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "conversation_id parameter"
+        }
+      },
+      "triggers": []
+    },
+    "injection:status": {
+      "module": "ksi_daemon.injection.injection_router",
+      "handler": "handle_injection_status",
+      "async": true,
+      "summary": "Get injection router status.",
+      "parameters": {},
+      "triggers": []
+    },
+    "injection:inject": {
+      "module": "ksi_daemon.injection.injection_router",
+      "handler": "handle_injection_inject",
+      "async": true,
+      "summary": "Handle unified injection request.",
+      "parameters": {
+        "mode": {
+          "type": "Any",
+          "required": false,
+          "default": "next",
+          "description": "mode parameter"
+        },
+        "position": {
+          "type": "Any",
+          "required": false,
+          "default": "before_prompt",
+          "description": "position parameter"
+        },
+        "content": {
+          "type": "Any",
+          "required": false,
+          "default": "",
+          "description": "content parameter"
+        },
+        "session_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "session_id parameter"
+        },
+        "priority": {
+          "type": "Any",
+          "required": false,
+          "default": "normal",
+          "description": "priority parameter"
+        },
+        "metadata": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "metadata parameter"
+        }
+      },
+      "triggers": []
+    },
+    "injection:queue": {
+      "module": "ksi_daemon.injection.injection_router",
+      "handler": "handle_injection_queue",
+      "async": true,
+      "summary": "Handle queue injection metadata request from completion service.",
+      "parameters": {},
+      "triggers": []
+    },
+    "injection:batch": {
+      "module": "ksi_daemon.injection.injection_router",
+      "handler": "handle_injection_batch",
+      "async": true,
+      "summary": "Handle batch injection request.",
+      "parameters": {
+        "injections": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "injections parameter"
+        }
+      },
+      "triggers": []
+    },
+    "injection:list": {
+      "module": "ksi_daemon.injection.injection_router",
+      "handler": "handle_injection_list",
+      "async": true,
+      "summary": "Handle list injections request.",
+      "parameters": {
+        "session_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "session_id parameter"
+        }
+      },
+      "triggers": []
+    },
+    "injection:clear": {
+      "module": "ksi_daemon.injection.injection_router",
+      "handler": "handle_injection_clear",
+      "async": true,
+      "summary": "Handle clear injections request.",
+      "parameters": {
+        "session_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "session_id parameter"
+        },
+        "mode": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "mode parameter"
+        }
+      },
+      "triggers": []
+    },
+    "injection:process_result": {
+      "module": "ksi_daemon.injection.injection_router",
+      "handler": "handle_injection_process_result",
+      "async": true,
+      "summary": "Process a completion result for injection - explicitly called by completion service.",
+      "parameters": {
+        "request_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "request_id parameter"
+        },
+        "result": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "result parameter"
+        },
+        "injection_metadata": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "injection_metadata parameter"
+        }
+      },
+      "triggers": []
+    },
+    "injection:execute": {
+      "module": "ksi_daemon.injection.injection_router",
+      "handler": "execute_injection",
+      "async": true,
+      "summary": "Execute a queued injection by creating a new completion request.",
+      "parameters": {
+        "session_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "session_id parameter"
+        },
+        "content": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "content parameter"
+        },
+        "request_id": {
+          "type": "Any",
+          "required": true,
+          "default": null,
+          "description": "request_id parameter"
+        },
+        "target_sessions": {
+          "type": "Any",
+          "required": false,
+          "default": null,
+          "description": "target_sessions parameter"
+        },
+        "model": {
+          "type": "Any",
+          "required": false,
+          "default": "claude-cli/sonnet",
+          "description": "model parameter"
+        },
+        "priority": {
+          "type": "Any",
+          "required": false,
+          "default": "normal",
+          "description": "priority parameter"
+        },
+        "injection_type": {
+          "type": "Any",
+          "required": false,
+          "default": "system_reminder",
+          "description": "injection_type parameter"
+        }
+      },
+      "triggers": []
+    },
+    "file:read": {
+      "module": "ksi_daemon.file.file_service",
+      "handler": "handle_read",
+      "async": true,
+      "summary": "Read a file with safety validation.",
+      "parameters": {
+        "path": {
+          "type": "str",
+          "required": true,
+          "default": "",
+          "description": "The file path to read (required)"
+        },
+        "encoding": {
+          "type": "str",
+          "required": true,
+          "default": "utf-8",
+          "description": "File encoding (default: utf-8)"
+        },
+        "binary": {
+          "type": "bool",
+          "required": true,
+          "default": false,
+          "description": "Read as binary data (default: false)"
+        }
+      },
+      "triggers": []
+    },
+    "file:write": {
+      "module": "ksi_daemon.file.file_service",
+      "handler": "handle_write",
+      "async": true,
+      "summary": "Write to a file with automatic backup.",
+      "parameters": {
+        "path": {
+          "type": "str",
+          "required": true,
+          "default": "",
+          "description": "The file path to write (required)"
+        },
+        "content": {
+          "type": "str",
+          "required": true,
+          "default": "",
+          "description": "The content to write (required)"
+        },
+        "encoding": {
+          "type": "str",
+          "required": true,
+          "default": "utf-8",
+          "description": "File encoding (default: utf-8)"
+        },
+        "create_backup": {
+          "type": "bool",
+          "required": true,
+          "default": true,
+          "description": "Create backup before writing (default: true)"
+        },
+        "binary": {
+          "type": "bool",
+          "required": true,
+          "default": false,
+          "description": "Write binary data (content should be hex string) (default: false)"
+        }
+      },
+      "triggers": []
+    },
+    "file:backup": {
+      "module": "ksi_daemon.file.file_service",
+      "handler": "handle_backup",
+      "async": true,
+      "summary": "Create a manual backup of a file.",
+      "parameters": {
+        "path": {
+          "type": "str",
+          "required": true,
+          "default": "",
+          "description": "The file path to backup (required)"
+        },
+        "backup_name": {
+          "type": "str",
+          "required": false,
+          "default": null,
+          "description": "Custom backup name (optional, auto-generated if not provided)"
+        }
+      },
+      "triggers": []
+    },
+    "file:rollback": {
+      "module": "ksi_daemon.file.file_service",
+      "handler": "handle_rollback",
+      "async": true,
+      "summary": "Rollback a file to a previous backup.",
+      "parameters": {
+        "path": {
+          "type": "str",
+          "required": true,
+          "default": "",
+          "description": "The file path to rollback (required)"
+        },
+        "backup_name": {
+          "type": "str",
+          "required": false,
+          "default": null,
+          "description": "Specific backup to restore (optional, uses latest if not provided)"
+        }
+      },
+      "triggers": []
+    },
+    "file:list": {
+      "module": "ksi_daemon.file.file_service",
+      "handler": "handle_list",
+      "async": true,
+      "summary": "List files in a directory with filtering.",
+      "parameters": {
+        "path": {
+          "type": "str",
+          "required": true,
+          "default": "",
+          "description": "The directory path to list (required)"
+        },
+        "pattern": {
+          "type": "str",
+          "required": false,
+          "default": "*",
+          "description": "Filename pattern to match (optional)"
+        },
+        "recursive": {
+          "type": "bool",
+          "required": true,
+          "default": false,
+          "description": "Include subdirectories (default: false)"
+        },
+        "include_hidden": {
+          "type": "bool",
+          "required": true,
+          "default": false,
+          "description": "Include hidden files (default: false)"
+        }
+      },
+      "triggers": []
+    },
+    "file:validate": {
+      "module": "ksi_daemon.file.file_service",
+      "handler": "handle_validate",
+      "async": true,
+      "summary": "Validate file access and properties.",
+      "parameters": {
+        "path": {
+          "type": "str",
+          "required": true,
+          "default": "",
+          "description": "The file path to validate (required)"
+        },
+        "check_writable": {
+          "type": "bool",
+          "required": true,
+          "default": false,
+          "description": "Check if file is writable (default: false)"
+        },
+        "check_content": {
+          "type": "str",
+          "required": false,
+          "default": null,
+          "description": "Validate file contains specific content (optional)"
+        }
+      },
+      "triggers": []
+    },
+    "config:get": {
+      "module": "ksi_daemon.config.config_service",
+      "handler": "handle_get",
+      "async": true,
+      "summary": "Get configuration value or entire config file.",
+      "parameters": {
+        "key": {
+          "type": "str",
+          "required": true,
+          "default": "",
+          "description": "Configuration key path (e.g., 'daemon.log_level') (required)"
+        },
+        "config_type": {
+          "type": "str",
+          "required": true,
+          "default": "daemon",
+          "description": "Type of config ('daemon', 'composition', 'schema', 'capabilities')"
+        },
+        "file_path": {
+          "type": "str",
+          "required": false,
+          "default": null,
+          "description": "Specific config file path (optional)"
+        }
+      },
+      "triggers": []
+    },
+    "config:set": {
+      "module": "ksi_daemon.config.config_service",
+      "handler": "handle_set",
+      "async": true,
+      "summary": "Set configuration value with automatic backup.",
+      "parameters": {
+        "key": {
+          "type": "str",
+          "required": true,
+          "default": "",
+          "description": "Configuration key path (e.g., 'daemon.log_level') (required)"
+        },
+        "value": {
+          "type": "any",
+          "required": true,
+          "default": null,
+          "description": "Value to set (required)"
+        },
+        "config_type": {
+          "type": "str",
+          "required": true,
+          "default": "daemon",
+          "description": "Type of config ('daemon', 'composition', 'schema', 'capabilities')"
+        },
+        "file_path": {
+          "type": "str",
+          "required": false,
+          "default": null,
+          "description": "Specific config file path (optional)"
+        },
+        "create_backup": {
+          "type": "bool",
+          "required": true,
+          "default": true,
+          "description": "Create backup before modification (default: true)"
+        }
+      },
+      "triggers": [
+        "config:changed"
+      ]
+    },
+    "config:validate": {
+      "module": "ksi_daemon.config.config_service",
+      "handler": "handle_validate",
+      "async": true,
+      "summary": "Validate configuration file syntax and schema.",
+      "parameters": {
+        "config_type": {
+          "type": "str",
+          "required": true,
+          "default": "daemon",
+          "description": "Type of config to validate ('daemon', 'composition', 'schema', 'capabilities')"
+        },
+        "file_path": {
+          "type": "str",
+          "required": false,
+          "default": null,
+          "description": "Specific config file path (optional)"
+        },
+        "schema_path": {
+          "type": "str",
+          "required": false,
+          "default": null,
+          "description": "Path to validation schema (optional)"
+        }
+      },
+      "triggers": []
+    },
+    "config:reload": {
+      "module": "ksi_daemon.config.config_service",
+      "handler": "handle_reload",
+      "async": true,
+      "summary": "Reload configuration components.",
+      "parameters": {
+        "component": {
+          "type": "str",
+          "required": true,
+          "default": "all",
+          "description": "Component to reload ('daemon', 'plugins', 'compositions', 'all')"
+        }
+      },
+      "triggers": [
+        "daemon:config_reload",
+        "plugins:reload",
+        "composition:reload"
+      ]
+    },
+    "config:backup": {
+      "module": "ksi_daemon.config.config_service",
+      "handler": "handle_backup",
+      "async": true,
+      "summary": "Create manual backup of configuration.",
+      "parameters": {
+        "config_type": {
+          "type": "str",
+          "required": true,
+          "default": "",
+          "description": "Type of config to backup (required)"
+        },
+        "file_path": {
+          "type": "str",
+          "required": false,
+          "default": null,
+          "description": "Specific config file path (optional)"
+        },
+        "backup_name": {
+          "type": "str",
+          "required": false,
+          "default": null,
+          "description": "Custom backup name (optional)"
+        }
+      },
+      "triggers": []
+    },
+    "config:rollback": {
+      "module": "ksi_daemon.config.config_service",
+      "handler": "handle_rollback",
+      "async": true,
+      "summary": "Rollback configuration to previous backup.",
+      "parameters": {
+        "config_type": {
+          "type": "str",
+          "required": true,
+          "default": "",
+          "description": "Type of config to rollback (required)"
+        },
+        "file_path": {
+          "type": "str",
+          "required": false,
+          "default": null,
+          "description": "Specific config file path (optional)"
+        },
+        "backup_name": {
+          "type": "str",
+          "required": false,
+          "default": null,
+          "description": "Specific backup to restore (optional, uses latest if not provided)"
+        }
+      },
+      "triggers": [
+        "config:rolled_back"
+      ]
+    }
+  }
+}
