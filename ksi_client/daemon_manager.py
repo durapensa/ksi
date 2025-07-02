@@ -114,9 +114,26 @@ class DaemonManager:
             writer.close()
             await writer.wait_closed()
             
-            # Parse response
-            response = json.loads(response_data.decode().strip())
-            return response.get("status") == "healthy"
+            # Parse response - socket now returns JSON envelope with REST pattern
+            envelope = json.loads(response_data.decode().strip())
+            
+            # Handle envelope format
+            if "error" in envelope:
+                return False
+            
+            # Handle REST pattern: single object or array
+            response_data = envelope.get("data")
+            if isinstance(response_data, dict):
+                # Single health response
+                return response_data.get("status") == "healthy"
+            elif isinstance(response_data, list):
+                # Multiple health responses
+                return any(
+                    isinstance(item, dict) and item.get("status") == "healthy" 
+                    for item in response_data
+                )
+            else:
+                return False
             
         except Exception as e:
             logger.debug(f"Socket health check failed: {e}")

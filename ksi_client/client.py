@@ -11,7 +11,7 @@ import json
 import time
 import uuid
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Callable, Set
+from typing import Dict, Any, Optional, List, Callable, Set, Union, TypeVar, Literal
 import structlog
 
 from .daemon_manager import DaemonManager
@@ -293,13 +293,15 @@ class EventClient:
             
             # Wait for response
             timeout = timeout or (BOOTSTRAP_TIMEOUT if event_name in BOOTSTRAP_EVENTS else 30.0)
-            response = await asyncio.wait_for(response_future, timeout=timeout)
+            envelope = await asyncio.wait_for(response_future, timeout=timeout)
             
-            # Check for errors
-            if "error" in response:
-                raise KSIEventError(event_name, response["error"], response)
+            # Handle JSON envelope format
+            if "error" in envelope:
+                raise KSIEventError(event_name, envelope["error"], envelope)
             
-            return response
+            # Return raw REST response - let clients decide how to handle
+            # REST pattern: single object for single response, array for multiple
+            return envelope.get("data")
             
         except asyncio.TimeoutError:
             self._pending_requests.pop(correlation_id, None)
@@ -307,6 +309,175 @@ class EventClient:
         except Exception:
             self._pending_requests.pop(correlation_id, None)
             raise
+    
+    # Convenience methods for common JSON API patterns
+    
+    async def send_single(self, event_name: str, data: Dict[str, Any] = None,
+                         timeout: Optional[float] = None) -> Dict[str, Any]:
+        """
+        Send event expecting exactly one response.
+        
+        Raises:
+            KSIEventError: If 0 or >1 responses received
+        """
+        response = await self.send_event(event_name, data, timeout)
+        
+        # Handle REST pattern
+        if isinstance(response, dict):
+            return response  # Single response
+        elif isinstance(response, list):
+            if len(response) == 0:
+                raise KSIEventError(event_name, "No response received", response)
+            elif len(response) == 1:
+                return response[0]
+            else:
+                raise KSIEventError(event_name, f"Expected single response, got {len(response)}", response)
+        else:
+            raise KSIEventError(event_name, f"Unexpected response type: {type(response)}", response)
+    
+    async def send_all(self, event_name: str, data: Dict[str, Any] = None,
+                      timeout: Optional[float] = None) -> List[Dict[str, Any]]:
+        """
+        Send event and always return a list of responses.
+        
+        Normalizes single responses to [response].
+        """
+        response = await self.send_event(event_name, data, timeout)
+        
+        # Normalize to list
+        if isinstance(response, dict):
+            return [response]
+        elif isinstance(response, list):
+            return response
+        else:
+            return [response] if response is not None else []
+    
+    async def send_first(self, event_name: str, data: Dict[str, Any] = None,
+                        timeout: Optional[float] = None) -> Optional[Dict[str, Any]]:
+        """
+        Send event and return first response, or None if no responses.
+        
+        Useful for events where any response is acceptable.
+        """
+        response = await self.send_event(event_name, data, timeout)
+        
+        if isinstance(response, dict):
+            return response
+        elif isinstance(response, list) and len(response) > 0:
+            return response[0]
+        else:
+            return None
+    
+    async def get_value(self, event_name: str, data: Dict[str, Any] = None,
+                       key: str = "value", default: Any = None,
+                       timeout: Optional[float] = None) -> Any:
+        """
+        Send event and extract a specific field from the response.
+        
+        Args:
+            event_name: Event to send
+            data: Event data
+            key: Field to extract from response
+            default: Default value if field not found
+            timeout: Response timeout
+            
+        Returns:
+            Extracted value or default
+        """
+        try:
+            response = await self.send_single(event_name, data, timeout)
+            return response.get(key, default)
+        except KSIEventError:
+            return default
+    
+    async def send_success_only(self, event_name: str, data: Dict[str, Any] = None,
+                               timeout: Optional[float] = None) -> List[Dict[str, Any]]:
+        """
+        Send event and return only successful responses (no 'error' field).
+        
+        Filters out any responses containing error fields.
+        """
+        responses = await self.send_all(event_name, data, timeout)
+        return [r for r in responses if isinstance(r, dict) and "error" not in r]
+    
+    async def send_and_merge(self, event_name: str, data: Dict[str, Any] = None,
+                            merge_key: Optional[str] = None, 
+                            timeout: Optional[float] = None) -> Dict[str, Any]:
+        """
+        Send event and merge responses from multiple handlers.
+        
+        Args:
+            event_name: Event to send
+            data: Event data
+            merge_key: If specified, merge this field across responses (must be dict)
+            timeout: Response timeout
+            
+        Returns:
+            Merged response dict
+        """
+        responses = await self.send_all(event_name, data, timeout)
+        
+        if not responses:
+            return {}
+        
+        # Start with first response
+        merged = responses[0].copy() if isinstance(responses[0], dict) else {}
+        
+        # Merge additional responses
+        for resp in responses[1:]:
+            if not isinstance(resp, dict):
+                continue
+                
+            if merge_key and merge_key in resp and merge_key in merged:
+                # Deep merge specific field
+                if isinstance(merged[merge_key], dict) and isinstance(resp[merge_key], dict):
+                    merged[merge_key].update(resp[merge_key])
+                elif isinstance(merged[merge_key], list) and isinstance(resp[merge_key], list):
+                    merged[merge_key].extend(resp[merge_key])
+            else:
+                # Shallow merge entire response
+                merged.update(resp)
+        
+        return merged
+    
+    async def send_with_errors(self, event_name: str, data: Dict[str, Any] = None,
+                              error_mode: Literal["fail_fast", "collect", "warn"] = "fail_fast",
+                              timeout: Optional[float] = None) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
+        """
+        Send event with configurable error handling.
+        
+        Args:
+            event_name: Event to send
+            data: Event data
+            error_mode: How to handle errors
+                - "fail_fast": Raise on first error (default)
+                - "collect": Return {"results": [...], "errors": [...]}
+                - "warn": Log warnings but return successful responses
+            timeout: Response timeout
+            
+        Returns:
+            Response(s) based on error_mode
+        """
+        responses = await self.send_all(event_name, data, timeout)
+        
+        errors = []
+        results = []
+        
+        for resp in responses:
+            if isinstance(resp, dict) and "error" in resp:
+                errors.append(resp)
+            else:
+                results.append(resp)
+        
+        if error_mode == "fail_fast" and errors:
+            # Re-raise first error
+            raise KSIEventError(event_name, errors[0].get("error", "Unknown error"), errors[0])
+        elif error_mode == "collect":
+            return {"results": results, "errors": errors, "has_errors": len(errors) > 0}
+        else:  # warn mode
+            for error in errors:
+                logger.warning(f"Event {event_name} error: {error.get('error', 'Unknown')}")
+            return results
     
     def subscribe(self, event_pattern: str, handler: Callable):
         """
@@ -330,15 +501,33 @@ class EventClient:
         logger.info("Discovering available events...")
         
         try:
-            # Discover all events
-            response = await self.send_event("system:discover", {})
-            self._event_cache = response.get("events", {})
+            # Discover all events using send_all for consistency
+            responses = await self.send_all("system:discover", {})
+            
+            # Merge discovery data from all responses
+            all_events = {}
+            for resp in responses:
+                if isinstance(resp, dict) and "events" in resp:
+                    events = resp["events"]
+                    for namespace, events_list in events.items():
+                        if namespace not in all_events:
+                            all_events[namespace] = []
+                        all_events[namespace].extend(events_list)
+            
+            self._event_cache = all_events
             
             # Try to discover permission profiles
             if self._has_event_in_cache("permission:list_profiles"):
                 try:
-                    response = await self.send_event("permission:list_profiles", {})
-                    self._permission_cache = response.get("profiles", {})
+                    perm_responses = await self.send_all("permission:list_profiles", {})
+                    
+                    # Merge permission data from all responses
+                    all_profiles = {}
+                    for resp in perm_responses:
+                        if isinstance(resp, dict) and "profiles" in resp:
+                            all_profiles.update(resp["profiles"])
+                    
+                    self._permission_cache = all_profiles
                 except Exception as e:
                     logger.warning(f"Permission discovery failed: {e}")
             
@@ -457,14 +646,14 @@ class EventClient:
             "profile": agent_config.get("profile", "conversationalist")
         })
         
-        # Send completion request
+        # Send completion request expecting single response
         # Note: Use async_ because async is a Python keyword
-        return await self.completion.async_(
-            prompt=prompt,
-            session_id=session_id,
-            agent_config=agent_config,
+        return await self.send_single("completion:async", {
+            "prompt": prompt,
+            "session_id": session_id,
+            "agent_config": agent_config,
             **kwargs
-        )
+        })
     
     def generate_type_stubs(self, output_path: Optional[Path] = None) -> str:
         """

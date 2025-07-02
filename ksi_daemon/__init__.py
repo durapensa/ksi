@@ -16,7 +16,7 @@ from pathlib import Path
 
 # NOW we can import our modules - logging is configured
 from ksi_common.config import config
-from ksi_daemon.core_events import EventDaemonCore as PluginDaemon
+from ksi_daemon.daemon_core import EventDaemonCore
 
 # Get logger
 from ksi_common.logging import get_bound_logger
@@ -72,15 +72,12 @@ def setup_signal_handlers(shutdown_event, loop):
             logger.warning(f"Could not register asyncio signal handler for {sig}: {e}")
             signal.signal(sig, lambda signum, frame: signal_handler(signal.Signals(signum).name))
 
-async def create_plugin_daemon(socket_dir: str = None):
-    """Create event-based daemon"""
+async def create_event_daemon(socket_dir: str = None):
+    """Create simple module-based daemon"""
     
     # Build configuration
     config_dict = {
         "daemon": {
-            "plugin_dirs": [
-                str(Path(__file__).parent / "plugins")
-            ],
             "max_event_history": 1000
         },
         "transports": {
@@ -91,9 +88,12 @@ async def create_plugin_daemon(socket_dir: str = None):
         }
     }
     
-    # Create and initialize event daemon
-    daemon = PluginDaemon(config_dict)
-    await daemon.initialize()
+    # Create and initialize event-based daemon (pure module system)
+    daemon = EventDaemonCore()
+    success = await daemon.initialize(config_dict)
+    
+    if not success:
+        raise RuntimeError("Failed to initialize daemon")
     
     return daemon
 
@@ -106,7 +106,7 @@ async def main():
     ensure_var_directories()
     
     # Create event-based daemon
-    daemon = await create_plugin_daemon(args.socket_dir)
+    daemon = await create_event_daemon(args.socket_dir)
     
     # Get the current event loop
     loop = asyncio.get_running_loop()

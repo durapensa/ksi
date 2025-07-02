@@ -49,8 +49,8 @@ class KSICLI:
         if self.client:
             await self.client.__aexit__(None, None, None)
     
-    async def send_event(self, event_name: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Send an event and return the response."""
+    async def send_event(self, event_name: str, data: Dict[str, Any]) -> Any:
+        """Send an event and return raw response (REST pattern)."""
         return await self.client.send_event(event_name, data)
     
     async def discover(self, namespace: Optional[str] = None) -> None:
@@ -59,13 +59,16 @@ class KSICLI:
         if namespace:
             data["namespace"] = namespace
         
-        result = await self.send_event("system:discover", data)
+        # Use send_and_merge for discovery - merge 'events' field from all handlers
+        merged = await self.client.send_and_merge("system:discover", data, merge_key="events")
+        all_events = merged.get('events', {})
+        total_events = merged.get('total_events', 0)
         
-        # Pretty print discovery results
-        print(f"KSI Events ({result.get('total_events', 0)} available)")
+        # Pretty print merged discovery results
+        print(f"KSI Events ({total_events} available)")
         print("=" * 60)
         
-        for ns, events in result.get('events', {}).items():
+        for ns, events in all_events.items():
             print(f"\n{ns}:")
             for event in events:
                 summary = event.get('summary', 'No description')
@@ -76,21 +79,31 @@ class KSICLI:
     
     async def help(self, event_name: str) -> None:
         """Get detailed help for an event."""
-        result = await self.send_event("system:help", {"event": event_name})
+        # Use send_and_merge to combine help from all handlers
+        merged_help = await self.client.send_and_merge("system:help", {"event": event_name})
         
-        if "error" in result:
-            print(f"Error: {result['error']}")
-            return
+        # Default values if not provided
+        if "event" not in merged_help:
+            merged_help["event"] = event_name
+        if "namespace" not in merged_help:
+            merged_help["namespace"] = "unknown"
+        if "summary" not in merged_help:
+            merged_help["summary"] = "No description"
+        if "parameters" not in merged_help:
+            merged_help["parameters"] = {}
+        if "examples" not in merged_help:
+            merged_help["examples"] = []
         
-        # Pretty print help
-        print(f"Event: {result.get('event', event_name)}")
-        print(f"Namespace: {result.get('namespace', 'unknown')}")
-        print(f"\n{result.get('summary', 'No description')}")
+        
+        # Pretty print merged help
+        print(f"Event: {merged_help['event']}")
+        print(f"Namespace: {merged_help['namespace']}")
+        print(f"\n{merged_help['summary']}")
         
         # Parameters
-        if params := result.get('parameters'):
+        if merged_help["parameters"]:
             print("\nParameters:")
-            for name, info in params.items():
+            for name, info in merged_help["parameters"].items():
                 req = " (required)" if info.get('required') else " (optional)"
                 desc = info.get('description', '')
                 print(f"  --{name}{req}")
@@ -102,9 +115,9 @@ class KSICLI:
                     print(f"      Allowed: {', '.join(values)}")
         
         # Examples
-        if examples := result.get('examples'):
+        if merged_help["examples"]:
             print("\nExamples:")
-            for i, ex in enumerate(examples, 1):
+            for i, ex in enumerate(merged_help["examples"], 1):
                 print(f"\n  Example {i}: {ex.get('description', '')}")
                 # Show as CLI command
                 cmd = f"ksi-cli send {event_name}"
@@ -117,54 +130,71 @@ class KSICLI:
     
     async def list_conversations(self, limit: int = 10) -> None:
         """List recent conversations."""
-        result = await self.send_event("conversation:list", {"limit": limit})
-        
-        convos = result.get('conversations', [])
-        if not convos:
-            print("No conversations found")
-            return
-        
-        print(f"Recent Conversations (showing {len(convos)} of {result.get('total', len(convos))})")
-        print("=" * 80)
-        
-        for conv in convos:
-            session_id = conv.get('session_id', 'unknown')[:8]
-            timestamp = conv.get('last_timestamp', 'unknown')
-            msg_count = conv.get('message_count', 0)
-            first_msg = conv.get('first_message', '')[:40]
+        try:
+            # conversation:list typically returns a single response with all conversations
+            result = await self.client.send_single("conversation:list", {"limit": limit})
             
-            print(f"\n{session_id}... | {timestamp} | {msg_count} messages")
-            if first_msg:
-                print(f"  First: {first_msg}...")
+            conversations = result.get('conversations', [])
+            total_count = result.get('total', len(conversations))
+            
+            if not conversations:
+                print("No conversations found")
+                return
+            
+            print(f"Recent Conversations (showing {len(conversations)} of {total_count})")
+            print("=" * 80)
+            
+            for conv in conversations:
+                session_id = conv.get('session_id', 'unknown')[:8]
+                timestamp = conv.get('last_timestamp', 'unknown')
+                msg_count = conv.get('message_count', 0)
+                first_msg = conv.get('first_message', '')[:40]
+                
+                print(f"\n{session_id}... | {timestamp} | {msg_count} messages")
+                if first_msg:
+                    print(f"  First: {first_msg}...")
+                    
+        except Exception as e:
+            print(f"Error listing conversations: {e}")
     
     async def get_state(self, key: str, namespace: str = "default") -> None:
         """Get a state value."""
-        result = await self.send_event("state:get", {
-            "key": key,
-            "namespace": namespace
-        })
-        
-        if result.get('found'):
-            value = result.get('value')
-            if isinstance(value, (dict, list)):
-                print(json.dumps(value, indent=2))
+        try:
+            # Use send_single since state:get should return one response
+            result = await self.client.send_single("state:get", {
+                "key": key,
+                "namespace": namespace
+            })
+            
+            if result.get('found'):
+                value = result.get('value')
+                if isinstance(value, (dict, list)):
+                    print(json.dumps(value, indent=2))
+                else:
+                    print(value)
             else:
-                print(value)
-        else:
-            print(f"Key not found: {key} (namespace: {namespace})")
+                print(f"Key not found: {key} (namespace: {namespace})")
+                
+        except Exception as e:
+            print(f"Error: {e}")
     
     async def set_state(self, key: str, value: Any, namespace: str = "default") -> None:
         """Set a state value."""
-        result = await self.send_event("state:set", {
-            "key": key,
-            "value": value,
-            "namespace": namespace
-        })
-        
-        if result.get('status') == 'set':
-            print(f"✓ Set {key} = {value} in namespace '{namespace}'")
-        else:
-            print(f"Failed to set state: {result}")
+        try:
+            # Use send_single since state:set should return one response
+            result = await self.client.send_single("state:set", {
+                "key": key,
+                "value": value,
+                "namespace": namespace
+            })
+            
+            if result.get('status') == 'set':
+                print(f"✓ Set {key} = {value} in namespace '{namespace}'")
+            else:
+                print(f"Failed to set state: {key}")
+                
+        except Exception as e:
+            print(f"Error: {e}")
 
 
 def parse_event_data(args: argparse.Namespace) -> Dict[str, Any]:
@@ -299,26 +329,62 @@ Examples:
             # Send event
             result = await cli.send_event(args.event, data)
             
-            # Output result
+            # Output result - handle REST pattern (single dict or array)
             if args.output == "json":
                 print(json.dumps(result, indent=2))
             else:
-                # Pretty print based on event type
-                if "error" in result:
-                    print(f"Error: {result['error']}")
-                elif args.event == "completion:async":
-                    print(f"Request ID: {result.get('request_id', 'unknown')}")
-                    print(f"Status: {result.get('status', 'unknown')}")
-                    if session_id := result.get('session_id'):
-                        print(f"Session ID: {session_id}")
+                # Handle REST pattern: single object or array
+                if isinstance(result, dict):
+                    # Single response
+                    if "error" in result:
+                        print(f"Error: {result['error']}")
+                    elif args.event == "completion:async":
+                        print(f"Request ID: {result.get('request_id', 'unknown')}")
+                        print(f"Status: {result.get('status', 'unknown')}")
+                        if session_id := result.get('session_id'):
+                            print(f"Session ID: {session_id}")
+                    else:
+                        # Generic pretty print for single response
+                        for key, value in result.items():
+                            if isinstance(value, (dict, list)):
+                                print(f"{key}:")
+                                print(f"  {json.dumps(value, indent=2)}")
+                            else:
+                                print(f"{key}: {value}")
+                elif isinstance(result, list):
+                    # Multiple responses
+                    if not result:
+                        print("No response received")
+                    elif len(result) == 1:
+                        # Single item in array - print without numbering
+                        response = result[0]
+                        if isinstance(response, dict):
+                            if "error" in response:
+                                print(f"Error: {response['error']}")
+                            else:
+                                for key, value in response.items():
+                                    if isinstance(value, (dict, list)):
+                                        print(f"{key}:")
+                                        print(f"  {json.dumps(value, indent=2)}")
+                                    else:
+                                        print(f"{key}: {value}")
+                    else:
+                        # Multiple responses - show each
+                        print(f"Multiple responses ({len(result)}):")
+                        for i, response in enumerate(result):
+                            print(f"\nResponse {i+1}:")
+                            if isinstance(response, dict):
+                                for key, value in response.items():
+                                    if isinstance(value, (dict, list)):
+                                        print(f"  {key}: {json.dumps(value, indent=2)}")
+                                    else:
+                                        print(f"  {key}: {value}")
+                            else:
+                                print(f"  {response}")
                 else:
-                    # Generic pretty print
-                    for key, value in result.items():
-                        if isinstance(value, (dict, list)):
-                            print(f"{key}:")
-                            print(f"  {json.dumps(value, indent=2)}")
-                        else:
-                            print(f"{key}: {value}")
+                    # Unexpected response type
+                    print(f"Unexpected response type: {type(result)}")
+                    print(result)
         
         elif args.command == "discover":
             await cli.discover(args.namespace)

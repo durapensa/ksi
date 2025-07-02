@@ -1,1 +1,0 @@
-"""State service plugin package."""
