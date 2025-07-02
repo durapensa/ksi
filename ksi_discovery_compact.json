@@ -1,0 +1,2624 @@
+{
+  "generated": "2025-07-02T09:53:38.808495",
+  "total": 138,
+  "namespaces": [
+    "agent",
+    "api",
+    "async_state",
+    "completion",
+    "composition",
+    "config",
+    "conversation",
+    "correlation",
+    "file",
+    "injection",
+    "message",
+    "message_bus",
+    "module",
+    "monitor",
+    "orchestration",
+    "permission",
+    "sandbox",
+    "state",
+    "system",
+    "transport"
+  ],
+  "events": {
+    "system:context": {
+      "module": "ksi_daemon.core.state",
+      "handler": "handle_context",
+      "summary": "Receive infrastructure context - state manager is available."
+    },
+    "state:get": {
+      "module": "ksi_daemon.core.state",
+      "handler": "handle_get",
+      "summary": "Get a value from shared state.",
+      "params": {
+        "namespace": [
+          "str",
+          true,
+          "global",
+          "The namespace to get from (default: \"global\")"
+        ],
+        "key": [
+          "str",
+          true,
+          "",
+          "The key to retrieve (required)"
+        ]
+      }
+    },
+    "state:set": {
+      "module": "ksi_daemon.core.state",
+      "handler": "handle_set",
+      "summary": "Set a value in shared state.",
+      "params": {
+        "namespace": [
+          "str",
+          true,
+          "global",
+          "The namespace to set in (default: \"global\")"
+        ],
+        "key": [
+          "str",
+          true,
+          "",
+          "The key to set (required)"
+        ],
+        "value": [
+          "any",
+          true,
+          null,
+          "The value to store (required)"
+        ],
+        "metadata": [
+          "dict",
+          false,
+          null,
+          "Optional metadata to attach (default: {})"
+        ]
+      }
+    },
+    "state:delete": {
+      "module": "ksi_daemon.core.state",
+      "handler": "handle_delete",
+      "summary": "Delete a key from shared state.",
+      "params": {
+        "namespace": [
+          "str",
+          true,
+          "global",
+          "The namespace to delete from (default: \"global\")"
+        ],
+        "key": [
+          "str",
+          true,
+          "",
+          "The key to delete (required)"
+        ]
+      }
+    },
+    "state:list": {
+      "module": "ksi_daemon.core.state",
+      "handler": "handle_list",
+      "summary": "List keys in shared state.",
+      "params": {
+        "namespace": [
+          "str",
+          false,
+          null,
+          "Filter by namespace (optional)"
+        ],
+        "pattern": [
+          "str",
+          false,
+          null,
+          "Filter by pattern (optional, supports * wildcard)"
+        ]
+      }
+    },
+    "async_state:get": {
+      "module": "ksi_daemon.core.state",
+      "handler": "handle_async_get",
+      "summary": "Get value from async state.",
+      "params": {
+        "namespace": [
+          "Any",
+          false,
+          "default",
+          "namespace parameter"
+        ],
+        "key": [
+          "Any",
+          false,
+          "",
+          "key parameter"
+        ]
+      }
+    },
+    "async_state:set": {
+      "module": "ksi_daemon.core.state",
+      "handler": "handle_async_set",
+      "summary": "Set value in async state.",
+      "params": {
+        "namespace": [
+          "Any",
+          false,
+          "default",
+          "namespace parameter"
+        ],
+        "key": [
+          "Any",
+          false,
+          "",
+          "key parameter"
+        ],
+        "value": [
+          "Any",
+          true,
+          null,
+          "value parameter"
+        ]
+      }
+    },
+    "async_state:delete": {
+      "module": "ksi_daemon.core.state",
+      "handler": "handle_async_delete",
+      "summary": "Delete key from async state.",
+      "params": {
+        "namespace": [
+          "Any",
+          false,
+          "default",
+          "namespace parameter"
+        ],
+        "key": [
+          "Any",
+          false,
+          "",
+          "key parameter"
+        ]
+      }
+    },
+    "async_state:push": {
+      "module": "ksi_daemon.core.state",
+      "handler": "handle_async_push",
+      "summary": "Push value to async queue.",
+      "params": {
+        "namespace": [
+          "Any",
+          false,
+          "default",
+          "namespace parameter"
+        ],
+        "queue_name": [
+          "Any",
+          false,
+          "",
+          "queue_name parameter"
+        ],
+        "value": [
+          "Any",
+          true,
+          null,
+          "value parameter"
+        ]
+      }
+    },
+    "async_state:pop": {
+      "module": "ksi_daemon.core.state",
+      "handler": "handle_async_pop",
+      "summary": "Pop value from async queue.",
+      "params": {
+        "namespace": [
+          "Any",
+          false,
+          "default",
+          "namespace parameter"
+        ],
+        "queue_name": [
+          "Any",
+          false,
+          "",
+          "queue_name parameter"
+        ]
+      }
+    },
+    "async_state:get_keys": {
+      "module": "ksi_daemon.core.state",
+      "handler": "handle_async_get_keys",
+      "summary": "Get all keys in a namespace.",
+      "params": {
+        "namespace": [
+          "Any",
+          false,
+          "default",
+          "namespace parameter"
+        ]
+      }
+    },
+    "async_state:queue_length": {
+      "module": "ksi_daemon.core.state",
+      "handler": "handle_async_queue_length",
+      "summary": "Get length of async queue.",
+      "params": {
+        "namespace": [
+          "Any",
+          false,
+          "default",
+          "namespace parameter"
+        ],
+        "queue_name": [
+          "Any",
+          false,
+          "",
+          "queue_name parameter"
+        ]
+      }
+    },
+    "module:list": {
+      "module": "ksi_daemon.daemon_core",
+      "handler": "handle_list_modules",
+      "summary": "List all loaded modules."
+    },
+    "module:events": {
+      "module": "ksi_daemon.daemon_core",
+      "handler": "handle_list_events",
+      "summary": "List all registered events and patterns."
+    },
+    "module:inspect": {
+      "module": "ksi_daemon.daemon_core",
+      "handler": "handle_inspect_module",
+      "summary": "Inspect a specific module using direct function metadata.",
+      "params": {
+        "module_name": [
+          "Any",
+          true,
+          null,
+          "module_name parameter"
+        ]
+      }
+    },
+    "api:schema": {
+      "module": "ksi_daemon.daemon_core",
+      "handler": "handle_api_schema",
+      "summary": "Get complete API schema using direct function inspection."
+    },
+    "system:health": {
+      "module": "ksi_daemon.daemon_core",
+      "handler": "handle_system_health",
+      "summary": "System health check including module status."
+    },
+    "system:startup": {
+      "module": "ksi_daemon.core.health",
+      "handler": "handle_startup",
+      "summary": "Initialize health check plugin."
+    },
+    "system:shutdown": {
+      "module": "ksi_daemon.core.health",
+      "handler": "handle_shutdown",
+      "summary": "Clean up on shutdown."
+    },
+    "correlation:trace": {
+      "module": "ksi_daemon.core.correlation",
+      "handler": "handle_get_trace",
+      "summary": "Get a specific correlation trace.",
+      "params": {
+        "correlation_id": [
+          "Any",
+          true,
+          null,
+          "The correlation ID to retrieve trace for"
+        ]
+      }
+    },
+    "correlation:chain": {
+      "module": "ksi_daemon.core.correlation",
+      "handler": "handle_get_trace_chain",
+      "summary": "Get the full trace chain for a correlation ID.",
+      "params": {
+        "correlation_id": [
+          "Any",
+          true,
+          null,
+          "The correlation ID to retrieve chain for"
+        ]
+      }
+    },
+    "correlation:tree": {
+      "module": "ksi_daemon.core.correlation",
+      "handler": "handle_get_trace_tree",
+      "summary": "Get the full trace tree for a correlation ID.",
+      "params": {
+        "correlation_id": [
+          "Any",
+          true,
+          null,
+          "The correlation ID to retrieve tree for"
+        ]
+      }
+    },
+    "correlation:stats": {
+      "module": "ksi_daemon.core.correlation",
+      "handler": "handle_get_stats",
+      "summary": "Get correlation tracking statistics."
+    },
+    "correlation:cleanup": {
+      "module": "ksi_daemon.core.correlation",
+      "handler": "handle_cleanup",
+      "summary": "Clean up old correlation traces.",
+      "params": {
+        "max_age_hours": [
+          "Any",
+          true,
+          24,
+          "Maximum age in hours for traces to keep (default: 24)"
+        ]
+      }
+    },
+    "correlation:current": {
+      "module": "ksi_daemon.core.correlation",
+      "handler": "handle_get_current",
+      "summary": "Get current correlation context."
+    },
+    "system:discover": {
+      "module": "ksi_daemon.core.discovery",
+      "handler": "handle_discover",
+      "summary": "Universal discovery endpoint - everything you need to understand KSI.",
+      "params": {
+        "detail": [
+          "Any",
+          true,
+          true,
+          "Include parameters and triggers (default: True)"
+        ],
+        "namespace": [
+          "Any",
+          false,
+          null,
+          "Filter by namespace (optional)"
+        ],
+        "event": [
+          "Any",
+          false,
+          null,
+          "Get details for specific event (optional)"
+        ]
+      }
+    },
+    "system:help": {
+      "module": "ksi_daemon.core.discovery",
+      "handler": "handle_help",
+      "summary": "Get detailed help for a specific event.",
+      "params": {
+        "event": [
+          "Any",
+          true,
+          null,
+          "The event name to get help for (required)"
+        ]
+      }
+    },
+    "monitor:get_events": {
+      "module": "ksi_daemon.core.monitor",
+      "handler": "handle_get_events",
+      "summary": "Query event log with filtering and pagination.",
+      "params": {
+        "event_patterns": [
+          "Any",
+          true,
+          null,
+          "List of event name patterns (supports wildcards)"
+        ],
+        "client_id": [
+          "Any",
+          true,
+          null,
+          "Filter by specific client"
+        ],
+        "since": [
+          "Any",
+          true,
+          null,
+          "Start time (ISO string or timestamp)"
+        ],
+        "until": [
+          "Any",
+          true,
+          null,
+          "End time (ISO string or timestamp)"
+        ],
+        "limit": [
+          "Any",
+          true,
+          100,
+          "Maximum number of events to return"
+        ],
+        "reverse": [
+          "Any",
+          true,
+          true,
+          "Return newest first (default True)"
+        ]
+      }
+    },
+    "monitor:get_stats": {
+      "module": "ksi_daemon.core.monitor",
+      "handler": "handle_get_stats",
+      "summary": "Get event log statistics."
+    },
+    "monitor:clear_log": {
+      "module": "ksi_daemon.core.monitor",
+      "handler": "handle_clear_log",
+      "summary": "Clear event log (admin operation)."
+    },
+    "monitor:subscribe": {
+      "module": "ksi_daemon.core.monitor",
+      "handler": "handle_subscribe",
+      "summary": "Subscribe to real-time event stream.",
+      "params": {
+        "client_id": [
+          "Any",
+          true,
+          null,
+          "Client identifier"
+        ],
+        "event_patterns": [
+          "Any",
+          true,
+          null,
+          "List of event name patterns (supports wildcards)"
+        ],
+        "writer": [
+          "Any",
+          true,
+          null,
+          "Transport writer reference"
+        ]
+      }
+    },
+    "monitor:unsubscribe": {
+      "module": "ksi_daemon.core.monitor",
+      "handler": "handle_unsubscribe",
+      "summary": "Unsubscribe from event stream.",
+      "params": {
+        "client_id": [
+          "Any",
+          true,
+          null,
+          "Client identifier"
+        ]
+      }
+    },
+    "monitor:query": {
+      "module": "ksi_daemon.core.monitor",
+      "handler": "handle_query",
+      "summary": "Execute custom SQL query against event database.",
+      "params": {
+        "query": [
+          "Any",
+          true,
+          null,
+          "SQL query string"
+        ],
+        "params": [
+          "Any",
+          false,
+          null,
+          "Optional query parameters (tuple)"
+        ],
+        "limit": [
+          "Any",
+          true,
+          1000,
+          "Maximum results (default 1000)"
+        ]
+      }
+    },
+    "monitor:get_session_events": {
+      "module": "ksi_daemon.core.monitor",
+      "handler": "handle_get_session_events",
+      "summary": "Get all events for a specific session.",
+      "params": {
+        "session_id": [
+          "Any",
+          true,
+          null,
+          "Session ID to query"
+        ],
+        "include_memory": [
+          "Any",
+          true,
+          true,
+          "Include events from memory buffer (default True)"
+        ],
+        "reverse": [
+          "Any",
+          true,
+          true,
+          "Sort newest first (default True)"
+        ]
+      }
+    },
+    "monitor:get_correlation_chain": {
+      "module": "ksi_daemon.core.monitor",
+      "handler": "handle_get_correlation_chain",
+      "summary": "Get all events in a correlation chain.",
+      "params": {
+        "correlation_id": [
+          "Any",
+          true,
+          null,
+          "Correlation ID to trace"
+        ],
+        "include_memory": [
+          "Any",
+          true,
+          true,
+          "Include events from memory buffer (default True)"
+        ]
+      }
+    },
+    "system:ready": {
+      "module": "ksi_daemon.transport.unix_socket",
+      "handler": "handle_ready",
+      "summary": "Return long-running server task to keep daemon alive."
+    },
+    "transport:create": {
+      "module": "ksi_daemon.transport.unix_socket",
+      "handler": "handle_create_transport",
+      "summary": "Create Unix socket transport if requested.",
+      "params": {
+        "transport_type": [
+          "Any",
+          true,
+          null,
+          "transport_type parameter"
+        ],
+        "config": [
+          "Any",
+          false,
+          null,
+          "config parameter"
+        ]
+      }
+    },
+    "completion:cancelled": {
+      "module": "ksi_daemon.transport.unix_socket",
+      "handler": "handle_broadcastable_event",
+      "summary": "Broadcast certain events to all connected clients.",
+      "params": {
+        "timestamp": [
+          "Any",
+          false,
+          "",
+          "timestamp parameter"
+        ],
+        "correlation_id": [
+          "Any",
+          true,
+          null,
+          "correlation_id parameter"
+        ]
+      }
+    },
+    "completion:error": {
+      "module": "ksi_daemon.transport.unix_socket",
+      "handler": "handle_broadcastable_event",
+      "summary": "Broadcast certain events to all connected clients.",
+      "params": {
+        "timestamp": [
+          "Any",
+          false,
+          "",
+          "timestamp parameter"
+        ],
+        "correlation_id": [
+          "Any",
+          true,
+          null,
+          "correlation_id parameter"
+        ]
+      }
+    },
+    "completion:progress": {
+      "module": "ksi_daemon.transport.unix_socket",
+      "handler": "handle_broadcastable_event",
+      "summary": "Broadcast certain events to all connected clients.",
+      "params": {
+        "timestamp": [
+          "Any",
+          false,
+          "",
+          "timestamp parameter"
+        ],
+        "correlation_id": [
+          "Any",
+          true,
+          null,
+          "correlation_id parameter"
+        ]
+      }
+    },
+    "completion:result": {
+      "module": "ksi_daemon.transport.unix_socket",
+      "handler": "handle_broadcastable_event",
+      "summary": "Broadcast certain events to all connected clients.",
+      "params": {
+        "timestamp": [
+          "Any",
+          false,
+          "",
+          "timestamp parameter"
+        ],
+        "correlation_id": [
+          "Any",
+          true,
+          null,
+          "correlation_id parameter"
+        ]
+      }
+    },
+    "completion:async": {
+      "module": "ksi_daemon.completion.completion_service",
+      "handler": "handle_async_completion",
+      "summary": "Handle async completion requests with smart queueing.",
+      "params": {
+        "session_id": [
+          "Any",
+          false,
+          "default",
+          "session_id parameter"
+        ],
+        "model": [
+          "Any",
+          false,
+          "unknown",
+          "model parameter"
+        ],
+        "request_id": [
+          "Any",
+          true,
+          null,
+          "request_id parameter"
+        ]
+      }
+    },
+    "completion:cancel": {
+      "module": "ksi_daemon.completion.completion_service",
+      "handler": "handle_cancel_completion",
+      "summary": "Cancel an in-progress completion.",
+      "params": {
+        "request_id": [
+          "Any",
+          true,
+          null,
+          "request_id parameter"
+        ]
+      }
+    },
+    "completion:status": {
+      "module": "ksi_daemon.completion.completion_service",
+      "handler": "handle_completion_status",
+      "summary": "Get status of all active completions."
+    },
+    "completion:session_status": {
+      "module": "ksi_daemon.completion.completion_service",
+      "handler": "handle_session_status",
+      "summary": "Get detailed status for a specific session.",
+      "params": {
+        "session_id": [
+          "Any",
+          true,
+          null,
+          "session_id parameter"
+        ]
+      }
+    },
+    "permission:get_profile": {
+      "module": "ksi_daemon.permissions.permission_service",
+      "handler": "handle_get_profile",
+      "summary": "Get details of a specific permission profile.",
+      "params": {
+        "level": [
+          "str",
+          true,
+          null,
+          "The permission level/profile name (one of: restricted, standard, trusted, researcher)"
+        ]
+      }
+    },
+    "permission:set_agent": {
+      "module": "ksi_daemon.permissions.permission_service",
+      "handler": "handle_set_agent_permissions",
+      "summary": "Set permissions for an agent.",
+      "params": {
+        "agent_id": [
+          "str",
+          true,
+          null,
+          "The agent ID to set permissions for"
+        ],
+        "permissions": [
+          "dict",
+          false,
+          null,
+          "Full permission object (optional)"
+        ],
+        "profile": [
+          "str",
+          false,
+          "restricted",
+          "Base profile to use (optional, defaults: restricted)"
+        ],
+        "overrides": [
+          "dict",
+          false,
+          null,
+          "Permission overrides to apply (optional)"
+        ]
+      }
+    },
+    "permission:validate_spawn": {
+      "module": "ksi_daemon.permissions.permission_service",
+      "handler": "handle_validate_spawn",
+      "summary": "Validate if parent can spawn child with given permissions.",
+      "params": {
+        "parent_id": [
+          "str",
+          true,
+          null,
+          "The parent agent ID"
+        ],
+        "child_permissions": [
+          "dict",
+          true,
+          null,
+          "The requested permissions for the child agent"
+        ]
+      }
+    },
+    "permission:get_agent": {
+      "module": "ksi_daemon.permissions.permission_service",
+      "handler": "handle_get_agent_permissions",
+      "summary": "Get permissions for a specific agent.",
+      "params": {
+        "agent_id": [
+          "str",
+          true,
+          null,
+          "The agent ID to query permissions for"
+        ]
+      }
+    },
+    "permission:remove_agent": {
+      "module": "ksi_daemon.permissions.permission_service",
+      "handler": "handle_remove_agent_permissions",
+      "summary": "Remove permissions for an agent.",
+      "params": {
+        "agent_id": [
+          "str",
+          true,
+          null,
+          "The agent ID to remove permissions for"
+        ]
+      }
+    },
+    "permission:list_profiles": {
+      "module": "ksi_daemon.permissions.permission_service",
+      "handler": "handle_list_profiles",
+      "summary": "List available permission profiles."
+    },
+    "sandbox:create": {
+      "module": "ksi_daemon.permissions.permission_service",
+      "handler": "handle_create_sandbox",
+      "summary": "Create a new sandbox for an agent.",
+      "params": {
+        "agent_id": [
+          "str",
+          true,
+          null,
+          "The agent ID"
+        ],
+        "config": [
+          "dict",
+          false,
+          null,
+          "Sandbox configuration (optional)"
+        ]
+      }
+    },
+    "sandbox:get": {
+      "module": "ksi_daemon.permissions.permission_service",
+      "handler": "handle_get_sandbox",
+      "summary": "Get sandbox information for an agent.",
+      "params": {
+        "agent_id": [
+          "str",
+          true,
+          null,
+          "The agent ID"
+        ]
+      }
+    },
+    "sandbox:remove": {
+      "module": "ksi_daemon.permissions.permission_service",
+      "handler": "handle_remove_sandbox",
+      "summary": "Remove an agent's sandbox.",
+      "params": {
+        "agent_id": [
+          "str",
+          true,
+          null,
+          "The agent ID"
+        ],
+        "force": [
+          "bool",
+          false,
+          false,
+          "Force removal even with nested children (optional, default: false)"
+        ]
+      }
+    },
+    "sandbox:list": {
+      "module": "ksi_daemon.permissions.permission_service",
+      "handler": "handle_list_sandboxes",
+      "summary": "List all active sandboxes."
+    },
+    "sandbox:stats": {
+      "module": "ksi_daemon.permissions.permission_service",
+      "handler": "handle_sandbox_stats",
+      "summary": "Get sandbox statistics."
+    },
+    "agent:spawn": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_spawn_agent",
+      "summary": "Spawn a new agent thread with optional profile.",
+      "params": {
+        "agent_id": [
+          "Any",
+          true,
+          null,
+          "agent_id parameter"
+        ],
+        "profile": [
+          "Any",
+          true,
+          null,
+          "profile parameter"
+        ],
+        "profile_name": [
+          "Any",
+          true,
+          null,
+          "profile_name parameter"
+        ],
+        "composition": [
+          "Any",
+          true,
+          null,
+          "composition parameter"
+        ],
+        "session_id": [
+          "Any",
+          true,
+          null,
+          "session_id parameter"
+        ],
+        "spawn_mode": [
+          "Any",
+          false,
+          "fixed",
+          "spawn_mode parameter"
+        ],
+        "selection_context": [
+          "Any",
+          false,
+          null,
+          "selection_context parameter"
+        ],
+        "task": [
+          "Any",
+          true,
+          null,
+          "task parameter"
+        ],
+        "enable_tools": [
+          "Any",
+          false,
+          false,
+          "enable_tools parameter"
+        ],
+        "permission_profile": [
+          "Any",
+          false,
+          "standard",
+          "permission_profile parameter"
+        ],
+        "sandbox_config": [
+          "Any",
+          false,
+          null,
+          "sandbox_config parameter"
+        ],
+        "permission_overrides": [
+          "Any",
+          false,
+          null,
+          "permission_overrides parameter"
+        ],
+        "config": [
+          "Any",
+          true,
+          null,
+          "config parameter"
+        ],
+        "context": [
+          "Any",
+          true,
+          null,
+          "context parameter"
+        ],
+        "_composition_selection": [
+          "Any",
+          true,
+          null,
+          "_composition_selection parameter"
+        ]
+      }
+    },
+    "agent:terminate": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_terminate_agent",
+      "summary": "Terminate an agent thread.",
+      "params": {
+        "agent_id": [
+          "Any",
+          true,
+          null,
+          "agent_id parameter"
+        ],
+        "force": [
+          "Any",
+          false,
+          false,
+          "force parameter"
+        ]
+      }
+    },
+    "agent:restart": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_restart_agent",
+      "summary": "Restart an agent.",
+      "params": {
+        "agent_id": [
+          "Any",
+          true,
+          null,
+          "agent_id parameter"
+        ]
+      }
+    },
+    "agent:register": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_register_agent",
+      "summary": "Register an external agent.",
+      "params": {
+        "agent_id": [
+          "Any",
+          true,
+          null,
+          "agent_id parameter"
+        ],
+        "info": [
+          "Any",
+          false,
+          null,
+          "info parameter"
+        ]
+      }
+    },
+    "agent:unregister": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_unregister_agent",
+      "summary": "Unregister an agent.",
+      "params": {
+        "agent_id": [
+          "Any",
+          true,
+          null,
+          "agent_id parameter"
+        ]
+      }
+    },
+    "agent:list": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_list_agents",
+      "summary": "List registered agents.",
+      "params": {
+        "status": [
+          "Any",
+          true,
+          null,
+          "status parameter"
+        ]
+      }
+    },
+    "agent:create_identity": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_create_identity",
+      "summary": "Create a new agent identity.",
+      "params": {
+        "agent_id": [
+          "Any",
+          true,
+          null,
+          "agent_id parameter"
+        ],
+        "identity": [
+          "Any",
+          false,
+          null,
+          "identity parameter"
+        ]
+      }
+    },
+    "agent:update_identity": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_update_identity",
+      "summary": "Update an agent identity.",
+      "params": {
+        "agent_id": [
+          "Any",
+          true,
+          null,
+          "agent_id parameter"
+        ],
+        "updates": [
+          "Any",
+          false,
+          null,
+          "updates parameter"
+        ]
+      }
+    },
+    "agent:remove_identity": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_remove_identity",
+      "summary": "Remove an agent identity.",
+      "params": {
+        "agent_id": [
+          "Any",
+          true,
+          null,
+          "agent_id parameter"
+        ]
+      }
+    },
+    "agent:list_identities": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_list_identities",
+      "summary": "List agent identities."
+    },
+    "agent:get_identity": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_get_identity",
+      "summary": "Get a specific agent identity.",
+      "params": {
+        "agent_id": [
+          "Any",
+          true,
+          null,
+          "agent_id parameter"
+        ]
+      }
+    },
+    "agent:route_task": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_route_task",
+      "summary": "Route a task to an appropriate agent.",
+      "params": {
+        "task": [
+          "Any",
+          false,
+          null,
+          "task parameter"
+        ]
+      }
+    },
+    "agent:get_capabilities": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_get_capabilities",
+      "summary": "Get capabilities of an agent or all agents.",
+      "params": {
+        "agent_id": [
+          "Any",
+          true,
+          null,
+          "agent_id parameter"
+        ]
+      }
+    },
+    "agent:send_message": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_send_message",
+      "summary": "Send a message to an agent.",
+      "params": {
+        "agent_id": [
+          "Any",
+          true,
+          null,
+          "agent_id parameter"
+        ],
+        "message": [
+          "Any",
+          false,
+          null,
+          "message parameter"
+        ]
+      }
+    },
+    "agent:broadcast": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_broadcast",
+      "summary": "Broadcast a message to all agents.",
+      "params": {
+        "message": [
+          "Any",
+          false,
+          null,
+          "message parameter"
+        ],
+        "sender": [
+          "Any",
+          false,
+          "system",
+          "sender parameter"
+        ]
+      }
+    },
+    "agent:update_composition": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_update_composition",
+      "summary": "Handle agent composition update request.",
+      "params": {
+        "agent_id": [
+          "Any",
+          true,
+          null,
+          "agent_id parameter"
+        ],
+        "new_composition": [
+          "Any",
+          true,
+          null,
+          "new_composition parameter"
+        ],
+        "reason": [
+          "Any",
+          false,
+          "Adaptation required",
+          "reason parameter"
+        ]
+      }
+    },
+    "agent:discover_peers": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_discover_peers",
+      "summary": "Discover other agents and their capabilities.",
+      "params": {
+        "agent_id": [
+          "Any",
+          true,
+          null,
+          "agent_id parameter"
+        ],
+        "capabilities": [
+          "Any",
+          false,
+          null,
+          "capabilities parameter"
+        ],
+        "roles": [
+          "Any",
+          false,
+          null,
+          "roles parameter"
+        ]
+      }
+    },
+    "agent:negotiate_roles": {
+      "module": "ksi_daemon.agent.agent_service",
+      "handler": "handle_negotiate_roles",
+      "summary": "Coordinate role negotiation between agents.",
+      "params": {
+        "participants": [
+          "Any",
+          false,
+          null,
+          "participants parameter"
+        ],
+        "type": [
+          "Any",
+          false,
+          "collaborative",
+          "type parameter"
+        ],
+        "context": [
+          "Any",
+          false,
+          null,
+          "context parameter"
+        ]
+      }
+    },
+    "message:subscribe": {
+      "module": "ksi_daemon.messaging.message_bus",
+      "handler": "handle_subscribe",
+      "summary": "Handle subscription request.",
+      "params": {
+        "agent_id": [
+          "Any",
+          true,
+          null,
+          "agent_id parameter"
+        ],
+        "event_types": [
+          "Any",
+          false,
+          null,
+          "event_types parameter"
+        ]
+      }
+    },
+    "message:unsubscribe": {
+      "module": "ksi_daemon.messaging.message_bus",
+      "handler": "handle_unsubscribe",
+      "summary": "Handle unsubscription request.",
+      "params": {
+        "agent_id": [
+          "Any",
+          true,
+          null,
+          "agent_id parameter"
+        ],
+        "event_types": [
+          "Any",
+          false,
+          null,
+          "event_types parameter"
+        ]
+      }
+    },
+    "message:publish": {
+      "module": "ksi_daemon.messaging.message_bus",
+      "handler": "handle_publish",
+      "summary": "Handle message publication.",
+      "params": {
+        "agent_id": [
+          "Any",
+          true,
+          null,
+          "agent_id parameter"
+        ],
+        "event_type": [
+          "Any",
+          true,
+          null,
+          "event_type parameter"
+        ],
+        "message": [
+          "Any",
+          false,
+          null,
+          "message parameter"
+        ]
+      }
+    },
+    "message:subscriptions": {
+      "module": "ksi_daemon.messaging.message_bus",
+      "handler": "handle_get_subscriptions",
+      "summary": "Get subscription information.",
+      "params": {
+        "agent_id": [
+          "Any",
+          true,
+          null,
+          "agent_id parameter"
+        ]
+      }
+    },
+    "message_bus:stats": {
+      "module": "ksi_daemon.messaging.message_bus",
+      "handler": "handle_get_stats",
+      "summary": "Get message bus statistics."
+    },
+    "message:connect": {
+      "module": "ksi_daemon.messaging.message_bus",
+      "handler": "handle_connect_agent",
+      "summary": "Handle agent connection.",
+      "params": {
+        "agent_id": [
+          "Any",
+          true,
+          null,
+          "agent_id parameter"
+        ]
+      }
+    },
+    "message:disconnect": {
+      "module": "ksi_daemon.messaging.message_bus",
+      "handler": "handle_disconnect_agent",
+      "summary": "Handle agent disconnection.",
+      "params": {
+        "agent_id": [
+          "Any",
+          true,
+          null,
+          "agent_id parameter"
+        ]
+      }
+    },
+    "transport:message": {
+      "module": "ksi_daemon.messaging.message_bus",
+      "handler": "handle_transport_message",
+      "summary": "Handle legacy transport:message events by converting them.",
+      "params": {
+        "command": [
+          "Any",
+          true,
+          null,
+          "command parameter"
+        ],
+        "parameters": [
+          "Any",
+          false,
+          null,
+          "parameters parameter"
+        ]
+      }
+    },
+    "orchestration:start": {
+      "module": "ksi_daemon.orchestration.orchestration_service",
+      "handler": "handle_orchestration_start",
+      "summary": "Start a new orchestration.",
+      "params": {
+        "pattern": [
+          "Any",
+          true,
+          null,
+          "pattern parameter"
+        ],
+        "vars": [
+          "Any",
+          false,
+          null,
+          "vars parameter"
+        ]
+      }
+    },
+    "orchestration:message": {
+      "module": "ksi_daemon.orchestration.orchestration_service",
+      "handler": "handle_orchestration_message",
+      "summary": "Route a message within an orchestration."
+    },
+    "orchestration:status": {
+      "module": "ksi_daemon.orchestration.orchestration_service",
+      "handler": "handle_orchestration_status",
+      "summary": "Get orchestration status.",
+      "params": {
+        "orchestration_id": [
+          "Any",
+          true,
+          null,
+          "orchestration_id parameter"
+        ]
+      }
+    },
+    "orchestration:terminate": {
+      "module": "ksi_daemon.orchestration.orchestration_service",
+      "handler": "handle_orchestration_terminate",
+      "summary": "Manually terminate an orchestration.",
+      "params": {
+        "orchestration_id": [
+          "Any",
+          true,
+          null,
+          "orchestration_id parameter"
+        ]
+      }
+    },
+    "orchestration:list_patterns": {
+      "module": "ksi_daemon.orchestration.orchestration_service",
+      "handler": "handle_list_patterns",
+      "summary": "List available orchestration patterns."
+    },
+    "orchestration:load_pattern": {
+      "module": "ksi_daemon.orchestration.orchestration_service",
+      "handler": "handle_load_pattern",
+      "summary": "Load and validate an orchestration pattern.",
+      "params": {
+        "pattern": [
+          "Any",
+          true,
+          null,
+          "pattern parameter"
+        ]
+      }
+    },
+    "orchestration:get_instance": {
+      "module": "ksi_daemon.orchestration.orchestration_service",
+      "handler": "handle_get_instance",
+      "summary": "Get detailed information about an orchestration instance.",
+      "params": {
+        "orchestration_id": [
+          "Any",
+          true,
+          null,
+          "orchestration_id parameter"
+        ]
+      }
+    },
+    "composition:compose": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_compose",
+      "summary": "Handle generic composition request.",
+      "params": {
+        "name": [
+          "Any",
+          true,
+          null,
+          "name parameter"
+        ],
+        "type": [
+          "Any",
+          true,
+          null,
+          "type parameter"
+        ],
+        "variables": [
+          "Any",
+          false,
+          null,
+          "variables parameter"
+        ]
+      }
+    },
+    "composition:profile": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_compose_profile",
+      "summary": "Handle profile composition request.",
+      "params": {
+        "name": [
+          "Any",
+          true,
+          null,
+          "name parameter"
+        ],
+        "variables": [
+          "Any",
+          false,
+          null,
+          "variables parameter"
+        ]
+      }
+    },
+    "composition:prompt": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_compose_prompt",
+      "summary": "Handle prompt composition request.",
+      "params": {
+        "name": [
+          "Any",
+          true,
+          null,
+          "name parameter"
+        ],
+        "variables": [
+          "Any",
+          false,
+          null,
+          "variables parameter"
+        ]
+      }
+    },
+    "composition:validate": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_validate",
+      "summary": "Validate a composition.",
+      "params": {
+        "name": [
+          "Any",
+          true,
+          null,
+          "name parameter"
+        ],
+        "type": [
+          "Any",
+          true,
+          null,
+          "type parameter"
+        ]
+      }
+    },
+    "composition:discover": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_discover",
+      "summary": "Discover available compositions using index with optional metadata filtering.",
+      "params": {
+        "metadata_filter": [
+          "Any",
+          true,
+          null,
+          "metadata_filter parameter"
+        ]
+      }
+    },
+    "composition:list": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_list",
+      "summary": "List all compositions of a given type.",
+      "params": {
+        "type": [
+          "Any",
+          false,
+          "all",
+          "type parameter"
+        ]
+      }
+    },
+    "composition:get": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_get",
+      "summary": "Get a composition definition.",
+      "params": {
+        "name": [
+          "Any",
+          true,
+          null,
+          "name parameter"
+        ],
+        "type": [
+          "Any",
+          true,
+          null,
+          "type parameter"
+        ]
+      }
+    },
+    "composition:reload": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_reload",
+      "summary": "Reload compositions by rebuilding index."
+    },
+    "composition:load_tree": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_load_tree",
+      "summary": "Universal tree loading based on composition's declared strategy.",
+      "params": {
+        "name": [
+          "Any",
+          true,
+          null,
+          "name parameter"
+        ],
+        "max_depth": [
+          "Any",
+          false,
+          5,
+          "max_depth parameter"
+        ]
+      }
+    },
+    "composition:load_bulk": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_load_bulk",
+      "summary": "Universal bulk loading for agent efficiency.",
+      "params": {
+        "names": [
+          "Any",
+          false,
+          null,
+          "names parameter"
+        ]
+      }
+    },
+    "composition:select": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_select_composition",
+      "summary": "Handle intelligent composition selection using sophisticated scoring algorithm.",
+      "params": {
+        "agent_id": [
+          "Any",
+          false,
+          "unknown",
+          "agent_id parameter"
+        ],
+        "role": [
+          "Any",
+          true,
+          null,
+          "role parameter"
+        ],
+        "capabilities": [
+          "Any",
+          false,
+          null,
+          "capabilities parameter"
+        ],
+        "task_description": [
+          "Any",
+          true,
+          null,
+          "task_description parameter"
+        ],
+        "preferred_style": [
+          "Any",
+          true,
+          null,
+          "preferred_style parameter"
+        ],
+        "context_variables": [
+          "Any",
+          false,
+          null,
+          "context_variables parameter"
+        ],
+        "requirements": [
+          "Any",
+          false,
+          null,
+          "requirements parameter"
+        ],
+        "max_suggestions": [
+          "Any",
+          false,
+          1,
+          "max_suggestions parameter"
+        ]
+      }
+    },
+    "composition:suggest": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_suggest_compositions",
+      "summary": "Get top N composition suggestions for the given context.",
+      "params": {
+        "agent_id": [
+          "Any",
+          false,
+          "unknown",
+          "agent_id parameter"
+        ],
+        "role": [
+          "Any",
+          true,
+          null,
+          "role parameter"
+        ],
+        "capabilities": [
+          "Any",
+          false,
+          null,
+          "capabilities parameter"
+        ],
+        "task_description": [
+          "Any",
+          true,
+          null,
+          "task_description parameter"
+        ],
+        "preferred_style": [
+          "Any",
+          true,
+          null,
+          "preferred_style parameter"
+        ],
+        "context_variables": [
+          "Any",
+          false,
+          null,
+          "context_variables parameter"
+        ],
+        "requirements": [
+          "Any",
+          false,
+          null,
+          "requirements parameter"
+        ],
+        "max_suggestions": [
+          "Any",
+          false,
+          3,
+          "max_suggestions parameter"
+        ]
+      }
+    },
+    "composition:validate_context": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_validate_context",
+      "summary": "Validate that a composition will work with the given context.",
+      "params": {
+        "composition_name": [
+          "Any",
+          true,
+          null,
+          "composition_name parameter"
+        ],
+        "context": [
+          "Any",
+          false,
+          null,
+          "context parameter"
+        ]
+      }
+    },
+    "composition:capabilities": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_get_capabilities",
+      "summary": "Get available KSI capabilities from declarative schema.",
+      "params": {
+        "group": [
+          "Any",
+          true,
+          null,
+          "group parameter"
+        ]
+      }
+    },
+    "composition:get_path": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_get_path",
+      "summary": "Get the file path for a composition.",
+      "params": {
+        "full_name": [
+          "Any",
+          true,
+          null,
+          "full_name parameter"
+        ]
+      }
+    },
+    "composition:get_metadata": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_get_metadata",
+      "summary": "Get metadata for a composition.",
+      "params": {
+        "full_name": [
+          "Any",
+          true,
+          null,
+          "full_name parameter"
+        ]
+      }
+    },
+    "composition:rebuild_index": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_rebuild_index",
+      "summary": "Rebuild the composition index.",
+      "params": {
+        "repository_id": [
+          "Any",
+          false,
+          "local",
+          "repository_id parameter"
+        ]
+      }
+    },
+    "composition:index_file": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_index_file",
+      "summary": "Index a single composition file.",
+      "params": {
+        "file_path": [
+          "Any",
+          true,
+          null,
+          "file_path parameter"
+        ]
+      }
+    },
+    "composition:create": {
+      "module": "ksi_daemon.composition.composition_service",
+      "handler": "handle_create_composition",
+      "summary": "Handle runtime composition creation.",
+      "params": {
+        "name": [
+          "Any",
+          true,
+          null,
+          "name parameter"
+        ],
+        "type": [
+          "Any",
+          false,
+          "profile",
+          "type parameter"
+        ],
+        "extends": [
+          "Any",
+          false,
+          "base_agent",
+          "extends parameter"
+        ],
+        "description": [
+          "Any",
+          false,
+          null,
+          "description parameter"
+        ],
+        "author": [
+          "Any",
+          false,
+          "dynamic_agent",
+          "author parameter"
+        ],
+        "metadata": [
+          "Any",
+          false,
+          null,
+          "metadata parameter"
+        ],
+        "config": [
+          "Any",
+          false,
+          null,
+          "config parameter"
+        ],
+        "role": [
+          "Any",
+          false,
+          "assistant",
+          "role parameter"
+        ],
+        "model": [
+          "Any",
+          false,
+          "sonnet",
+          "model parameter"
+        ],
+        "capabilities": [
+          "Any",
+          false,
+          null,
+          "capabilities parameter"
+        ],
+        "tools": [
+          "Any",
+          false,
+          null,
+          "tools parameter"
+        ],
+        "agent_id": [
+          "Any",
+          true,
+          null,
+          "agent_id parameter"
+        ],
+        "prompt": [
+          "Any",
+          true,
+          null,
+          "prompt parameter"
+        ],
+        "components": [
+          "Any",
+          true,
+          null,
+          "components parameter"
+        ]
+      }
+    },
+    "conversation:list": {
+      "module": "ksi_daemon.conversation.conversation_service",
+      "handler": "handle_list_conversations",
+      "summary": "List available conversations with metadata.",
+      "params": {
+        "limit": [
+          "Any",
+          false,
+          100,
+          "limit parameter"
+        ],
+        "offset": [
+          "Any",
+          false,
+          0,
+          "offset parameter"
+        ],
+        "sort_by": [
+          "Any",
+          false,
+          "last_timestamp",
+          "sort_by parameter"
+        ],
+        "reverse": [
+          "Any",
+          false,
+          true,
+          "reverse parameter"
+        ],
+        "start_date": [
+          "Any",
+          true,
+          null,
+          "start_date parameter"
+        ],
+        "end_date": [
+          "Any",
+          true,
+          null,
+          "end_date parameter"
+        ]
+      }
+    },
+    "conversation:search": {
+      "module": "ksi_daemon.conversation.conversation_service",
+      "handler": "handle_search_conversations",
+      "summary": "Search conversations by content.",
+      "params": {
+        "query": [
+          "Any",
+          false,
+          "",
+          "query parameter"
+        ],
+        "limit": [
+          "Any",
+          false,
+          50,
+          "limit parameter"
+        ],
+        "search_in": [
+          "Any",
+          false,
+          null,
+          "search_in parameter"
+        ]
+      }
+    },
+    "conversation:get": {
+      "module": "ksi_daemon.conversation.conversation_service",
+      "handler": "handle_get_conversation",
+      "summary": "Get a specific conversation with full message history.",
+      "params": {
+        "session_id": [
+          "Any",
+          true,
+          null,
+          "session_id parameter"
+        ],
+        "limit": [
+          "Any",
+          false,
+          1000,
+          "limit parameter"
+        ],
+        "offset": [
+          "Any",
+          false,
+          0,
+          "offset parameter"
+        ],
+        "conversation_id": [
+          "Any",
+          true,
+          null,
+          "conversation_id parameter"
+        ]
+      }
+    },
+    "conversation:export": {
+      "module": "ksi_daemon.conversation.conversation_service",
+      "handler": "handle_export_conversation",
+      "summary": "Export conversation to markdown or JSON format.",
+      "params": {
+        "session_id": [
+          "Any",
+          true,
+          null,
+          "session_id parameter"
+        ],
+        "format": [
+          "Any",
+          false,
+          "markdown",
+          "format parameter"
+        ]
+      }
+    },
+    "conversation:stats": {
+      "module": "ksi_daemon.conversation.conversation_service",
+      "handler": "handle_conversation_stats",
+      "summary": "Get statistics about conversations."
+    },
+    "conversation:active": {
+      "module": "ksi_daemon.conversation.conversation_service",
+      "handler": "handle_active_conversations",
+      "summary": "Find active conversations from recent COMPLETION_RESULT messages.",
+      "params": {
+        "max_lines": [
+          "Any",
+          false,
+          100,
+          "max_lines parameter"
+        ],
+        "max_age_hours": [
+          "Any",
+          false,
+          2160,
+          "max_age_hours parameter"
+        ]
+      }
+    },
+    "conversation:acquire_lock": {
+      "module": "ksi_daemon.conversation.conversation_lock",
+      "handler": "handle_acquire_lock",
+      "summary": "Acquire lock for a conversation.",
+      "params": {
+        "request_id": [
+          "Any",
+          true,
+          null,
+          "request_id parameter"
+        ],
+        "conversation_id": [
+          "Any",
+          true,
+          null,
+          "conversation_id parameter"
+        ],
+        "metadata": [
+          "Any",
+          false,
+          null,
+          "metadata parameter"
+        ]
+      }
+    },
+    "conversation:release_lock": {
+      "module": "ksi_daemon.conversation.conversation_lock",
+      "handler": "handle_release_lock",
+      "summary": "Release a conversation lock.",
+      "params": {
+        "request_id": [
+          "Any",
+          true,
+          null,
+          "request_id parameter"
+        ]
+      }
+    },
+    "conversation:fork_detected": {
+      "module": "ksi_daemon.conversation.conversation_lock",
+      "handler": "handle_fork_detected",
+      "summary": "Handle fork detection.",
+      "params": {
+        "request_id": [
+          "Any",
+          true,
+          null,
+          "request_id parameter"
+        ],
+        "expected_conversation_id": [
+          "Any",
+          true,
+          null,
+          "expected_conversation_id parameter"
+        ],
+        "actual_conversation_id": [
+          "Any",
+          true,
+          null,
+          "actual_conversation_id parameter"
+        ]
+      }
+    },
+    "conversation:lock_status": {
+      "module": "ksi_daemon.conversation.conversation_lock",
+      "handler": "handle_lock_status",
+      "summary": "Get lock status for a conversation.",
+      "params": {
+        "conversation_id": [
+          "Any",
+          true,
+          null,
+          "conversation_id parameter"
+        ]
+      }
+    },
+    "injection:status": {
+      "module": "ksi_daemon.injection.injection_router",
+      "handler": "handle_injection_status",
+      "summary": "Get injection router status."
+    },
+    "injection:inject": {
+      "module": "ksi_daemon.injection.injection_router",
+      "handler": "handle_injection_inject",
+      "summary": "Handle unified injection request.",
+      "params": {
+        "mode": [
+          "Any",
+          false,
+          "next",
+          "mode parameter"
+        ],
+        "position": [
+          "Any",
+          false,
+          "before_prompt",
+          "position parameter"
+        ],
+        "content": [
+          "Any",
+          false,
+          "",
+          "content parameter"
+        ],
+        "session_id": [
+          "Any",
+          true,
+          null,
+          "session_id parameter"
+        ],
+        "priority": [
+          "Any",
+          false,
+          "normal",
+          "priority parameter"
+        ],
+        "metadata": [
+          "Any",
+          false,
+          null,
+          "metadata parameter"
+        ]
+      }
+    },
+    "injection:queue": {
+      "module": "ksi_daemon.injection.injection_router",
+      "handler": "handle_injection_queue",
+      "summary": "Handle queue injection metadata request from completion service."
+    },
+    "injection:batch": {
+      "module": "ksi_daemon.injection.injection_router",
+      "handler": "handle_injection_batch",
+      "summary": "Handle batch injection request.",
+      "params": {
+        "injections": [
+          "Any",
+          false,
+          null,
+          "injections parameter"
+        ]
+      }
+    },
+    "injection:list": {
+      "module": "ksi_daemon.injection.injection_router",
+      "handler": "handle_injection_list",
+      "summary": "Handle list injections request.",
+      "params": {
+        "session_id": [
+          "Any",
+          true,
+          null,
+          "session_id parameter"
+        ]
+      }
+    },
+    "injection:clear": {
+      "module": "ksi_daemon.injection.injection_router",
+      "handler": "handle_injection_clear",
+      "summary": "Handle clear injections request.",
+      "params": {
+        "session_id": [
+          "Any",
+          true,
+          null,
+          "session_id parameter"
+        ],
+        "mode": [
+          "Any",
+          true,
+          null,
+          "mode parameter"
+        ]
+      }
+    },
+    "injection:process_result": {
+      "module": "ksi_daemon.injection.injection_router",
+      "handler": "handle_injection_process_result",
+      "summary": "Process a completion result for injection - explicitly called by completion service.",
+      "params": {
+        "request_id": [
+          "Any",
+          true,
+          null,
+          "request_id parameter"
+        ],
+        "result": [
+          "Any",
+          false,
+          null,
+          "result parameter"
+        ],
+        "injection_metadata": [
+          "Any",
+          false,
+          null,
+          "injection_metadata parameter"
+        ]
+      }
+    },
+    "injection:execute": {
+      "module": "ksi_daemon.injection.injection_router",
+      "handler": "execute_injection",
+      "summary": "Execute a queued injection by creating a new completion request.",
+      "params": {
+        "session_id": [
+          "Any",
+          true,
+          null,
+          "session_id parameter"
+        ],
+        "content": [
+          "Any",
+          true,
+          null,
+          "content parameter"
+        ],
+        "request_id": [
+          "Any",
+          true,
+          null,
+          "request_id parameter"
+        ],
+        "target_sessions": [
+          "Any",
+          false,
+          null,
+          "target_sessions parameter"
+        ],
+        "model": [
+          "Any",
+          false,
+          "claude-cli/sonnet",
+          "model parameter"
+        ],
+        "priority": [
+          "Any",
+          false,
+          "normal",
+          "priority parameter"
+        ],
+        "injection_type": [
+          "Any",
+          false,
+          "system_reminder",
+          "injection_type parameter"
+        ]
+      }
+    },
+    "file:read": {
+      "module": "ksi_daemon.file.file_service",
+      "handler": "handle_read",
+      "summary": "Read a file with safety validation.",
+      "params": {
+        "path": [
+          "str",
+          true,
+          "",
+          "The file path to read (required)"
+        ],
+        "encoding": [
+          "str",
+          true,
+          "utf-8",
+          "File encoding (default: utf-8)"
+        ],
+        "binary": [
+          "bool",
+          true,
+          false,
+          "Read as binary data (default: false)"
+        ]
+      }
+    },
+    "file:write": {
+      "module": "ksi_daemon.file.file_service",
+      "handler": "handle_write",
+      "summary": "Write to a file with automatic backup.",
+      "params": {
+        "path": [
+          "str",
+          true,
+          "",
+          "The file path to write (required)"
+        ],
+        "content": [
+          "str",
+          true,
+          "",
+          "The content to write (required)"
+        ],
+        "encoding": [
+          "str",
+          true,
+          "utf-8",
+          "File encoding (default: utf-8)"
+        ],
+        "create_backup": [
+          "bool",
+          true,
+          true,
+          "Create backup before writing (default: true)"
+        ],
+        "binary": [
+          "bool",
+          true,
+          false,
+          "Write binary data (content should be hex string) (default: false)"
+        ]
+      }
+    },
+    "file:backup": {
+      "module": "ksi_daemon.file.file_service",
+      "handler": "handle_backup",
+      "summary": "Create a manual backup of a file.",
+      "params": {
+        "path": [
+          "str",
+          true,
+          "",
+          "The file path to backup (required)"
+        ],
+        "backup_name": [
+          "str",
+          false,
+          null,
+          "Custom backup name (optional, auto-generated if not provided)"
+        ]
+      }
+    },
+    "file:rollback": {
+      "module": "ksi_daemon.file.file_service",
+      "handler": "handle_rollback",
+      "summary": "Rollback a file to a previous backup.",
+      "params": {
+        "path": [
+          "str",
+          true,
+          "",
+          "The file path to rollback (required)"
+        ],
+        "backup_name": [
+          "str",
+          false,
+          null,
+          "Specific backup to restore (optional, uses latest if not provided)"
+        ]
+      }
+    },
+    "file:list": {
+      "module": "ksi_daemon.file.file_service",
+      "handler": "handle_list",
+      "summary": "List files in a directory with filtering.",
+      "params": {
+        "path": [
+          "str",
+          true,
+          "",
+          "The directory path to list (required)"
+        ],
+        "pattern": [
+          "str",
+          false,
+          "*",
+          "Filename pattern to match (optional)"
+        ],
+        "recursive": [
+          "bool",
+          true,
+          false,
+          "Include subdirectories (default: false)"
+        ],
+        "include_hidden": [
+          "bool",
+          true,
+          false,
+          "Include hidden files (default: false)"
+        ]
+      }
+    },
+    "file:validate": {
+      "module": "ksi_daemon.file.file_service",
+      "handler": "handle_validate",
+      "summary": "Validate file access and properties.",
+      "params": {
+        "path": [
+          "str",
+          true,
+          "",
+          "The file path to validate (required)"
+        ],
+        "check_writable": [
+          "bool",
+          true,
+          false,
+          "Check if file is writable (default: false)"
+        ],
+        "check_content": [
+          "str",
+          false,
+          null,
+          "Validate file contains specific content (optional)"
+        ]
+      }
+    },
+    "config:get": {
+      "module": "ksi_daemon.config.config_service",
+      "handler": "handle_get",
+      "summary": "Get configuration value or entire config file.",
+      "params": {
+        "key": [
+          "str",
+          true,
+          "",
+          "Configuration key path (e.g., 'daemon.log_level') (required)"
+        ],
+        "config_type": [
+          "str",
+          true,
+          "daemon",
+          "Type of config ('daemon', 'composition', 'schema', 'capabilities')"
+        ],
+        "file_path": [
+          "str",
+          false,
+          null,
+          "Specific config file path (optional)"
+        ]
+      }
+    },
+    "config:set": {
+      "module": "ksi_daemon.config.config_service",
+      "handler": "handle_set",
+      "summary": "Set configuration value with automatic backup.",
+      "params": {
+        "key": [
+          "str",
+          true,
+          "",
+          "Configuration key path (e.g., 'daemon.log_level') (required)"
+        ],
+        "value": [
+          "any",
+          true,
+          null,
+          "Value to set (required)"
+        ],
+        "config_type": [
+          "str",
+          true,
+          "daemon",
+          "Type of config ('daemon', 'composition', 'schema', 'capabilities')"
+        ],
+        "file_path": [
+          "str",
+          false,
+          null,
+          "Specific config file path (optional)"
+        ],
+        "create_backup": [
+          "bool",
+          true,
+          true,
+          "Create backup before modification (default: true)"
+        ]
+      },
+      "triggers": [
+        "config:changed"
+      ]
+    },
+    "config:validate": {
+      "module": "ksi_daemon.config.config_service",
+      "handler": "handle_validate",
+      "summary": "Validate configuration file syntax and schema.",
+      "params": {
+        "config_type": [
+          "str",
+          true,
+          "daemon",
+          "Type of config to validate ('daemon', 'composition', 'schema', 'capabilities')"
+        ],
+        "file_path": [
+          "str",
+          false,
+          null,
+          "Specific config file path (optional)"
+        ],
+        "schema_path": [
+          "str",
+          false,
+          null,
+          "Path to validation schema (optional)"
+        ]
+      }
+    },
+    "config:reload": {
+      "module": "ksi_daemon.config.config_service",
+      "handler": "handle_reload",
+      "summary": "Reload configuration components.",
+      "params": {
+        "component": [
+          "str",
+          true,
+          "all",
+          "Component to reload ('daemon', 'plugins', 'compositions', 'all')"
+        ]
+      },
+      "triggers": [
+        "daemon:config_reload",
+        "plugins:reload",
+        "composition:reload"
+      ]
+    },
+    "config:backup": {
+      "module": "ksi_daemon.config.config_service",
+      "handler": "handle_backup",
+      "summary": "Create manual backup of configuration.",
+      "params": {
+        "config_type": [
+          "str",
+          true,
+          "",
+          "Type of config to backup (required)"
+        ],
+        "file_path": [
+          "str",
+          false,
+          null,
+          "Specific config file path (optional)"
+        ],
+        "backup_name": [
+          "str",
+          false,
+          null,
+          "Custom backup name (optional)"
+        ]
+      }
+    },
+    "config:rollback": {
+      "module": "ksi_daemon.config.config_service",
+      "handler": "handle_rollback",
+      "summary": "Rollback configuration to previous backup.",
+      "params": {
+        "config_type": [
+          "str",
+          true,
+          "",
+          "Type of config to rollback (required)"
+        ],
+        "file_path": [
+          "str",
+          false,
+          null,
+          "Specific config file path (optional)"
+        ],
+        "backup_name": [
+          "str",
+          false,
+          null,
+          "Specific backup to restore (optional, uses latest if not provided)"
+        ]
+      },
+      "triggers": [
+        "config:rolled_back"
+      ]
+    }
+  },
+  "_format": {
+    "params": "[type, required, default, description]",
+    "async": "omitted when true (default)",
+    "triggers": "omitted when empty"
+  }
+}
