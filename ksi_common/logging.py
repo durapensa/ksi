@@ -48,10 +48,46 @@ def configure_structlog(
     # If reconfiguring in daemon mode, just proceed
     # Pure structlog doesn't need handler cleanup
     
+    # Pure structlog level system - no stdlib logging
+    LEVEL_TO_VALUE = {
+        'DEBUG': 10,
+        'INFO': 20,
+        'WARNING': 30,
+        'WARN': 30,  # Alias
+        'ERROR': 40,
+        'CRITICAL': 50,
+        'FATAL': 50,  # Alias
+    }
+    
+    # Get numeric value for configured level
+    configured_level = LEVEL_TO_VALUE.get(log_level.upper(), 20)  # Default to INFO
+    
+    # Custom processor to filter by log level
+    def filter_by_level(logger, method_name, event_dict):
+        """Filter events by configured log level using pure structlog."""
+        # Map method names to level values
+        method_to_level = {
+            'debug': 10,
+            'info': 20,
+            'warning': 30,
+            'warn': 30,
+            'error': 40,
+            'critical': 50,
+            'fatal': 50,
+        }
+        event_level = method_to_level.get(method_name, 20)  # Default to INFO
+        
+        # Drop the event if below configured level
+        if event_level < configured_level:
+            raise structlog.DropEvent
+        
+        return event_dict
+    
     # Base processors that all loggers use
     processors = [
         structlog.contextvars.merge_contextvars,  # Auto-merge context vars
         structlog.processors.add_log_level,
+        filter_by_level,  # Our custom level filter
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
@@ -152,7 +188,10 @@ def get_bound_logger(component: str, **default_context):
     if not _STRUCTLOG_CONFIGURED:
         # Auto-configure with minimal settings for module import compatibility
         # The daemon entry point will reconfigure with proper settings
-        configure_structlog(log_level="INFO", log_format="console")
+        # Respect environment variable for log level
+        log_level = os.environ.get('KSI_LOG_LEVEL', 'INFO')
+        log_format = os.environ.get('KSI_LOG_FORMAT', 'console')
+        configure_structlog(log_level=log_level, log_format=log_format)
     
     base_logger = structlog.get_logger("ksi")
     return base_logger.bind(component=component, **default_context)

@@ -353,11 +353,11 @@ class EventRouter:
         }
     
     def inspect_module(self, module_name: str) -> Optional[Dict[str, Any]]:
-        """Get detailed information about a specific module using direct function inspection."""
+        """Get detailed information about a specific module."""
         if module_name not in self._modules:
             return None
         
-        # Get handlers and directly inspect their stored metadata
+        # Get handlers
         handlers = []
         for handler in self._handlers_by_module[module_name]:
             handler_info = {
@@ -367,34 +367,6 @@ class EventRouter:
                 "async": handler.is_async,
                 "filter": handler.filter_func is not None
             }
-            
-            # Read metadata directly from function (single source of truth)
-            if hasattr(handler.func, '_event_metadata'):
-                metadata = handler.func._event_metadata
-                handler_info.update({
-                    "summary": metadata.summary,
-                    "description": metadata.description,
-                    "parameters": [
-                        {
-                            "name": p.name,
-                            "type": p.type_name,
-                            "required": p.required,
-                            "description": p.description,
-                            "example": p.example
-                        }
-                        for p in metadata.parameters
-                    ],
-                    "returns": metadata.returns,
-                    "tags": metadata.tags,
-                    "performance": {
-                        "typical_duration_ms": metadata.typical_duration_ms,
-                        "has_side_effects": metadata.has_side_effects,
-                        "has_cost": metadata.has_cost
-                    },
-                    "best_practices": metadata.best_practices,
-                    "examples": [ex.to_dict() for ex in metadata.examples]
-                })
-            
             handlers.append(handler_info)
             
         return {
@@ -424,44 +396,17 @@ class EventRouter:
 
 def event_handler(event: str, 
                  priority: int = EventPriority.NORMAL, 
-                 filter_func: Optional[Callable] = None,
-                 # Rich metadata parameters
-                 summary: Optional[str] = None,
-                 description: Optional[str] = None,
-                 data_type: Optional[Type] = None,
-                 returns: Optional[str] = None,
-                 tags: Optional[List[str]] = None,
-                 
-                 # Enhanced parameter and example definitions
-                 parameters=None,  # Optional[List[EventParameter]]
-                 examples=None,    # Optional[List[EventExample]] 
-                 
-                 # Performance characteristics
-                 async_response: bool = False,
-                 typical_duration_ms: Optional[int] = None,
-                 has_side_effects: bool = True,
-                 idempotent: bool = False,
-                 
-                 # Resource requirements
-                 has_cost: bool = False,
-                 requires_auth: bool = False,
-                 rate_limited: bool = False,
-                 
-                 # Documentation and best practices
-                 best_practices: Optional[List[str]] = None,
-                 common_errors: Optional[List[str]] = None,
-                 related_events: Optional[List[str]] = None):
+                 filter_func: Optional[Callable] = None):
     """
-    Decorator for event handlers with optional rich metadata.
+    Simple event handler decorator.
     
-    Basic usage: @event_handler("event_name")
-    Rich usage: @event_handler("event_name", summary="...", data_type=MyType, ...)
+    Usage: @event_handler("event_name")
     """
     def decorator(func: Callable) -> Callable:
         # Create handler wrapper
         handler = EventHandler(func, event, priority, filter_func)
         
-        # Store metadata on function (for inspection)
+        # Store basic info on function for discovery
         func._event_handler = handler
         func._event_name = event
         func._event_priority = priority
@@ -469,79 +414,6 @@ def event_handler(event: str,
         # AUTO-REGISTER: Register with global router immediately at import time
         router = get_router()
         router.register_handler(event, handler)
-        
-        # ALWAYS create and store metadata directly on function (single source of truth)
-        # This enables automatic parameter discovery via direct inspection
-        try:
-            from ksi_daemon.metadata_registry import EventMetadata, EventParameter, EventExample, extract_parameter_info
-            
-            # Use explicit parameters if provided, otherwise extract from function/TypedDict
-            if parameters:
-                # Parameters already provided as EventParameter objects
-                param_list = parameters
-            else:
-                # Extract parameter information from function signature and TypedDict
-                param_list = extract_parameter_info(func, data_type)
-            
-            # Handle examples - convert dict examples to EventExample objects if needed
-            example_list = []
-            if examples:
-                for ex in examples:
-                    if isinstance(ex, dict):
-                        # Convert legacy dict format to EventExample
-                        example_list.append(EventExample(
-                            description=ex.get("description", "Example usage"),
-                            data=ex.get("data", ex),
-                            context=ex.get("context"),
-                            expected_result=ex.get("expected_result")
-                        ))
-                    else:
-                        # Assume it's already an EventExample object
-                        example_list.append(ex)
-            
-            # Create comprehensive metadata - auto-generate summary if not provided
-            auto_summary = summary or f"Handle {event} event"
-            auto_description = description or func.__doc__ or f"Event handler for {event}"
-            
-            metadata = EventMetadata(
-                event_name=event,
-                function_name=func.__name__,
-                module_name=func.__module__,
-                summary=auto_summary,
-                description=auto_description,
-                parameters=param_list,
-                returns=returns,
-                examples=example_list,
-                tags=tags or [],
-                
-                # Performance characteristics
-                async_response=async_response,
-                typical_duration_ms=typical_duration_ms,
-                has_side_effects=has_side_effects,
-                idempotent=idempotent,
-                
-                # Resource requirements
-                has_cost=has_cost,
-                requires_auth=requires_auth,
-                rate_limited=rate_limited,
-                
-                # Documentation and best practices
-                best_practices=best_practices or [],
-                common_errors=common_errors or [],
-                related_events=related_events or [],
-                
-                # Technical metadata
-                async_handler=inspect.iscoroutinefunction(func)
-            )
-            
-            # Store metadata directly on function (ONLY source of truth)
-            func._event_metadata = metadata
-            
-            logger.debug(f"Stored comprehensive metadata on function {func.__name__} for {event}")
-            
-        except ImportError:
-            # Metadata system not available, continue without it
-            logger.debug(f"Metadata system not available for {event}")
         
         logger.debug(f"Auto-registered handler {func.__name__} for {event} from {func.__module__}")
         

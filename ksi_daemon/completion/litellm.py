@@ -7,10 +7,14 @@ Handles completion requests using LiteLLM with claude_cli provider.
 
 import asyncio
 import json
+import os
 from ksi_common.logging import get_bound_logger
 import time
 import uuid
 from typing import Dict, Any, Optional
+
+# Disable LiteLLM's HTTP request for model pricing on startup
+os.environ['LITELLM_LOCAL_MODEL_COST_MAP'] = 'true'
 
 # Import claude_cli_litellm_provider to ensure provider registration
 from ksi_daemon.completion import claude_cli_litellm_provider

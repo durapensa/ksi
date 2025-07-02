@@ -19,6 +19,9 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List, TypedDict
 from typing_extensions import NotRequired
 
+# Disable LiteLLM's HTTP request for model pricing on startup
+os.environ['LITELLM_LOCAL_MODEL_COST_MAP'] = 'true'
+
 import litellm
 
 from ksi_daemon.event_system import event_handler, EventPriority, emit_event, get_router
@@ -385,15 +388,7 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
             asyncio.create_task(cleanup())
 
 
-@event_handler(
-    "completion:cancel",
-    summary="Cancel an in-progress completion",
-    data_type=CompletionCancelData,
-    tags=["completion", "control"],
-    typical_duration_ms=100,
-    has_side_effects=True,
-    best_practices=["Check if completion is still cancellable before calling"]
-)
+@event_handler("completion:cancel")
 async def handle_cancel_completion(data: CompletionCancelData) -> Dict[str, Any]:
     """Cancel an in-progress completion."""
     request_id = data["request_id"]
@@ -418,16 +413,7 @@ async def handle_cancel_completion(data: CompletionCancelData) -> Dict[str, Any]
     }
 
 
-@event_handler(
-    "completion:status",
-    summary="Get status of all active completions",
-    data_type=CompletionStatusData,
-    returns="Dict with completion counts and session info",
-    tags=["completion", "status", "monitoring"],
-    typical_duration_ms=50,
-    has_side_effects=False,
-    best_practices=["Use for monitoring completion queue health"]
-)
+@event_handler("completion:status")
 async def handle_completion_status(data: CompletionStatusData) -> Dict[str, Any]:
     """Get status of all active completions."""
     
@@ -453,16 +439,7 @@ async def handle_completion_status(data: CompletionStatusData) -> Dict[str, Any]
     }
 
 
-@event_handler(
-    "completion:session_status", 
-    summary="Get detailed status for a specific session",
-    data_type=CompletionSessionStatusData,
-    returns="Dict with session completion details and queue info",
-    tags=["completion", "session", "monitoring"],
-    typical_duration_ms=100,
-    has_side_effects=False,
-    best_practices=["Use to debug session-specific completion issues"]
-)
+@event_handler("completion:session_status")
 async def handle_session_status(data: CompletionSessionStatusData) -> Dict[str, Any]:
     """Get detailed status for a specific session."""
     session_id = data["session_id"]

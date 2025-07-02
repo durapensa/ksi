@@ -10,6 +10,7 @@ import signal
 import sys
 import os
 import argparse
+import logging
 from pathlib import Path
 
 # Import python-daemon package (no conflicts now with ksi_daemon)
@@ -177,10 +178,10 @@ def run_in_foreground():
     
     try:
         # Import and create daemon directly (avoiding argument conflicts)
-        from ksi_daemon import create_plugin_daemon
+        from ksi_daemon import create_event_daemon
         
         async def run_daemon():
-            daemon_instance = await create_plugin_daemon()
+            daemon_instance = await create_event_daemon()
             await daemon_instance.run()
         
         asyncio.run(run_daemon())

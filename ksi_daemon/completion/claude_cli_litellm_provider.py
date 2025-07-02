@@ -24,6 +24,9 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+# Disable LiteLLM's HTTP request for model pricing on startup
+os.environ['LITELLM_LOCAL_MODEL_COST_MAP'] = 'true'
+
 import litellm
 from litellm import CustomLLM
 from litellm.exceptions import (

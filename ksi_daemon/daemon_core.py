@@ -272,50 +272,14 @@ async def handle_api_schema(data: Dict[str, Any]) -> Dict[str, Any]:
             for handler in module_info["handlers"]:
                 event_name = handler["event"]
                 if event_name not in unique_events:
-                    # Use rich metadata if available, otherwise basic info
-                    if "summary" in handler:
-                        unique_events[event_name] = {
-                            "summary": handler["summary"],
-                            "description": handler["description"],
-                            "parameters": handler["parameters"],
-                            "returns": handler["returns"],
-                            "module": module_name,
-                            "tags": handler["tags"],
-                            "performance": handler["performance"],
-                            "documentation": {
-                                "best_practices": handler["best_practices"],
-                                "common_errors": [],
-                                "related_events": []
-                            },
-                            "examples": handler["examples"]
-                        }
-                    else:
-                        # Fallback for handlers without rich metadata
-                        unique_events[event_name] = {
-                            "summary": f"Handle {event_name} event",
-                            "description": f"Event handler for {event_name}",
-                            "parameters": [],
-                            "returns": None,
-                            "module": module_name,
-                            "tags": [],
-                            "performance": {
-                                "async_response": False,
-                                "typical_duration_ms": None,
-                                "has_side_effects": True,
-                                "idempotent": False
-                            },
-                            "requirements": {
-                                "has_cost": False,
-                                "requires_auth": False,
-                                "rate_limited": False
-                            },
-                            "documentation": {
-                                "best_practices": [],
-                                "common_errors": [],
-                                "related_events": []
-                            },
-                            "examples": []
-                        }
+                    # Simple event info
+                    unique_events[event_name] = {
+                        "event": event_name,
+                        "module": module_name,
+                        "handler": handler["function"],
+                        "async": handler["async"],
+                        "priority": handler["priority"]
+                    }
     
     schema["events"] = unique_events
     schema["total_events"] = len(unique_events)
