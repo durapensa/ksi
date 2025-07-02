@@ -321,6 +321,57 @@ def generate_usage_example(event_name: str, parameters: Dict[str, Any]) -> Dict[
     }
 
 
+@event_handler("module:list_events")
+async def handle_module_list_events(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Get list of events handled by a specific module.
+    
+    Parameters:
+        module_name: The full module name (e.g., "ksi_daemon.core.discovery")
+        detail: Include event details like parameters and triggers (default: True)
+    
+    Returns:
+        Dictionary with module name and its events
+    """
+    module_name = data.get('module_name')
+    if not module_name:
+        return {"error": "module_name parameter required"}
+    
+    include_detail = data.get('detail', True)
+    
+    from ksi_daemon.event_system import get_router
+    router = get_router()
+    
+    # Get module info
+    module_info = router.inspect_module(module_name)
+    if not module_info:
+        return {"error": f"Module not found: {module_name}"}
+    
+    # Extract events from handlers
+    events = {}
+    for handler in module_info['handlers']:
+        event_name = handler['event']
+        
+        if include_detail:
+            # Get detailed info for this event
+            result = await handle_discover({'event': event_name, 'detail': True})
+            if event_name in result['events']:
+                events[event_name] = result['events'][event_name]
+        else:
+            # Just basic info from the handler
+            events[event_name] = {
+                'handler': handler['function'],
+                'async': handler['async'],
+                'priority': handler['priority']
+            }
+    
+    return {
+        'module': module_name,
+        'events': events,
+        'count': len(events)
+    }
+
+
 @event_handler("system:shutdown")
 async def handle_shutdown(data: Dict[str, Any]) -> None:
     """Clean shutdown."""
