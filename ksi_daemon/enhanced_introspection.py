@@ -183,6 +183,55 @@ class StateUsageExtractor:
         return state_usage
 
 
+def _extract_direct_event_handlers(module) -> List[str]:
+    """Extract events handled directly in ksi_handle_event hook.
+    
+    Looks for patterns like:
+    - if event_name == "completion:async":
+    - elif event_name == "some:event":
+    """
+    try:
+        # Find ksi_handle_event function in module
+        if not hasattr(module, 'ksi_handle_event'):
+            return []
+            
+        func = module.ksi_handle_event
+        source = inspect.getsource(func)
+        tree = ast.parse(source)
+        
+        events = []
+        
+        class EventNameVisitor(ast.NodeVisitor):
+            def visit_Compare(self, node):
+                # Look for: event_name == "some:event"
+                if (isinstance(node.left, ast.Name) and 
+                    node.left.id == 'event_name' and
+                    len(node.ops) == 1 and
+                    isinstance(node.ops[0], ast.Eq) and
+                    len(node.comparators) == 1):
+                    
+                    comparator = node.comparators[0]
+                    if isinstance(comparator, ast.Constant):
+                        event = comparator.value
+                        if isinstance(event, str) and ':' in event:
+                            events.append(event)
+                    elif isinstance(comparator, ast.Str):  # Python < 3.8
+                        event = comparator.s
+                        if ':' in event:
+                            events.append(event)
+                
+                self.generic_visit(node)
+        
+        visitor = EventNameVisitor()
+        visitor.visit(tree)
+        
+        return list(set(events))  # Remove duplicates
+        
+    except Exception as e:
+        logger.debug(f"Could not extract direct event handlers: {e}")
+        return []
+
+
 def collect_enhanced_metadata(module) -> Dict[str, Any]:
     """Collect comprehensive metadata about a plugin module.
     
@@ -200,6 +249,18 @@ def collect_enhanced_metadata(module) -> Dict[str, Any]:
     # Get provided events (from decorators)
     import ksi_daemon.plugin_utils as plugin_utils
     provided_events = plugin_utils.collect_event_metadata(module)
+    
+    # Also check for events handled directly in ksi_handle_event
+    additional_events = _extract_direct_event_handlers(module)
+    for event in additional_events:
+        if event not in provided_events:
+            provided_events[event] = [{
+                'event': event,
+                'summary': 'Handled directly in ksi_handle_event',
+                'parameters': {},
+                'discovered_by': 'ksi_handle_event'
+            }]
+    
     metadata['provides']['events'] = list(provided_events.keys())
     metadata['provides']['handlers'] = provided_events
     

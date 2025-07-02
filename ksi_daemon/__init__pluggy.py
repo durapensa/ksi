@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
 """
-Modular Daemon Package - Event-Based Version
-Uses pure event system instead of pluggy
+Modular Daemon Package - Main entry point and dependency injection
+Extracted from daemon_clean.py with 100% functionality preservation
 """
 
 import asyncio
@@ -14,9 +14,11 @@ from pathlib import Path
 # Logging is configured by the daemon entry point (ksi-daemon.py)
 # This ensures proper daemon-specific configuration (no console handlers)
 
+# Log level is now configured by daemon entry point
+
 # NOW we can import our modules - logging is configured
 from ksi_common.config import config
-from ksi_daemon.core_events import EventDaemonCore as PluginDaemon
+from ksi_daemon.core_plugin import SimpleDaemonCore as PluginDaemon
 
 # Get logger
 from ksi_common.logging import get_bound_logger
@@ -73,7 +75,7 @@ def setup_signal_handlers(shutdown_event, loop):
             signal.signal(sig, lambda signum, frame: signal_handler(signal.Signals(signum).name))
 
 async def create_plugin_daemon(socket_dir: str = None):
-    """Create event-based daemon"""
+    """Create plugin-based daemon"""
     
     # Build configuration
     config_dict = {
@@ -91,21 +93,21 @@ async def create_plugin_daemon(socket_dir: str = None):
         }
     }
     
-    # Create and initialize event daemon
+    # Create and initialize plugin daemon
     daemon = PluginDaemon(config_dict)
     await daemon.initialize()
     
     return daemon
 
 async def main():
-    """Main entry point for event-based daemon"""
+    """Main entry point for plugin-based daemon"""
     args = parse_args()
     logger = setup_logging()
     
     # Ensure var/ directory structure exists
     ensure_var_directories()
     
-    # Create event-based daemon
+    # Create plugin-based daemon
     daemon = await create_plugin_daemon(args.socket_dir)
     
     # Get the current event loop
@@ -115,7 +117,7 @@ async def main():
     setup_signal_handlers(daemon.shutdown_event, loop)
     
     # Start the daemon
-    logger.info("Starting event-based KSI daemon")
+    logger.info("Starting plugin-based KSI daemon")
     try:
         await daemon.run()
     except asyncio.CancelledError:
@@ -124,7 +126,6 @@ async def main():
         logger.info("Keyboard interrupt received, shutting down...")
     except Exception as e:
         logger.error(f"Daemon failed: {e}", exc_info=True)
-        import sys
         sys.exit(1)
     finally:
         # Ensure cleanup happens
