@@ -1,16 +1,17 @@
 # KSI - Knowledge System Interface
 
-A plugin-based daemon system for managing Claude AI processes with conversation continuity and multi-agent orchestration.
+A pure event-driven daemon system for managing Claude AI processes with conversation continuity and multi-agent orchestration.
 
 ## Features
 
-- 🔌 **Plugin Architecture** - Event-driven system built on pluggy (pytest's plugin framework)
+- ⚡ **Event-Driven Architecture** - Pure Python modules with @event_handler decorators
+- 🎯 **REST JSON API** - Standard patterns (single response = object, multiple = array)
 - 🚀 **Single Socket Architecture** - Unified Unix socket for all communication
 - 💬 **Conversation Continuity** - Maintains context across Claude interactions using sessionId
 - 🤖 **Multi-Agent Orchestration** - Multiple Claude instances conversing autonomously
 - 📊 **Real-time Monitoring** - Beautiful TUI for observing conversations and metrics
 - 📝 **Complete Logging** - All sessions logged in JSONL format for analysis
-- ⚡ **Pure Async** - No polling, everything event-driven for maximum efficiency
+- 🔧 **Smart Client Library** - Convenience methods for common API patterns
 
 ## Quick Start
 
