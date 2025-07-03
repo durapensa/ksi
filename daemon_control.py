@@ -150,8 +150,9 @@ class DaemonController:
             # Redirect stdout/stderr to startup log using config paths
             startup_log = config.daemon_log_dir / "daemon_startup.log"
             
-            # Create empty PID file for watching
-            self.pid_file.write_text("")
+            # Remove any stale PID file first
+            if self.pid_file.exists():
+                self.pid_file.unlink()
             
             with open(startup_log, 'w') as log_file:
                 # Start daemon in background with startup log
@@ -163,12 +164,12 @@ class DaemonController:
                     start_new_session=True
                 )
             
-            # Watch for daemon to write its PID
+            # Watch for daemon to create and write PID file
             async def wait_for_pid():
-                from watchfiles import awatch
+                from watchfiles import awatch, Change
                 async for changes in awatch(str(self.pid_file.parent)):
                     for change_type, path in changes:
-                        if path == str(self.pid_file):
+                        if path == str(self.pid_file) and self.pid_file.exists():
                             content = self.pid_file.read_text().strip()
                             if content and content.isdigit():
                                 return int(content)
