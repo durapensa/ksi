@@ -19,19 +19,14 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List, TypedDict
 from typing_extensions import NotRequired
 
-# Disable LiteLLM's HTTP request for model pricing on startup
-os.environ['LITELLM_LOCAL_MODEL_COST_MAP'] = 'true'
-
-import litellm
-
 from ksi_daemon.event_system import event_handler, EventPriority, emit_event, get_router
 # Metadata functionality now integrated into event_handler
 from ksi_common import timestamp_utc, create_completion_response, parse_completion_response, get_response_session_id
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 
-# Import claude_cli_litellm_provider to ensure provider registration
-from ksi_daemon.completion import claude_cli_litellm_provider
+# Import litellm module for LiteLLM-specific handling
+from ksi_daemon.completion.litellm import handle_litellm_completion
 
 # Module state
 logger = get_bound_logger("completion_service", version="3.0.0")
@@ -201,6 +196,12 @@ async def handle_async_completion(data: Dict[str, Any]) -> Dict[str, Any]:
                 session_id=session_id,
                 model=data.get("model", "unknown"))
     
+    # Debug log to check extra_body
+    if "extra_body" in data:
+        logger.debug(f"Completion request has extra_body: {data['extra_body']}")
+    else:
+        logger.debug("Completion request has NO extra_body")
+    
     # Get or create session processor
     if session_id not in session_processors:
         session_processors[session_id] = asyncio.Queue()
@@ -294,15 +295,16 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
             "status": "calling_llm"
         })
         
-        # Call async completion
-        response = await litellm.acompletion(**data)
+        # Call completion through litellm module
+        provider, raw_response = await handle_litellm_completion(data)
         
         # Create standardized response
         standardized_response = create_completion_response(
-            provider="litellm",
-            response=response,
-            request_data=data,
-            timing={"total": time.time() - start_time}
+            provider=provider,
+            raw_response=raw_response,
+            request_id=data.get("request_id"),
+            client_id=data.get("client_id"),
+            duration_ms=int((time.time() - start_time) * 1000)
         )
         
         # Save to session log

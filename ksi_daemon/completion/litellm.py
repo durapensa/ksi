@@ -11,7 +11,7 @@ import os
 from ksi_common.logging import get_bound_logger
 import time
 import uuid
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 
 # Disable LiteLLM's HTTP request for model pricing on startup
 os.environ['LITELLM_LOCAL_MODEL_COST_MAP'] = 'true'
@@ -39,88 +39,90 @@ COMPLETION_TIMEOUT = 900.0  # 15 minutes - reasonable for Claude
 active_completions = {}
 
 
-async def handle_completion_async(prompt: str, model: str = None, 
-                          session_id: Optional[str] = None,
-                          request_id: Optional[str] = None) -> Dict[str, Any]:
-    """Handle a completion request using LiteLLM asynchronously."""
-    model = model or DEFAULT_MODEL
-    request_id = request_id or str(uuid.uuid4())
+async def handle_litellm_completion(data: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+    """
+    Handle a completion request using LiteLLM.
     
-    # Track active completion
-    active_completions[request_id] = {
-        "status": "running",
-        "started_at": time.time()
-    }
+    Args:
+        data: The completion request data (with all LiteLLM parameters)
+        
+    Returns:
+        Tuple of (provider, raw_response) where raw_response is JSON-serializable
+    """
+    start_time = time.time()
+    
+    # Extract key parameters for logging
+    model = data.get("model", DEFAULT_MODEL)
+    session_id = data.get("session_id")
+    request_id = data.get("request_id", str(uuid.uuid4()))
+    
+    logger.info(f"Starting LiteLLM completion: model={model}, session_id={session_id}")
     
     try:
-        # Prepare messages
-        messages = [{"role": "user", "content": prompt}]
-        
-        # Prepare kwargs for LiteLLM
-        kwargs = {
-            "model": model,
-            "messages": messages,
-            "timeout": COMPLETION_TIMEOUT
-        }
-        
-        # Add session_id if provided
-        if session_id:
-            kwargs["session_id"] = session_id
-        
-        logger.info(f"Starting LiteLLM completion: model={model}, session_id={session_id}")
+        # Convert prompt to messages if needed
+        if "prompt" in data and "messages" not in data:
+            data["messages"] = [{"role": "user", "content": data.pop("prompt")}]
         
         # Call litellm asynchronously
-        response = await litellm.acompletion(**kwargs)
+        response = await litellm.acompletion(**data)
         
-        # Extract response
-        if hasattr(response, 'choices') and response.choices:
-            content = response.choices[0].message.content
-            
-            # If content looks like JSON from Claude CLI, parse it
-            if isinstance(content, str) and content.strip().startswith('{'):
-                try:
-                    parsed = json.loads(content)
-                    if 'result' in parsed:
-                        content = parsed['result']
-                    # Also try to get session_id from parsed response
-                    if 'session_id' in parsed and not session_id:
-                        session_id = parsed['session_id']
-                except json.JSONDecodeError:
-                    pass  # Keep original content
+        # Determine provider
+        provider = "claude-cli" if model.startswith("claude-cli/") else "litellm"
+        
+        # Extract appropriate response data based on provider
+        if provider == "claude-cli" and hasattr(response, '_claude_metadata'):
+            # For claude-cli, return the metadata directly - it has everything we need
+            raw_response = response._claude_metadata
         else:
-            content = str(response)
+            # For other providers, extract only what we need
+            raw_response = {
+                "result": "",  # The actual response text
+                "model": getattr(response, 'model', model),
+                "usage": None
+            }
+            
+            # Extract response text
+            if hasattr(response, 'choices') and response.choices:
+                choice = response.choices[0]
+                if hasattr(choice, 'message') and hasattr(choice.message, 'content'):
+                    raw_response["result"] = choice.message.content
+            
+            # Extract usage if available
+            if hasattr(response, 'usage'):
+                raw_response["usage"] = {
+                    "prompt_tokens": getattr(response.usage, 'prompt_tokens', 0),
+                    "completion_tokens": getattr(response.usage, 'completion_tokens', 0),
+                    "total_tokens": getattr(response.usage, 'total_tokens', 0)
+                }
         
-        # Get session_id from response if available
-        response_session_id = None
-        if hasattr(response, '_hidden_params'):
-            response_session_id = response._hidden_params.get('session_id', session_id)
+        duration = time.time() - start_time
+        logger.info(f"LiteLLM completion successful: provider={provider}, duration={duration:.2f}s")
         
-        result = {
-            "status": "success",
-            "response": content,
-            "session_id": response_session_id or session_id or str(uuid.uuid4()),
-            "model": model,
-            "request_id": request_id
-        }
-        
-        logger.info(f"Completion successful: {len(content)} chars")
-        return result
+        return provider, raw_response
         
     except Exception as e:
-        logger.error(f"Completion error: {e}", exc_info=True)
-        return {
-            "status": "error", 
-            "error": str(e),
-            "request_id": request_id
-        }
-    finally:
-        # Clean up tracking
-        active_completions.pop(request_id, None)
+        logger.error(f"LiteLLM completion error: {e}", exc_info=True)
+        raise
 
 
 # Event handlers for litellm provider
 # Note: This module now only provides the completion backend
 # completion_service.py handles completion:request events
+
+
+def shutdown_claude_provider():
+    """Shutdown the Claude CLI provider if it exists."""
+    try:
+        # Access the provider instance from litellm's custom_provider_map
+        for provider_config in litellm.custom_provider_map:
+            if provider_config.get("provider") == "claude-cli":
+                handler = provider_config.get("custom_handler")
+                if handler and hasattr(handler, "shutdown"):
+                    logger.info("Shutting down Claude CLI provider")
+                    handler.shutdown()
+                break
+    except Exception as e:
+        logger.error(f"Error shutting down Claude CLI provider: {e}")
 
 
 @event_handler("system:startup")
@@ -132,5 +134,12 @@ async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
     
     logger.info("LiteLLM simple completion provider started")
     return {"status": "litellm_provider_ready"}
+
+
+@event_handler("system:shutdown")
+async def handle_shutdown(data: Dict[str, Any]) -> None:
+    """Clean up litellm resources on shutdown."""
+    logger.info("LiteLLM provider shutting down")
+    shutdown_claude_provider()
 
 

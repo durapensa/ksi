@@ -225,6 +225,22 @@ class ClaudeCLIProvider(CustomLLM):
                     logger.error(f"Error cleaning up process: {e}")
             self.active_processes.clear()
 
+    def shutdown(self):
+        """Gracefully shutdown the provider and clean up resources"""
+        logger.info("Shutting down Claude CLI provider")
+        
+        # Clean up any active processes first
+        self._cleanup_active_processes()
+        
+        # Shut down the executor
+        try:
+            self.claude_executor.shutdown(wait=True, cancel_futures=True)
+            logger.info("Claude executor shut down successfully")
+        except Exception as e:
+            logger.error(f"Error shutting down executor: {e}")
+        
+        logger.info("Claude CLI provider shutdown complete")
+
     # ------------------------- public sync entry-points ---------------------- #
 
     def completion(self, messages, *args, **kwargs):
@@ -292,6 +308,7 @@ class ClaudeCLIProvider(CustomLLM):
         
         # Extract KSI parameters from extra_body
         extra_body = kwargs.get("extra_body", {})
+        logger.debug(f"Provider received extra_body: {extra_body}")
         ksi_params = extra_body.get("ksi", {})
         sandbox_dir = ksi_params.get("sandbox_dir")
         ksi_permissions = ksi_params.get("permissions", {})
@@ -566,16 +583,17 @@ class ClaudeCLIProvider(CustomLLM):
         response._raw_stdout = raw_response
         response._stderr = stderr_output
         
-        # Try to extract sessionId for convenience
+        # Try to extract session_id for convenience
         try:
             claude_data = json.loads(raw_response)
-            if "sessionId" in claude_data:
-                response.sessionId = claude_data["sessionId"]
+            # Claude CLI returns session_id in snake_case already!
+            if "session_id" in claude_data:
+                response.session_id = claude_data["session_id"]
             response._claude_metadata = claude_data
             
             logger.debug(
                 "Created LiteLLM response",
-                has_session_id="sessionId" in claude_data,
+                has_session_id="session_id" in claude_data,
                 response_type=claude_data.get("type"),
                 is_error=claude_data.get("is_error", False)
             )
