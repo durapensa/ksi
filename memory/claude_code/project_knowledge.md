@@ -2,9 +2,11 @@
 
 Core technical reference for KSI (Knowledge System Interface) - a minimal daemon system for managing Claude AI processes with conversation continuity and multi-agent orchestration.
 
-**Current State**: Pure event-based architecture with REST JSON API patterns. All modules self-register via decorators. State unified in core service.
+**Current State**: Pure event-based architecture with REST JSON API patterns. Development mode with auto-restart. MCP server integrated. Process cleanup mostly working.
 
-**Critical Architecture Change**: Complete transformation from pluggy-based plugin system to pure event-driven module architecture with standard REST patterns.
+**Known Issues**: 
+- MCP HTTP server (uvicorn) throws CancelledError on shutdown
+- Message bus has minimal cleanup (doesn't clear connections/queues)
 
 ## System Architecture
 
@@ -137,14 +139,17 @@ All state functionality consolidated in `ksi_daemon/core/state.py`:
 - **core/discovery.py** - Event discovery & introspection
 - **core/correlation.py** - Request correlation tracking
 - **core/monitor.py** - Event monitoring
+- **core/checkpoint.py** - Dev mode state persistence
 
 ### Service Modules
-- **completion/completion_service.py** - Async completion management
-- **agent/agent_service.py** - Agent lifecycle
+- **completion/completion_service.py** - Async completion management (with checkpoint support)
+- **completion/claude_cli_litellm_provider.py** - Spawns Claude processes (proper cleanup on shutdown)
+- **agent/agent_service.py** - Agent lifecycle (asyncio tasks only)
 - **conversation/conversation_service.py** - Session tracking
-- **messaging/message_bus.py** - Pub/sub messaging
+- **messaging/message_bus.py** - Pub/sub messaging (⚠️ minimal shutdown cleanup)
 - **permissions/permission_service.py** - Security boundaries
 - **composition/composition_service.py** - YAML configurations
+- **mcp/mcp_service.py** - MCP server management (⚠️ uvicorn shutdown issue)
 
 ## Module Dependencies
 
@@ -246,7 +251,15 @@ async def handle_my_event(data: Dict[str, Any]) -> Dict[str, Any]:
 - Use absolute imports from ksi_daemon
 - Let daemon handle async task lifecycle
 
-## Testing
+## Development & Testing
+
+### Development Mode
+```bash
+./daemon_control.py dev  # Auto-restart on .py file changes
+```
+- Watches ksi_daemon/, ksi_common/, ksi_client/ directories
+- Checkpoint/restore system preserves session queues and active requests
+- Graceful restart with state preservation
 
 ### Quick Health Check
 ```bash
@@ -281,6 +294,18 @@ echo '{"event": "system:health", "data": {}}' | nc -U var/run/daemon.sock | jq
 ./daemon_control.py restart # Restart if needed
 ```
 
+### MCP HTTP Server Shutdown Error
+```
+ERROR: asyncio.exceptions.CancelledError in starlette/routing.py
+```
+The uvicorn server needs proper shutdown before task cancellation.
+
+### Message Bus Incomplete Cleanup
+Only clears subscriptions, should also:
+- Cancel message delivery tasks
+- Clear connections/queues/history
+- Properly disconnect agents
+
 ### Module Import Order
 - State must be imported before modules that use it
 - Check daemon_core.py for proper ordering
@@ -289,32 +314,6 @@ echo '{"event": "system:health", "data": {}}' | nc -U var/run/daemon.sock | jq
 - Use send_single() when expecting one response
 - Use send_all() when multiple handlers might respond
 - Let transport layer handle REST pattern
-
-## Recent Architectural Changes
-
-### Pluggy Removal (Complete)
-- All pluggy infrastructure removed
-- Modules now use pure Python imports
-- Decorators handle registration automatically
-- No more plugin discovery or lifecycle hooks
-
-### REST Pattern Implementation
-- Transport layer implements standard JSON API patterns
-- Single handler response = object
-- Multiple handler responses = array
-- Clients have convenience methods for common patterns
-
-### State Unification
-- All state functionality in core/state.py
-- State is a core service, not a plugin
-- Initialized early in daemon startup
-- Available to all modules via context
-
-### Simplified Module Structure
-- Flat module organization (no plugins/ directory)
-- Each service is just a Python module
-- Communication only through events
-- No cross-module imports allowed
 
 ---
 *For development practices, see `/Users/dp/projects/ksi/CLAUDE.md`*
