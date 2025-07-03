@@ -332,7 +332,27 @@ async def handle_broadcastable_event(data: Dict[str, Any]) -> None:
 @event_handler("system:shutdown")
 async def handle_shutdown(data: Dict[str, Any]) -> Dict[str, Any]:
     """Clean up on shutdown."""
-    global transport_instance
+    global transport_instance, client_connections
+    
+    # First, broadcast shutdown notification to all connected clients
+    if client_connections:
+        logger.info(f"Broadcasting shutdown to {len(client_connections)} connected clients")
+        shutdown_msg = {
+            "event": "system:shutdown_notification",
+            "data": {
+                "reason": "daemon_shutdown",
+                "timestamp": asyncio.get_event_loop().time()
+            }
+        }
+        
+        # Send to all clients
+        for client_id, writer in list(client_connections.items()):
+            try:
+                await send_response(writer, shutdown_msg)
+            except Exception as e:
+                logger.debug(f"Failed to send shutdown notification to client {client_id}: {e}")
+    
+    # Then stop the transport
     if transport_instance:
         await transport_instance.stop()
     

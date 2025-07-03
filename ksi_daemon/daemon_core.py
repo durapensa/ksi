@@ -39,6 +39,9 @@ class EventDaemonCore:
         try:
             logger.info("Initializing event daemon core")
             
+            # Store reference to daemon core in router for shutdown handling
+            self.router._daemon_core = self
+            
             # Initialize state infrastructure first (core dependency)
             logger.info("Initializing core state infrastructure...")
             self.state_manager = initialize_state()
@@ -204,6 +207,17 @@ class EventDaemonCore:
 
 # Add built-in discovery handlers for introspection
 from .event_system import event_handler
+
+@event_handler("system:shutdown", priority=EventPriority.HIGH)
+async def handle_shutdown_request(data: Dict[str, Any]) -> None:
+    """Handle shutdown request by triggering daemon shutdown."""
+    # Get the daemon core instance from the router
+    router = get_router()
+    if hasattr(router, '_daemon_core') and router._daemon_core:
+        logger.info("Received system:shutdown, triggering daemon shutdown")
+        router._daemon_core.shutdown_event.set()
+    else:
+        logger.warning("No daemon core reference available for shutdown")
 
 @event_handler("module:list")
 async def handle_list_modules(data: Dict[str, Any]) -> Dict[str, Any]:

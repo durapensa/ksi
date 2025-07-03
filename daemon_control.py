@@ -97,16 +97,48 @@ class DaemonController:
         
         try:
             sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            sock.settimeout(2.0)
+            # No timeout - we'll handle responses appropriately
             sock.connect(str(self.socket_path))
             
             message = json.dumps(event_json) + '\n'
             sock.send(message.encode())
             
+            # For shutdown events, listen for the shutdown notification
+            if event == "system:shutdown":
+                try:
+                    # Set a short timeout just for shutdown
+                    sock.settimeout(0.5)
+                    response = sock.recv(4096).decode()
+                    
+                    # Check if we got a shutdown notification
+                    if response:
+                        try:
+                            msg = json.loads(response.strip())
+                            if msg.get("event") == "system:shutdown_notification":
+                                logger.info("Received shutdown notification from daemon")
+                                sock.close()
+                                return {"status": "shutdown_confirmed"}
+                        except json.JSONDecodeError:
+                            pass
+                    
+                    sock.close()
+                    return {"status": "sent"}
+                    
+                except socket.timeout:
+                    # This is OK for shutdown
+                    sock.close()
+                    return {"status": "sent"}
+                except Exception:
+                    # Connection closed by daemon - this is expected
+                    sock.close()
+                    return {"status": "sent"}
+            
+            # For other events, read the response normally
             response = sock.recv(4096).decode()
             sock.close()
             
             return json.loads(response.strip())
+            
         except Exception as e:
             logger.warning(f"Socket communication failed: {e}")
             return None
@@ -164,29 +196,30 @@ class DaemonController:
                     start_new_session=True
                 )
             
-            # Watch for daemon to create and write PID file
+            # Wait for daemon to create PID file
             async def wait_for_pid():
-                from watchfiles import awatch, Change
-                async for changes in awatch(str(self.pid_file.parent)):
-                    for change_type, path in changes:
-                        if path == str(self.pid_file) and self.pid_file.exists():
-                            content = self.pid_file.read_text().strip()
-                            if content and content.isdigit():
-                                return int(content)
+                """Poll for PID file creation."""
+                for _ in range(50):  # 5 seconds total
+                    if self.pid_file.exists():
+                        content = self.pid_file.read_text().strip()
+                        if content and content.isdigit():
+                            return int(content)
+                    await asyncio.sleep(0.1)
+                return None
             
-            try:
-                # Wait up to 5 seconds for PID
-                pid = asyncio.run(asyncio.wait_for(wait_for_pid(), timeout=5.0))
-                if self._is_process_running(pid):
-                    print(f"✓ Daemon started successfully (PID: {pid})")
-                    print(f"  Socket: {self.socket_path}")
-                    print(f"  Logs: {self.log_dir}")
-                    return 0
-                else:
-                    print("✗ Daemon started but process not found")
-                    return 1
-            except asyncio.TimeoutError:
-                print("✗ Daemon failed to start (timeout waiting for PID)")
+            # Check for PID file
+            pid = asyncio.run(wait_for_pid())
+            if pid and self._is_process_running(pid):
+                print(f"✓ Daemon started successfully (PID: {pid})")
+                print(f"  Socket: {self.socket_path}")
+                print(f"  Logs: {self.log_dir}")
+                return 0
+            else:
+                print("✗ Daemon failed to start (no PID file created)")
+                # Show startup log if it exists
+                if startup_log.exists():
+                    print("\nStartup log:")
+                    print(startup_log.read_text()[-500:])  # Last 500 chars
                 return 1
                 
         except Exception as e:
@@ -213,27 +246,58 @@ class DaemonController:
         # Try graceful shutdown via socket first
         result = self._send_socket_event("system:shutdown")
         if result:
-            print("Sent graceful shutdown command")
+            if result.get("status") == "shutdown_confirmed":
+                print("✓ Daemon acknowledged shutdown")
+            else:
+                print("Sent graceful shutdown command")
             
-            # Wait for graceful shutdown
-            for i in range(5):  # Wait up to 5 seconds
-                time.sleep(1)
-                if not self._is_process_running(pid):
+            # Watch for PID file removal instead of sleeping
+            async def wait_for_pid_removal():
+                """Wait for daemon to remove its PID file."""
+                if not self.pid_file.exists():
+                    return True
+                    
+                from watchfiles import awatch
+                try:
+                    async for changes in awatch(str(self.pid_file.parent), stop_event=asyncio.Event()):
+                        for change_type, path in changes:
+                            if path == str(self.pid_file) and not self.pid_file.exists():
+                                return True
+                except Exception:
+                    # Fallback to checking if file still exists
+                    return not self.pid_file.exists()
+            
+            try:
+                # Wait up to 3 seconds for PID file removal (shorter if we got confirmation)
+                timeout = 3.0 if result.get("status") == "shutdown_confirmed" else 5.0
+                removed = asyncio.run(asyncio.wait_for(wait_for_pid_removal(), timeout=timeout))
+                
+                if removed:
                     print("✓ Daemon stopped gracefully")
                     return 0
-            
-            print("Graceful shutdown timeout, sending SIGTERM...")
+                else:
+                    print("Graceful shutdown timeout, sending SIGTERM...")
+            except asyncio.TimeoutError:
+                print("Graceful shutdown timeout, sending SIGTERM...")
         
         # Send SIGTERM
         try:
             os.kill(pid, signal.SIGTERM)
             
-            # Wait for process to terminate
-            for i in range(3):  # Wait up to 3 seconds
-                time.sleep(1)
-                if not self._is_process_running(pid):
-                    print("✓ Daemon stopped")
-                    return 0
+            # Watch for process termination
+            async def wait_for_process_exit():
+                """Wait for process to exit."""
+                while self._is_process_running(pid):
+                    await asyncio.sleep(0.1)
+                return True
+            
+            try:
+                # Wait up to 3 seconds for process to terminate
+                asyncio.run(asyncio.wait_for(wait_for_process_exit(), timeout=3.0))
+                print("✓ Daemon stopped")
+                return 0
+            except asyncio.TimeoutError:
+                pass  # Fall through to SIGKILL
             
             # Force kill if still running
             print("Process still running, sending SIGKILL...")
