@@ -122,6 +122,10 @@ class KSIBaseConfig(BaseSettings):
     claude_max_workers: int = 2            # Max concurrent Claude processes
     claude_retry_backoff: int = 30         # Seconds between retry attempts
     
+    # MCP Server settings
+    mcp_enabled: bool = True               # Enable MCP server
+    mcp_server_port: int = 8080           # MCP server port
+    
     # Test timeouts (in seconds)
     test_completion_timeout: int = 120     # 2 minutes for tests
     

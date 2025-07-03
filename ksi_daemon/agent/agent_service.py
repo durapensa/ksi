@@ -10,16 +10,15 @@ Uses composition service for all profile/configuration needs.
 import asyncio
 import json
 import uuid
-from pathlib import Path
-from typing import Dict, Any, Optional, List, Set, TypedDict
-from typing_extensions import NotRequired
-from datetime import datetime
+from typing import Any, Dict, TypedDict
 
-from ksi_daemon.event_system import event_handler, get_router
+from typing_extensions import NotRequired
+
 from ksi_common import format_for_logging
-from ksi_common.async_utils import run_sync
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
+from ksi_daemon.event_system import event_handler, get_router
+from ksi_daemon.mcp import mcp_config_manager
 
 # Module state
 logger = get_bound_logger("agent_service", version="2.0.0")
@@ -84,7 +83,7 @@ async def handle_context(context: Dict[str, Any]) -> None:
     # Get router for event emission
     router = get_router()
     event_emitter = router.emit
-    logger.info(f"Agent service received context, event_emitter configured")
+    logger.info("Agent service received context, event_emitter configured")
 
 
 @event_handler("system:startup")
@@ -225,7 +224,7 @@ async def handle_spawn_agent(data: Dict[str, Any]) -> Dict[str, Any]:
             }
     else:
         # No composition service available
-        logger.error(f"Composition service not available - event_emitter is None")
+        logger.error("Composition service not available - event_emitter is None")
         return {
             "error": "Composition service not available - event system not initialized",
             "status": "failed"
@@ -280,6 +279,31 @@ async def handle_spawn_agent(data: Dict[str, Any]) -> Dict[str, Any]:
         else:
             logger.warning(f"Failed to create sandbox for agent {agent_id}")
     
+    # Create MCP config for agent if MCP is enabled
+    mcp_config_path = None
+    if config.mcp_enabled:
+        try:
+            # Get current conversation ID or generate one
+            conversation_id = data.get("conversation_id") or f"conv_{uuid.uuid4().hex[:8]}"
+            
+            # Get agent permissions (already fetched above)
+            agent_permissions = {
+                "profile": permission_profile,
+                "allowed_tools": agent_config.get("tools", []),
+                "capabilities": agent_config.get("capabilities", [])
+            }
+            
+            mcp_config_path = mcp_config_manager.create_agent_config(
+                agent_id=agent_id,
+                conversation_id=conversation_id,
+                permissions=agent_permissions
+            )
+            
+            logger.info(f"Created MCP config for agent {agent_id} at {mcp_config_path}")
+        except Exception as e:
+            logger.error(f"Failed to create MCP config for agent {agent_id}: {e}")
+            # Continue without MCP - not a fatal error
+    
     # Create agent info
     agent_info = {
         "agent_id": agent_id,
@@ -292,7 +316,9 @@ async def handle_spawn_agent(data: Dict[str, Any]) -> Dict[str, Any]:
         "session_id": session_id,
         "message_queue": asyncio.Queue(),
         "permission_profile": permission_profile,
-        "sandbox_dir": sandbox_dir
+        "sandbox_dir": sandbox_dir,
+        "mcp_config_path": str(mcp_config_path) if mcp_config_path else None,
+        "conversation_id": conversation_id if 'conversation_id' in locals() else None
     }
     
     # Register agent
@@ -348,6 +374,14 @@ async def handle_terminate_agent(data: AgentTerminateData) -> Dict[str, Any]:
         await event_emitter("permission:remove_agent", {
             "agent_id": agent_id
         })
+    
+    # Clean up MCP config if present
+    if config.mcp_enabled:
+        try:
+            mcp_config_manager.cleanup_agent_config(agent_id)
+            logger.debug(f"Cleaned up MCP config for agent {agent_id}")
+        except Exception as e:
+            logger.error(f"Failed to clean up MCP config for agent {agent_id}: {e}")
     
     # Remove from active agents
     del agents[agent_id]
@@ -470,13 +504,14 @@ async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
             }
             
             # Add KSI parameters via extra_body for LiteLLM
-            if agent_info.get("sandbox_dir") or permissions:
+            if agent_info.get("sandbox_dir") or permissions or agent_info.get("mcp_config_path"):
                 completion_data["extra_body"] = {
                     "ksi": {
                         "agent_id": agent_id,
                         "sandbox_dir": agent_info.get("sandbox_dir"),
                         "permissions": permissions,
-                        "session_id": agent_info.get("session_id")
+                        "session_id": agent_info.get("session_id"),
+                        "mcp_config_path": agent_info.get("mcp_config_path")
                     }
                 }
             
@@ -686,9 +721,6 @@ async def handle_get_identity(data: Dict[str, Any]) -> Dict[str, Any]:
 @event_handler("agent:route_task")
 async def handle_route_task(data: Dict[str, Any]) -> Dict[str, Any]:
     """Route a task to an appropriate agent."""
-    task = data.get("task", {})
-    requirements = task.get("requirements", [])
-    
     # Simple routing: find first available agent
     for agent_id, info in agents.items():
         if info.get("status") == "ready":

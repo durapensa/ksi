@@ -18,8 +18,8 @@ import asyncio
 import json
 import os
 import subprocess
-import time
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -27,18 +27,13 @@ from typing import Any, Dict, List, Optional
 # Disable LiteLLM's HTTP request for model pricing on startup
 os.environ['LITELLM_LOCAL_MODEL_COST_MAP'] = 'true'
 
-import litellm
-from litellm import CustomLLM
-from litellm.exceptions import (
-    Timeout,
-    APIError,
-    APIConnectionError,
-    BadRequestError,
-    ServiceUnavailableError
-)
-
 # Suppress LiteLLM's console logging to maintain JSON format
 import logging
+
+import litellm
+from litellm import CustomLLM
+from litellm.exceptions import APIConnectionError, APIError, BadRequestError, ServiceUnavailableError, Timeout
+
 litellm.suppress_debug_info = True
 litellm.set_verbose = False
 # Disable LiteLLM's internal logging to console
@@ -48,7 +43,6 @@ logging.getLogger("litellm").setLevel(logging.CRITICAL)
 # Import KSI components
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
-
 
 # Configuration
 logger = get_bound_logger("claude_cli_provider", version="3.0.0")
@@ -77,6 +71,7 @@ def build_cmd(
     disallowed_tools: Optional[List[str]] = None,
     session_id: Optional[str] = None,
     max_turns: Optional[int] = None,
+    mcp_config: Optional[str] = None,
 ) -> List[str]:
     """Compose the argv list for the Claude CLI."""
     cmd = [
@@ -95,6 +90,8 @@ def build_cmd(
         cmd += ["--max-turns", str(max_turns)]
     if session_id:
         cmd += ["--resume", session_id]
+    if mcp_config:
+        cmd += ["--mcp-config", mcp_config]
     cmd.append(prompt)
     return cmd
 
@@ -240,7 +237,7 @@ class ClaudeCLIProvider(CustomLLM):
         
         # Check if we're in an async context
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
             # We're in an event loop - this shouldn't happen in KSI
             raise RuntimeError(
                 "Synchronous completion() called from async context. "
@@ -298,6 +295,7 @@ class ClaudeCLIProvider(CustomLLM):
         ksi_params = extra_body.get("ksi", {})
         sandbox_dir = ksi_params.get("sandbox_dir")
         ksi_permissions = ksi_params.get("permissions", {})
+        mcp_config_path = ksi_params.get("mcp_config_path")
         
         # Respect LiteLLM timeout parameter, fall back to config if not provided
         litellm_timeout = kwargs.get('timeout')
@@ -313,7 +311,8 @@ class ClaudeCLIProvider(CustomLLM):
             session_id=kwargs.get("session_id"),
             timeout_strategy=timeouts,
             sandbox_dir=sandbox_dir,
-            permission_profile=ksi_permissions.get("profile")
+            permission_profile=ksi_permissions.get("profile"),
+            mcp_config_path=mcp_config_path
         )
         
         for attempt, timeout in enumerate(timeouts):
@@ -335,6 +334,7 @@ class ClaudeCLIProvider(CustomLLM):
                 disallowed_tools=disallowed,
                 session_id=session_id,
                 max_turns=max_turns,
+                mcp_config=mcp_config_path,
             )
             
             try:
@@ -524,14 +524,14 @@ class ClaudeCLIProvider(CustomLLM):
             
             elapsed = time.time() - start_time
             logger.info(
-                f"Claude CLI completed successfully",
+                "Claude CLI completed successfully",
                 elapsed=f"{elapsed:.1f}s",
                 output_size=len(stdout)
             )
             
             return CompletedProcessResult(process.returncode, stdout, stderr)
             
-        except Exception as e:
+        except Exception:
             # Ensure process is terminated on any error
             if 'process' in locals():
                 try:

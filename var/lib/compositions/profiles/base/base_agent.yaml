@@ -12,6 +12,12 @@ components:
       message_queue_size: 100
       priority: "normal"
       
+  - name: "ksi_tools"
+    inline:
+      allowed_tools:
+        - "system:health"  # Basic health check permission
+      disallowed_tools: []
+      
 variables:
   enable_tools:
     type: "boolean"

@@ -8,12 +8,21 @@ Provides essential discovery capabilities:
 - Automatic extraction from implementation code
 """
 
-import ast
-import inspect
-from typing import Dict, List, Any, Optional, Callable
+from typing import Any, Dict
 
-from ksi_daemon.event_system import event_handler
 from ksi_common.logging import get_bound_logger
+from ksi_daemon.event_system import event_handler
+
+from .discovery_utils import (
+    FORMAT_MCP,
+    FORMAT_VERBOSE,
+    analyze_handler,
+    build_discovery_response,
+    extract_summary,
+    filter_events,
+    format_event_info,
+    generate_usage_example,
+)
 
 logger = get_bound_logger("discovery", version="2.0.0")
 
@@ -29,347 +38,186 @@ async def handle_startup(config: Dict[str, Any]) -> Dict[str, Any]:
 async def handle_discover(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Universal discovery endpoint - everything you need to understand KSI.
-    
+
     Parameters:
-        detail: Include parameters and triggers (default: True)
-        namespace: Filter by namespace (optional)
-        event: Get details for specific event (optional)
-    
+        detail (bool): Include parameters and triggers (default: True)
+        namespace (str): Filter by namespace (optional)
+        event (str): Get details for specific event (optional)
+        format_style (str): Output format - verbose, compact, ultra_compact, mcp (default: verbose)
+
     Returns:
         Dictionary with events, their parameters, and what they trigger
     """
-    include_detail = data.get('detail', True)
-    namespace_filter = data.get('namespace')
-    event_filter = data.get('event')
-    
+    include_detail = data.get("detail", True)
+    namespace_filter = data.get("namespace")
+    event_filter = data.get("event")
+    format_style = data.get("format_style", FORMAT_VERBOSE)
+
     from ksi_daemon.event_system import get_router
+
     router = get_router()
-    
-    events = {}
-    
+
+    all_events = {}
+
+    # Gather all events first
     for event_name, handlers in router._handlers.items():
-        # Apply filters
-        if event_filter and event_name != event_filter:
-            continue
-        if namespace_filter:
-            ns = event_name.split(':')[0] if ':' in event_name else 'default'
-            if ns != namespace_filter:
-                continue
-        
         handler = handlers[0]  # Use first handler
-        
-        # Basic info
-        event_info = {
-            'module': handler.module,
-            'handler': handler.name,
-            'async': handler.is_async,
-            'summary': extract_summary(handler.func)
+
+        handler_info = {
+            "module": handler.module,
+            "handler": handler.name,
+            "async": handler.is_async,
+            "summary": extract_summary(handler.func),
         }
-        
+
         if include_detail:
             # Extract implementation details via AST
             analysis = analyze_handler(handler.func, event_name)
-            event_info.update({
-                'parameters': analysis['parameters'],
-                'triggers': analysis['triggers']
-            })
-        
-        events[event_name] = event_info
-    
-    # Build namespace list
-    namespaces = list(set(e.split(':')[0] if ':' in e else 'default' 
-                         for e in events.keys()))
-    
-    return {
-        'events': events,
-        'total': len(events),
-        'namespaces': sorted(namespaces)
-    }
+            handler_info.update(analysis)
+
+        all_events[event_name] = handler_info
+
+    # Apply filters
+    filtered_events = filter_events(all_events, namespace=namespace_filter, pattern=event_filter)
+
+    # Format events based on style
+    formatted_events = {}
+    for event_name, handler_info in filtered_events.items():
+        formatted_events[event_name] = format_event_info(
+            event_name, handler_info, style=format_style, include_params=include_detail, include_triggers=include_detail
+        )
+
+    # Build response
+    return build_discovery_response(formatted_events, style=format_style)
 
 
 @event_handler("system:help")
 async def handle_help(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Get detailed help for a specific event.
-    
+
     Parameters:
-        event: The event name to get help for (required)
+        event (str): The event name to get help for (required)
+        format_style (str): Output format - verbose, compact, mcp (default: verbose)
     """
-    event_name = data.get('event')
+    event_name = data.get("event")
     if not event_name:
         return {"error": "event parameter required"}
-    
-    # Get event details
-    result = await handle_discover({'event': event_name, 'detail': True})
-    
-    if event_name not in result['events']:
+
+    format_style = data.get("format_style", FORMAT_VERBOSE)
+
+    from ksi_daemon.event_system import get_router
+
+    router = get_router()
+
+    # Find the event handler directly
+    if event_name not in router._handlers:
         return {"error": f"Event not found: {event_name}"}
-    
-    event_info = result['events'][event_name]
-    
-    # Format as help
-    return {
-        'event': event_name,
-        'summary': event_info['summary'],
-        'module': event_info['module'],
-        'async': event_info['async'],
-        'parameters': event_info['parameters'],
-        'triggers': event_info.get('triggers', []),
-        'usage': generate_usage_example(event_name, event_info['parameters'])
+
+    handler = router._handlers[event_name][0]
+
+    # Analyze the handler
+    handler_info = {
+        "module": handler.module,
+        "handler": handler.name,
+        "async": handler.is_async,
+        "summary": extract_summary(handler.func),
     }
 
+    # Get detailed analysis
+    analysis = analyze_handler(handler.func, event_name)
+    handler_info.update(analysis)
 
-def extract_summary(func: Callable) -> str:
-    """Extract summary from function docstring."""
-    doc = inspect.getdoc(func)
-    if doc:
-        # First line is summary
-        return doc.split('\n')[0].strip()
-    return f"Handle {func.__name__}"
+    # Format based on style
+    if format_style == FORMAT_MCP:
+        # Return MCP-compatible format
+        return format_event_info(
+            event_name, handler_info, style=FORMAT_MCP, include_params=True, include_triggers=False
+        )
+    else:
+        # Standard help format
+        formatted_info = format_event_info(
+            event_name,
+            handler_info,
+            style=format_style,
+            include_params=True,
+            include_triggers=True,
+            include_examples=True,
+        )
 
+        # Add usage example
+        formatted_info["usage"] = generate_usage_example(event_name, handler_info.get("parameters", {}))
 
-def analyze_handler(func: Callable, event_name: str) -> Dict[str, Any]:
-    """
-    Analyze handler implementation to extract parameters and triggers.
-    
-    Returns dict with:
-    - parameters: Dict of param info extracted from data access
-    - triggers: List of events this handler emits
-    """
-    try:
-        source = inspect.getsource(func)
-        tree = ast.parse(source)
-        
-        analyzer = SimpleAnalyzer()
-        analyzer.visit(tree)
-        
-        # Merge parameters from different sources
-        parameters = {}
-        
-        # From data.get() calls
-        for name, info in analyzer.data_gets.items():
-            parameters[name] = {
-                'type': 'Any',
-                'required': info['required'],
-                'default': info['default'],
-                'description': f"{name} parameter"
-            }
-        
-        # From data["key"] access
-        for name in analyzer.data_subscripts:
-            if name not in parameters:
-                parameters[name] = {
-                    'type': 'Any',
-                    'required': True,
-                    'description': f"{name} parameter"
-                }
-        
-        # Try to enhance with docstring info
-        doc_params = parse_docstring_params(func)
-        for name, doc_info in doc_params.items():
-            if name in parameters:
-                parameters[name].update(doc_info)
-        
-        return {
-            'parameters': parameters,
-            'triggers': analyzer.triggers
-        }
-        
-    except Exception as e:
-        logger.debug(f"Analysis failed for {func.__name__}: {e}")
-        return {'parameters': {}, 'triggers': []}
-
-
-class SimpleAnalyzer(ast.NodeVisitor):
-    """AST visitor to extract parameters and event triggers."""
-    
-    def __init__(self):
-        self.data_gets = {}      # data.get() calls
-        self.data_subscripts = set()  # data["key"] access
-        self.triggers = []       # Events emitted
-    
-    def visit_Call(self, node):
-        # Check for data.get() calls
-        if (isinstance(node.func, ast.Attribute) and 
-            node.func.attr == 'get' and
-            isinstance(node.func.value, ast.Name) and
-            node.func.value.id == 'data'):
-            
-            if node.args and isinstance(node.args[0], ast.Constant):
-                key = node.args[0].value
-                default = None
-                required = True
-                
-                if len(node.args) > 1:
-                    required = False
-                    if isinstance(node.args[1], ast.Constant):
-                        default = node.args[1].value
-                
-                self.data_gets[key] = {
-                    'required': required,
-                    'default': default
-                }
-        
-        # Check for event emissions
-        elif self._is_emit_call(node):
-            event_name = self._extract_event_name(node)
-            if event_name:
-                self.triggers.append(event_name)
-        
-        self.generic_visit(node)
-    
-    def visit_Subscript(self, node):
-        # Check for data["key"] access
-        if (isinstance(node.value, ast.Name) and
-            node.value.id == 'data' and
-            isinstance(node.slice, ast.Constant)):
-            
-            key = node.slice.value
-            self.data_subscripts.add(key)
-        
-        self.generic_visit(node)
-    
-    def _is_emit_call(self, node):
-        """Check if this is an event emission."""
-        if isinstance(node.func, ast.Attribute):
-            return node.func.attr in ['emit', 'emit_event', 'emit_first']
-        elif isinstance(node.func, ast.Name):
-            return node.func.id in ['emit_event', 'emit']
-        return False
-    
-    def _extract_event_name(self, node):
-        """Extract event name from emit call."""
-        if node.args and isinstance(node.args[0], ast.Constant):
-            return node.args[0].value
-        return None
-
-
-def parse_docstring_params(func: Callable) -> Dict[str, Dict[str, Any]]:
-    """Extract parameter descriptions from docstring."""
-    doc = inspect.getdoc(func)
-    if not doc:
-        return {}
-    
-    params = {}
-    lines = doc.split('\n')
-    in_params = False
-    
-    for line in lines:
-        line = line.strip()
-        
-        # Look for parameter section
-        if line.lower() in ['parameters:', 'args:', 'arguments:']:
-            in_params = True
-            continue
-        elif line.lower().startswith(('returns:', 'example:')):
-            in_params = False
-            continue
-        
-        if in_params and line:
-            # Parse "name (type): description" format
-            if ':' in line:
-                parts = line.split(':', 1)
-                if '(' in parts[0]:
-                    # Has type info
-                    name_type = parts[0].split('(')
-                    name = name_type[0].strip().lstrip('-').strip()
-                    type_str = name_type[1].rstrip(')').strip()
-                    desc = parts[1].strip()
-                    
-                    params[name] = {
-                        'type': type_str,
-                        'description': desc,
-                        'required': 'optional' not in desc.lower()
-                    }
-                else:
-                    # No type info
-                    name = parts[0].strip().lstrip('-').strip()
-                    desc = parts[1].strip()
-                    
-                    params[name] = {
-                        'description': desc,
-                        'required': 'optional' not in desc.lower()
-                    }
-    
-    return params
-
-
-def generate_usage_example(event_name: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
-    """Generate a usage example for an event."""
-    example_data = {}
-    
-    for param_name, param_info in parameters.items():
-        if param_info.get('required', False):
-            # Add required parameters with example values
-            param_type = param_info.get('type', 'Any')
-            if 'str' in param_type.lower():
-                example_data[param_name] = f"example_{param_name}"
-            elif 'int' in param_type.lower():
-                example_data[param_name] = 123
-            elif 'bool' in param_type.lower():
-                example_data[param_name] = True
-            elif 'dict' in param_type.lower():
-                example_data[param_name] = {}
-            elif 'list' in param_type.lower():
-                example_data[param_name] = []
-            else:
-                example_data[param_name] = f"<{param_type}>"
-    
-    return {
-        "event": event_name,
-        "data": example_data
-    }
+        return formatted_info
 
 
 @event_handler("module:list_events")
 async def handle_module_list_events(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Get list of events handled by a specific module.
-    
+
     Parameters:
-        module_name: The full module name (e.g., "ksi_daemon.core.discovery")
-        detail: Include event details like parameters and triggers (default: True)
-    
+        module_name (str): The full module name (e.g., "ksi_daemon.core.discovery")
+        detail (bool): Include event details like parameters and triggers (default: True)
+        format_style (str): Output format - verbose, compact, ultra_compact (default: verbose)
+
     Returns:
         Dictionary with module name and its events
     """
-    module_name = data.get('module_name')
+    module_name = data.get("module_name")
     if not module_name:
         return {"error": "module_name parameter required"}
-    
-    include_detail = data.get('detail', True)
-    
+
+    include_detail = data.get("detail", True)
+    format_style = data.get("format_style", FORMAT_VERBOSE)
+
     from ksi_daemon.event_system import get_router
+
     router = get_router()
-    
+
     # Get module info
     module_info = router.inspect_module(module_name)
     if not module_info:
         return {"error": f"Module not found: {module_name}"}
-    
-    # Extract events from handlers
+
+    # Build event info for each handler in the module
     events = {}
-    for handler in module_info['handlers']:
-        event_name = handler['event']
-        
-        if include_detail:
-            # Get detailed info for this event
-            result = await handle_discover({'event': event_name, 'detail': True})
-            if event_name in result['events']:
-                events[event_name] = result['events'][event_name]
-        else:
-            # Just basic info from the handler
-            events[event_name] = {
-                'handler': handler['function'],
-                'async': handler['async'],
-                'priority': handler['priority']
+    for handler_data in module_info["handlers"]:
+        event_name = handler_data["event"]
+
+        # Get the actual handler object
+        if event_name in router._handlers:
+            handler = router._handlers[event_name][0]
+
+            handler_info = {
+                "module": handler.module,
+                "handler": handler.name,
+                "async": handler.is_async,
+                "summary": extract_summary(handler.func),
             }
-    
-    return {
-        'module': module_name,
-        'events': events,
-        'count': len(events)
-    }
+
+            if include_detail:
+                # Get detailed analysis
+                analysis = analyze_handler(handler.func, event_name)
+                handler_info.update(analysis)
+
+            # Format the event info
+            events[event_name] = format_event_info(
+                event_name,
+                handler_info,
+                style=format_style,
+                include_params=include_detail,
+                include_triggers=include_detail,
+            )
+
+    # Build response
+    response = {"module": module_name, "events": events, "count": len(events)}
+
+    # Add module summary if available
+    if "docstring" in module_info:
+        response["description"] = module_info["docstring"].split("\n")[0].strip()
+
+    return response
 
 
 @event_handler("system:shutdown")
