@@ -67,8 +67,17 @@ async def handle_shutdown(data: Dict[str, Any]) -> None:
     """Stop MCP server on daemon shutdown."""
     global mcp_server, server_task
     
+    # Clean up MCP server resources first
+    if mcp_server:
+        logger.info("Cleaning up MCP server resources")
+        try:
+            await mcp_server.cleanup()
+        except Exception as e:
+            logger.error(f"Error cleaning up MCP server: {e}")
+    
+    # Then cancel the server task
     if server_task and not server_task.done():
-        logger.info("Stopping MCP server")
+        logger.info("Stopping MCP server task")
         server_task.cancel()
         try:
             await server_task

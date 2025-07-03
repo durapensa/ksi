@@ -68,6 +68,7 @@ class KSIDynamicMCPServer(FastMCP):
             return await self._send_ksi_event(event, data, ctx)
         
         # Start session cleanup task
+        self._cleanup_task = None
         self._start_session_cleanup()
     
     async def initialize(self):
@@ -313,7 +314,7 @@ class KSIDynamicMCPServer(FastMCP):
                 except Exception as e:
                     logger.error(f"Session cleanup error: {e}")
         
-        asyncio.create_task(cleanup_sessions())
+        self._cleanup_task = asyncio.create_task(cleanup_sessions())
     
     async def clear_sessions(self, agent_id: str) -> int:
         """Clear sessions for a specific agent."""
@@ -337,3 +338,23 @@ class KSIDynamicMCPServer(FastMCP):
         self.session_cache.clear()
         self.session_last_seen.clear()
         return count
+    
+    async def cleanup(self):
+        """Clean up resources on shutdown."""
+        # Disconnect KSI client
+        if self.ksi_client:
+            await self.ksi_client.disconnect()
+            self.ksi_client = None
+        
+        # Cancel background cleanup task
+        if self._cleanup_task and not self._cleanup_task.done():
+            self._cleanup_task.cancel()
+            try:
+                await self._cleanup_task
+            except asyncio.CancelledError:
+                pass
+            self._cleanup_task = None
+        
+        # Clear session caches
+        self.session_cache.clear()
+        self.session_last_seen.clear()
