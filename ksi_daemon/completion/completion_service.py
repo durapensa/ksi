@@ -227,12 +227,13 @@ async def handle_async_completion(data: Dict[str, Any]) -> Dict[str, Any]:
         
         tg.create_task(process_session())
     
-    # Track active completion
+    # Track active completion with full request data for recovery
     active_completions[request_id] = {
         "session_id": session_id,
         "status": "queued",
         "queued_at": timestamp_utc(),
-        "data": data
+        "data": dict(data),  # Store full request for potential retry
+        "original_event": "completion:async"
     }
     
     # Return immediate acknowledgment

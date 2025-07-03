@@ -138,6 +138,9 @@ class EventDaemonCore:
         # Config modules
         import ksi_daemon.config.config_service
         
+        # MCP modules
+        import ksi_daemon.mcp.mcp_service
+        
         logger.info("All modules imported and auto-registered")
     
     async def handle_event(self, event_name: str, data: dict, context: dict) -> Any:

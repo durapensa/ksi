@@ -9,8 +9,7 @@ Essential development practices for Claude Code when working with KSI.
 
 ### Configuration Management
 - **Use ksi_common/config.py** - Always import config from `ksi_common.config`
-- **Import pattern**: `from ksi_common.config import config` (for all code including plugins)
-- **Plugin imports**: Use absolute imports like `from ksi_daemon.config import config`
+- **Import pattern**: `from ksi_common.config import config` (for all code)
 - **Path handling**: **NEVER hardcode paths** - Always use config properties like `config.daemon_log_dir`, `config.socket_path`, etc.
 - **Never use get_config()** - The config is a global instance, just use `config` directly
 - **❌ WRONG**: `Path("var/logs/daemon")`, `"var/run/daemon.sock"`, hardcoded directory paths

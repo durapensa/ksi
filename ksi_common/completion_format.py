@@ -196,20 +196,27 @@ def extract_text(provider: str, response: Dict[str, Any]) -> str:
                str(response))
 
 
-def extract_session_id(provider: str, response: Dict[str, Any]) -> Optional[str]:
+def extract_session_id(provider: str, response: Union[Dict[str, Any], Any]) -> Optional[str]:
     """Extract session ID from provider response."""
-    if provider == "claude-cli":
-        return response.get("session_id")
+    if provider == "litellm":
+        # LiteLLM response object should have session_id as attribute (snake_case)
+        if hasattr(response, "session_id"):
+            return response.session_id
+        # Check if it's a dict-like response
+        if isinstance(response, dict):
+            return response.get("session_id")
+        return None
     
-    elif provider in ["openai", "anthropic-api"]:
+    elif provider in ["openai", "anthropic-api", "claude-cli"]:
         # These providers typically don't have built-in session tracking
+        # or we handle them through litellm wrapper
         return None
     
     else:
-        # Fallback: try common field names
-        return (response.get("session_id") or 
-               response.get("sessionId") or
-               response.get("conversation_id"))
+        # Fallback: try standard snake_case field
+        if isinstance(response, dict):
+            return response.get("session_id")
+        return None
 
 
 def extract_usage(provider: str, response: Dict[str, Any]) -> Optional[Dict[str, Any]]:
