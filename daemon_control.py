@@ -5,10 +5,11 @@ KSI Daemon Control Script
 Python-based daemon control using ksi_common configuration system.
 Eliminates hardcoded paths and provides proper environment variable support.
 
-Usage: python3 daemon_control.py {start|stop|restart|status|health}
+Usage: python3 daemon_control.py {start|stop|restart|status|health|dev}
 """
 
 import argparse
+import asyncio
 import json
 import os
 import signal
@@ -17,7 +18,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Set
 
 # Configure logging BEFORE importing ksi modules
 from ksi_common.logging import configure_structlog
@@ -298,6 +299,82 @@ class DaemonController:
             print("✗ Socket communication failed")
             return 1
 
+    async def dev(self) -> int:
+        """Run daemon in development mode with auto-restart on file changes."""
+        print("Starting KSI daemon in development mode...")
+        print("Watching for changes in .py files...")
+        print("Press Ctrl+C to stop\n")
+        
+        # Import watchfiles here to avoid dependency for non-dev usage
+        try:
+            from watchfiles import awatch
+        except ImportError:
+            logger.error("watchfiles not installed. Run: pip install watchfiles")
+            return 1
+        
+        # Directories to watch
+        watch_dirs = [
+            Path("ksi_daemon"),
+            Path("ksi_common"),
+            Path("ksi_client")
+        ]
+        
+        # Filter out non-existent directories
+        watch_paths = [str(d) for d in watch_dirs if d.exists()]
+        
+        if not watch_paths:
+            logger.error("No source directories found to watch")
+            return 1
+        
+        # Start daemon initially
+        start_result = self.start()
+        if start_result != 0:
+            return start_result
+        
+        restart_count = 0
+        
+        try:
+            # Watch for changes
+            async for changes in awatch(*watch_paths):
+                # Filter for Python files only
+                py_changes = [
+                    (change_type, path) 
+                    for change_type, path in changes 
+                    if path.endswith('.py')
+                ]
+                
+                if not py_changes:
+                    continue
+                
+                restart_count += 1
+                print(f"\n{'='*60}")
+                print(f"[Restart #{restart_count}] Detected changes:")
+                for change_type, path in py_changes[:5]:  # Show first 5 changes
+                    print(f"  - {change_type.name}: {path}")
+                if len(py_changes) > 5:
+                    print(f"  ... and {len(py_changes) - 5} more changes")
+                
+                print("\nRestarting daemon...")
+                
+                # TODO: In future, emit checkpoint event here
+                # self._send_socket_event("dev:checkpoint")
+                
+                # Restart daemon
+                self.restart()
+                
+                print("Daemon restarted successfully")
+                print("Watching for changes...\n")
+                
+        except KeyboardInterrupt:
+            print("\n\nStopping development mode...")
+            self.stop()
+            print("Development mode stopped")
+            return 0
+        except Exception as e:
+            logger.error(f"Dev mode error: {e}", exc_info=True)
+            self.stop()
+            return 1
+
 
 def main():
     """Main entry point."""
@@ -311,12 +388,13 @@ Examples:
   python3 daemon_control.py restart  # Restart daemon
   python3 daemon_control.py status   # Show status
   python3 daemon_control.py health   # Check health via socket
+  python3 daemon_control.py dev      # Development mode with auto-restart
         """
     )
     
     parser.add_argument(
         "command",
-        choices=["start", "stop", "restart", "status", "health"],
+        choices=["start", "stop", "restart", "status", "health", "dev"],
         help="Command to execute"
     )
     
@@ -334,6 +412,8 @@ Examples:
         return controller.status()
     elif args.command == "health":
         return controller.health()
+    elif args.command == "dev":
+        return asyncio.run(controller.dev())
     else:
         parser.print_help()
         return 1
