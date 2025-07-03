@@ -162,6 +162,14 @@ Essential development practices for Claude Code when working with KSI.
 - `interfaces/monitor_tui.py`
 - `interfaces/monitor_textual.py`
 
+## Development Mode
+- **Auto-restart on file changes**: `./daemon_control.py dev`
+- **Watches**: `ksi_daemon/`, `ksi_common/`, `ksi_client/` directories
+- **File types**: Only `.py` files trigger restart
+- **Clear output**: Shows file changes and restart count
+- **Graceful stop**: Ctrl+C stops both watcher and daemon
+- **Future**: Will add checkpoint/restore for state preservation
+
 ## Quick Reference
 ```bash
 source .venv/bin/activate          # Always first
@@ -169,6 +177,7 @@ source .venv/bin/activate          # Always first
 ./daemon_control.py status         # Check status
 ./daemon_control.py stop           # Stop daemon
 ./daemon_control.py restart        # Restart daemon
+./daemon_control.py dev            # Development mode with auto-restart
 
 # Plugin introspection
 echo '{"event": "plugin:list", "data": {}}' | nc -U var/run/daemon.sock
