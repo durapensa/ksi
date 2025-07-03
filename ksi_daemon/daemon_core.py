@@ -206,7 +206,7 @@ class EventDaemonCore:
 
 
 # Add built-in discovery handlers for introspection
-from .event_system import event_handler
+from .event_system import event_handler, EventPriority
 
 @event_handler("system:shutdown", priority=EventPriority.HIGH)
 async def handle_shutdown_request(data: Dict[str, Any]) -> None:
