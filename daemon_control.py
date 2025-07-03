@@ -97,7 +97,7 @@ class DaemonController:
         
         try:
             sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            sock.settimeout(5.0)
+            sock.settimeout(2.0)
             sock.connect(str(self.socket_path))
             
             message = json.dumps(event_json) + '\n'
@@ -150,6 +150,9 @@ class DaemonController:
             # Redirect stdout/stderr to startup log using config paths
             startup_log = config.daemon_log_dir / "daemon_startup.log"
             
+            # Create empty PID file for watching
+            self.pid_file.write_text("")
+            
             with open(startup_log, 'w') as log_file:
                 # Start daemon in background with startup log
                 process = subprocess.Popen(
@@ -160,18 +163,29 @@ class DaemonController:
                     start_new_session=True
                 )
             
-            # Wait a moment for daemon to start
-            time.sleep(2)
+            # Watch for daemon to write its PID
+            async def wait_for_pid():
+                from watchfiles import awatch
+                async for changes in awatch(str(self.pid_file.parent)):
+                    for change_type, path in changes:
+                        if path == str(self.pid_file):
+                            content = self.pid_file.read_text().strip()
+                            if content and content.isdigit():
+                                return int(content)
             
-            # Check if daemon started successfully
-            pid = self._read_pid()
-            if pid and self._is_process_running(pid):
-                print(f"✓ Daemon started successfully (PID: {pid})")
-                print(f"  Socket: {self.socket_path}")
-                print(f"  Logs: {self.log_dir}")
-                return 0
-            else:
-                print("✗ Daemon failed to start")
+            try:
+                # Wait up to 5 seconds for PID
+                pid = asyncio.run(asyncio.wait_for(wait_for_pid(), timeout=5.0))
+                if self._is_process_running(pid):
+                    print(f"✓ Daemon started successfully (PID: {pid})")
+                    print(f"  Socket: {self.socket_path}")
+                    print(f"  Logs: {self.log_dir}")
+                    return 0
+                else:
+                    print("✗ Daemon started but process not found")
+                    return 1
+            except asyncio.TimeoutError:
+                print("✗ Daemon failed to start (timeout waiting for PID)")
                 return 1
                 
         except Exception as e:
@@ -201,7 +215,7 @@ class DaemonController:
             print("Sent graceful shutdown command")
             
             # Wait for graceful shutdown
-            for i in range(10):  # Wait up to 10 seconds
+            for i in range(5):  # Wait up to 5 seconds
                 time.sleep(1)
                 if not self._is_process_running(pid):
                     print("✓ Daemon stopped gracefully")
@@ -214,7 +228,7 @@ class DaemonController:
             os.kill(pid, signal.SIGTERM)
             
             # Wait for process to terminate
-            for i in range(5):  # Wait up to 5 seconds
+            for i in range(3):  # Wait up to 3 seconds
                 time.sleep(1)
                 if not self._is_process_running(pid):
                     print("✓ Daemon stopped")
@@ -223,8 +237,8 @@ class DaemonController:
             # Force kill if still running
             print("Process still running, sending SIGKILL...")
             os.kill(pid, signal.SIGKILL)
-            time.sleep(1)
             
+            # SIGKILL should be immediate, just verify
             if not self._is_process_running(pid):
                 print("✓ Daemon force-stopped")
                 return 0
@@ -244,8 +258,7 @@ class DaemonController:
         if stop_result != 0:
             return stop_result
         
-        # Brief pause between stop and start
-        time.sleep(1)
+        # Start immediately after stop
         return self.start()
     
     def status(self) -> int:
@@ -305,6 +318,9 @@ class DaemonController:
         print("Watching for changes in .py files...")
         print("Press Ctrl+C to stop\n")
         
+        # Set dev mode environment variable
+        os.environ["KSI_DEV_MODE"] = "true"
+        
         # Import watchfiles here to avoid dependency for non-dev usage
         try:
             from watchfiles import awatch
@@ -327,9 +343,12 @@ class DaemonController:
             return 1
         
         # Start daemon initially
+        print("Starting daemon with checkpoint support...")
         start_result = self.start()
         if start_result != 0:
             return start_result
+        
+        print("✓ Daemon started in dev mode")
         
         restart_count = 0
         
@@ -354,10 +373,17 @@ class DaemonController:
                 if len(py_changes) > 5:
                     print(f"  ... and {len(py_changes) - 5} more changes")
                 
-                print("\nRestarting daemon...")
+                print("\nCreating checkpoint...")
                 
-                # TODO: In future, emit checkpoint event here
-                # self._send_socket_event("dev:checkpoint")
+                # Try to checkpoint state before restart
+                checkpoint_result = self._send_socket_event("dev:checkpoint")
+                if checkpoint_result and checkpoint_result.get("status") == "saved":
+                    print(f"✓ Checkpoint saved: {checkpoint_result.get('sessions', 0)} sessions, "
+                          f"{checkpoint_result.get('active_requests', 0)} active requests")
+                else:
+                    print("⚠ Checkpoint failed - state will be lost")
+                
+                print("Restarting daemon...")
                 
                 # Restart daemon
                 self.restart()

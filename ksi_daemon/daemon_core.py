@@ -101,6 +101,7 @@ class EventDaemonCore:
         import ksi_daemon.core.correlation  
         import ksi_daemon.core.discovery
         import ksi_daemon.core.monitor
+        import ksi_daemon.core.checkpoint   # Dev mode checkpoint/restore
         
         # Transport modules
         import ksi_daemon.transport.unix_socket
