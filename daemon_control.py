@@ -237,19 +237,29 @@ class DaemonController:
             
             # Force kill if still running
             print("Process still running, sending SIGKILL...")
-            os.kill(pid, signal.SIGKILL)
-            
-            # SIGKILL should be immediate, just verify
-            if not self._is_process_running(pid):
-                print("✓ Daemon force-stopped")
+            try:
+                os.kill(pid, signal.SIGKILL)
+                
+                # SIGKILL should be immediate, just verify
+                time.sleep(0.1)  # Brief pause to let OS clean up
+                if not self._is_process_running(pid):
+                    print("✓ Daemon force-stopped")
+                    return 0
+                else:
+                    print("✗ Failed to stop daemon")
+                    return 1
+            except (OSError, ProcessLookupError):
+                # Process died between checks
+                print("✓ Daemon stopped")
                 return 0
-            else:
-                print("✗ Failed to stop daemon")
-                return 1
                 
         except (OSError, ProcessLookupError) as e:
-            logger.warning(f"Error stopping process: {e}")
+            # Process doesn't exist or we don't have permission
+            logger.info(f"Process {pid} not found: {e}")
             print("✓ Daemon already stopped")
+            # Clean up stale PID file
+            if self.pid_file.exists():
+                self.pid_file.unlink()
             return 0
     
     def restart(self) -> int:
