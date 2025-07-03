@@ -42,7 +42,8 @@ async def handle_startup(data: Dict[str, Any]) -> Dict[str, Any]:
                 host="127.0.0.1",  # Localhost only for security
                 port=config.mcp_server_port,
                 log_level="INFO"
-            )
+            ),
+            name="mcp_http_server"
         )
         
         logger.info(
@@ -75,14 +76,31 @@ async def handle_shutdown(data: Dict[str, Any]) -> None:
         except Exception as e:
             logger.error(f"Error cleaning up MCP server: {e}")
     
-    # Then cancel the server task
+    # Then handle the server task shutdown more gracefully
     if server_task and not server_task.done():
-        logger.info("Stopping MCP server task")
+        logger.info("Initiating graceful MCP server shutdown")
+        
+        # First, try to let uvicorn shutdown gracefully
+        # The server task will complete when uvicorn finishes its shutdown sequence
         server_task.cancel()
+        
         try:
-            await server_task
+            # Give uvicorn time to handle the cancellation gracefully
+            # Use shield to prevent immediate cancellation propagation
+            await asyncio.wait_for(
+                asyncio.shield(server_task),
+                timeout=2.0
+            )
+            logger.info("MCP server shut down gracefully")
+        except asyncio.TimeoutError:
+            logger.warning("MCP server shutdown timeout, forcing stop")
+            # Server didn't stop in time, but that's OK
         except asyncio.CancelledError:
-            pass
+            # This is expected when the server task is cancelled
+            logger.info("MCP server task cancelled successfully")
+        except Exception as e:
+            # Log any other unexpected errors but don't fail
+            logger.error(f"Error during MCP server shutdown: {e}")
     
     mcp_server = None
     server_task = None

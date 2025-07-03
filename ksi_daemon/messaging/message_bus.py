@@ -42,6 +42,9 @@ class MessageBus:
         self.message_history = []
         self.max_history_size = 1000
         
+        # Track background tasks for cleanup
+        self._delivery_tasks: Set[asyncio.Task] = set()
+        
     def connect_agent(self, agent_id: str, writer: asyncio.StreamWriter):
         """Register an agent connection"""
         self.connections[agent_id] = writer
@@ -54,7 +57,10 @@ class MessageBus:
         
         # Deliver any queued messages
         if agent_id in self.offline_queue:
-            asyncio.create_task(self._deliver_queued_messages(agent_id))
+            task = asyncio.create_task(self._deliver_queued_messages(agent_id))
+            self._delivery_tasks.add(task)
+            # Remove task from set when done
+            task.add_done_callback(self._delivery_tasks.discard)
     
     def disconnect_agent(self, agent_id: str):
         """Remove agent connection"""
@@ -339,6 +345,46 @@ class MessageBus:
         self.subscriptions.clear()
         return count
     
+    async def shutdown(self) -> None:
+        """Comprehensive shutdown of message bus."""
+        logger.info("Starting message bus shutdown")
+        
+        # 1. Cancel all pending delivery tasks
+        if self._delivery_tasks:
+            logger.info(f"Cancelling {len(self._delivery_tasks)} delivery tasks")
+            for task in list(self._delivery_tasks):
+                if not task.done():
+                    task.cancel()
+            
+            # Wait for all tasks to complete cancellation
+            if self._delivery_tasks:
+                await asyncio.gather(*self._delivery_tasks, return_exceptions=True)
+            self._delivery_tasks.clear()
+        
+        # 2. Disconnect all agents gracefully
+        if self.connections:
+            logger.info(f"Disconnecting {len(self.connections)} agents")
+            for agent_id in list(self.connections.keys()):
+                self.disconnect_agent(agent_id)
+        
+        # 3. Clear offline message queues
+        queue_count = len(self.offline_queue)
+        message_count = sum(len(msgs) for msgs in self.offline_queue.values())
+        if queue_count > 0:
+            logger.info(f"Clearing {message_count} messages from {queue_count} offline queues")
+            self.offline_queue.clear()
+        
+        # 4. Clear message history
+        history_count = len(self.message_history)
+        if history_count > 0:
+            logger.info(f"Clearing {history_count} messages from history")
+            self.message_history.clear()
+        
+        # 5. Clear all subscriptions
+        sub_count = self.clear_subscriptions()
+        
+        logger.info(f"Message bus shutdown complete - cleared {sub_count} subscriptions")
+    
     # Simplified interface for in-process agents
     
     async def publish_simple(self, from_agent: str, event_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -398,7 +444,10 @@ async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
 @event_handler("system:shutdown")
 async def handle_shutdown(data: Dict[str, Any]) -> None:
     """Clean up on shutdown."""
-    total_subscriptions = message_bus.clear_subscriptions()
+    # Perform comprehensive shutdown
+    await message_bus.shutdown()
+    
+    # Clear client subscription tracking
     client_subscriptions.clear()
     
     logger.info("Message bus plugin stopped")
