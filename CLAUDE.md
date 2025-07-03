@@ -31,6 +31,7 @@ Essential development practices for Claude Code when working with KSI.
 
 ### Development Practices
 - **Git is the backup** - no manual file copies needed
+- **Commit in order** - Always commit changes in the order they were made
 - **Confirm before deleting** files (especially logs/data)
 - **Event-driven only** - no polling or wait loops
 - **Fail fast** - don't mask problems with fallbacks
