@@ -1,0 +1,58 @@
+name: "base_single_agent"
+type: "profile"
+version: "1.0.0"
+description: "Base profile for single agents without multi-agent communication capabilities"
+author: "ksi-system"
+
+components:
+  - name: "agent_config"
+    inline:
+      model: "sonnet"
+      # Descriptive capabilities - what this agent is designed for
+      capabilities: ["conversation", "analysis", "task_execution"]
+      message_queue_size: 100
+      priority: "normal"
+      
+  - name: "ksi_tools"
+    inline:
+      # Basic tools for single agent operation
+      allowed_tools:
+        - "system:health"
+        - "state:get"
+        - "state:set"
+        - "state:list"
+      disallowed_tools: 
+        - "agent:spawn"        # No spawning other agents
+        - "agent:send_message" # No inter-agent messaging
+        
+  - name: "permissions"
+    inline:
+      # Link to permission profile
+      profile: "standard"
+      # Explicitly disable multi-agent capabilities
+      overrides:
+        capabilities:
+          multi_agent_todo: false
+          agent_messaging: false
+          spawn_agents: false
+          
+variables:
+  enable_tools:
+    type: "boolean"
+    default: true
+    description: "Whether the agent has access to tools"
+  
+  enable_state:
+    type: "boolean" 
+    default: true
+    description: "Whether the agent can use persistent state"
+    
+metadata:
+  tags: ["base", "foundation", "single-agent"]
+  use_cases: ["standalone", "isolated", "simple-tasks"]
+  multi_agent_capable: false
+  description_notes: |
+    This base profile is for agents that operate independently without 
+    any multi-agent coordination capabilities. They cannot spawn child 
+    agents or communicate with other agents. Suitable for simple, 
+    isolated tasks.

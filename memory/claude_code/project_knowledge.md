@@ -9,6 +9,7 @@ Core technical reference for KSI (Kubernetes-Style Infrastructure) - a resilient
 - Automatic retry for failed operations with exponential backoff
 - Checkpoint/restore for all daemon restarts (not just dev mode)
 - Session recovery for interrupted completion requests
+- MCP token optimization with thin handshake implementation
 
 ## System Architecture
 
@@ -144,15 +145,16 @@ All state functionality consolidated in `ksi_daemon/core/state.py`:
 - **core/checkpoint.py** - Universal state persistence (with shutdown integration)
 
 ### Service Modules
-- **completion/completion_service.py** - Async completion management (with retry logic)
+- **completion/completion_service.py** - Async completion management (with retry logic, token usage logging)
 - **completion/retry_manager.py** - Retry scheduling with exponential backoff
-- **completion/claude_cli_litellm_provider.py** - Spawns Claude processes (graceful cleanup)
-- **agent/agent_service.py** - Agent lifecycle (asyncio tasks only)
+- **completion/claude_cli_litellm_provider.py** - Spawns Claude processes (graceful cleanup, MCP support)
+- **agent/agent_service.py** - Agent lifecycle (asyncio tasks only, MCP config generation)
 - **conversation/conversation_service.py** - Session tracking
 - **messaging/message_bus.py** - Pub/sub messaging (with shutdown acknowledgment)
 - **permissions/permission_service.py** - Security boundaries
 - **composition/composition_service.py** - YAML configurations
 - **mcp/mcp_service.py** - MCP server management (with graceful shutdown)
+- **mcp/dynamic_server.py** - FastMCP server with thin handshake optimization
 
 ## Module Dependencies
 
@@ -292,6 +294,14 @@ echo '{"event": "system:health", "data": {}}' | nc -U var/run/daemon.sock | jq
 - **Log filenames**: `var/logs/responses/{session_id}.jsonl`
 - **Conversation flow**: Use previous session_id as input → get new session_id
 - **IMPORTANT**: Session IDs are provider-generated and immutable
+
+## MCP Integration
+- **Single daemon-managed MCP server** on port 8080 (streamable-http)
+- **Dynamic permissions** - tools filtered per agent based on allowed_tools
+- **Thin handshake optimization** - minimal tool descriptions after first completion
+- **Session persistence** - MCP sessions saved in `var/db/mcp_sessions.db`
+- **Token usage logging** - tracks MCP overhead (~3000-5000 cache creation tokens)
+- **Agent MCP configs** - generated in `var/tmp/{agent_id}_mcp_config.json`
 
 ## Common Issues
 

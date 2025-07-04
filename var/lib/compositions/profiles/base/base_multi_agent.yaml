@@ -1,0 +1,92 @@
+name: "base_multi_agent"
+type: "profile"
+version: "1.0.0"
+description: "Base profile for agents with multi-agent communication and coordination capabilities"
+author: "ksi-system"
+extends: "base_single_agent"  # Inherit all single-agent capabilities
+
+components:
+  - name: "agent_config"
+    inline:
+      # Additional descriptive capabilities for multi-agent coordination
+      capabilities: ["conversation", "analysis", "task_execution", "coordination", "delegation", "collaboration"]
+      
+  - name: "ksi_tools"
+    inline:
+      # Additional tools for multi-agent operation
+      allowed_tools:
+        - "system:health"
+        - "state:get"
+        - "state:set"
+        - "state:list"
+        - "agent:spawn"         # Can spawn child agents
+        - "agent:list"          # Can list other agents
+        - "agent:status"        # Can check agent status
+        - "agent:send_message"  # Can send direct messages to specific agents
+        - "agent:terminate"     # Can terminate child agents
+        - "conversation:create" # Can create new conversations
+        - "conversation:active" # Can check active conversations
+        # Message bus events for pub/sub communication
+        - "message:subscribe"   # Subscribe to message channels
+        - "message:unsubscribe" # Unsubscribe from channels
+        - "message:publish"     # Publish messages to channels
+        - "message:subscriptions" # List current subscriptions
+      disallowed_tools: []
+      
+  - name: "permissions"
+    inline:
+      # Link to permission profile with multi-agent capabilities
+      profile: "trusted"  # Or use custom profile
+      # Explicitly enable multi-agent capabilities
+      overrides:
+        capabilities:
+          multi_agent_todo: true
+          agent_messaging: true
+          spawn_agents: true
+          
+  - name: "coordination_config"
+    inline:
+      # Multi-agent specific configuration
+      max_child_agents: 5
+      message_timeout_seconds: 300
+      coordination_strategy: "hierarchical"  # or "peer-to-peer"
+      spawn_permissions:
+        # What types of agents this can spawn
+        allowed_profiles: 
+          - "base_single_agent"
+          - "base_multi_agent"
+          - "research_agent"
+          - "analysis_agent"
+        max_depth: 2  # How deep the spawn hierarchy can go
+          
+variables:
+  enable_tools:
+    type: "boolean"
+    default: true
+    description: "Whether the agent has access to tools"
+    
+  enable_state:
+    type: "boolean"
+    default: true
+    description: "Whether the agent can use persistent state"
+    
+  enable_coordination:
+    type: "boolean"
+    default: true
+    description: "Whether the agent can coordinate with other agents"
+    
+  coordination_mode:
+    type: "string"
+    default: "hierarchical"
+    allowed_values: ["hierarchical", "peer-to-peer", "hybrid"]
+    description: "How this agent coordinates with others"
+    
+metadata:
+  tags: ["base", "foundation", "multi-agent", "orchestrator"]
+  use_cases: ["orchestration", "delegation", "complex-tasks", "team-coordination"]
+  multi_agent_capable: true
+  description_notes: |
+    This base profile extends the single-agent profile with multi-agent 
+    coordination capabilities. Agents using this profile can spawn child 
+    agents, send messages between agents, and coordinate complex multi-agent 
+    workflows. Suitable for orchestration and delegation scenarios.

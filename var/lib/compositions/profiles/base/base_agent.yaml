@@ -1,8 +1,13 @@
 name: "base_agent"
 type: "profile"
 version: "1.0.0"
-description: "Base agent profile with common settings"
+description: "DEPRECATED: Use base_single_agent or base_multi_agent instead"
 author: "ksi-system"
+deprecated: true
+deprecated_message: |
+  This profile is deprecated. Please use one of:
+  - base_single_agent: For agents without multi-agent communication
+  - base_multi_agent: For agents with orchestration capabilities
 
 components:
   - name: "agent_config"
