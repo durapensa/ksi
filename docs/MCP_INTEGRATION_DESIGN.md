@@ -39,8 +39,7 @@ Claude Code expects MCP configuration in this format:
       "retry": {
         "maxAttempts": 3,
         "backoffMs": 1000
-      },
-      "sessionCache": "var/tmp/mcp_agent_123_session.json"
+      }
     }
   }
 }
@@ -50,7 +49,6 @@ Claude Code expects MCP configuration in this format:
 - `type`: Must be "streamable-http" (not "transport")
 - `url`: MCP server endpoint
 - `headers`: Custom headers for agent identification
-- `sessionCache`: Path for session persistence (enables thin handshakes)
 
 ## Session Management
 
@@ -60,15 +58,32 @@ Claude Code expects MCP configuration in this format:
 
 The MCP server tracks sessions via:
 - Headers (`X-KSI-Agent-ID`, `X-KSI-Conversation-ID`)
-- sessionCache file (persists across Claude Code restarts)
+- Internal session database (persists across daemon restarts in `mcp_sessions.db`)
 
 ### Session Flow
 ```
-Agent spawn → Generate MCP config with unique sessionCache path
-├─ Completion 1 → Full handshake → Cache session
-├─ Completion 2 → Thin handshake (from cache)
-├─ Completion 3 → Thin handshake (from cache)
-└─ Agent terminate → Clean up sessionCache
+Agent spawn → Generate MCP config with headers
+├─ Completion 1 → Full handshake → Server caches session in memory and DB
+├─ Completion 2 → Thin handshake (minimal tool descriptions)
+├─ Completion 3 → Thin handshake (minimal tool descriptions)
+└─ Agent terminate → Clean up MCP config file
+```
+
+### Token Usage Optimization
+The thin handshake dramatically reduces token usage:
+- **Full handshake**: ~3000-5000 cache creation tokens (full tool schemas)
+- **Thin handshake**: ~500-1000 cache creation tokens (minimal descriptions)
+
+Token usage is logged for analysis:
+```json
+{
+  "event": "Completion token usage",
+  "has_mcp": true,
+  "input_tokens": 17,
+  "cache_creation_tokens": 3314,  // High for full handshake
+  "cache_read_tokens": 45662,
+  "output_tokens": 306
+}
 ```
 
 ## Permission Model
@@ -113,8 +128,7 @@ async def get_agent_tools(request):
 ### 3. Provider Integration
 `ksi_daemon/completion/claude_cli_litellm_provider.py`
 - Generates MCP configs per completion
-- Passes agent/conversation IDs
-- Manages sessionCache paths
+- Passes agent/conversation IDs in headers
 
 ## Tool Naming Convention
 

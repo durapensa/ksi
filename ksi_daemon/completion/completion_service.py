@@ -329,6 +329,27 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
         # Save to session log
         save_completion_response(standardized_response)
         
+        # Log token usage if available (especially for MCP handshake analysis)
+        if provider == "claude-cli" and "response" in standardized_response:
+            raw_resp = standardized_response["response"]
+            if isinstance(raw_resp, dict):
+                usage = raw_resp.get("usage", {})
+                if usage:
+                    # Check if this was an MCP-enabled request
+                    has_mcp = bool(data.get("extra_body", {}).get("ksi", {}).get("mcp_config_path"))
+                    
+                    logger.info(
+                        "Completion token usage",
+                        request_id=request_id,
+                        has_mcp=has_mcp,
+                        input_tokens=usage.get("input_tokens", 0),
+                        cache_creation_tokens=usage.get("cache_creation_input_tokens", 0),
+                        cache_read_tokens=usage.get("cache_read_input_tokens", 0),
+                        output_tokens=usage.get("output_tokens", 0),
+                        session_id=data.get("session_id"),
+                        agent_id=data.get("agent_id")
+                    )
+        
         # Clean up tracking - remove completed request
         if request_id in active_completions:
             active_completions.pop(request_id)

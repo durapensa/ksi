@@ -59,9 +59,7 @@ class MCPConfigManager:
                         "maxAttempts": 3,
                         "backoffMs": 1000,
                         "maxBackoffMs": 30000
-                    },
-                    # Session cache enables thin handshakes
-                    "sessionCache": str(self.tmp_dir / f"{agent_id}_mcp_session.json")
+                    }
                 }
             }
         }
@@ -180,28 +178,11 @@ class MCPConfigManager:
                     error=str(e)
                 )
         
-        # Remove session cache
-        session_cache = self.tmp_dir / f"{agent_id}_mcp_session.json"
-        if session_cache.exists():
-            try:
-                session_cache.unlink()
-                logger.debug(
-                    "Removed MCP session cache",
-                    agent_id=agent_id,
-                    path=str(session_cache)
-                )
-            except Exception as e:
-                logger.error(
-                    "Failed to remove MCP session cache",
-                    agent_id=agent_id,
-                    error=str(e)
-                )
-        
         return cleaned
     
     def cleanup_all(self) -> int:
         """
-        Clean up all MCP configs and session caches.
+        Clean up all MCP configs.
         
         Used during daemon shutdown or maintenance.
         
@@ -210,8 +191,8 @@ class MCPConfigManager:
         """
         cleaned = 0
         
-        # Clean up all MCP configs and session caches
-        patterns = ["*_mcp_config.json", "*_mcp_session.json"]
+        # Clean up all MCP configs
+        patterns = ["*_mcp_config.json"]
         
         for pattern in patterns:
             for file_path in self.tmp_dir.glob(pattern):
@@ -263,16 +244,11 @@ class MCPConfigManager:
                 # Get file stats
                 stat = config_path.stat()
                 
-                # Check for session cache
-                session_cache = self.tmp_dir / f"{agent_id}_mcp_session.json"
-                has_session = session_cache.exists()
-                
                 configs[agent_id] = {
                     "path": str(config_path),
                     "created": datetime.fromtimestamp(stat.st_ctime).isoformat(),
                     "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                    "size": stat.st_size,
-                    "has_session_cache": has_session
+                    "size": stat.st_size
                 }
                 
             except Exception as e:

@@ -7,9 +7,11 @@ and implements thin handshakes for efficient session continuity.
 """
 
 import asyncio
+import json
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
+import aiosqlite
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 
@@ -44,6 +46,9 @@ class KSIDynamicMCPServer(FastMCP):
         # KSI client for event communication
         self.ksi_client: Optional[EventClient] = None
         
+        # Session persistence database path
+        self.session_db_path = config.db_dir / "mcp_sessions.db"
+        
         # Register default tool
         @self.tool
         async def ksi_raw_event(
@@ -70,6 +75,10 @@ class KSIDynamicMCPServer(FastMCP):
         # Start session cleanup task
         self._cleanup_task = None
         self._start_session_cleanup()
+        
+        # Initialize session persistence
+        self._load_sessions_task = None
+        self._init_session_persistence()
     
     async def initialize(self):
         """Initialize KSI client connection."""
@@ -96,19 +105,30 @@ class KSIDynamicMCPServer(FastMCP):
         
         # Check if this is a known session (thin handshake)
         if session_key in self.session_cache:
-            logger.debug(
+            # Calculate approximate token savings
+            full_tools = self.session_cache[session_key].get("tools", [])
+            minimal_tools = self._get_minimal_tools(self.session_cache[session_key])
+            
+            # Rough estimation: 1 token per 4 characters
+            full_chars = sum(len(str(t)) for t in full_tools)
+            minimal_chars = sum(len(str(t)) for t in minimal_tools)
+            token_savings = (full_chars - minimal_chars) // 4
+            
+            logger.info(
                 "Thin handshake for known session",
                 agent_id=agent_id,
-                conversation_id=conversation_id
+                conversation_id=conversation_id,
+                tools_count=len(minimal_tools),
+                estimated_token_savings=token_savings
             )
-            # Return cached tool names with minimal schemas
-            return self._get_minimal_tools(self.session_cache[session_key])
+            return minimal_tools
         
         # Full handshake - generate tools based on permissions
         logger.info(
             "Full handshake for new session",
             agent_id=agent_id,
-            conversation_id=conversation_id
+            conversation_id=conversation_id,
+            session_key=session_key
         )
         
         # Get agent permissions
@@ -249,14 +269,25 @@ class KSIDynamicMCPServer(FastMCP):
             return {"success": False, "error": str(e)}
     
     def _get_minimal_tools(self, session_data: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Return minimal tool schemas for thin handshake."""
+        """Return minimal tool schemas for thin handshake.
+        
+        This dramatically reduces token usage by providing only essential info.
+        Tool names are required for security, but descriptions can be minimal.
+        """
         tools = []
         for tool in session_data.get("tools", []):
-            # Return just enough for tool to be available
+            # Extract just the event name for a short description
+            tool_name = tool["name"]
+            if tool_name.startswith("ksi_"):
+                # Convert ksi_system_health -> "system health"
+                event_desc = tool_name[4:].replace("_", " ")
+            else:
+                event_desc = tool_name
+            
             tools.append({
-                "name": tool["name"],
-                "description": tool["description"],
-                "inputSchema": {"type": "object"}  # Minimal schema
+                "name": tool_name,
+                "description": event_desc,  # Minimal description (3-5 words)
+                "inputSchema": {"type": "object", "properties": {}}  # Minimal but valid schema
             })
         return tools
     
@@ -355,6 +386,97 @@ class KSIDynamicMCPServer(FastMCP):
                 pass
             self._cleanup_task = None
         
+        # Cancel load sessions task if still running
+        if self._load_sessions_task and not self._load_sessions_task.done():
+            self._load_sessions_task.cancel()
+            try:
+                await self._load_sessions_task
+            except asyncio.CancelledError:
+                pass
+            self._load_sessions_task = None
+        
+        # Save sessions before clearing
+        await self._save_sessions()
+        
         # Clear session caches
         self.session_cache.clear()
         self.session_last_seen.clear()
+        
+        logger.info("Cleaned up MCP server resources")
+    
+    def _init_session_persistence(self):
+        """Initialize session persistence database."""
+        # Create task to load sessions after server starts
+        self._load_sessions_task = asyncio.create_task(self._load_sessions())
+    
+    async def _load_sessions(self):
+        """Load persisted sessions from database."""
+        try:
+            # Ensure DB directory exists
+            self.session_db_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            async with aiosqlite.connect(self.session_db_path) as db:
+                # Create table if not exists
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS mcp_sessions (
+                        session_key TEXT PRIMARY KEY,
+                        session_data TEXT NOT NULL,
+                        last_seen TIMESTAMP NOT NULL
+                    )
+                """)
+                await db.commit()
+                
+                # Load sessions less than 24 hours old
+                cutoff = (datetime.now() - timedelta(hours=24)).isoformat()
+                async with db.execute(
+                    "SELECT session_key, session_data, last_seen FROM mcp_sessions WHERE last_seen > ?",
+                    (cutoff,)
+                ) as cursor:
+                    async for row in cursor:
+                        session_key, session_data_json, last_seen_str = row
+                        try:
+                            session_data = json.loads(session_data_json)
+                            self.session_cache[session_key] = session_data
+                            self.session_last_seen[session_key] = datetime.fromisoformat(last_seen_str)
+                        except Exception as e:
+                            logger.warning(f"Failed to load session {session_key}: {e}")
+                
+                logger.info(f"Loaded {len(self.session_cache)} MCP sessions from persistence")
+                
+        except Exception as e:
+            logger.error(f"Failed to load MCP sessions: {e}")
+    
+    async def _save_sessions(self):
+        """Save current sessions to database."""
+        if not self.session_cache:
+            return
+            
+        try:
+            async with aiosqlite.connect(self.session_db_path) as db:
+                # Save all current sessions
+                for session_key, session_data in self.session_cache.items():
+                    last_seen = self.session_last_seen.get(session_key, datetime.now())
+                    
+                    # Don't save full tool schemas to save space
+                    save_data = session_data.copy()
+                    if "tools" in save_data:
+                        # Only save tool names, not full definitions
+                        save_data["tools"] = [
+                            {"name": t.get("name")} if isinstance(t, dict) else t
+                            for t in save_data["tools"]
+                        ]
+                    
+                    await db.execute(
+                        "INSERT OR REPLACE INTO mcp_sessions (session_key, session_data, last_seen) VALUES (?, ?, ?)",
+                        (session_key, json.dumps(save_data), last_seen.isoformat())
+                    )
+                
+                # Clean up old sessions
+                cutoff = (datetime.now() - timedelta(hours=24)).isoformat()
+                await db.execute("DELETE FROM mcp_sessions WHERE last_seen < ?", (cutoff,))
+                
+                await db.commit()
+                logger.debug(f"Saved {len(self.session_cache)} MCP sessions to persistence")
+                
+        except Exception as e:
+            logger.error(f"Failed to save MCP sessions: {e}")
