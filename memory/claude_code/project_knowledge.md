@@ -1,12 +1,14 @@
 # KSI Technical Knowledge
 
-Core technical reference for KSI (Knowledge System Interface) - a minimal daemon system for managing Claude AI processes with conversation continuity and multi-agent orchestration.
+Core technical reference for KSI (Kubernetes-Style Infrastructure) - a resilient daemon system for orchestrating autonomous AI agents with production-grade reliability.
 
-**Current State**: Pure event-based architecture with REST JSON API patterns. Development mode with auto-restart. MCP server integrated. Process cleanup mostly working.
+**Current State**: Pure event-based architecture with coordinated shutdown, automatic checkpoint/restore, and retry logic. Universal state preservation across restarts.
 
-**Known Issues**: 
-- MCP HTTP server (uvicorn) throws CancelledError on shutdown
-- Message bus has minimal cleanup (doesn't clear connections/queues)
+**Latest Features**:
+- Shutdown coordination with barrier pattern and service acknowledgments
+- Automatic retry for failed operations with exponential backoff
+- Checkpoint/restore for all daemon restarts (not just dev mode)
+- Session recovery for interrupted completion requests
 
 ## System Architecture
 
@@ -139,17 +141,18 @@ All state functionality consolidated in `ksi_daemon/core/state.py`:
 - **core/discovery.py** - Event discovery & introspection
 - **core/correlation.py** - Request correlation tracking
 - **core/monitor.py** - Event monitoring
-- **core/checkpoint.py** - Dev mode state persistence
+- **core/checkpoint.py** - Universal state persistence (with shutdown integration)
 
 ### Service Modules
-- **completion/completion_service.py** - Async completion management (with checkpoint support)
-- **completion/claude_cli_litellm_provider.py** - Spawns Claude processes (proper cleanup on shutdown)
+- **completion/completion_service.py** - Async completion management (with retry logic)
+- **completion/retry_manager.py** - Retry scheduling with exponential backoff
+- **completion/claude_cli_litellm_provider.py** - Spawns Claude processes (graceful cleanup)
 - **agent/agent_service.py** - Agent lifecycle (asyncio tasks only)
 - **conversation/conversation_service.py** - Session tracking
-- **messaging/message_bus.py** - Pub/sub messaging (⚠️ minimal shutdown cleanup)
+- **messaging/message_bus.py** - Pub/sub messaging (with shutdown acknowledgment)
 - **permissions/permission_service.py** - Security boundaries
 - **composition/composition_service.py** - YAML configurations
-- **mcp/mcp_service.py** - MCP server management (⚠️ uvicorn shutdown issue)
+- **mcp/mcp_service.py** - MCP server management (with graceful shutdown)
 
 ## Module Dependencies
 
@@ -171,8 +174,8 @@ await emit_event("completion:async", data)
 ## Event System
 
 ### Available Namespaces
-- **system**: health, shutdown, discover, help, startup, context, ready
-- **completion**: async, queue_status, result, status
+- **system**: health, shutdown, discover, help, startup, context, ready, shutdown_complete
+- **completion**: async, queue_status, result, status, failed
 - **agent**: spawn, terminate, list, send_message
 - **state**: get, set, delete, list
 - **async_state**: push, pop, get, set, delete, queue_length
@@ -180,6 +183,8 @@ await emit_event("completion:async", data)
 - **conversation**: list, search, active, acquire_lock, release_lock
 - **monitor**: get_events, get_stats, clear_log
 - **composition**: compose, profile, prompt, validate, discover, list
+- **shutdown**: acknowledge (for critical service coordination)
+- **dev**: checkpoint, restore (manual checkpoint operations)
 
 ### Event Discovery
 ```bash
@@ -258,8 +263,9 @@ async def handle_my_event(data: Dict[str, Any]) -> Dict[str, Any]:
 ./daemon_control.py dev  # Auto-restart on .py file changes
 ```
 - Watches ksi_daemon/, ksi_common/, ksi_client/ directories
-- Checkpoint/restore system preserves session queues and active requests
-- Graceful restart with state preservation
+- Universal checkpoint/restore preserves all state (not just dev mode)
+- Graceful restart with automatic retry of interrupted requests
+- Async implementation with watchfiles (no polling)
 
 ### Quick Health Check
 ```bash
@@ -282,6 +288,7 @@ echo '{"event": "system:health", "data": {}}' | nc -U var/run/daemon.sock | jq
 
 ## Session ID Management
 - **Claude-cli returns NEW session_id from EVERY request**
+- **Session extraction**: Fixed to properly extract from claude-cli JSON responses
 - **Log filenames**: `var/logs/responses/{session_id}.jsonl`
 - **Conversation flow**: Use previous session_id as input → get new session_id
 - **IMPORTANT**: Session IDs are provider-generated and immutable
@@ -294,17 +301,20 @@ echo '{"event": "system:health", "data": {}}' | nc -U var/run/daemon.sock | jq
 ./daemon_control.py restart # Restart if needed
 ```
 
-### MCP HTTP Server Shutdown Error
+### Coordinated Shutdown
+All critical services now use `@shutdown_handler` decorator:
+```python
+@shutdown_handler("my_service")
+async def handle_shutdown(data):
+    # Cleanup tasks
+    await router.acknowledge_shutdown("my_service")
 ```
-ERROR: asyncio.exceptions.CancelledError in starlette/routing.py
-```
-The uvicorn server needs proper shutdown before task cancellation.
 
-### Message Bus Incomplete Cleanup
-Only clears subscriptions, should also:
-- Cancel message delivery tasks
-- Clear connections/queues/history
-- Properly disconnect agents
+### Checkpoint/Restore
+- Automatic on all daemon stops (not just dev mode)
+- Detects shutdown-interrupted requests for retry
+- Restore happens after services ready (system:ready event)
+- Protected with asyncio.shield during shutdown
 
 ### Module Import Order
 - State must be imported before modules that use it

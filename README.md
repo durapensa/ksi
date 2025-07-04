@@ -1,195 +1,198 @@
-# KSI - Knowledge System Interface
+# KSI - Kubernetes-Style Infrastructure for AI Agents
 
-A pure event-driven daemon system for managing Claude AI processes with conversation continuity and multi-agent orchestration.
+> A resilient, event-driven daemon system for orchestrating autonomous AI agents with production-grade reliability
 
-## Features
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-- ⚡ **Event-Driven Architecture** - Pure Python modules with @event_handler decorators
-- 🎯 **REST JSON API** - Standard patterns (single response = object, multiple = array)
-- 🚀 **Single Socket Architecture** - Unified Unix socket for all communication
-- 💬 **Conversation Continuity** - Maintains context across Claude interactions using sessionId
-- 🤖 **Multi-Agent Orchestration** - Multiple Claude instances conversing autonomously
-- 📊 **Real-time Monitoring** - Beautiful TUI for observing conversations and metrics
-- 📝 **Complete Logging** - All sessions logged in JSONL format for analysis
-- 🔧 **Smart Client Library** - Convenience methods for common API patterns
+## Overview
 
-## Quick Start
+KSI provides infrastructure for running and managing AI agents as persistent, autonomous services. Originally conceived as a "Knowledge System Interface," it has evolved into a comprehensive daemon platform that treats AI agents like microservices - with health checks, lifecycle management, and automatic recovery from failures.
+
+### Key Features
+
+- 🔄 **Resilient Operations** - Automatic checkpoint/restore and retry on failures
+- ⚡ **Event-Driven Architecture** - Pure async event system with no polling
+- 🛡️ **Coordinated Shutdown** - Graceful shutdown with completion guarantees
+- 🤖 **Multi-Agent Support** - Orchestrate conversations between multiple AI instances
+- 🔌 **Plugin Architecture** - Extend functionality without modifying core
+- 📊 **Real-time Monitoring** - Beautiful TUI for observing system state
+- 🚀 **Production Ready** - Proper daemonization, logging, and error handling
+- 🔧 **MCP Integration** - Model Context Protocol server for tool access
+
+## Installation
 
 ### Prerequisites
 
 - Python 3.8 or higher
-- [Claude CLI](https://claude.ai/download) installed and configured
 - Unix-like operating system (macOS, Linux)
+- [Claude CLI](https://docs.anthropic.com/en/docs/claude-cli) (for Claude integration)
 
-### Installation
+### Quick Start
 
 ```bash
 # Clone the repository
 git clone https://github.com/yourusername/ksi.git
 cd ksi
 
-# Run setup script
+# Set up the environment
 ./setup.sh
 
 # Activate virtual environment
 source .venv/bin/activate
-```
 
-### Basic Usage
-
-```bash
 # Start the daemon
 ./daemon_control.py start
 
-# Chat with Claude
-python3 interfaces/chat.py
-
-# Check daemon health
+# Verify it's running
 ./daemon_control.py health
-
-# Stop daemon gracefully
-./daemon_control.py stop
 ```
 
-### Multi-Claude Conversations
+## Usage
+
+### Basic Chat Interface
 
 ```bash
-# Start a debate between Claudes
-python3 interfaces/orchestrate.py "Should AI have rights?" --mode debate
-
-# Monitor in another terminal
-python3 interfaces/monitor_tui.py
+# Interactive chat with Claude
+python interfaces/chat.py
 ```
 
-## Architecture Overview
-
-KSI uses a plugin-based architecture where the core daemon is a minimal event router (<500 lines) and all functionality is provided by plugins.
-
-### Core Design Principles
-
-- **Event-Driven**: Everything is an event - no polling or timers
-- **Plugin-First**: Core only routes events, all logic in plugins
-- **Single Socket**: Simple, unified communication via one Unix socket
-- **Async Native**: Built on asyncio for maximum performance
-
-### Key Components
-
-| Component | Description |
-|-----------|-------------|
-| `daemon_control.py` | Start/stop/restart daemon operations |
-| `ksi-daemon.py` | Main daemon wrapper using python-daemon |
-| `ksi_client/` | Client libraries (AsyncClient, EventBasedClient) |
-| `ksi_daemon/plugins/` | Plugin implementations |
-
-For detailed technical information, see [memory/claude_code/project_knowledge.md](memory/claude_code/project_knowledge.md).
-
-## Client Libraries
-
-### Python Clients
+### Python Client
 
 ```python
-# Async client for full control
 from ksi_client import AsyncClient
 
 async with AsyncClient() as client:
-    health = await client.health_check()
-    response = await client.create_completion("Hello!")
-
-# Simple chat interface
-from ksi_client import SimpleChatClient
-
-async with SimpleChatClient() as chat:
-    response, session_id = await chat.send_prompt("What is 2+2?")
+    # Send a completion request
+    response = await client.create_completion(
+        prompt="Explain quantum computing",
+        model="claude-cli/sonnet"
+    )
+    print(response.text)
 ```
 
-### Event-Based Client (New)
+### Multi-Agent Orchestration
+
+```bash
+# Start a debate between two Claude instances
+python interfaces/orchestrate.py "Is P=NP?" --mode debate
+
+# Monitor the conversation in real-time
+python interfaces/monitor_tui.py
+```
+
+### Event-Based Operations
 
 ```python
-from ksi_client import EventBasedClient
+from ksi_client import EventClient
 
-async with EventBasedClient() as client:
-    # Subscribe to events
-    client.subscribe("completion:*", handler)
+async with EventClient() as client:
+    # Subscribe to completion events
+    await client.subscribe("completion:*")
     
-    # Send events
-    await client.emit_event("completion:request", {
-        "prompt": "Hello!",
-        "model": "sonnet"
+    # Emit an event
+    response = await client.emit("completion:async", {
+        "prompt": "Write a haiku about coding",
+        "model": "claude-cli/sonnet"
     })
 ```
 
+## Architecture
+
+KSI follows a microkernel architecture where the core daemon is minimal (~500 lines) and all functionality is provided through plugins:
+
+```
+┌─────────────────┐
+│   Unix Socket   │  ← Single communication interface
+└────────┬────────┘
+         │
+┌────────▼────────┐
+│  Event Router   │  ← Core daemon (minimal)
+└────────┬────────┘
+         │
+┌────────▼────────────────────────────────┐
+│              Plugins                     │
+├──────────────┬──────────────┬───────────┤
+│ Completion   │   Agent      │    MCP    │
+│  Service     │  Manager     │  Server   │
+├──────────────┼──────────────┼───────────┤
+│ Message Bus  │ Conversation │ Checkpoint│
+│              │   Lock       │  System   │
+└──────────────┴──────────────┴───────────┘
+```
+
+### Core Principles
+
+1. **Everything is an Event** - No polling, no timers, pure event-driven
+2. **Fail-Safe by Default** - Automatic recovery from all failure modes
+3. **Plugin-First Design** - Core functionality implemented as plugins
+4. **Single Socket** - All communication through one Unix domain socket
+5. **Async Native** - Built on Python's asyncio for performance
+
+### Resilience Features
+
+- **Checkpoint/Restore**: System state automatically saved and restored across restarts
+- **Retry Logic**: Failed operations automatically retried with exponential backoff
+- **Graceful Shutdown**: Critical operations complete before daemon exit
+- **Process Monitoring**: Automatic detection and recovery of failed agent processes
+
 ## Plugin Development
 
-KSI is extensible through plugins. Create your own:
+Create custom plugins to extend KSI:
 
 ```python
-from ksi_daemon.plugin_base import BasePlugin, hookimpl
+from ksi_daemon.event_system import event_handler
 
-class MyPlugin(BasePlugin):
-    @hookimpl
-    def ksi_handle_event(self, event_name, data, context):
-        if event_name == "my:event":
-            return {"handled": True}
+@event_handler("my:custom:event")
+async def handle_custom_event(data):
+    # Your logic here
+    return {"status": "processed"}
 
-plugin = MyPlugin()
+# Plugin is auto-registered on import
 ```
 
-See [ksi_daemon/PLUGIN_DEVELOPMENT_GUIDE.md](ksi_daemon/PLUGIN_DEVELOPMENT_GUIDE.md) for complete documentation.
-
-## Available Interfaces
-
-- `interfaces/chat.py` - Simple CLI chat
-- `interfaces/orchestrate.py` - Multi-Claude orchestration
-- `interfaces/monitor_tui.py` - Real-time monitoring
-- ~~`interfaces/chat_textual.py`~~ - (Avoid - corrupts Claude Code TUI)
-
-## Testing
-
-```bash
-# Run plugin system tests
-python3 tests/test_plugin_system.py
-
-# Test event client
-python3 tests/test_event_client.py
-
-# Full protocol tests
-python3 tests/test_daemon_protocol.py
-```
+See [Plugin Development Guide](ksi_daemon/PLUGIN_DEVELOPMENT_GUIDE.md) for details.
 
 ## Documentation
 
-- [Plugin Architecture](ksi_daemon/PLUGIN_ARCHITECTURE.md) - System design and status
-- [Plugin Development Guide](ksi_daemon/PLUGIN_DEVELOPMENT_GUIDE.md) - How to create plugins
-- [Event Catalog](ksi_daemon/EVENT_CATALOG.md) - All system events
-- [Project Knowledge](memory/claude_code/project_knowledge.md) - Detailed technical reference
-
-## Project Status
-
-The plugin architecture refactor is **90% complete**:
-- ✅ Core infrastructure (event bus, plugin system)
-- ✅ Transport plugins (Unix sockets)
-- ✅ Service plugins (completion, state)
-- ✅ Client libraries with event support
-- ✅ Comprehensive documentation
-- 🚧 Agent manager plugin (in progress)
+- [API Reference](docs/API_REFERENCE.md) - Complete REST-style API documentation
+- [Event Catalog](ksi_daemon/EVENT_CATALOG.md) - All available system events
+- [Plugin Architecture](ksi_daemon/PLUGGY_ARCHITECTURE.md) - Plugin system design
+- [Architecture Analysis](docs/ksi_architecture_analysis.md) - Deep technical dive
 
 ## Contributing
 
-Contributions welcome! Please:
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
+### Development Setup
+
+```bash
+# Install development dependencies
+pip install -e ".[dev]"
+
+# Run tests
+pytest
+
+# Run linting
+black .
+ruff .
+```
 
 ## License
 
-MIT License - see LICENSE file for details.
+MIT License - see [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 
-- Built for [Claude AI](https://claude.ai)
+- Built for [Claude](https://claude.ai) by Anthropic
 - Plugin system powered by [pluggy](https://pluggy.readthedocs.io/)
-- TUI powered by [Textual](https://textual.textualize.io/)
-- Inspired by Unix philosophy of simple, composable tools
+- TUI components use [Textual](https://textual.textualize.io/)
+- Inspired by Kubernetes' approach to container orchestration
+
+## Status
+
+KSI is under active development. Core functionality is stable and used in production environments. See [Issues](https://github.com/yourusername/ksi/issues) for current work.
+
+---
+*"Like Kubernetes for AI agents"* - A resilient infrastructure for the autonomous AI era.
