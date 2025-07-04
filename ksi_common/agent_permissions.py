@@ -14,6 +14,7 @@ from typing import Dict, List, Optional, Set, Any, Union
 import json
 import yaml
 
+from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 
 logger = get_bound_logger(__name__)
@@ -318,7 +319,7 @@ class PermissionManager:
     """Manages agent permissions and profiles"""
     
     def __init__(self, permissions_dir: Optional[Path] = None):
-        self.permissions_dir = permissions_dir or Path("var/lib/permissions")
+        self.permissions_dir = permissions_dir or config.permissions_dir
         self.profiles: Dict[PermissionLevel, AgentPermissions] = {}
         self.agent_permissions: Dict[str, AgentPermissions] = {}
         self._load_profiles()

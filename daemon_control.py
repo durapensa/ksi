@@ -143,7 +143,7 @@ class DaemonController:
             logger.warning(f"Socket communication failed: {e}")
             return None
     
-    def start(self) -> int:
+    async def start(self) -> int:
         """Start the daemon."""
         if not self._check_venv():
             return 1
@@ -208,7 +208,7 @@ class DaemonController:
                 return None
             
             # Check for PID file
-            pid = asyncio.run(wait_for_pid())
+            pid = await wait_for_pid()
             if pid and self._is_process_running(pid):
                 print(f"✓ Daemon started successfully (PID: {pid})")
                 print(f"  Socket: {self.socket_path}")
@@ -227,7 +227,7 @@ class DaemonController:
             print(f"✗ Failed to start daemon: {e}")
             return 1
     
-    def stop(self) -> int:
+    async def stop(self) -> int:
         """Stop the daemon gracefully."""
         pid = self._read_pid()
         if not pid:
@@ -270,7 +270,7 @@ class DaemonController:
             try:
                 # Wait up to 3 seconds for PID file removal (shorter if we got confirmation)
                 timeout = 3.0 if result.get("status") == "shutdown_confirmed" else 5.0
-                removed = asyncio.run(asyncio.wait_for(wait_for_pid_removal(), timeout=timeout))
+                removed = await asyncio.wait_for(wait_for_pid_removal(), timeout=timeout)
                 
                 if removed:
                     print("✓ Daemon stopped gracefully")
@@ -293,7 +293,7 @@ class DaemonController:
             
             try:
                 # Wait up to 3 seconds for process to terminate
-                asyncio.run(asyncio.wait_for(wait_for_process_exit(), timeout=3.0))
+                await asyncio.wait_for(wait_for_process_exit(), timeout=3.0)
                 print("✓ Daemon stopped")
                 return 0
             except asyncio.TimeoutError:
@@ -326,15 +326,15 @@ class DaemonController:
                 self.pid_file.unlink()
             return 0
     
-    def restart(self) -> int:
+    async def restart(self) -> int:
         """Restart the daemon."""
         print("Restarting daemon...")
-        stop_result = self.stop()
+        stop_result = await self.stop()
         if stop_result != 0:
             return stop_result
         
         # Start immediately after stop
-        return self.start()
+        return await self.start()
     
     def status(self) -> int:
         """Show daemon status."""
@@ -390,11 +390,16 @@ class DaemonController:
     async def dev(self) -> int:
         """Run daemon in development mode with auto-restart on file changes."""
         print("Starting KSI daemon in development mode...")
-        print("Watching for changes in .py files...")
-        print("Press Ctrl+C to stop\n")
+        print("Ensuring clean development mode startup...")
+        
+        # Always stop any running daemon first (like restart command)
+        await self.stop()
         
         # Set dev mode environment variable
         os.environ["KSI_DEV_MODE"] = "true"
+        
+        print("Watching for changes in .py files...")
+        print("Press Ctrl+C to stop\n")
         
         # Import watchfiles here to avoid dependency for non-dev usage
         try:
@@ -419,7 +424,7 @@ class DaemonController:
         
         # Start daemon initially
         print("Starting daemon with checkpoint support...")
-        start_result = self.start()
+        start_result = await self.start()
         if start_result != 0:
             return start_result
         
@@ -461,19 +466,19 @@ class DaemonController:
                 print("Restarting daemon...")
                 
                 # Restart daemon
-                self.restart()
+                await self.restart()
                 
                 print("Daemon restarted successfully")
                 print("Watching for changes...\n")
                 
         except KeyboardInterrupt:
             print("\n\nStopping development mode...")
-            self.stop()
+            await self.stop()
             print("Development mode stopped")
             return 0
         except Exception as e:
             logger.error(f"Dev mode error: {e}", exc_info=True)
-            self.stop()
+            await self.stop()
             return 1
 
 
@@ -504,11 +509,11 @@ Examples:
     controller = DaemonController()
     
     if args.command == "start":
-        return controller.start()
+        return asyncio.run(controller.start())
     elif args.command == "stop":
-        return controller.stop()
+        return asyncio.run(controller.stop())
     elif args.command == "restart":
-        return controller.restart()
+        return asyncio.run(controller.restart())
     elif args.command == "status":
         return controller.status()
     elif args.command == "health":

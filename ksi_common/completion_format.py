@@ -198,7 +198,13 @@ def extract_text(provider: str, response: Dict[str, Any]) -> str:
 
 def extract_session_id(provider: str, response: Union[Dict[str, Any], Any]) -> Optional[str]:
     """Extract session ID from provider response."""
-    if provider == "litellm":
+    if provider == "claude-cli":
+        # Claude CLI always returns session_id in its JSON response
+        if isinstance(response, dict):
+            return response.get("session_id")
+        return None
+    
+    elif provider == "litellm":
         # LiteLLM response object should have session_id as attribute (snake_case)
         if hasattr(response, "session_id"):
             return response.session_id
@@ -207,9 +213,8 @@ def extract_session_id(provider: str, response: Union[Dict[str, Any], Any]) -> O
             return response.get("session_id")
         return None
     
-    elif provider in ["openai", "anthropic-api", "claude-cli"]:
+    elif provider in ["openai", "anthropic-api"]:
         # These providers typically don't have built-in session tracking
-        # or we handle them through litellm wrapper
         return None
     
     else:

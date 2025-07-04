@@ -14,17 +14,17 @@ from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
 from datetime import datetime
 
-from ksi_daemon.event_system import event_handler, EventPriority, emit_event
+from ksi_daemon.event_system import event_handler, EventPriority, emit_event, shutdown_handler, get_router
 from ksi_common import timestamp_utc
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 
 # Module state
 logger = get_bound_logger("checkpoint", version="1.0.0")
-is_dev_mode = os.environ.get("KSI_DEV_MODE", "false").lower() == "true"
+is_checkpoint_disabled = os.environ.get("KSI_CHECKPOINT_DISABLED", "false").lower() == "true"
 
 # Checkpoint database path
-CHECKPOINT_DB = config.db_dir / "dev_checkpoint.db"
+CHECKPOINT_DB = config.checkpoint_db_path
 
 
 async def initialize_checkpoint_db():
@@ -190,20 +190,52 @@ async def restore_completion_state(state: Dict[str, Any]) -> Dict[str, Any]:
                     logger.error(f"Failed to restore request {request_id}: {e}")
                     results["failed_requests"] += 1
     
-    # Check for lost processing requests
+    # Handle lost processing requests - emit failure events for retry
     for request_id, completion in state.get("active_completions", {}).items():
-        if completion.get("status") == "processing":
+        status = completion.get("status")
+        error = completion.get("error", "")
+        
+        # Check if this request should be retried:
+        # 1. Was processing when daemon stopped
+        # 2. Failed due to shutdown-related causes (signal -9, daemon termination, etc.)
+        should_retry = False
+        retry_reason = ""
+        
+        if status == "processing":
+            should_retry = True
+            retry_reason = "Request was processing when daemon restarted"
+        elif status == "failed" and error:
+            # Check for shutdown-related error patterns
+            shutdown_patterns = [
+                "signal -9",
+                "SIGKILL",
+                "terminated with signal",
+                "daemon restart",
+                "shutdown",
+                "Connection lost",
+                "CancelledError"
+            ]
+            if any(pattern in str(error) for pattern in shutdown_patterns):
+                should_retry = True
+                retry_reason = f"Request failed due to daemon shutdown: {error[:100]}"
+        
+        if should_retry:
             results["lost_processing"].append({
                 "request_id": request_id,
                 "session_id": completion.get("session_id"),
-                "started_at": completion.get("started_at")
+                "started_at": completion.get("started_at"),
+                "status": status,
+                "reason": retry_reason
             })
             
-            # Emit failure notification
+            # Emit failure event - retry manager will handle retry logic
+            # Include the original request data so retry manager can retry it
             await emit_event("completion:failed", {
                 "request_id": request_id,
                 "reason": "daemon_restart",
-                "message": "Request interrupted by development mode restart"
+                "message": retry_reason,
+                "original_error": error[:500] if error else None,  # Include some error context
+                "completion_data": completion  # Include full completion data for retry
             })
     
     logger.info(
@@ -220,64 +252,102 @@ async def restore_completion_state(state: Dict[str, Any]) -> Dict[str, Any]:
 
 @event_handler("system:startup", priority=EventPriority.LOW)
 async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Initialize checkpoint system and restore if in dev mode."""
-    if not is_dev_mode:
-        logger.debug("Not in dev mode, checkpoint system inactive")
-        return {"checkpoint": "inactive"}
+    """Initialize checkpoint system database."""
+    if is_checkpoint_disabled:
+        logger.debug("Checkpoint system disabled via KSI_CHECKPOINT_DISABLED")
+        return {"checkpoint": "disabled"}
     
-    # Initialize database
+    # Initialize database only - don't restore yet
     if not await initialize_checkpoint_db():
         return {"checkpoint": "failed_init"}
     
-    # Try to restore checkpoint
+    return {"checkpoint": "initialized"}
+
+
+@event_handler("system:ready", priority=EventPriority.LOW)
+async def handle_ready_restore(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Restore checkpoint after all services are ready."""
+    if is_checkpoint_disabled:
+        return {"checkpoint": "disabled"}
+    
+    # Try to restore checkpoint now that services are ready
     checkpoint = await load_latest_checkpoint()
     if checkpoint:
         logger.info(
-            "Found checkpoint to restore",
+            "Restoring checkpoint after services ready",
             timestamp=checkpoint.get("timestamp")
         )
         
-        # Wait a moment for services to initialize
-        await asyncio.sleep(0.5)
-        
-        # Restore state
+        # Services are ready, no need to wait
         results = await restore_completion_state(checkpoint)
         return {"checkpoint": "restored", "results": results}
     
-    return {"checkpoint": "ready"}
+    return {"checkpoint": "no_checkpoint"}
 
 
-@event_handler("dev:checkpoint")
-async def handle_checkpoint(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Create a checkpoint of current state."""
-    if not is_dev_mode:
-        return {"error": "Not in dev mode"}
+async def _create_checkpoint(save_if_empty: bool = True, reason: str = "manual") -> Dict[str, Any]:
+    """Create a checkpoint with optional empty-state filtering."""
+    if is_checkpoint_disabled:
+        return {"error": "Checkpoint system disabled"}
     
     try:
         # Extract current state
         state = await extract_completion_state()
         
-        # Save checkpoint
-        if await save_checkpoint(state):
-            return {
-                "status": "saved",
-                "timestamp": state["timestamp"],
-                "sessions": len(state["session_queues"]),
-                "active_requests": len(state["active_completions"])
-            }
+        # Check if there's meaningful state
+        total_queued = sum(len(items) for items in state["session_queues"].values())
+        total_active = len(state["active_completions"])
+        
+        # Skip saving if empty and not forced
+        if not save_if_empty and total_queued == 0 and total_active == 0:
+            logger.debug(f"No active state to checkpoint ({reason})")
+            return {"checkpoint": "empty"}
+        
+        # Log checkpoint creation
+        if total_queued > 0 or total_active > 0:
+            logger.info(f"Creating {reason} checkpoint: {total_queued} queued, {total_active} active requests")
         else:
-            return {"error": "Failed to save checkpoint"}
+            logger.debug(f"Creating {reason} checkpoint (empty state)")
+        
+        # Save checkpoint - shield from cancellation during shutdown
+        try:
+            save_result = await asyncio.shield(save_checkpoint(state))
+            if save_result:
+                logger.info(f"{reason.title()} checkpoint saved successfully")
+                return {
+                    "status": "saved",
+                    "timestamp": state["timestamp"],
+                    "sessions": len(state["session_queues"]),
+                    "queued_requests": total_queued,
+                    "active_requests": total_active
+                }
+            else:
+                logger.warning(f"Failed to save {reason} checkpoint")
+                return {"error": "Failed to save checkpoint"}
+        except asyncio.CancelledError:
+            logger.warning(f"{reason.title()} checkpoint save was cancelled - attempting synchronous save")
+            # Try one more time without cancellation protection
+            if await save_checkpoint(state):
+                logger.info(f"{reason.title()} checkpoint saved on retry")
+                return {"status": "saved_on_retry"}
+            raise
             
     except Exception as e:
-        logger.error(f"Checkpoint failed: {e}", exc_info=True)
+        logger.error(f"{reason.title()} checkpoint failed: {e}", exc_info=True)
         return {"error": str(e)}
+
+
+@event_handler("dev:checkpoint")
+async def handle_checkpoint(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Create a checkpoint of current state."""
+    return await _create_checkpoint(save_if_empty=True, reason="manual")
 
 
 @event_handler("dev:restore")
 async def handle_restore(data: Dict[str, Any]) -> Dict[str, Any]:
     """Manually trigger checkpoint restore."""
-    if not is_dev_mode:
-        return {"error": "Not in dev mode"}
+    if is_checkpoint_disabled:
+        return {"error": "Checkpoint system disabled"}
     
     checkpoint = await load_latest_checkpoint()
     if not checkpoint:
@@ -289,3 +359,25 @@ async def handle_restore(data: Dict[str, Any]) -> Dict[str, Any]:
         "checkpoint_time": checkpoint.get("timestamp"),
         "results": results
     }
+
+
+@shutdown_handler("checkpoint", priority=EventPriority.HIGH)
+async def handle_shutdown_checkpoint(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Create checkpoint before shutdown to preserve state.
+    
+    This is a critical shutdown handler that must complete before daemon exits.
+    """
+    try:
+        result = await _create_checkpoint(save_if_empty=False, reason="shutdown")
+        
+        # Always acknowledge shutdown, even if checkpoint failed
+        router = get_router()
+        await router.acknowledge_shutdown("checkpoint")
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error in shutdown checkpoint handler: {e}", exc_info=True)
+        # Still acknowledge to prevent hanging
+        router = get_router()
+        await router.acknowledge_shutdown("checkpoint")
+        raise

@@ -98,7 +98,7 @@ class SandboxManager:
     """Manages agent sandboxes"""
     
     def __init__(self, sandbox_root: Optional[Path] = None):
-        self.sandbox_root = sandbox_root or Path("var/sandbox")
+        self.sandbox_root = sandbox_root or config.sandbox_dir
         self.shared_root = self.sandbox_root / "shared"
         self.agents_root = self.sandbox_root / "agents"
         self.sandboxes: Dict[str, Sandbox] = {}

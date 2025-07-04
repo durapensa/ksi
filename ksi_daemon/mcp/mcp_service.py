@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional
 
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
-from ksi_daemon.event_system import event_handler
+from ksi_daemon.event_system import event_handler, shutdown_handler, get_router
 
 from .dynamic_server import KSIDynamicMCPServer
 
@@ -63,9 +63,13 @@ async def handle_startup(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"status": "mcp_failed", "error": str(e)}
 
 
-@event_handler("system:shutdown")
+@shutdown_handler("mcp_service")
 async def handle_shutdown(data: Dict[str, Any]) -> None:
-    """Stop MCP server on daemon shutdown."""
+    """Stop MCP server on daemon shutdown.
+    
+    This is a critical shutdown handler that ensures the HTTP server
+    is properly shut down before the daemon exits.
+    """
     global mcp_server, server_task
     
     # Clean up MCP server resources first
@@ -104,6 +108,11 @@ async def handle_shutdown(data: Dict[str, Any]) -> None:
     
     mcp_server = None
     server_task = None
+    
+    # Acknowledge shutdown completion
+    router = get_router()
+    await router.acknowledge_shutdown("mcp_service")
+    logger.info("MCP service shutdown acknowledged")
     logger.info("MCP server stopped")
 
 

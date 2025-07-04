@@ -79,6 +79,9 @@ class KSIBaseConfig(BaseSettings):
     async_state_db_path: Path = Path(DEFAULT_DB_DIR) / "ksi_state.db"  # Use same shared database
     identity_storage_path: Path = Path(DEFAULT_DB_DIR) / "identities.json"
     
+    # Checkpoint system database
+    checkpoint_db_path: Path = Path(DEFAULT_DB_DIR) / "checkpoint.db"
+    
     # Event logging database (separate from state)
     event_db_path: Path = Path(DEFAULT_DB_DIR) / "events.db"
     event_write_queue_size: int = 5000
@@ -93,6 +96,10 @@ class KSIBaseConfig(BaseSettings):
     fragments_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/compositions/fragments"
     schemas_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/schemas"
     capabilities_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/capabilities"
+    
+    # Permission and sandbox paths
+    permissions_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/permissions"
+    sandbox_dir: Path = Path(DEFAULT_VAR_DIR) / "sandbox"
     
     # Network settings
     socket_timeout: float = DEFAULT_SOCKET_TIMEOUT

@@ -39,10 +39,10 @@ async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
     
     # Initialize managers
     permission_manager = PermissionManager(
-        permissions_dir=Path("var/lib/permissions")
+        permissions_dir=config.permissions_dir
     )
     sandbox_manager = SandboxManager(
-        sandbox_root=Path("var/sandbox")
+        sandbox_root=config.sandbox_dir
     )
     
     # Log loaded profiles

@@ -11,7 +11,7 @@ from typing import Dict, List, Set, Optional, Any
 from collections import defaultdict
 import time
 
-from ksi_daemon.event_system import event_handler, get_router
+from ksi_daemon.event_system import event_handler, get_router, shutdown_handler
 from ksi_common.timestamps import timestamp_utc
 from ksi_common.logging import log_event, agent_context
 from ksi_common.config import config
@@ -441,16 +441,24 @@ async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
     return {"plugin.message_bus": {"loaded": True}}
 
 
-@event_handler("system:shutdown")
+@shutdown_handler("message_bus")
 async def handle_shutdown(data: Dict[str, Any]) -> None:
-    """Clean up on shutdown."""
+    """Clean up on shutdown.
+    
+    This is a critical shutdown handler that ensures all message
+    delivery tasks are properly cancelled before daemon exits.
+    """
     # Perform comprehensive shutdown
     await message_bus.shutdown()
     
-    # Clear client subscription tracking
+    # Clear client subscription tracking  
     client_subscriptions.clear()
     
     logger.info("Message bus plugin stopped")
+    
+    # Acknowledge shutdown completion
+    router = get_router()
+    await router.acknowledge_shutdown("message_bus")
 
 
 # Message bus event handlers

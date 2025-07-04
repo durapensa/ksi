@@ -84,8 +84,14 @@ async def daemon_wrapper():
         daemon_instance = await create_event_daemon()
         await daemon_instance.run()
         
+        # After run() completes (shutdown event was set), perform coordinated shutdown
+        logger.info("Daemon run completed, performing coordinated shutdown")
+        await daemon_instance.shutdown()
+        
     except asyncio.CancelledError:
         logger.info("Daemon cancelled due to shutdown request")
+        if daemon_instance:
+            await daemon_instance.shutdown()
         raise
     except Exception as e:
         logger.error(f"Daemon error: {e}", exc_info=True)
@@ -183,6 +189,8 @@ def run_in_foreground():
         async def run_daemon():
             daemon_instance = await create_event_daemon()
             await daemon_instance.run()
+            # Perform coordinated shutdown after run completes
+            await daemon_instance.shutdown()
         
         asyncio.run(run_daemon())
     except KeyboardInterrupt:

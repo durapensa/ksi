@@ -28,6 +28,9 @@ from ksi_common.logging import get_bound_logger
 # Import litellm module for LiteLLM-specific handling
 from ksi_daemon.completion.litellm import handle_litellm_completion
 
+# Import retry manager for failure recovery
+from ksi_daemon.completion.retry_manager import RetryManager, RetryPolicy, extract_error_type
+
 # Module state
 logger = get_bound_logger("completion_service", version="3.0.0")
 active_completions: Dict[str, Dict[str, Any]] = {}
@@ -45,6 +48,9 @@ event_emitter = None
 
 # Shutdown event reference (set during startup)
 shutdown_event = None
+
+# Retry manager (initialized when event emitter is available)
+retry_manager = None
 
 
 # Module TypedDict definitions (optional type safety)
@@ -119,13 +125,25 @@ async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
 @event_handler("system:context")
 async def handle_context(context: Dict[str, Any]) -> None:
     """Receive runtime context."""
-    global event_emitter, shutdown_event
+    global event_emitter, shutdown_event, retry_manager
     
     event_emitter = context.get("emit_event")
     shutdown_event = context.get("shutdown_event")
     
     if event_emitter:
         logger.info("Completion service received event emitter")
+        
+        # Initialize retry manager with event emitter
+        retry_policy = RetryPolicy(
+            max_attempts=3,
+            initial_delay=2.0,
+            max_delay=60.0,
+            backoff_multiplier=2.0
+        )
+        retry_manager = RetryManager(event_emitter, retry_policy)
+        await retry_manager.start()
+        logger.info("Retry manager initialized")
+        
     if shutdown_event:
         logger.info("Completion service received shutdown event")
 
@@ -311,10 +329,9 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
         # Save to session log
         save_completion_response(standardized_response)
         
-        # Update tracking
+        # Clean up tracking - remove completed request
         if request_id in active_completions:
-            active_completions[request_id]["status"] = "completed"
-            active_completions[request_id]["completed_at"] = timestamp_utc()
+            active_completions.pop(request_id)
         
         # Emit result event
         result_event_data = {
@@ -475,10 +492,84 @@ async def handle_session_status(data: CompletionSessionStatusData) -> Dict[str, 
     }
 
 
+@event_handler("completion:retry_status")
+async def handle_retry_status(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Get retry manager status and statistics."""
+    if not retry_manager:
+        return {"error": "Retry manager not available"}
+    
+    stats = retry_manager.get_retry_stats()
+    retrying_requests = retry_manager.list_retrying_requests()
+    
+    return {
+        "retry_manager": "active",
+        "stats": stats,
+        "retrying_requests": retrying_requests
+    }
+
+
+@event_handler("completion:failed")
+async def handle_completion_failed(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle completion failures and attempt retries if appropriate."""
+    request_id = data.get("request_id")
+    if not request_id:
+        logger.warning("Completion failure without request_id", data=data)
+        return {"error": "Missing request_id"}
+    
+    # Extract error information
+    error_type = extract_error_type(data)
+    error_message = data.get("message", "Unknown error")
+    
+    logger.warning(
+        "Completion failed",
+        request_id=request_id,
+        error_type=error_type,
+        error_message=error_message
+    )
+    
+    # Clean up active completion
+    completion = active_completions.pop(request_id, None)
+    
+    # If no active completion, check if this is from checkpoint restore
+    if not completion:
+        # For checkpoint restore, the completion data is included in the event
+        if data.get("reason") == "daemon_restart" and "completion_data" in data:
+            completion = data["completion_data"]
+            logger.info("Processing checkpoint restore failure", request_id=request_id)
+        else:
+            logger.debug("No active completion found for failed request", request_id=request_id)
+            return {"status": "not_found"}
+    
+    if retry_manager:
+        # Attempt retry with original request data
+        original_data = completion.get("data", {})
+        retry_attempted = retry_manager.add_retry_candidate(
+            request_id=request_id,
+            original_data=original_data,
+            error_type=error_type,
+            error_message=error_message
+        )
+        
+        if retry_attempted:
+            logger.info("Retry scheduled for failed completion", request_id=request_id)
+            return {"status": "retry_scheduled"}
+        else:
+            logger.warning("Completion not retryable", request_id=request_id, error_type=error_type)
+            return {"status": "not_retryable"}
+    else:
+        logger.warning("Retry manager not available")
+        return {"status": "retry_unavailable"}
+
+
 @event_handler("system:shutdown")
 async def handle_shutdown(data: Dict[str, Any]) -> None:
     """Clean up on shutdown."""
     logger.info("Completion service shutting down")
+    
+    # Stop retry manager first
+    if retry_manager:
+        await retry_manager.stop()
+        logger.info("Retry manager stopped")
     
     # Cancel all active completions
     for request_id in list(active_completions.keys()):

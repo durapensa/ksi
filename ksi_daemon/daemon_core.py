@@ -164,7 +164,7 @@ class EventDaemonCore:
             raise
     
     async def shutdown(self):
-        """Shutdown the daemon cleanly."""
+        """Shutdown the daemon cleanly using coordinated shutdown protocol."""
         if not self.running:
             return
             
@@ -174,17 +174,28 @@ class EventDaemonCore:
             # Set shutdown event to stop main loop
             self.shutdown_event.set()
             
-            # Emit shutdown event to modules
+            # Begin coordinated shutdown
+            await self.router.begin_shutdown()
+            
+            # Emit shutdown event to all handlers (including critical ones)
             await self.router.emit("system:shutdown", {})
             
-            # Stop all background tasks
+            # Wait for all critical services to acknowledge shutdown
+            logger.info("Waiting for critical services to complete shutdown tasks...")
+            all_acknowledged = await self.router.wait_for_shutdown_acknowledgments()
+            
+            if not all_acknowledged:
+                logger.warning("Some services did not acknowledge shutdown in time")
+            
+            # Now safe to stop background tasks
+            logger.info("Stopping background tasks...")
             await self.router.stop_all_tasks()
             
             self.running = False
             logger.info("Daemon core shutdown complete")
             
         except Exception as e:
-            logger.error(f"Error during shutdown: {e}")
+            logger.error(f"Error during shutdown: {e}", exc_info=True)
     
     # Discovery/Introspection API
     
@@ -208,16 +219,41 @@ class EventDaemonCore:
 # Add built-in discovery handlers for introspection
 from .event_system import event_handler, EventPriority
 
-@event_handler("system:shutdown", priority=EventPriority.HIGH)
+@event_handler("system:shutdown", priority=EventPriority.HIGHEST)  # Use HIGHEST to run before other handlers
 async def handle_shutdown_request(data: Dict[str, Any]) -> None:
-    """Handle shutdown request by triggering daemon shutdown."""
+    """Handle external shutdown request by setting shutdown event.
+    
+    This handler responds to external shutdown requests (e.g. from daemon_control)
+    by setting the shutdown event. The main daemon wrapper will then call shutdown()
+    which performs the coordinated shutdown sequence.
+    """
     # Get the daemon core instance from the router
     router = get_router()
     if hasattr(router, '_daemon_core') and router._daemon_core:
-        logger.info("Received system:shutdown, triggering daemon shutdown")
-        router._daemon_core.shutdown_event.set()
+        # Only set the event if we're not already shutting down
+        # This prevents recursion when shutdown() emits system:shutdown
+        if router._daemon_core.running and not router._daemon_core.shutdown_event.is_set():
+            logger.info("Received system:shutdown request, setting shutdown event")
+            router._daemon_core.shutdown_event.set()
+        else:
+            logger.debug("Ignoring system:shutdown - already shutting down")
     else:
         logger.warning("No daemon core reference available for shutdown")
+
+@event_handler("shutdown:acknowledge")
+async def handle_shutdown_acknowledge(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle shutdown acknowledgment from a service.
+    
+    Expected data:
+        service_name: Name of the service acknowledging shutdown
+    """
+    service_name = data.get("service_name")
+    if not service_name:
+        return {"error": "Missing service_name"}
+    
+    router = get_router()
+    await router.acknowledge_shutdown(service_name)
+    return {"acknowledged": service_name}
 
 @event_handler("module:list")
 async def handle_list_modules(data: Dict[str, Any]) -> Dict[str, Any]:

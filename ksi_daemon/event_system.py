@@ -107,6 +107,13 @@ class EventRouter:
         # Background tasks by module  
         self._tasks_by_module: Dict[str, List[str]] = defaultdict(list)
         
+        # Shutdown coordination
+        self._shutdown_handlers: Dict[str, EventHandler] = {}  # service_name -> handler
+        self._shutdown_acknowledgments: Set[str] = set()
+        self._shutdown_event = asyncio.Event()
+        self._shutdown_in_progress = False
+        self._shutdown_timeout = 30.0  # seconds
+        
     def register_handler(self, event: str, handler: EventHandler):
         """Register an event handler."""
         if "*" in event:
@@ -126,6 +133,18 @@ class EventRouter:
         self._ensure_module_registered(module_name)
             
         logger.debug(f"Registered handler {handler.name} for event {event} (priority={handler.priority})")
+    
+    def register_shutdown_handler(self, service_name: str, handler: EventHandler):
+        """Register a critical shutdown handler that must complete before daemon exits.
+        
+        Args:
+            service_name: Unique name for this service (used for acknowledgment)
+            handler: EventHandler for system:shutdown event
+        """
+        self._shutdown_handlers[service_name] = handler
+        # Also register as normal handler
+        self.register_handler("system:shutdown", handler)
+        logger.info(f"Registered critical shutdown handler for service: {service_name}")
         
     def register_service(self, name: str, service: Any, module_name: Optional[str] = None):
         """Register a service instance."""
@@ -145,6 +164,15 @@ class EventRouter:
     async def emit(self, event: str, data: Any = None, 
                    context: Optional[Dict[str, Any]] = None) -> List[Any]:
         """Emit an event to all matching handlers."""
+        # During shutdown, only allow shutdown-related events
+        if self._shutdown_in_progress:
+            allowed_events = {"system:shutdown", "shutdown:acknowledge", "system:shutdown_complete",
+                            "event:error", "log:*"}  # Allow logging during shutdown
+            if not any(event == allowed or (allowed.endswith('*') and event.startswith(allowed[:-1])) 
+                      for allowed in allowed_events):
+                logger.debug(f"Blocking event {event} during shutdown")
+                return []
+        
         if data is None:
             data = {}
             
@@ -268,6 +296,75 @@ class EventRouter:
         """Stop all background tasks."""
         for name in list(self._tasks.keys()):
             await self.stop_task(name)
+    
+    # Shutdown coordination methods
+    
+    async def begin_shutdown(self) -> None:
+        """Begin coordinated shutdown sequence."""
+        if self._shutdown_in_progress:
+            logger.warning("Shutdown already in progress")
+            return
+            
+        logger.info("Beginning coordinated shutdown sequence")
+        self._shutdown_in_progress = True
+        self._shutdown_acknowledgments.clear()
+        self._shutdown_event.clear()
+        
+        # Log critical services that need to acknowledge
+        if self._shutdown_handlers:
+            logger.info(f"Waiting for {len(self._shutdown_handlers)} critical services: "
+                       f"{list(self._shutdown_handlers.keys())}")
+    
+    async def acknowledge_shutdown(self, service_name: str) -> None:
+        """Acknowledge that a critical service has completed shutdown tasks.
+        
+        Args:
+            service_name: Name of the service acknowledging completion
+        """
+        if service_name not in self._shutdown_handlers:
+            logger.warning(f"Unknown service acknowledging shutdown: {service_name}")
+            return
+            
+        self._shutdown_acknowledgments.add(service_name)
+        logger.info(f"Service '{service_name}' acknowledged shutdown "
+                   f"({len(self._shutdown_acknowledgments)}/{len(self._shutdown_handlers)})")
+        
+        # Check if all critical services have acknowledged
+        if self._shutdown_acknowledgments == set(self._shutdown_handlers.keys()):
+            logger.info("All critical services have acknowledged shutdown")
+            self._shutdown_event.set()
+            # Emit completion event
+            await self.emit("system:shutdown_complete", {
+                "services": list(self._shutdown_acknowledgments)
+            })
+    
+    async def wait_for_shutdown_acknowledgments(self, timeout: Optional[float] = None) -> bool:
+        """Wait for all critical services to acknowledge shutdown.
+        
+        Args:
+            timeout: Maximum time to wait (uses self._shutdown_timeout if not specified)
+            
+        Returns:
+            True if all services acknowledged, False if timeout
+        """
+        timeout = timeout or self._shutdown_timeout
+        
+        # If no critical services registered, return immediately
+        if not self._shutdown_handlers:
+            logger.debug("No critical shutdown handlers registered")
+            return True
+            
+        try:
+            await asyncio.wait_for(self._shutdown_event.wait(), timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            pending = set(self._shutdown_handlers.keys()) - self._shutdown_acknowledgments
+            logger.error(f"Shutdown timeout after {timeout}s. Pending services: {pending}")
+            return False
+    
+    def is_shutting_down(self) -> bool:
+        """Check if shutdown is in progress."""
+        return self._shutdown_in_progress
             
     def _ensure_module_registered(self, module_name: str):
         """Ensure module is registered for discovery."""
@@ -440,6 +537,40 @@ def service_provider(service_name: str):
         except Exception as e:
             logger.warning(f"Failed to auto-register service {service_name}: {e}")
             
+        return func
+    return decorator
+
+
+def shutdown_handler(service_name: str, priority: int = EventPriority.NORMAL):
+    """Decorator to register a critical shutdown handler.
+    
+    Services decorated with this will be tracked during shutdown and must
+    acknowledge completion before the daemon exits.
+    
+    Args:
+        service_name: Unique name for this service
+        priority: Handler priority (default: NORMAL)
+        
+    Example:
+        @shutdown_handler("checkpoint")
+        async def save_checkpoint_on_shutdown(data):
+            await save_state()
+            await router.acknowledge_shutdown("checkpoint")
+    """
+    def decorator(func: Callable) -> Callable:
+        # Create handler wrapper
+        handler = EventHandler(func, "system:shutdown", priority)
+        
+        # Store info on function
+        func._shutdown_handler = handler
+        func._shutdown_service = service_name
+        
+        # AUTO-REGISTER: Register with global router as critical shutdown handler
+        router = get_router()
+        router.register_shutdown_handler(service_name, handler)
+        
+        logger.debug(f"Auto-registered critical shutdown handler {func.__name__} for service {service_name}")
+        
         return func
     return decorator
 
