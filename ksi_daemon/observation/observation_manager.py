@@ -2,14 +2,18 @@
 """
 Observation Manager
 
-Manages observation subscriptions between agents, allowing originators to observe
-events from their constructs or other agents. Built on the relational state system.
+Manages ephemeral observation subscriptions between agents, allowing observers to
+receive events from target agents. Subscriptions are memory-only routing rules
+that must be re-established on system startup, with checkpoint/restore capability
+for system continuity scenarios.
 """
 
 import asyncio
 import json
 import uuid
 import fnmatch
+from collections import defaultdict
+from datetime import datetime, timedelta
 from typing import Dict, List, Set, Optional, Any
 
 from ksi_common.logging import get_bound_logger
@@ -25,6 +29,17 @@ _observers: Dict[str, Set[str]] = {}  # observer_id -> set of target_ids
 _event_emitter = None
 _rate_limiters: Dict[str, RateLimiter] = {}  # subscription_id -> rate limiter
 
+# Async observation processing
+_observation_queue: Optional[asyncio.Queue] = None
+_observation_task: Optional[asyncio.Task] = None
+
+# Circuit breaker state
+_observer_failures = defaultdict(list)  # observer_id -> list of failure timestamps
+_observer_circuit_open = {}  # observer_id -> circuit open until timestamp
+
+# Track if subscriptions were restored from checkpoint
+_subscriptions_restored_from_checkpoint = False
+
 
 @event_handler("system:context")
 async def handle_context(context: Dict[str, Any]) -> None:
@@ -33,6 +48,102 @@ async def handle_context(context: Dict[str, Any]) -> None:
     router = get_router()
     _event_emitter = router.emit
     logger.info("Observation manager initialized")
+
+
+@event_handler("system:ready")
+async def observation_system_ready(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Signal that observation system is ready for subscriptions.
+    
+    The daemon always checks for checkpoints on startup. We only emit
+    observation:ready if subscriptions were NOT restored from checkpoint,
+    indicating agents need to re-establish them.
+    """
+    global _observation_queue, _observation_task
+    
+    # Start async observation processor
+    _observation_queue = asyncio.Queue(maxsize=1000)
+    _observation_task = asyncio.create_task(_process_observations())
+    
+    # Check if subscriptions were restored from checkpoint
+    if _subscriptions_restored_from_checkpoint:
+        logger.info(f"Observation system ready - {len(_observers)} observers with "
+                   f"subscriptions restored from checkpoint")
+        # Don't emit observation:ready - subscriptions were already restored
+    else:
+        logger.info("Observation system ready - no subscriptions restored, "
+                   "agents must re-establish subscriptions")
+        # Emit observation:ready for agents to re-subscribe
+        await _event_emitter("observation:ready", {
+            "status": "ready",
+            "ephemeral": True,
+            "message": "Subscriptions must be re-established by agents"
+        })
+    
+    return {
+        "status": "ready",
+        "subscriptions_restored": _subscriptions_restored_from_checkpoint,
+        "subscriptions_active": len(_observers)
+    }
+
+
+@event_handler("agent:terminated")
+async def cleanup_agent_subscriptions(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Remove all subscriptions for terminated agent."""
+    agent_id = data.get("agent_id")
+    if not agent_id:
+        return {"error": "No agent_id provided"}
+    
+    removed_count = 0
+    
+    # Remove as observer
+    if agent_id in _observers:
+        targets = list(_observers[agent_id])
+        for target in targets:
+            if target in _subscriptions:
+                before = len(_subscriptions[target])
+                _subscriptions[target] = [
+                    sub for sub in _subscriptions[target]
+                    if sub["observer"] != agent_id
+                ]
+                removed_count += before - len(_subscriptions[target])
+                
+                # Clean up empty lists
+                if not _subscriptions[target]:
+                    del _subscriptions[target]
+        
+        del _observers[agent_id]
+        logger.info(f"Removed {agent_id} as observer of {len(targets)} targets")
+    
+    # Remove as target
+    if agent_id in _subscriptions:
+        observer_count = len(_subscriptions[agent_id])
+        
+        # Notify observers that target is gone
+        for subscription in _subscriptions[agent_id]:
+            observer_id = subscription["observer"]
+            await _event_emitter("observation:target_terminated", {
+                "observer": observer_id,
+                "target": agent_id,
+                "subscription_id": subscription["id"]
+            })
+        
+        del _subscriptions[agent_id]
+        removed_count += observer_count
+        logger.info(f"Removed {observer_count} observers of {agent_id}")
+    
+    # Clean up rate limiters
+    keys_to_remove = [
+        key for key in _rate_limiters.keys()
+        if key.startswith(f"{agent_id}_") or key.endswith(f"_{agent_id}")
+    ]
+    for key in keys_to_remove:
+        del _rate_limiters[key]
+    
+    return {
+        "agent_id": agent_id,
+        "subscriptions_removed": removed_count,
+        "status": "cleaned"
+    }
 
 
 @event_handler("observation:subscribe")
@@ -71,6 +182,34 @@ async def handle_subscribe(data: Dict[str, Any]) -> Dict[str, Any]:
     if not all([observer_id, target_id, event_patterns]):
         return {"error": "observer, target, and events are required"}
     
+    # Validate agents exist
+    if _event_emitter:
+        # Check observer exists
+        observer_result = await _event_emitter("state:entity:get", {
+            "id": observer_id,
+            "type": "agent"
+        })
+        
+        # Handle list response format
+        if isinstance(observer_result, list):
+            observer_result = observer_result[0] if observer_result else {}
+        
+        if observer_result.get("error") or not observer_result.get("entity"):
+            return {"error": f"Observer agent {observer_id} not found"}
+        
+        # Check target exists
+        target_result = await _event_emitter("state:entity:get", {
+            "id": target_id,
+            "type": "agent"
+        })
+        
+        # Handle list response format
+        if isinstance(target_result, list):
+            target_result = target_result[0] if target_result else {}
+        
+        if target_result.get("error") or not target_result.get("entity"):
+            return {"error": f"Target agent {target_id} not found"}
+    
     # Create subscription
     subscription_id = f"sub_{uuid.uuid4().hex[:8]}"
     subscription = {
@@ -99,45 +238,8 @@ async def handle_subscribe(data: Dict[str, Any]) -> Dict[str, Any]:
         window_seconds = rate_limit_config.get("window_seconds", 1.0)
         _rate_limiters[subscription_id] = RateLimiter(max_events, window_seconds)
     
-    # Store in relational state if available
-    if _event_emitter:
-        # Create subscription entity
-        entity_result = await _event_emitter("state:entity:create", {
-            "type": "observation_subscription",
-            "id": subscription_id,
-            "properties": {
-                "observer_id": observer_id,
-                "target_id": target_id,
-                "event_patterns": event_patterns,
-                "filters": json.dumps(subscription["filter"]),
-                "active": True
-            }
-        })
-        
-        if entity_result and isinstance(entity_result, list):
-            entity_result = entity_result[0] if entity_result else {}
-        
-        if entity_result and "error" not in entity_result:
-            logger.debug(f"Created subscription entity {subscription_id}")
-        
-        # Create observes relationship
-        rel_result = await _event_emitter("state:relationship:create", {
-            "from": observer_id,
-            "to": target_id,
-            "type": "observes",
-            "metadata": {
-                "subscription_id": subscription_id,
-                "patterns": event_patterns
-            }
-        })
-        
-        if rel_result and isinstance(rel_result, list):
-            rel_result = rel_result[0] if rel_result else {}
-        
-        if rel_result and rel_result.get("status") == "created":
-            logger.info(f"Created observes relationship: {observer_id} -> {target_id}")
-    
-    logger.info(f"Created observation subscription {subscription_id}: {observer_id} observing {target_id}")
+    # Subscriptions are ephemeral - they will not survive restart unless checkpoint/restore is used
+    logger.info(f"Created ephemeral subscription {subscription_id}: {observer_id} observing {target_id} (will not survive restart)")
     
     return {
         "subscription_id": subscription_id,
@@ -211,18 +313,7 @@ async def handle_unsubscribe(data: Dict[str, Any]) -> Dict[str, Any]:
             if not _observers[observer_id]:
                 del _observers[observer_id]
     
-    # Update state for each unsubscribed
-    if _event_emitter:
-        for sub in unsubscribed:
-            # Update subscription entity
-            await _event_emitter("state:entity:update", {
-                "id": sub["id"],
-                "properties": {"active": False}
-            })
-            
-            # Could also delete the observes relationship here if desired
-    
-    logger.info(f"Unsubscribed {len(unsubscribed)} subscriptions")
+    logger.info(f"Unsubscribed {len(unsubscribed)} ephemeral subscriptions")
     
     return {
         "unsubscribed": len(unsubscribed),
@@ -410,5 +501,254 @@ async def notify_observers(subscriptions: List[Dict[str, Any]], event_type: str,
         logger.debug(f"Notified {observer_id} about {event_type} of {event_name} from {source_agent}")
 
 
+async def _process_observations():
+    """Process observations asynchronously to avoid blocking event emission."""
+    while True:
+        try:
+            batch = []
+            # Collect up to 10 observations or wait 100ms
+            deadline = asyncio.get_event_loop().time() + 0.1
+            
+            while len(batch) < 10:
+                try:
+                    timeout = max(0, deadline - asyncio.get_event_loop().time())
+                    item = await asyncio.wait_for(
+                        _observation_queue.get(), 
+                        timeout=timeout
+                    )
+                    batch.append(item)
+                except asyncio.TimeoutError:
+                    break
+            
+            if batch:
+                await _process_observation_batch(batch)
+                
+        except asyncio.CancelledError:
+            logger.info("Observation processor task cancelled")
+            break
+        except Exception as e:
+            logger.error(f"Observation processor error: {e}")
+            await asyncio.sleep(1)  # Back off on errors
+
+
+async def _process_observation_batch(batch: List[Dict[str, Any]]):
+    """Process a batch of observations."""
+    for item in batch:
+        subscriptions = item["subscriptions"]
+        event_type = item["event_type"]
+        event_name = item["event_name"]
+        data = item["data"]
+        source_agent = item["source_agent"]
+        
+        # Process each subscription with circuit breaker
+        for subscription in subscriptions:
+            observer_id = subscription["observer"]
+            
+            # Check circuit breaker
+            if await _notify_observer_with_circuit_breaker(
+                observer_id, event_type, event_name, data, source_agent, subscription
+            ):
+                logger.debug(f"Successfully notified {observer_id}")
+            else:
+                logger.warning(f"Failed to notify {observer_id} (circuit breaker)")
+
+
+async def _notify_observer_with_circuit_breaker(
+    observer_id: str, 
+    event_type: str,
+    event_name: str,
+    data: Dict[str, Any],
+    source_agent: str,
+    subscription: Dict[str, Any]
+) -> bool:
+    """Notify observer with circuit breaker pattern."""
+    # Check if circuit is open
+    if observer_id in _observer_circuit_open:
+        if datetime.now() < _observer_circuit_open[observer_id]:
+            logger.warning(f"Circuit open for observer {observer_id}")
+            return False
+        else:
+            # Try to close circuit
+            del _observer_circuit_open[observer_id]
+            logger.info(f"Closing circuit for observer {observer_id}")
+    
+    try:
+        observation_id = f"obs_{uuid.uuid4().hex[:8]}"
+        
+        observation_event = {
+            "observation_id": observation_id,
+            "subscription_id": subscription["id"],
+            "source": source_agent,
+            "observer": observer_id,
+            "original_event": event_name,
+            "timestamp": timestamp_utc()
+        }
+        
+        if event_type == "begin":
+            observation_event["original_data"] = data
+        else:  # end
+            observation_event["result"] = data
+        
+        # Send observation
+        result = await _event_emitter(f"observe:{event_type}", observation_event)
+        
+        if result and isinstance(result, list):
+            result = result[0] if result else {}
+            
+        if result.get("error"):
+            raise Exception(result["error"])
+        
+        # Success - clear failures
+        if observer_id in _observer_failures:
+            del _observer_failures[observer_id]
+        
+        return True
+        
+    except Exception as e:
+        # Record failure
+        _observer_failures[observer_id].append(datetime.now())
+        
+        # Keep only recent failures (last 5 minutes)
+        cutoff = datetime.now() - timedelta(minutes=5)
+        _observer_failures[observer_id] = [
+            f for f in _observer_failures[observer_id] 
+            if f > cutoff
+        ]
+        
+        # Open circuit if too many failures
+        if len(_observer_failures[observer_id]) >= 5:
+            _observer_circuit_open[observer_id] = datetime.now() + timedelta(minutes=1)
+            logger.error(f"Opening circuit for observer {observer_id} due to repeated failures")
+        
+        return False
+
+
+# Modified notify_observers to use async queue
+async def notify_observers_async(subscriptions: List[Dict[str, Any]], event_type: str, 
+                               event_name: str, data: Dict[str, Any], 
+                               source_agent: str) -> None:
+    """Queue observations for async processing."""
+    if not _event_emitter or not _observation_queue:
+        return
+    
+    # Queue the observation for async processing
+    try:
+        await _observation_queue.put({
+            "subscriptions": subscriptions,
+            "event_type": event_type,
+            "event_name": event_name,
+            "data": data,
+            "source_agent": source_agent
+        })
+    except asyncio.QueueFull:
+        logger.warning("Observation queue full, dropping observation")
+
+
+@event_handler("checkpoint:collect")
+async def collect_observation_state(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Collect observation subscriptions for checkpoint.
+    
+    Only called during system checkpoint operations.
+    Normal restarts do NOT trigger this.
+    """
+    # Flatten subscription data for storage
+    subscriptions = []
+    for target_id, target_subs in _subscriptions.items():
+        for sub in target_subs:
+            subscriptions.append({
+                "id": sub["id"],
+                "observer": sub["observer"],
+                "target": target_id,
+                "events": sub["events"],
+                "filter": sub.get("filter", {}),
+                "metadata": sub.get("metadata", {})
+            })
+    
+    logger.info(f"Checkpointing {len(subscriptions)} active subscriptions")
+    
+    return {
+        "observation_subscriptions": {
+            "version": "1.0",
+            "subscriptions": subscriptions,
+            "checkpointed_at": timestamp_utc()
+        }
+    }
+
+
+@event_handler("checkpoint:restore")
+async def restore_observation_state(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Restore observation subscriptions from checkpoint.
+    
+    Only called during checkpoint restore operations.
+    Sets the module flag to indicate if subscriptions were restored.
+    """
+    global _subscriptions_restored_from_checkpoint
+    
+    checkpoint_data = data.get("observation_subscriptions", {})
+    if not checkpoint_data:
+        logger.info("No observation subscriptions in checkpoint")
+        _subscriptions_restored_from_checkpoint = False
+        return {"restored": 0}
+    
+    subscriptions = checkpoint_data.get("subscriptions", [])
+    restored = 0
+    
+    # Clear current state
+    _subscriptions.clear()
+    _observers.clear()
+    _rate_limiters.clear()
+    _observer_failures.clear()
+    _observer_circuit_open.clear()
+    
+    # Restore each subscription
+    for sub in subscriptions:
+        try:
+            # Reconstruct internal state
+            target_id = sub["target"]
+            observer_id = sub["observer"]
+            
+            if target_id not in _subscriptions:
+                _subscriptions[target_id] = []
+            
+            _subscriptions[target_id].append({
+                "id": sub["id"],
+                "observer": observer_id,
+                "events": sub["events"],
+                "filter": sub.get("filter", {}),
+                "metadata": sub.get("metadata", {})
+            })
+            
+            if observer_id not in _observers:
+                _observers[observer_id] = set()
+            _observers[observer_id].add(target_id)
+            
+            # Recreate rate limiter if needed
+            rate_limit_config = sub.get("filter", {}).get("rate_limit")
+            if rate_limit_config:
+                _rate_limiters[sub["id"]] = RateLimiter(
+                    max_events=rate_limit_config["max_events"],
+                    window_seconds=rate_limit_config["window_seconds"]
+                )
+            
+            restored += 1
+            
+        except Exception as e:
+            logger.error(f"Failed to restore subscription {sub.get('id')}: {e}")
+    
+    # Set flag indicating if we actually restored any subscriptions
+    _subscriptions_restored_from_checkpoint = (restored > 0)
+    
+    logger.info(f"Restored {restored}/{len(subscriptions)} observation subscriptions")
+    
+    # Notify that observations were restored (different from observation:ready)
+    if restored > 0:
+        await _event_emitter("observation:restored", {
+            "subscriptions_restored": restored,
+            "from_checkpoint": checkpoint_data.get("checkpointed_at")
+        })
+    
+    return {"restored": restored}
+
+
 # Export key functions for event router integration
-__all__ = ["should_observe_event", "notify_observers"]
+__all__ = ["should_observe_event", "notify_observers", "notify_observers_async"]

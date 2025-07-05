@@ -130,6 +130,7 @@ class EventDaemonCore:
         # Observation modules
         import ksi_daemon.observation.observation_manager
         import ksi_daemon.observation.replay
+        import ksi_daemon.observation.historical
         
         # Messaging modules
         import ksi_daemon.messaging.message_bus

@@ -119,6 +119,79 @@ async def handle_shutdown(data: Dict[str, Any]) -> None:
                 f"{len(identities)} identities")
 
 
+@event_handler("observation:ready")
+async def reestablish_observations(data: Dict[str, Any]) -> None:
+    """Re-establish observations for all active agents after restart.
+    
+    This event only fires when observation subscriptions were NOT restored
+    from a checkpoint, indicating that agents need to re-establish their
+    subscriptions.
+    """
+    if not event_emitter:
+        logger.warning("Cannot re-establish observations - no event emitter")
+        return
+        
+    active_agents = [agent for agent in agents.values() if agent.get("status") == "active"]
+    logger.info(f"Re-establishing observations for {len(active_agents)} active agents")
+    
+    for agent_info in active_agents:
+        agent_id = agent_info["agent_id"]
+        
+        # Get agent's profile to find observation config
+        if "composed_prompt" in agent_info:
+            # Try to get observation config from the original profile
+            # For now, we'll skip this as we don't store the full profile
+            # In production, you'd want to store observation config in agent_info
+            pass
+            
+        # Check if agent should observe children
+        if agent_info.get("observe_children"):
+            # Find all children of this agent
+            rel_result = await event_emitter("state:relationships:query", {
+                "from": agent_id,
+                "type": "spawned"
+            })
+            
+            if rel_result and isinstance(rel_result, list):
+                rel_result = rel_result[0] if rel_result else {}
+                
+            relationships = rel_result.get("relationships", [])
+            for rel in relationships:
+                child_id = rel.get("to")
+                if child_id:
+                    await event_emitter("observation:subscribe", {
+                        "observer": agent_id,
+                        "target": child_id,
+                        "events": ["task:completed", "error:*"],
+                        "filter": {}
+                    })
+                    logger.info(f"Re-established observation: {agent_id} -> {child_id}")
+        
+        # Check if agent should observe parent
+        if agent_info.get("originator_agent_id"):
+            await event_emitter("observation:subscribe", {
+                "observer": agent_id,
+                "target": agent_info["originator_agent_id"],
+                "events": ["directive:*", "task:assigned"],
+                "filter": {}
+            })
+            logger.info(f"Re-established observation: {agent_id} -> {agent_info['originator_agent_id']}")
+
+
+@event_handler("observation:restored")
+async def handle_observation_restored(data: Dict[str, Any]) -> None:
+    """Observations restored from checkpoint - no action needed.
+    
+    This event fires when subscriptions are restored from checkpoint,
+    so agents don't need to re-establish them.
+    """
+    restored_count = data.get("subscriptions_restored", 0)
+    from_checkpoint = data.get("from_checkpoint", "unknown")
+    
+    logger.info(f"Observation subscriptions restored from checkpoint: {restored_count} subscriptions "
+                f"from checkpoint at {from_checkpoint}")
+
+
 # Agent lifecycle handlers
 @event_handler("agent:spawn")
 async def handle_spawn_agent(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -428,6 +501,75 @@ async def handle_spawn_agent(data: Dict[str, Any]) -> Dict[str, Any]:
     agent_threads[agent_id] = agent_task
     
     logger.info(f"Created agent thread {agent_id} with composition {compose_name}")
+    
+    # Set up observations based on agent profile
+    if event_emitter and compose_result and "profile" in compose_result:
+        observation_config = compose_result["profile"].get("observation_config", {})
+        subscriptions = observation_config.get("subscriptions", [])
+        
+        if subscriptions:
+            # Wait for observation system to be ready (with timeout)
+            max_retries = 5
+            observation_ready = False
+            for i in range(max_retries):
+                try:
+                    ready_check = await event_emitter("system:service:status", {"service": "observation"})
+                    if ready_check and isinstance(ready_check, list):
+                        ready_check = ready_check[0] if ready_check else {}
+                    if ready_check.get("status") == "ready":
+                        observation_ready = True
+                        break
+                except Exception:
+                    pass
+                await asyncio.sleep(0.5 * (i + 1))  # Exponential backoff
+            
+            if observation_ready:
+                # Set up each subscription
+                for sub_config in subscriptions:
+                    target_pattern = sub_config.get("target_pattern", "")
+                    
+                    # Resolve target pattern to actual agent IDs
+                    target_ids = []
+                    if "*" in target_pattern:
+                        # Special patterns
+                        if target_pattern == "parent":
+                            # Observe parent/originator
+                            if originator_agent_id:
+                                target_ids = [originator_agent_id]
+                        elif target_pattern == "children" or target_pattern == "child_*":
+                            # Will be set up when children are spawned
+                            # Store pattern for later use
+                            agent_info["observe_children"] = True
+                            continue
+                        else:
+                            # Query agents matching pattern
+                            agents_result = await event_emitter("agent:list", {"pattern": target_pattern})
+                            if agents_result and isinstance(agents_result, list):
+                                agents_result = agents_result[0] if agents_result else {}
+                            target_ids = [a["id"] for a in agents_result.get("agents", [])]
+                    else:
+                        # Specific agent ID
+                        target_ids = [target_pattern]
+                    
+                    # Subscribe to each target
+                    for target_id in target_ids:
+                        if target_id and target_id != agent_id:  # Don't observe self
+                            result = await event_emitter("observation:subscribe", {
+                                "observer": agent_id,
+                                "target": target_id,
+                                "events": sub_config.get("events", ["*"]),
+                                "filter": sub_config.get("filter", {})
+                            })
+                            
+                            if result and isinstance(result, list):
+                                result = result[0] if result else {}
+                                
+                            if result.get("error"):
+                                logger.warning(f"Failed to subscribe {agent_id} to {target_id}: {result['error']}")
+                            else:
+                                logger.info(f"Agent {agent_id} now observing {target_id}")
+            else:
+                logger.warning(f"Observation system not ready for agent {agent_id} subscriptions")
     
     return {
         "agent_id": agent_id,

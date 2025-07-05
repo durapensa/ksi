@@ -216,13 +216,13 @@ class EventRouter:
         # Don't observe observation events to prevent loops
         if source_agent and not event.startswith("observe:") and not event.startswith("observation:"):
             # Import here to avoid circular dependency
-            from ksi_daemon.observation import should_observe_event, notify_observers
+            from ksi_daemon.observation import should_observe_event, notify_observers_async
             
             matching_subscriptions = should_observe_event(event, source_agent, data)
             if matching_subscriptions:
                 observation_id = f"obs_{uuid.uuid4().hex[:8]}"
-                # Notify observers of event begin
-                await notify_observers(matching_subscriptions, "begin", event, data, source_agent)
+                # Notify observers of event begin (async - non-blocking)
+                await notify_observers_async(matching_subscriptions, "begin", event, data, source_agent)
             
         # Apply middleware
         for mw in self._middleware:
@@ -243,8 +243,8 @@ class EventRouter:
         if not handlers:
             # Still notify observers even if no handlers
             if matching_subscriptions:
-                await notify_observers(matching_subscriptions, "end", event, 
-                                     {"status": "no_handlers"}, source_agent)
+                await notify_observers_async(matching_subscriptions, "end", event, 
+                                           {"status": "no_handlers"}, source_agent)
             return []
             
         # Execute handlers concurrently
@@ -279,8 +279,8 @@ class EventRouter:
                 "errors": errors,
                 "handler_count": len(handlers)
             }
-            await notify_observers(matching_subscriptions, "end", event, 
-                                 observation_result, source_agent)
+            await notify_observers_async(matching_subscriptions, "end", event, 
+                                       observation_result, source_agent)
                 
         return valid_results
         

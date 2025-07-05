@@ -45,6 +45,20 @@ components:
           - "research_agent"
           - "analysis_agent"
         max_depth: 2  # How deep the spawn hierarchy can go
+        
+  - name: "observation_config"
+    inline:
+      # Observation subscriptions for multi-agent coordination
+      subscriptions:
+        # Observe all child agents for task completion and errors
+        - target_pattern: "children"
+          events: ["task:completed", "task:failed", "error:*", "status:blocked"]
+          filter:
+            exclude: ["status:heartbeat"]
+            
+        # If this agent has a parent, observe directives
+        - target_pattern: "parent"
+          events: ["directive:*", "task:assigned", "priority:*"]
           
 variables:
   enable_tools:
