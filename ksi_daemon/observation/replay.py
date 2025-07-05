@@ -10,8 +10,8 @@ and event sequence replay.
 import asyncio
 import json
 import time
+import fnmatch
 from typing import Dict, List, Any, Optional, AsyncIterator
-from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
 
 from ksi_common.logging import get_bound_logger
@@ -25,25 +25,8 @@ _event_emitter = None
 _event_router = None
 
 
-@dataclass
-class ObservationRecord:
-    """Record of an observed event for historical analysis."""
-    observation_id: str
-    subscription_id: str
-    observer: str
-    target: str
-    event_name: str
-    event_data: Dict[str, Any]
-    timestamp: float
-    event_type: str  # "begin" or "end"
-    result: Optional[Dict[str, Any]] = None
-    duration_ms: Optional[float] = None
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for storage."""
-        data = asdict(self)
-        data["timestamp_iso"] = numeric_to_iso(self.timestamp)
-        return data
+# Note: ObservationRecord removed - we now use the event log directly
+# which stores all events automatically without needing separate records
 
 
 @event_handler("system:context")
@@ -61,32 +44,13 @@ async def record_observation_begin(data: Dict[str, Any]) -> None:
     """
     Record the beginning of an observed event.
     
-    This handler runs alongside the normal observation flow to capture
-    events for historical analysis.
+    This handler runs alongside the normal observation flow but since
+    all events are now logged, we don't need to store separately.
+    We just add observation metadata to help with queries.
     """
-    if not _event_emitter:
-        return
-        
-    # Create observation record
-    record = ObservationRecord(
-        observation_id=data["observation_id"],
-        subscription_id=data["subscription_id"],
-        observer=data["observer"],
-        target=data["source"],
-        event_name=data["original_event"],
-        event_data=data.get("original_data", {}),
-        timestamp=data.get("timestamp", time.time()),
-        event_type="begin"
-    )
-    
-    # Store in relational state for persistence
-    await _event_emitter("state:entity:create", {
-        "type": "observation_record",
-        "id": f"{record.observation_id}_begin",
-        "properties": record.to_dict()
-    })
-    
-    logger.debug(f"Recorded observation begin: {record.observation_id}")
+    # No need to store - the event log already captured this
+    # Just log for debugging
+    logger.debug(f"Observation begin: {data.get('observation_id')} for event {data.get('original_event')}")
 
 
 @event_handler("observe:end")
@@ -94,51 +58,17 @@ async def record_observation_end(data: Dict[str, Any]) -> None:
     """
     Record the completion of an observed event.
     
-    Captures results and calculates duration for performance analysis.
+    The event log captures this automatically, we just log for debugging.
+    Duration calculation can be done during query time.
     """
-    if not _event_emitter:
-        return
-        
-    # Look up the begin record to calculate duration
-    begin_id = f"{data['observation_id']}_begin"
-    begin_result = await _event_emitter("state:entity:get", {
-        "id": begin_id
-    })
-    
-    duration_ms = None
-    if begin_result and isinstance(begin_result, list) and begin_result[0].get("entity"):
-        begin_timestamp = begin_result[0]["entity"]["properties"].get("timestamp", 0)
-        current_timestamp = data.get("timestamp", time.time())
-        duration_ms = (current_timestamp - begin_timestamp) * 1000
-    
-    # Create end record
-    record = ObservationRecord(
-        observation_id=data["observation_id"],
-        subscription_id=data["subscription_id"],
-        observer=data["observer"],
-        target=data["source"],
-        event_name=data["original_event"],
-        event_data={},  # Already captured in begin
-        timestamp=data.get("timestamp", time.time()),
-        event_type="end",
-        result=data.get("result"),
-        duration_ms=duration_ms
-    )
-    
-    # Store end record
-    await _event_emitter("state:entity:create", {
-        "type": "observation_record",
-        "id": f"{record.observation_id}_end",
-        "properties": record.to_dict()
-    })
-    
-    logger.debug(f"Recorded observation end: {record.observation_id} (duration: {duration_ms:.2f}ms)")
+    # No need to store - the event log already captured this
+    logger.debug(f"Observation end: {data.get('observation_id')} for event {data.get('original_event')}")
 
 
 @event_handler("observation:query_history")
 async def query_observation_history(data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Query historical observation records.
+    Query historical observation records from the event log.
     
     Args:
         observer (str): Filter by observer (optional)
@@ -152,58 +82,64 @@ async def query_observation_history(data: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Historical observation records with statistics
     """
-    # Build query
-    where_conditions = {"type": "observation_record"}
+    if not _event_router or not hasattr(_event_router, 'event_log'):
+        return {"error": "Event log not available"}
     
-    if data.get("observer"):
-        where_conditions["observer"] = data["observer"]
-    if data.get("target"):
-        where_conditions["target"] = data["target"]
+    # Build event patterns to query
+    event_patterns = ["observe:begin", "observe:end"]
     if data.get("event_name"):
-        where_conditions["event_name"] = data["event_name"]
-        
-    # Query records
-    result = await _event_emitter("state:entity:query", {
-        "type": "observation_record",
-        "where": where_conditions,
-        "limit": data.get("limit", 100),
-        "order_by": "timestamp",
-        "order": "DESC"
-    })
+        # Also include the original event patterns
+        event_patterns.append(data["event_name"])
     
-    if not result or not isinstance(result, list):
-        return {"records": [], "count": 0}
+    # Query event log
+    events = _event_router.event_log.get_events(
+        event_patterns=event_patterns,
+        client_id=data.get("observer"),  # Observer is the client_id
+        since=data.get("since"),
+        until=data.get("until"),
+        limit=data.get("limit", 100) * 2,  # Get more since we'll filter
+        reverse=True
+    )
+    
+    # Process events into observation records
+    observations = {}  # observation_id -> record
+    
+    for event in events:
+        event_data = event.data
         
-    records = []
-    for entity_result in result:
-        if entity_result.get("entities"):
-            for entity in entity_result["entities"]:
-                props = entity.get("properties", {})
-                
-                # Apply time filters
-                timestamp = props.get("timestamp", 0)
-                if data.get("since") and timestamp < data["since"]:
-                    continue
-                if data.get("until") and timestamp > data["until"]:
-                    continue
-                    
-                # Build record
-                record = {
-                    "observation_id": props.get("observation_id"),
-                    "event_name": props.get("event_name"),
-                    "observer": props.get("observer"),
-                    "target": props.get("target"),
-                    "timestamp": timestamp,
-                    "timestamp_iso": props.get("timestamp_iso"),
-                    "event_type": props.get("event_type"),
-                    "duration_ms": props.get("duration_ms")
-                }
-                
-                if data.get("include_data", False):
-                    record["event_data"] = props.get("event_data")
-                    record["result"] = props.get("result")
-                    
-                records.append(record)
+        # Filter by target if specified
+        if data.get("target") and event_data.get("source") != data["target"]:
+            continue
+            
+        obs_id = event_data.get("observation_id")
+        if not obs_id:
+            continue
+            
+        if obs_id not in observations:
+            observations[obs_id] = {
+                "observation_id": obs_id,
+                "event_name": event_data.get("original_event"),
+                "observer": event_data.get("observer"),
+                "target": event_data.get("source"),
+                "timestamp": event.timestamp,
+                "timestamp_iso": numeric_to_iso(event.timestamp)
+            }
+        
+        # Update with event-specific data
+        if event.event_name == "observe:begin":
+            observations[obs_id]["begin_timestamp"] = event.timestamp
+            if data.get("include_data", False):
+                observations[obs_id]["event_data"] = event_data.get("original_data")
+        elif event.event_name == "observe:end":
+            observations[obs_id]["end_timestamp"] = event.timestamp
+            if "begin_timestamp" in observations[obs_id]:
+                duration_ms = (event.timestamp - observations[obs_id]["begin_timestamp"]) * 1000
+                observations[obs_id]["duration_ms"] = duration_ms
+            if data.get("include_data", False):
+                observations[obs_id]["result"] = event_data.get("result")
+    
+    # Convert to list and apply limit
+    records = list(observations.values())[:data.get("limit", 100)]
     
     # Calculate statistics
     stats = calculate_observation_stats(records)
@@ -218,11 +154,14 @@ async def query_observation_history(data: Dict[str, Any]) -> Dict[str, Any]:
 @event_handler("observation:replay")
 async def replay_observations(data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Replay a sequence of observed events.
+    Replay a sequence of events from the event log.
     
     Args:
-        observation_ids (list): Specific observations to replay
-        filter: Same as query_history to select events
+        event_patterns (list): Event patterns to replay (e.g. ["task:*", "data:*"])
+        filter: Additional filters
+            - client_id: Filter by specific client/agent
+            - since: Start timestamp
+            - until: End timestamp
         speed (float): Replay speed multiplier (1.0 = real-time)
         target_agent (str): Agent to receive replayed events
         as_new_events (bool): Emit as new events vs observe:replay events
@@ -230,21 +169,40 @@ async def replay_observations(data: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Replay session information
     """
-    # Query observations to replay
-    query_data = data.get("filter", {})
-    query_data["include_data"] = True
+    if not _event_router or not hasattr(_event_router, 'event_log'):
+        return {"error": "Event log not available"}
     
-    history_result = await query_observation_history(query_data)
-    records = history_result.get("records", [])
+    # Query events to replay
+    event_patterns = data.get("event_patterns", ["*"])
+    filter_data = data.get("filter", {})
     
-    if not records:
-        return {"error": "No observations found to replay"}
+    # Query from event log
+    events = _event_router.event_log.get_events(
+        event_patterns=event_patterns,
+        client_id=filter_data.get("client_id"),
+        since=filter_data.get("since"),
+        until=filter_data.get("until"),
+        limit=filter_data.get("limit", 1000),
+        reverse=False  # Chronological order
+    )
     
-    # Filter to begin events only (we replay the originals)
-    begin_records = [r for r in records if r.get("event_type") == "begin"]
+    if not events:
+        return {"error": "No events found to replay"}
     
-    # Sort by timestamp for chronological replay
-    begin_records.sort(key=lambda r: r.get("timestamp", 0))
+    # Filter out system events we don't want to replay
+    skip_patterns = ["observe:*", "observation:*", "system:*", "monitor:*"]
+    filtered_events = []
+    for event in events:
+        skip = False
+        for pattern in skip_patterns:
+            if fnmatch.fnmatch(event.event_name, pattern):
+                skip = True
+                break
+        if not skip:
+            filtered_events.append(event)
+    
+    if not filtered_events:
+        return {"error": "No replayable events found after filtering"}
     
     # Create replay session
     session_id = f"replay_{int(time.time())}"
@@ -254,48 +212,48 @@ async def replay_observations(data: Dict[str, Any]) -> Dict[str, Any]:
     
     # Start replay task
     asyncio.create_task(
-        replay_events_async(session_id, begin_records, speed, target_agent, as_new_events)
+        replay_events_from_log(session_id, filtered_events, speed, target_agent, as_new_events)
     )
     
     return {
         "session_id": session_id,
-        "event_count": len(begin_records),
+        "event_count": len(filtered_events),
         "speed": speed,
-        "estimated_duration_seconds": calculate_replay_duration(begin_records, speed)
+        "estimated_duration_seconds": calculate_replay_duration_from_events(filtered_events, speed)
     }
 
 
-async def replay_events_async(session_id: str, records: List[Dict], 
-                            speed: float, target_agent: Optional[str],
-                            as_new_events: bool) -> None:
+async def replay_events_from_log(session_id: str, events: List, 
+                               speed: float, target_agent: Optional[str],
+                               as_new_events: bool) -> None:
     """
-    Asynchronously replay events with proper timing.
+    Asynchronously replay events from the event log with proper timing.
     """
-    if not records:
+    if not events:
         return
         
-    logger.info(f"Starting replay session {session_id} with {len(records)} events")
+    logger.info(f"Starting replay session {session_id} with {len(events)} events")
     
     # Emit replay started event
     await _event_emitter("observation:replay_started", {
         "session_id": session_id,
-        "event_count": len(records),
+        "event_count": len(events),
         "speed": speed
     })
     
     start_time = time.time()
-    first_timestamp = records[0]["timestamp"]
+    first_timestamp = events[0].timestamp
     
-    for i, record in enumerate(records):
+    for i, event in enumerate(events):
         # Calculate delay
         if i > 0:
-            time_diff = record["timestamp"] - records[i-1]["timestamp"]
+            time_diff = event.timestamp - events[i-1].timestamp
             delay = time_diff / speed
             if delay > 0:
                 await asyncio.sleep(delay)
         
         # Prepare event data
-        event_data = record.get("event_data", {})
+        event_data = event.data.copy() if event.data else {}
         
         if target_agent:
             # Override agent_id if targeting specific agent
@@ -303,23 +261,23 @@ async def replay_events_async(session_id: str, records: List[Dict],
             
         if as_new_events:
             # Re-emit as original event
-            await _event_emitter(record["event_name"], event_data)
+            await _event_emitter(event.event_name, event_data)
         else:
             # Emit as replay event
             await _event_emitter("observation:replayed_event", {
                 "session_id": session_id,
-                "original_event": record["event_name"],
+                "original_event": event.event_name,
                 "original_data": event_data,
-                "original_timestamp": record["timestamp"],
-                "observation_id": record["observation_id"],
+                "original_timestamp": event.timestamp,
+                "event_id": event.event_id,
                 "sequence": i + 1,
-                "total": len(records)
+                "total": len(events)
             })
     
     # Emit replay completed
     await _event_emitter("observation:replay_completed", {
         "session_id": session_id,
-        "events_replayed": len(records),
+        "events_replayed": len(events),
         "duration_seconds": time.time() - start_time
     })
     
@@ -329,35 +287,48 @@ async def replay_events_async(session_id: str, records: List[Dict],
 @event_handler("observation:analyze_patterns")
 async def analyze_observation_patterns(data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Analyze patterns in observation history.
+    Analyze patterns in event history from the event log.
     
     Args:
-        filter: Same as query_history to select events
+        event_patterns (list): Event patterns to analyze (default ["*"])
+        filter: Additional filters
+            - client_id: Filter by specific client/agent
+            - since: Start timestamp
+            - until: End timestamp
         analysis_type: "frequency", "sequence", "performance", "errors"
     
     Returns:
         Pattern analysis results
     """
-    # Query observations
-    query_data = data.get("filter", {})
-    query_data["limit"] = data.get("limit", 1000)  # Higher limit for analysis
+    if not _event_router or not hasattr(_event_router, 'event_log'):
+        return {"error": "Event log not available"}
     
-    history_result = await query_observation_history(query_data)
-    records = history_result.get("records", [])
+    # Query events from log
+    event_patterns = data.get("event_patterns", ["*"])
+    filter_data = data.get("filter", {})
     
-    if not records:
-        return {"error": "No observations found to analyze"}
+    events = _event_router.event_log.get_events(
+        event_patterns=event_patterns,
+        client_id=filter_data.get("client_id"),
+        since=filter_data.get("since"),
+        until=filter_data.get("until"),
+        limit=data.get("limit", 1000),
+        reverse=False
+    )
+    
+    if not events:
+        return {"error": "No events found to analyze"}
     
     analysis_type = data.get("analysis_type", "frequency")
     
     if analysis_type == "frequency":
-        return analyze_frequency_patterns(records)
+        return analyze_frequency_patterns_from_events(events)
     elif analysis_type == "sequence":
-        return analyze_sequence_patterns(records)
+        return analyze_sequence_patterns_from_events(events)
     elif analysis_type == "performance":
-        return analyze_performance_patterns(records)
+        return analyze_performance_patterns_from_events(events)
     elif analysis_type == "errors":
-        return analyze_error_patterns(records)
+        return analyze_error_patterns_from_events(events)
     else:
         return {"error": f"Unknown analysis type: {analysis_type}"}
 
@@ -391,62 +362,78 @@ def calculate_observation_stats(records: List[Dict]) -> Dict[str, Any]:
     return stats
 
 
-def calculate_replay_duration(records: List[Dict], speed: float) -> float:
-    """Calculate estimated replay duration."""
-    if not records or len(records) < 2:
+def calculate_replay_duration_from_events(events: List, speed: float) -> float:
+    """Calculate estimated replay duration from event log entries."""
+    if not events or len(events) < 2:
         return 0.0
         
-    first_timestamp = records[0]["timestamp"]
-    last_timestamp = records[-1]["timestamp"]
+    first_timestamp = events[0].timestamp
+    last_timestamp = events[-1].timestamp
     duration = last_timestamp - first_timestamp
     
     return duration / speed
 
 
-def analyze_frequency_patterns(records: List[Dict]) -> Dict[str, Any]:
-    """Analyze event frequency patterns."""
+def analyze_frequency_patterns_from_events(events: List) -> Dict[str, Any]:
+    """Analyze event frequency patterns from event log entries."""
     from collections import Counter
     
     # Count events by type
-    event_counts = Counter(r["event_name"] for r in records)
+    event_counts = Counter(e.event_name for e in events)
     
-    # Count by observer-target pairs
-    pair_counts = Counter((r["observer"], r["target"]) for r in records)
+    # Count by client (agent)
+    client_counts = Counter(e.client_id for e in events if e.client_id)
     
     # Time-based frequency (hourly)
     hourly_counts = {}
-    for record in records:
-        hour = datetime.fromtimestamp(record["timestamp"]).strftime("%Y-%m-%d %H:00")
+    for event in events:
+        hour = datetime.fromtimestamp(event.timestamp).strftime("%Y-%m-%d %H:00")
         hourly_counts[hour] = hourly_counts.get(hour, 0) + 1
     
     return {
         "analysis_type": "frequency",
         "event_frequency": dict(event_counts.most_common(10)),
-        "observer_target_pairs": [
-            {"observer": obs, "target": tgt, "count": cnt}
-            for (obs, tgt), cnt in pair_counts.most_common(10)
-        ],
+        "client_frequency": dict(client_counts.most_common(10)),
         "hourly_distribution": hourly_counts,
-        "total_events": len(records)
+        "total_events": len(events),
+        "time_range": {
+            "start": numeric_to_iso(events[0].timestamp) if events else None,
+            "end": numeric_to_iso(events[-1].timestamp) if events else None
+        }
     }
 
 
-def analyze_sequence_patterns(records: List[Dict]) -> Dict[str, Any]:
-    """Analyze event sequence patterns."""
-    # Sort by timestamp
-    sorted_records = sorted(records, key=lambda r: r["timestamp"])
+def analyze_sequence_patterns_from_events(events: List) -> Dict[str, Any]:
+    """Analyze event sequence patterns from event log entries."""
+    # Events should already be sorted by timestamp
     
-    # Find common sequences (2-grams)
+    # Find common sequences (2-grams) - same client
     sequences = []
-    for i in range(len(sorted_records) - 1):
-        if sorted_records[i]["target"] == sorted_records[i+1]["target"]:
-            sequences.append((
-                sorted_records[i]["event_name"],
-                sorted_records[i+1]["event_name"]
-            ))
+    for i in range(len(events) - 1):
+        if events[i].client_id and events[i].client_id == events[i+1].client_id:
+            # Only if events are close in time (within 60 seconds)
+            if events[i+1].timestamp - events[i].timestamp < 60:
+                sequences.append((
+                    events[i].event_name,
+                    events[i+1].event_name
+                ))
     
     from collections import Counter
     sequence_counts = Counter(sequences)
+    
+    # Find 3-grams for more complex patterns
+    trigrams = []
+    for i in range(len(events) - 2):
+        if (events[i].client_id and 
+            events[i].client_id == events[i+1].client_id == events[i+2].client_id and
+            events[i+2].timestamp - events[i].timestamp < 120):
+            trigrams.append((
+                events[i].event_name,
+                events[i+1].event_name,
+                events[i+2].event_name
+            ))
+    
+    trigram_counts = Counter(trigrams)
     
     return {
         "analysis_type": "sequence",
@@ -454,54 +441,120 @@ def analyze_sequence_patterns(records: List[Dict]) -> Dict[str, Any]:
             {"sequence": list(seq), "count": cnt}
             for seq, cnt in sequence_counts.most_common(10)
         ],
-        "sequence_count": len(sequence_counts)
+        "common_trigrams": [
+            {"sequence": list(seq), "count": cnt}
+            for seq, cnt in trigram_counts.most_common(5)
+        ],
+        "sequence_count": len(sequence_counts),
+        "trigram_count": len(trigram_counts)
     }
 
 
-def analyze_performance_patterns(records: List[Dict]) -> Dict[str, Any]:
-    """Analyze performance patterns."""
-    # Filter to end records with duration
-    perf_records = [r for r in records 
-                   if r.get("event_type") == "end" and r.get("duration_ms") is not None]
+def analyze_performance_patterns_from_events(events: List) -> Dict[str, Any]:
+    """Analyze performance patterns by looking at observe:begin/end pairs."""
+    # Find paired observe events to calculate durations
+    observations = {}  # observation_id -> {begin_time, end_time, event_name}
     
-    if not perf_records:
-        return {"analysis_type": "performance", "error": "No performance data available"}
+    for event in events:
+        if event.event_name in ["observe:begin", "observe:end"]:
+            obs_id = event.data.get("observation_id") if event.data else None
+            if obs_id:
+                if obs_id not in observations:
+                    observations[obs_id] = {}
+                
+                if event.event_name == "observe:begin":
+                    observations[obs_id]["begin_time"] = event.timestamp
+                    observations[obs_id]["event_name"] = event.data.get("original_event", "unknown")
+                elif event.event_name == "observe:end":
+                    observations[obs_id]["end_time"] = event.timestamp
     
-    # Group by event type
+    # Calculate durations
     perf_by_event = {}
-    for record in perf_records:
-        event_name = record["event_name"]
-        if event_name not in perf_by_event:
-            perf_by_event[event_name] = []
-        perf_by_event[event_name].append(record["duration_ms"])
+    for obs_id, obs_data in observations.items():
+        if "begin_time" in obs_data and "end_time" in obs_data:
+            duration_ms = (obs_data["end_time"] - obs_data["begin_time"]) * 1000
+            event_name = obs_data["event_name"]
+            
+            if event_name not in perf_by_event:
+                perf_by_event[event_name] = []
+            perf_by_event[event_name].append(duration_ms)
     
     # Calculate stats per event type
     event_stats = {}
     for event_name, durations in perf_by_event.items():
-        event_stats[event_name] = {
-            "avg_ms": sum(durations) / len(durations),
-            "min_ms": min(durations),
-            "max_ms": max(durations),
-            "count": len(durations)
-        }
+        if durations:
+            event_stats[event_name] = {
+                "avg_ms": sum(durations) / len(durations),
+                "min_ms": min(durations),
+                "max_ms": max(durations),
+                "count": len(durations)
+            }
+    
+    # Find slowest individual events
+    slow_events = []
+    for obs_id, obs_data in observations.items():
+        if "begin_time" in obs_data and "end_time" in obs_data:
+            duration_ms = (obs_data["end_time"] - obs_data["begin_time"]) * 1000
+            slow_events.append({
+                "observation_id": obs_id,
+                "event_name": obs_data["event_name"],
+                "duration_ms": duration_ms,
+                "timestamp": obs_data["begin_time"]
+            })
+    
+    slow_events.sort(key=lambda x: x["duration_ms"], reverse=True)
     
     return {
         "analysis_type": "performance",
         "event_performance": event_stats,
-        "slowest_events": sorted(
-            perf_records,
-            key=lambda r: r["duration_ms"],
-            reverse=True
-        )[:10]
+        "slowest_events": slow_events[:10],
+        "total_observations": len(observations),
+        "completed_observations": sum(1 for o in observations.values() 
+                                    if "begin_time" in o and "end_time" in o)
     }
 
 
-def analyze_error_patterns(records: List[Dict]) -> Dict[str, Any]:
-    """Analyze error patterns in observations."""
-    # This would need to look at the result data for errors
-    # For now, return a placeholder
+def analyze_error_patterns_from_events(events: List) -> Dict[str, Any]:
+    """Analyze error patterns from event log."""
+    from collections import Counter
+    
+    # Find error-related events
+    error_events = []
+    error_types = Counter()
+    error_by_client = Counter()
+    
+    for event in events:
+        # Check if it's an error event
+        if (event.event_name.startswith("error:") or 
+            event.event_name == "event:error" or
+            (event.data and "error" in event.data)):
+            
+            error_events.append(event)
+            error_types[event.event_name] += 1
+            
+            if event.client_id:
+                error_by_client[event.client_id] += 1
+    
+    # Extract error messages if available
+    error_messages = []
+    for event in error_events[:100]:  # Limit to prevent huge output
+        if event.data:
+            if isinstance(event.data.get("error"), str):
+                error_messages.append({
+                    "event": event.event_name,
+                    "error": event.data["error"],
+                    "timestamp": numeric_to_iso(event.timestamp),
+                    "client": event.client_id
+                })
+    
     return {
         "analysis_type": "errors",
-        "message": "Error analysis requires result data inspection",
-        "total_records": len(records)
+        "total_errors": len(error_events),
+        "error_types": dict(error_types.most_common()),
+        "errors_by_client": dict(error_by_client.most_common(10)),
+        "recent_errors": error_messages[:10],
+        "error_rate": {
+            "errors_per_event": len(error_events) / len(events) if events else 0,
+            "percentage": (len(error_events) / len(events) * 100) if events else 0
+        }
     }

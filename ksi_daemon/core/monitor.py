@@ -83,7 +83,7 @@ async def handle_get_events(data: Dict[str, Any]) -> Dict[str, Any]:
         stats = event_router.event_log.get_stats()
         
         return {
-            "events": events,
+            "events": [event.to_dict() for event in events],  # Convert objects to dicts for JSON
             "count": len(events),
             "total_events": stats["total_events"],
             "query": {

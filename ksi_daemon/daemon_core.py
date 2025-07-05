@@ -11,6 +11,7 @@ from typing import Dict, Any, Optional
 
 from ksi_common.logging import get_bound_logger
 from .event_system import EventRouter, get_router
+from .event_log import EventLog
 
 # Core state management
 from ksi_daemon.core.state import initialize_state, get_state_manager
@@ -41,6 +42,12 @@ class EventDaemonCore:
             
             # Store reference to daemon core in router for shutdown handling
             self.router._daemon_core = self
+            
+            # Initialize event log and attach to router
+            logger.info("Initializing event log...")
+            self.router.event_log = EventLog()
+            await self.router.event_log.start()
+            logger.info("Event log initialized and started")
             
             # Initialize state infrastructure first (core dependency)
             logger.info("Initializing core state infrastructure...")
@@ -120,6 +127,10 @@ class EventDaemonCore:
         # Agent modules
         import ksi_daemon.agent.agent_service
         
+        # Observation modules
+        import ksi_daemon.observation.observation_manager
+        import ksi_daemon.observation.replay
+        
         # Messaging modules
         import ksi_daemon.messaging.message_bus
         
@@ -190,6 +201,11 @@ class EventDaemonCore:
             # Now safe to stop background tasks
             logger.info("Stopping background tasks...")
             await self.router.stop_all_tasks()
+            
+            # Stop event log
+            if hasattr(self.router, 'event_log') and self.router.event_log:
+                logger.info("Stopping event log...")
+                await self.router.event_log.stop()
             
             self.running = False
             logger.info("Daemon core shutdown complete")

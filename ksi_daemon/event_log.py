@@ -142,7 +142,7 @@ class DaemonEventLog:
                    since: Optional[Union[str, float]] = None,
                    until: Optional[Union[str, float]] = None,
                    limit: Optional[int] = None,
-                   reverse: bool = True) -> List[Dict[str, Any]]:
+                   reverse: bool = True) -> List['EventLogEntry']:
         """
         Query events with filtering and pagination.
         
@@ -155,7 +155,7 @@ class DaemonEventLog:
             reverse: Return newest first (default True)
             
         Returns:
-            List of matching event dictionaries
+            List of matching EventLogEntry objects
         """
         try:
             # Convert time strings to timestamps
@@ -166,10 +166,10 @@ class DaemonEventLog:
             matching_events = []
             for entry in self.events:
                 if entry.matches_filter(event_patterns, client_id, since_ts, until_ts):
-                    matching_events.append(entry.to_dict())
+                    matching_events.append(entry)
             
             # Sort by timestamp
-            matching_events.sort(key=lambda e: e['timestamp'], reverse=reverse)
+            matching_events.sort(key=lambda e: e.timestamp, reverse=reverse)
             
             # Apply limit
             if limit:
@@ -234,12 +234,13 @@ class EventSubscriber:
     filter_fn: Optional[Callable] = None
 
 
-class AsyncSQLiteEventLog(DaemonEventLog):
+class EventLog(DaemonEventLog):
     """
-    Event log with async SQLite persistence and real-time streaming.
+    Event log with persistence and real-time streaming.
     
-    Combines in-memory ring buffer with durable SQLite storage.
+    Combines in-memory ring buffer with durable storage.
     Supports real-time event streaming to subscribers.
+    Currently uses SQLite but can be swapped for other backends.
     """
     
     def __init__(self, max_size: int = 10000, db_path: Optional[Path] = None):
