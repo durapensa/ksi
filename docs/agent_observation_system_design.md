@@ -242,6 +242,13 @@ The observation system is built on KSI's universal relational state system:
 - **Properties**: Stored as key-value pairs with type preservation
 - **Relationships**: spawned, observes, owns, monitors
 
+#### Graph Operations for Observation
+The relational state provides efficient graph operations perfect for observation patterns:
+- **Traversal**: Find all constructs of an originator at any depth
+- **Bulk Creation**: Spawn multiple observers in one operation
+- **Aggregation**: Count active observers by type or status
+- **Bidirectional Queries**: Find who observes an agent or who an agent observes
+
 #### Example State Operations
 ```python
 # Agent entity
@@ -263,10 +270,26 @@ await emit_event("state:relationship:create", {
     "metadata": {"purpose": purpose}
 })
 
-# Query constructs
+# Query constructs (simple)
 result = await emit_event("state:relationship:query", {
     "from": originator_id,
     "type": "spawned"
+})
+
+# Graph traversal (efficient for hierarchies)
+result = await emit_event("state:graph:traverse", {
+    "from": originator_id,
+    "direction": "outgoing",
+    "types": ["spawned", "observes"],
+    "depth": 2,
+    "include_entities": True
+})
+
+# Count constructs by type
+result = await emit_event("state:aggregate:count", {
+    "target": "entities",
+    "group_by": "type",
+    "where": {"agent_type": "construct"}
 })
 ```
 
