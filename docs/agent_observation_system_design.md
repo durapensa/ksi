@@ -399,35 +399,79 @@ await emit_event("observation:subscribe", {
 
 ## Implementation Phases
 
-### Phase 1: Agent Metadata (Immediate)
+### Phase 1: Agent Metadata (Immediate) ✓ COMPLETED
 - Add `AgentMetadata` class
 - Update agent spawn to include `originator_agent_id`
 - Modify agent service to track relationships
 - Update agent info endpoints
 
-### Phase 2: State-Based Tracking (High Priority)
+### Phase 2: State-Based Tracking (High Priority) ✓ COMPLETED
 - Implement construct tracking in state
 - Add helper methods for construct management
 - Create construct lifecycle events
 - Add construct discovery endpoints
 
-### Phase 3: Observation Subscription (Medium Priority)
+### Phase 3: Observation Subscription (Medium Priority) ✓ COMPLETED
 - Create `ObservationManager` component
 - Implement subscription/unsubscription
 - Add subscription persistence
 - Create subscription query endpoints
 
-### Phase 4: Event Routing Integration (Medium Priority)
+### Phase 4: Event Routing Integration (Medium Priority) ✓ COMPLETED
 - Integrate observation into event router
 - Implement `observe:begin` and `observe:end` events
 - Add performance monitoring
 - Create observation filtering
 
-### Phase 5: Historical Analysis (Low Priority)
+### Phase 5: Historical Analysis (Low Priority) ✓ COMPLETED
 - Add observation event logging
 - Implement replay capabilities
 - Create analysis tools
 - Add observation metrics
+
+## Phase 5 Implementation Details
+
+### Observation Recording
+- Automatic recording of all observe:begin and observe:end events
+- Stored in relational state as observation_record entities
+- Captures event data, results, timing, and duration
+
+### Query Capabilities
+```python
+{"event": "observation:query_history", "data": {
+    "observer": "originator_1",
+    "target": "construct_1",
+    "event_name": "message:*",
+    "since": timestamp,
+    "until": timestamp,
+    "limit": 100,
+    "include_data": true
+}}
+```
+
+### Replay System
+```python
+{"event": "observation:replay", "data": {
+    "filter": {...},  # Same as query_history
+    "speed": 2.0,     # Replay speed multiplier
+    "target_agent": "agent_id",  # Optional target override
+    "as_new_events": true  # Re-emit as original events
+}}
+```
+
+### Pattern Analysis
+```python
+{"event": "observation:analyze_patterns", "data": {
+    "filter": {...},
+    "analysis_type": "frequency|sequence|performance|errors"
+}}
+```
+
+Analysis types:
+- **frequency**: Event counts, observer-target pairs, time distribution
+- **sequence**: Common event sequences (n-grams)
+- **performance**: Duration statistics by event type
+- **errors**: Error pattern detection (placeholder)
 
 ## Performance Considerations
 

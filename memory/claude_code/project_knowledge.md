@@ -192,7 +192,7 @@ await emit_event("completion:async", data)
 - **completion**: async, queue_status, result, status, failed
 - **agent**: spawn, terminate, list, send_message, list_constructs, info
 - **state**: entity:create, entity:update, entity:delete, entity:get, entity:query, entity:bulk_create, relationship:create, relationship:delete, relationship:query, graph:traverse, aggregate:count
-- **observation**: subscribe, unsubscribe, list
+- **observation**: subscribe, unsubscribe, list, query_history, replay, analyze_patterns
 - **observe**: begin, end (sent to observers when target events occur)
 - **message**: subscribe, publish, unsubscribe
 - **conversation**: list, search, active, acquire_lock, release_lock
@@ -400,6 +400,34 @@ components:
 - Source agent identified from context or data
 - Prevents loops by excluding observe:* events
 - Stored in both memory and relational state
+
+### Historical Analysis & Replay
+- **Automatic recording**: All observations stored as entities
+- **Query history**: Filter by observer, target, event, time range
+- **Replay events**: Re-emit sequences at variable speed
+- **Pattern analysis**: Frequency, sequence, performance analytics
+
+```python
+# Query observation history
+{"event": "observation:query_history", "data": {
+    "target": "construct_1",
+    "event_name": "task:*",
+    "since": timestamp,
+    "limit": 100
+}}
+
+# Replay events
+{"event": "observation:replay", "data": {
+    "filter": {"event_name": "test:*"},
+    "speed": 2.0,
+    "target_agent": "replay_target"
+}}
+
+# Analyze patterns
+{"event": "observation:analyze_patterns", "data": {
+    "analysis_type": "frequency",
+    "filter": {"observer": "monitor_1"}
+}}
 
 ## Filtered Event Routing
 
