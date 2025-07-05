@@ -7,12 +7,12 @@ Demonstrates recording, querying, and replaying observed events.
 
 import asyncio
 import time
-from ksi_client import AsyncClient
+from ksi_client import EventClient
 
 
 async def test_observation_recording():
     """Test that observations are being recorded."""
-    async with AsyncClient() as client:
+    async with EventClient() as client:
         print("=== Testing Observation Recording ===\n")
         
         # Create test agents
@@ -21,7 +21,7 @@ async def test_observation_recording():
         
         # 1. Set up observation
         print("1. Creating observation subscription...")
-        subscription = await client.emit_event("observation:subscribe", {
+        subscription = await client.send_event("observation:subscribe", {
             "observer": observer_id,
             "target": target_id,
             "events": ["test:*", "data:*"]
@@ -41,7 +41,7 @@ async def test_observation_recording():
         ]
         
         for i, event_info in enumerate(test_events):
-            await client.emit_event(event_info["event"], {
+            await client.send_event(event_info["event"], {
                 "agent_id": target_id,
                 **event_info["data"],
                 "sequence": i
@@ -54,7 +54,7 @@ async def test_observation_recording():
         
         # 3. Query observation history
         print("\n3. Querying observation history...")
-        history = await client.emit_event("observation:query_history", {
+        history = await client.send_event("observation:query_history", {
             "target": target_id,
             "limit": 20
         })
@@ -63,7 +63,7 @@ async def test_observation_recording():
         print(f"   Stats: {history.get('stats', {})}")
         
         # Clean up
-        await client.emit_event("observation:unsubscribe", {
+        await client.send_event("observation:unsubscribe", {
             "subscription_id": subscription_id
         })
         
@@ -72,12 +72,12 @@ async def test_observation_recording():
 
 async def test_replay_functionality():
     """Test event replay capabilities."""
-    async with AsyncClient() as client:
+    async with EventClient() as client:
         print("\n=== Testing Event Replay ===\n")
         
         # 1. Query recent observations to replay
         print("1. Finding events to replay...")
-        history = await client.emit_event("observation:query_history", {
+        history = await client.send_event("observation:query_history", {
             "event_name": "data:*",
             "limit": 10
         })
@@ -90,9 +90,9 @@ async def test_replay_functionality():
         
         # 2. Start replay session
         print("\n2. Starting replay session...")
-        replay_result = await client.emit_event("observation:replay", {
+        replay_result = await client.send_event("observation:replay", {
+            "event_patterns": ["data:*"],
             "filter": {
-                "event_name": "data:*",
                 "limit": 5
             },
             "speed": 2.0,  # 2x speed
@@ -117,12 +117,13 @@ async def test_replay_functionality():
 
 async def test_pattern_analysis():
     """Test pattern analysis capabilities."""
-    async with AsyncClient() as client:
+    async with EventClient() as client:
         print("\n=== Testing Pattern Analysis ===\n")
         
         # 1. Frequency analysis
         print("1. Analyzing event frequency...")
-        freq_analysis = await client.emit_event("observation:analyze_patterns", {
+        freq_analysis = await client.send_event("observation:analyze_patterns", {
+            "event_patterns": ["*"],
             "filter": {},
             "analysis_type": "frequency",
             "limit": 100
@@ -136,7 +137,8 @@ async def test_pattern_analysis():
         
         # 2. Sequence analysis
         print("\n2. Analyzing event sequences...")
-        seq_analysis = await client.emit_event("observation:analyze_patterns", {
+        seq_analysis = await client.send_event("observation:analyze_patterns", {
+            "event_patterns": ["*"],
             "filter": {},
             "analysis_type": "sequence",
             "limit": 100
@@ -152,10 +154,11 @@ async def test_pattern_analysis():
         
         # 3. Performance analysis
         print("\n3. Analyzing performance patterns...")
-        perf_analysis = await client.emit_event("observation:analyze_patterns", {
+        perf_analysis = await client.send_event("observation:analyze_patterns", {
+            "event_patterns": ["observe:*"],  # Need observe events for performance
             "filter": {},
             "analysis_type": "performance",
-            "limit": 100
+            "limit": 1000
         })
         
         if "error" not in perf_analysis:
@@ -170,7 +173,7 @@ async def test_pattern_analysis():
 
 async def test_targeted_replay():
     """Test replaying events to a specific agent."""
-    async with AsyncClient() as client:
+    async with EventClient() as client:
         print("\n=== Testing Targeted Replay ===\n")
         
         # Create a new target agent for replay
@@ -179,9 +182,9 @@ async def test_targeted_replay():
         print(f"1. Replaying recent events to agent: {new_target}")
         
         # Replay recent test events to the new target
-        replay_result = await client.emit_event("observation:replay", {
+        replay_result = await client.send_event("observation:replay", {
+            "event_patterns": ["test:*"],
             "filter": {
-                "event_name": "test:*",
                 "limit": 3
             },
             "speed": 5.0,  # 5x speed

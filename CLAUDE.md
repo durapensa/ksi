@@ -48,6 +48,10 @@ Essential development practices for Claude Code when working with KSI.
   - Remove ALL old code/implementations
   - No fallbacks or backward compatibility
   - Only declare complete after full migration
+- **Separation of concerns** - Important architectural principle:
+  - **Event log** - System infrastructure for monitoring/debugging (time-series)
+  - **Relational state** - Agent application data (entities/relationships)
+  - Don't mix infrastructure with application data
 
 ### Plugin System (Simplified)
 - **Follows pluggy best practices** - plugins are just objects with hooks

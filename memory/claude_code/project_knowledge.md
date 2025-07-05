@@ -115,14 +115,23 @@ good = await client.send_success_only("batch:process", {...})
 result = await client.send_with_errors("validate:all", {...}, error_mode="collect")
 ```
 
-## Core State Infrastructure
+## Core Infrastructure
+
+### Event Log System
+High-performance event logging in `ksi_daemon/event_log.py`:
+- **Ring buffer**: Memory-efficient with configurable size (default 10k events)
+- **SQLite persistence**: Durable storage with proper indexes
+- **Payload stripping**: Large content removed, file references preserved
+- **Real-time streaming**: Subscribe to event patterns
+- **Integrated in router**: All events automatically logged via emit()
 
 ### Universal Relational State System
-All state managed through entity-property-relationship model in `ksi_daemon/core/state.py`:
+Agent data managed through entity-property-relationship model in `ksi_daemon/core/state.py`:
 - **Entities**: Any object (agents, sessions, configs, etc.) with properties
 - **Properties**: Key-value attributes stored in EAV pattern
 - **Relationships**: Typed connections between entities (spawned, observes, owns)
 - **Timestamps**: Numeric storage with automatic ISO conversion for display
+- **Agent-owned**: Used by agents for their application data, not system events
 
 ### State APIs
 ```python
@@ -148,12 +157,13 @@ All state managed through entity-property-relationship model in `ksi_daemon/core
 
 ### Core Services
 - **transport/unix_socket.py** - REST JSON protocol handler
-- **core/state.py** - Unified state management
+- **core/state.py** - Unified state management (for agent data)
 - **core/health.py** - System health checks
 - **core/discovery.py** - Event discovery & introspection
 - **core/correlation.py** - Request correlation tracking
-- **core/monitor.py** - Event monitoring
+- **core/monitor.py** - Event monitoring (queries event log)
 - **core/checkpoint.py** - Universal state persistence (with shutdown integration)
+- **event_log.py** - High-performance event logging with ring buffer & SQLite
 
 ### Service Modules
 - **completion/completion_service.py** - Async completion management (with retry logic, token usage logging)
@@ -199,7 +209,7 @@ await emit_event("completion:async", data)
 - **monitor**: get_events, get_stats, clear_log
 - **composition**: compose, profile, prompt, validate, discover, list
 - **shutdown**: acknowledge (for critical service coordination)
-- **dev**: checkpoint, restore (manual checkpoint operations)
+- **dev**: checkpoint, restore (manual checkpoint operations with cleanup tools)
 
 ### Event Discovery
 ```bash
@@ -402,31 +412,34 @@ components:
 - Stored in both memory and relational state
 
 ### Historical Analysis & Replay
-- **Automatic recording**: All observations stored as entities
-- **Query history**: Filter by observer, target, event, time range
-- **Replay events**: Re-emit sequences at variable speed
-- **Pattern analysis**: Frequency, sequence, performance analytics
+- **Automatic recording**: All events logged with stripped payloads
+- **Query from event log**: Filter by patterns, client, time range
+- **Replay any events**: Re-emit sequences at variable speed
+- **Pattern analysis**: Frequency, sequence, performance, error analytics
 
 ```python
-# Query observation history
+# Query observation history (from event log)
 {"event": "observation:query_history", "data": {
+    "observer": "originator_1",
     "target": "construct_1",
     "event_name": "task:*",
     "since": timestamp,
     "limit": 100
 }}
 
-# Replay events
+# Replay events (any events, not just observations)
 {"event": "observation:replay", "data": {
-    "filter": {"event_name": "test:*"},
+    "event_patterns": ["test:*", "data:*"],
+    "filter": {"client_id": "agent_1"},
     "speed": 2.0,
     "target_agent": "replay_target"
 }}
 
-# Analyze patterns
+# Analyze patterns (from event log)
 {"event": "observation:analyze_patterns", "data": {
+    "event_patterns": ["*"],
     "analysis_type": "frequency",
-    "filter": {"observer": "monitor_1"}
+    "filter": {"client_id": "monitor_1"}
 }}
 
 ## Filtered Event Routing
@@ -478,10 +491,39 @@ async def handle_shutdown(data):
 ```
 
 ### Checkpoint/Restore
-- Automatic on all daemon stops (not just dev mode)
-- Detects shutdown-interrupted requests for retry
-- Restore happens after services ready (system:ready event)
-- Protected with asyncio.shield during shutdown
+- **Automatic**: On all daemon stops (not just dev mode)
+- **Detection**: Shutdown-interrupted requests marked for retry
+- **Restore**: Happens after services ready (system:ready event)
+- **Protected**: With asyncio.shield during shutdown
+
+#### Checkpoint Management Operations
+Requires `development_tools` capability:
+
+```bash
+# Check checkpoint status
+{"event": "dev:checkpoint", "data": {"action": "status"}}
+
+# List requests in checkpoint
+{"event": "dev:checkpoint", "data": {"action": "list_requests"}}
+
+# Remove specific request from checkpoint
+{"event": "dev:checkpoint", "data": {"action": "remove_request", "request_id": "..."}}
+
+# Clear only failed requests
+{"event": "dev:checkpoint", "data": {"action": "clear_failed"}}
+
+# Clear all requests (nuclear option)
+{"event": "dev:checkpoint", "data": {"action": "clear_all"}}
+
+# Create manual checkpoint
+{"event": "dev:checkpoint", "data": {"action": "create"}}
+```
+
+#### Operational Cleanup
+Use when dealing with stale/stuck completion requests:
+1. `list_requests` - See what's checkpointed
+2. `remove_request` - Remove specific problematic requests
+3. `clear_failed` - Clean up failed requests after debugging
 
 ### Module Import Order
 - State must be imported before modules that use it

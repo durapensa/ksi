@@ -189,6 +189,25 @@ class EventRouter:
             context["event"] = event
             context["router"] = self
         
+        # Log event to event log if available
+        if hasattr(self, 'event_log') and self.event_log:
+            # Strip large payloads and file references
+            log_data = self._prepare_log_data(event, data)
+            
+            # Extract metadata for logging
+            client_id = context.get("client_id") or context.get("agent_id")
+            correlation_id = context.get("correlation_id")
+            event_id = context.get("event_id") or data.get("request_id")
+            
+            # Log the event
+            self.event_log.log_event(
+                event_name=event,
+                data=log_data,
+                client_id=client_id,
+                correlation_id=correlation_id,
+                event_id=event_id
+            )
+        
         # Check for observation - extract source agent from context or data
         source_agent = context.get("agent_id") or context.get("source_agent") or data.get("agent_id")
         observation_id = None
@@ -525,6 +544,45 @@ class EventRouter:
                 "task_count": len(self._tasks_by_module[module_name])
             }
         }
+    
+    def _prepare_log_data(self, event_name: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Prepare event data for logging by stripping large payloads.
+        
+        Keep references to files but remove large content fields.
+        """
+        if not data:
+            return {}
+            
+        # List of field names that typically contain large payloads
+        large_fields = {
+            "content", "response", "text", "prompt", "message",
+            "file_content", "data", "payload", "body", "result"
+        }
+        
+        # Fields that are file references and should be kept
+        file_ref_fields = {
+            "file_path", "response_file", "log_file", "session_id",
+            "request_id", "correlation_id", "event_id"
+        }
+        
+        log_data = {}
+        
+        for key, value in data.items():
+            # Always keep file references and IDs
+            if key in file_ref_fields:
+                log_data[key] = value
+            # Skip large text fields
+            elif key in large_fields and isinstance(value, str) and len(value) > 1000:
+                log_data[key] = f"<stripped: {len(value)} chars>"
+            # Skip large lists/dicts
+            elif isinstance(value, (list, dict)) and len(str(value)) > 1000:
+                log_data[key] = f"<stripped: {type(value).__name__} with {len(value)} items>"
+            # Keep everything else
+            else:
+                log_data[key] = value
+                
+        return log_data
 
 
 # Decorators for the new system

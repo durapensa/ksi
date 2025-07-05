@@ -2,7 +2,7 @@
 """
 Test Event Logging System
 
-Tests the AsyncSQLiteEventLog implementation for:
+Tests the EventLog implementation for:
 - Non-blocking event logging
 - Real-time streaming
 - SQLite persistence
@@ -18,7 +18,7 @@ from pathlib import Path
 import tempfile
 import statistics
 
-from ksi_daemon.event_log import AsyncSQLiteEventLog
+from ksi_daemon.event_log import EventLog
 from ksi_common.config import config
 
 
@@ -31,7 +31,7 @@ async def test_basic_functionality():
         db_path = Path(tmpdir) / "test_events.db"
         
         # Create event log
-        event_log = AsyncSQLiteEventLog(max_size=1000, db_path=db_path)
+        event_log = EventLog(max_size=1000, db_path=db_path)
         await event_log.start()
         
         try:
@@ -108,7 +108,7 @@ async def test_performance():
         config.event_batch_size = 500
         config.event_flush_interval = 0.5
         
-        event_log = AsyncSQLiteEventLog(max_size=10000, db_path=db_path)
+        event_log = EventLog(max_size=10000, db_path=db_path)
         await event_log.start()
         
         try:
@@ -183,7 +183,7 @@ async def test_streaming():
     
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "test_events.db"
-        event_log = AsyncSQLiteEventLog(max_size=1000, db_path=db_path)
+        event_log = EventLog(max_size=1000, db_path=db_path)
         await event_log.start()
         
         try:
@@ -284,7 +284,7 @@ async def test_recovery():
         
         # Phase 1: Create events and persist
         print("1. Creating initial events...")
-        event_log = AsyncSQLiteEventLog(max_size=100, db_path=db_path)
+        event_log = EventLog(max_size=100, db_path=db_path)
         await event_log.start()
         
         # Log events
@@ -305,7 +305,7 @@ async def test_recovery():
         config.event_recovery = True
         
         try:
-            event_log2 = AsyncSQLiteEventLog(max_size=100, db_path=db_path)
+            event_log2 = EventLog(max_size=100, db_path=db_path)
             await event_log2.start()
             
             # Check recovered events

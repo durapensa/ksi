@@ -337,10 +337,179 @@ async def _create_checkpoint(save_if_empty: bool = True, reason: str = "manual")
         return {"error": str(e)}
 
 
+async def _list_checkpoint_requests() -> Dict[str, Any]:
+    """List completion requests in the latest checkpoint."""
+    if is_checkpoint_disabled:
+        return {"error": "Checkpoint system disabled"}
+    
+    checkpoint = await load_latest_checkpoint()
+    if not checkpoint:
+        return {"requests": [], "count": 0}
+    
+    active_completions = checkpoint.get("active_completions", {})
+    requests = []
+    
+    for request_id, completion_data in active_completions.items():
+        requests.append({
+            "request_id": request_id,
+            "status": completion_data.get("status", "unknown"),
+            "session_id": completion_data.get("session_id"),
+            "queued_at": completion_data.get("queued_at"),
+            "error": completion_data.get("error")
+        })
+    
+    return {
+        "requests": requests,
+        "count": len(requests),
+        "checkpoint_timestamp": checkpoint.get("timestamp")
+    }
+
+
+async def _update_checkpoint(modified_data: Dict[str, Any]) -> bool:
+    """Update the latest checkpoint with modified data."""
+    try:
+        import aiosqlite
+    except ImportError:
+        logger.error("aiosqlite not installed")
+        return False
+    
+    try:
+        async with aiosqlite.connect(CHECKPOINT_DB) as db:
+            # Get latest checkpoint ID
+            async with db.execute(
+                "SELECT id FROM checkpoints ORDER BY id DESC LIMIT 1"
+            ) as cursor:
+                row = await cursor.fetchone()
+                if not row:
+                    return False
+                
+                checkpoint_id = row[0]
+                
+                # Update the checkpoint
+                await db.execute(
+                    "UPDATE checkpoints SET checkpoint_data = ? WHERE id = ?",
+                    (json.dumps(modified_data), checkpoint_id)
+                )
+                await db.commit()
+                return True
+                
+    except Exception as e:
+        logger.error(f"Failed to update checkpoint: {e}", exc_info=True)
+        return False
+
+
+async def _remove_checkpoint_request(request_id: str) -> Dict[str, Any]:
+    """Remove a specific request from the latest checkpoint."""
+    if is_checkpoint_disabled:
+        return {"error": "Checkpoint system disabled"}
+    
+    checkpoint = await load_latest_checkpoint()
+    if not checkpoint:
+        return {"error": "No checkpoint found"}
+    
+    active_completions = checkpoint.get("active_completions", {})
+    if request_id not in active_completions:
+        return {"error": f"Request {request_id} not found in checkpoint"}
+    
+    # Remove the request
+    del active_completions[request_id]
+    checkpoint["active_completions"] = active_completions
+    
+    # Update the checkpoint
+    if await _update_checkpoint(checkpoint):
+        logger.info(f"Removed checkpoint request {request_id}")
+        return {"status": "removed", "request_id": request_id}
+    else:
+        return {"error": "Failed to update checkpoint"}
+
+
+async def _clear_checkpoint_requests(filter_type: str = "all") -> Dict[str, Any]:
+    """Clear requests from the latest checkpoint based on filter."""
+    if is_checkpoint_disabled:
+        return {"error": "Checkpoint system disabled"}
+    
+    checkpoint = await load_latest_checkpoint()
+    if not checkpoint:
+        return {"error": "No checkpoint found"}
+    
+    active_completions = checkpoint.get("active_completions", {})
+    original_count = len(active_completions)
+    
+    if filter_type == "failed":
+        # Remove only failed requests
+        filtered_completions = {
+            req_id: req_data for req_id, req_data in active_completions.items()
+            if req_data.get("status") != "failed"
+        }
+        checkpoint["active_completions"] = filtered_completions
+        removed_count = original_count - len(filtered_completions)
+        logger.info(f"Cleared {removed_count} failed requests from checkpoint")
+        
+    elif filter_type == "all":
+        # Remove all requests
+        checkpoint["active_completions"] = {}
+        removed_count = original_count
+        logger.info(f"Cleared all {removed_count} requests from checkpoint")
+        
+    else:
+        return {"error": f"Unknown filter type: {filter_type}"}
+    
+    # Update the checkpoint
+    if await _update_checkpoint(checkpoint):
+        return {
+            "status": "cleared",
+            "filter": filter_type,
+            "removed_count": removed_count,
+            "remaining_count": len(checkpoint["active_completions"])
+        }
+    else:
+        return {"error": "Failed to update checkpoint"}
+
+
 @event_handler("dev:checkpoint")
 async def handle_checkpoint(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Create a checkpoint of current state."""
-    return await _create_checkpoint(save_if_empty=True, reason="manual")
+    """Handle checkpoint operations with multiple actions."""
+    action = data.get("action")
+    if not action:
+        return {"error": "action parameter required. Valid actions: create, status, list_requests, remove_request, clear_failed, clear_all"}
+    
+    if action == "create":
+        return await _create_checkpoint(save_if_empty=True, reason="manual")
+    
+    elif action == "status":
+        # Get status from latest checkpoint 
+        checkpoint = await load_latest_checkpoint()
+        if not checkpoint:
+            return {"status": "no_checkpoint"}
+        
+        active_completions = checkpoint.get("active_completions", {})
+        session_queues = checkpoint.get("session_queues", {})
+        
+        return {
+            "status": "saved",
+            "timestamp": checkpoint.get("timestamp"),
+            "sessions": len(session_queues),
+            "queued_requests": sum(len(items) for items in session_queues.values()),
+            "active_requests": len(active_completions)
+        }
+    
+    elif action == "list_requests":
+        return await _list_checkpoint_requests()
+    
+    elif action == "remove_request":
+        request_id = data.get("request_id")
+        if not request_id:
+            return {"error": "request_id required for remove_request action"}
+        return await _remove_checkpoint_request(request_id)
+    
+    elif action == "clear_failed":
+        return await _clear_checkpoint_requests("failed")
+    
+    elif action == "clear_all":
+        return await _clear_checkpoint_requests("all")
+    
+    else:
+        return {"error": f"Unknown action: {action}. Valid actions: create, status, list_requests, remove_request, clear_failed, clear_all"}
 
 
 @event_handler("dev:restore")
