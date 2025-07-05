@@ -375,6 +375,28 @@ await emit_event("observation:subscribe", {
 - Subscriptions stored both in memory and relational state
 - Clean integration without modifying existing event handler signatures
 
+### Phase 4: Enhanced Filtered Event Routing ✓ COMPLETED
+- Added comprehensive filter utilities to event_system.py
+- Enhanced observation system to support content-based filtering
+- Implemented rate limiting for observation subscriptions
+- Created reusable filter functions for common patterns
+- Added examples demonstrating filtered routing
+- Documented the previously hidden filter_func feature
+
+**Filter Utilities Added**:
+- `RateLimiter`: Configurable rate limiting with time windows
+- `content_filter`: Field-based filtering with operators
+- `source_filter`: Allow/block lists for event sources
+- `context_filter`: Filter by execution context
+- `data_shape_filter`: Validate data structure
+- `combine_filters`: Compose multiple filters with AND/OR logic
+
+**Observation Enhancements**:
+- Content matching on any data field with dot notation
+- Per-subscription rate limiting with automatic cleanup
+- Integration with event router's existing filter system
+- Support for complex filtering scenarios
+
 ## Implementation Phases
 
 ### Phase 1: Agent Metadata (Immediate)

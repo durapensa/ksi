@@ -353,19 +353,30 @@ components:
 ### Overview
 - **Subscription-based observation**: Agents can observe events from other agents
 - **Pattern matching**: Flexible event filtering with wildcard support
+- **Content-based filtering**: Filter by data field values
+- **Rate limiting**: Per-subscription rate limits
 - **Originator-construct tracking**: Built-in relationship metadata
 - **Integrated with event router**: Transparent event interception
 
 ### Observation Events
 ```python
-# Subscribe to observe
+# Subscribe to observe with advanced filtering
 {"event": "observation:subscribe", "data": {
     "observer": "originator_1",
     "target": "construct_1", 
     "events": ["message:*", "error:*"],
     "filter": {
         "exclude": ["system:health"],
-        "sampling_rate": 1.0
+        "sampling_rate": 1.0,
+        "content_match": {
+            "field": "priority",
+            "value": "high",
+            "operator": "equals"
+        },
+        "rate_limit": {
+            "max_events": 10,
+            "window_seconds": 1.0
+        }
     }
 }}
 
@@ -389,6 +400,37 @@ components:
 - Source agent identified from context or data
 - Prevents loops by excluding observe:* events
 - Stored in both memory and relational state
+
+## Filtered Event Routing
+
+### Built-in Filter System
+Event handlers support optional `filter_func` parameter for sophisticated routing:
+```python
+@event_handler("my:event", filter_func=content_filter("priority", value="high"))
+```
+
+### Filter Utilities
+- **RateLimiter**: Time-window based rate limiting
+- **content_filter**: Filter by field values with operators
+- **source_filter**: Allow/block event sources
+- **context_filter**: Require agent/session/capability
+- **data_shape_filter**: Validate data structure
+- **combine_filters**: Compose filters with AND/OR
+
+### Usage
+```python
+from ksi_daemon.event_system import content_filter, combine_filters, rate_limit_10_per_second
+
+# Single filter
+@event_handler("data:process", filter_func=content_filter("status", value="ready"))
+
+# Combined filters
+@event_handler("task:execute", 
+              filter_func=combine_filters(
+                  content_filter("priority", value=5, operator="gte"),
+                  source_filter(allowed_sources=["scheduler"]),
+                  mode="all"
+              ))
 
 ## Common Issues
 

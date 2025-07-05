@@ -9,6 +9,8 @@ All modules communicate via events with clear async patterns.
 import asyncio
 import inspect
 import uuid
+import time
+import fnmatch
 from typing import Dict, Any, List, Callable, Optional, Set, Union, TypeVar, Tuple, Type
 from functools import wraps
 import sys
@@ -197,7 +199,7 @@ class EventRouter:
             # Import here to avoid circular dependency
             from ksi_daemon.observation import should_observe_event, notify_observers
             
-            matching_subscriptions = should_observe_event(event, source_agent)
+            matching_subscriptions = should_observe_event(event, source_agent, data)
             if matching_subscriptions:
                 observation_id = f"obs_{uuid.uuid4().hex[:8]}"
                 # Notify observers of event begin
@@ -650,3 +652,242 @@ async def emit_event_first(event: str, data: Any = None) -> Optional[Any]:
     """Emit event and return first result."""
     router = get_router()
     return await router.emit_first(event, data)
+
+
+# Filter Utilities for Event Handlers
+# These provide common filtering patterns for use with @event_handler(filter_func=...)
+
+class RateLimiter:
+    """Rate limiting filter for event handlers."""
+    
+    def __init__(self, max_events: int = 10, window_seconds: float = 1.0):
+        """
+        Initialize rate limiter.
+        
+        Args:
+            max_events: Maximum events allowed in window
+            window_seconds: Time window in seconds
+        """
+        self.max_events = max_events
+        self.window_seconds = window_seconds
+        self._event_times: Dict[str, List[float]] = defaultdict(list)
+    
+    def __call__(self, event: str, data: Any, context: Optional[Dict[str, Any]] = None) -> bool:
+        """Check if event should be processed based on rate limit."""
+        current_time = time.time()
+        
+        # Get key for rate limiting (could be event name, source, etc.)
+        key = event
+        if context and "agent_id" in context:
+            key = f"{event}:{context['agent_id']}"
+        
+        # Clean old events outside window
+        self._event_times[key] = [
+            t for t in self._event_times[key] 
+            if current_time - t < self.window_seconds
+        ]
+        
+        # Check rate limit
+        if len(self._event_times[key]) >= self.max_events:
+            return False
+        
+        # Record this event
+        self._event_times[key].append(current_time)
+        return True
+
+
+def content_filter(field: str, pattern: str = None, value: Any = None, 
+                  operator: str = "equals") -> Callable:
+    """
+    Filter events based on data field content.
+    
+    Args:
+        field: Dot-separated path to field (e.g. "user.id")
+        pattern: Regex or glob pattern for matching
+        value: Exact value to match
+        operator: Comparison operator ("equals", "contains", "gt", "lt", etc.)
+    
+    Returns:
+        Filter function for use with @event_handler
+        
+    Examples:
+        @event_handler("user:update", filter_func=content_filter("role", value="admin"))
+        @event_handler("metric:log", filter_func=content_filter("value", value=100, operator="gt"))
+    """
+    def filter_func(event: str, data: Any, context: Optional[Dict[str, Any]] = None) -> bool:
+        # Navigate to field
+        current = data
+        for part in field.split("."):
+            if isinstance(current, dict) and part in current:
+                current = current[part]
+            else:
+                return False
+        
+        # Apply comparison
+        if pattern:
+            if operator == "glob":
+                return fnmatch.fnmatch(str(current), pattern)
+            else:
+                import re
+                return bool(re.match(pattern, str(current)))
+        elif value is not None:
+            if operator == "equals":
+                return current == value
+            elif operator == "contains":
+                return value in str(current)
+            elif operator == "gt":
+                return current > value
+            elif operator == "lt":
+                return current < value
+            elif operator == "gte":
+                return current >= value
+            elif operator == "lte":
+                return current <= value
+        
+        return False
+    
+    return filter_func
+
+
+def source_filter(allowed_sources: List[str] = None, 
+                 blocked_sources: List[str] = None) -> Callable:
+    """
+    Filter events based on source agent or client.
+    
+    Args:
+        allowed_sources: List of allowed source IDs
+        blocked_sources: List of blocked source IDs
+        
+    Returns:
+        Filter function for use with @event_handler
+    """
+    def filter_func(event: str, data: Any, context: Optional[Dict[str, Any]] = None) -> bool:
+        if not context:
+            return True
+            
+        source = context.get("agent_id") or context.get("client_id") or data.get("agent_id")
+        
+        if blocked_sources and source in blocked_sources:
+            return False
+            
+        if allowed_sources and source not in allowed_sources:
+            return False
+            
+        return True
+    
+    return filter_func
+
+
+def combine_filters(*filters: Callable, mode: str = "all") -> Callable:
+    """
+    Combine multiple filter functions.
+    
+    Args:
+        *filters: Filter functions to combine
+        mode: "all" (AND) or "any" (OR)
+        
+    Returns:
+        Combined filter function
+        
+    Example:
+        @event_handler("data:process", 
+                      filter_func=combine_filters(
+                          content_filter("priority", value="high"),
+                          source_filter(allowed_sources=["analyzer_1"]),
+                          mode="all"
+                      ))
+    """
+    def combined_filter(event: str, data: Any, context: Optional[Dict[str, Any]] = None) -> bool:
+        results = [f(event, data, context) for f in filters]
+        
+        if mode == "all":
+            return all(results)
+        elif mode == "any":
+            return any(results)
+        else:
+            raise ValueError(f"Unknown mode: {mode}")
+    
+    return combined_filter
+
+
+def data_shape_filter(required_fields: List[str] = None,
+                     forbidden_fields: List[str] = None) -> Callable:
+    """
+    Filter based on data structure/shape.
+    
+    Args:
+        required_fields: Fields that must be present
+        forbidden_fields: Fields that must not be present
+        
+    Returns:
+        Filter function
+    """
+    def filter_func(event: str, data: Any, context: Optional[Dict[str, Any]] = None) -> bool:
+        if not isinstance(data, dict):
+            return False
+            
+        if required_fields:
+            for field in required_fields:
+                # Support nested fields
+                current = data
+                for part in field.split("."):
+                    if isinstance(current, dict) and part in current:
+                        current = current[part]
+                    else:
+                        return False
+                        
+        if forbidden_fields:
+            for field in forbidden_fields:
+                current = data
+                parts = field.split(".")
+                for i, part in enumerate(parts):
+                    if isinstance(current, dict) and part in current:
+                        if i == len(parts) - 1:
+                            return False  # Forbidden field exists
+                        current = current[part]
+                    else:
+                        break  # Field doesn't exist, which is ok
+                        
+        return True
+    
+    return filter_func
+
+
+def context_filter(require_agent: bool = False,
+                  require_session: bool = False,
+                  require_capability: str = None) -> Callable:
+    """
+    Filter based on execution context.
+    
+    Args:
+        require_agent: Must have agent_id in context
+        require_session: Must have session_id in context  
+        require_capability: Must have specific capability
+        
+    Returns:
+        Filter function
+    """
+    def filter_func(event: str, data: Any, context: Optional[Dict[str, Any]] = None) -> bool:
+        if not context:
+            return not (require_agent or require_session or require_capability)
+            
+        if require_agent and not context.get("agent_id"):
+            return False
+            
+        if require_session and not context.get("session_id"):
+            return False
+            
+        if require_capability:
+            capabilities = context.get("capabilities", [])
+            if require_capability not in capabilities:
+                return False
+                
+        return True
+    
+    return filter_func
+
+
+# Convenience instances
+rate_limit_10_per_second = RateLimiter(10, 1.0)
+rate_limit_100_per_minute = RateLimiter(100, 60.0)
+rate_limit_1000_per_hour = RateLimiter(1000, 3600.0)

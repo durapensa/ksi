@@ -14,7 +14,7 @@ from typing import Dict, List, Set, Optional, Any
 
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc
-from ksi_daemon.event_system import event_handler, get_router
+from ksi_daemon.event_system import event_handler, get_router, RateLimiter
 
 
 logger = get_bound_logger("observation_manager")
@@ -23,6 +23,7 @@ logger = get_bound_logger("observation_manager")
 _subscriptions: Dict[str, List[Dict[str, Any]]] = {}  # target_id -> subscriptions
 _observers: Dict[str, Set[str]] = {}  # observer_id -> set of target_ids
 _event_emitter = None
+_rate_limiters: Dict[str, RateLimiter] = {}  # subscription_id -> rate limiter
 
 
 @event_handler("system:context")
@@ -90,6 +91,13 @@ async def handle_subscribe(data: Dict[str, Any]) -> Dict[str, Any]:
     if observer_id not in _observers:
         _observers[observer_id] = set()
     _observers[observer_id].add(target_id)
+    
+    # Create rate limiter if specified
+    rate_limit_config = data.get("filter", {}).get("rate_limit", {})
+    if rate_limit_config:
+        max_events = rate_limit_config.get("max_events", 10)
+        window_seconds = rate_limit_config.get("window_seconds", 1.0)
+        _rate_limiters[subscription_id] = RateLimiter(max_events, window_seconds)
     
     # Store in relational state if available
     if _event_emitter:
@@ -177,6 +185,10 @@ async def handle_unsubscribe(data: Dict[str, Any]) -> Dict[str, Any]:
                         _observers[obs_id].discard(target)
                         if not _observers[obs_id]:
                             del _observers[obs_id]
+                    
+                    # Clean up rate limiter if exists
+                    if sub["id"] in _rate_limiters:
+                        del _rate_limiters[sub["id"]]
     else:
         # Remove all subscriptions between observer and target
         if target_id in _subscriptions:
@@ -184,6 +196,10 @@ async def handle_unsubscribe(data: Dict[str, Any]) -> Dict[str, Any]:
                 if sub["observer"] == observer_id:
                     _subscriptions[target_id].remove(sub)
                     unsubscribed.append(sub)
+                    
+                    # Clean up rate limiter if exists
+                    if sub["id"] in _rate_limiters:
+                        del _rate_limiters[sub["id"]]
             
             # Clean up empty lists
             if not _subscriptions[target_id]:
@@ -254,13 +270,15 @@ async def handle_list_observations(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def should_observe_event(event_name: str, source_agent: str) -> List[Dict[str, Any]]:
+def should_observe_event(event_name: str, source_agent: str, 
+                        data: Dict[str, Any] = None) -> List[Dict[str, Any]]:
     """
     Check if an event should be observed and return matching subscriptions.
     
     Args:
         event_name: The event being emitted
         source_agent: The agent emitting the event
+        data: Event data for content filtering
     
     Returns:
         List of subscriptions that match this event
@@ -297,12 +315,53 @@ def should_observe_event(event_name: str, source_agent: str) -> List[Dict[str, A
         if excluded:
             continue
         
+        # Check content matching if specified
+        content_match = filters.get("content_match", {})
+        if content_match and data:
+            field = content_match.get("field")
+            expected_value = content_match.get("value")
+            pattern = content_match.get("pattern")
+            operator = content_match.get("operator", "equals")
+            
+            if field:
+                # Navigate to field value
+                current = data
+                for part in field.split("."):
+                    if isinstance(current, dict) and part in current:
+                        current = current[part]
+                    else:
+                        continue  # Skip this subscription if field not found
+                
+                # Check value/pattern
+                if expected_value is not None:
+                    if operator == "equals" and current != expected_value:
+                        continue
+                    elif operator == "contains" and expected_value not in str(current):
+                        continue
+                    elif operator == "gt" and not (current > expected_value):
+                        continue
+                    elif operator == "lt" and not (current < expected_value):
+                        continue
+                elif pattern:
+                    if not fnmatch.fnmatch(str(current), pattern):
+                        continue
+        
         # Check sampling rate
         sampling_rate = filters.get("sampling_rate", 1.0)
         if sampling_rate < 1.0:
             # Simple sampling - could be improved with deterministic sampling
             import random
             if random.random() > sampling_rate:
+                continue
+        
+        # Check rate limit if configured
+        subscription_id = subscription.get("id")
+        if subscription_id and subscription_id in _rate_limiters:
+            rate_limiter = _rate_limiters[subscription_id]
+            # Create a context-like dict for the rate limiter
+            context = {"agent_id": source_agent}
+            if not rate_limiter(event_name, data or {}, context):
+                logger.debug(f"Rate limit exceeded for subscription {subscription_id}")
                 continue
         
         matching_subscriptions.append(subscription)
