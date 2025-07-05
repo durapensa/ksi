@@ -282,6 +282,23 @@ await emit_event("observation:subscribe", {
 })
 ```
 
+## Implementation Status
+
+### Phase 1: Agent Metadata ✓ COMPLETED
+- Added `AgentMetadata` dataclass with originator tracking
+- Updated agent spawn to include relationship metadata
+- Enhanced agent info with quick-access fields
+- Added `agent:list_constructs` event handler
+
+### Phase 2: Universal Relational State System ✓ COMPLETED
+- Replaced key-value state with entity-property-relationship model
+- Implemented clean event API for relational operations
+- Database schema with entities, properties, and relationships tables
+- Automatic ISO timestamp conversion for display
+- Tested with comprehensive test script
+
+**Key Design Decision**: Instead of a specialized agent relationship store, we implemented a universal relational state system that can handle all types of entities and relationships. This provides maximum flexibility for future features.
+
 ## Implementation Phases
 
 ### Phase 1: Agent Metadata (Immediate)

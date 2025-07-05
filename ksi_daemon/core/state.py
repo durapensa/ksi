@@ -1,793 +1,774 @@
 #!/usr/bin/env python3
 """
-Core State Management - Unified session tracking, shared state, and async queue operations
+Universal Relational State Management
 
-Provides three types of state management:
-1. Session tracking - in-memory session data for conversation continuity
-2. Shared state - persistent SQLite key-value store for agent coordination
-3. Async state - persistent SQLite queue operations for async flows
+A clean relational model for all KSI state, replacing the legacy key-value system.
+Everything is an entity with properties and relationships.
 
-All state functionality is exposed through both direct API and event handlers.
+Core concepts:
+- Entities: Any object in the system (agents, sessions, configs, etc.)
+- Properties: Attributes of entities stored as key-value pairs
+- Relationships: Connections between entities (spawned_by, observes, owns, etc.)
+
+All state operations go through a minimal set of event handlers.
 """
 
 import asyncio
 import json
 import sqlite3
 import time
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, Any, Optional, List, TypedDict
-from typing_extensions import NotRequired
+from typing import Dict, Any, Optional, List, Tuple, Union
 
 from ksi_daemon.event_system import event_handler
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
-from ksi_common.timestamps import timestamp_utc
-
-logger = get_bound_logger("core_state", version="1.0.0")
-
-# Type definitions for event handlers
-class StateSetData(TypedDict):
-    """Type-safe data for state:set."""
-    key: str
-    value: Any
-    namespace: NotRequired[str]
-    metadata: NotRequired[Dict[str, Any]]
-
-class StateGetData(TypedDict):
-    """Type-safe data for state:get."""
-    key: str
-    namespace: NotRequired[str]
-
-class StateDeleteData(TypedDict):
-    """Type-safe data for state:delete."""
-    key: str
-    namespace: NotRequired[str]
-
-class StateListData(TypedDict):
-    """Type-safe data for state:list."""
-    namespace: NotRequired[str]
-    pattern: NotRequired[str]
+from ksi_common.timestamps import timestamp_utc, numeric_to_iso
 
 
-class CoreStateManager:
-    """Unified state manager for sessions, shared state, and async operations."""
+logger = get_bound_logger("relational_state", version="2.0.0")
+
+
+class RelationalStateManager:
+    """Universal relational state manager using entity-property-relationship model."""
     
     def __init__(self):
-        self.logger = get_bound_logger("core_state", version="1.0.0")
-        self.sessions = {}  # session_id -> last_output
+        self.logger = logger
         self.db_path = str(config.db_path)
-        self.async_db_path = str(config.async_state_db_path)
-        self._async_initialized = False
-        
-        # Initialize databases
-        self._init_shared_state_db()
-        self._init_async_state_db()
+        self._init_database()
     
-    # Session Management
-    
-    def track_session(self, session_id: str, output: Dict[str, Any]):
-        """Track a session output (legacy name for create/update)"""
-        self.sessions[session_id] = output
-    
-    def create_session(self, session_id: str, output: Dict[str, Any]) -> str:
-        """Create/update session (standardized API)"""
-        self.sessions[session_id] = output
-        return session_id
-    
-    def update_session(self, session_id: str, output: Dict[str, Any]) -> bool:
-        """Update session (standardized API)"""
-        if session_id in self.sessions:
-            self.sessions[session_id] = output
-            return True
-        return False
-    
-    def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
-        """Get session data"""
-        return self.sessions.get(session_id)
-    
-    def get_session_output(self, session_id: str) -> Optional[Dict[str, Any]]:
-        """Get session output (alias for get_session)"""
-        return self.get_session(session_id)
-    
-    def list_sessions(self) -> List[Dict[str, Any]]:
-        """List all sessions (standardized API)"""
-        return [
-            {'session_id': sid, 'has_output': bool(output)}
-            for sid, output in self.sessions.items()
-        ]
-    
-    def remove_session(self, session_id: str) -> bool:
-        """Remove a session (standardized API)"""
-        if session_id in self.sessions:
-            del self.sessions[session_id]
-            return True
-        return False
-    
-    def clear_sessions(self) -> int:
-        """Clear all session tracking"""
-        count = len(self.sessions)
-        self.sessions.clear()
-        return count
-    
-    # Shared State Management (SQLite)
-    
-    def _init_shared_state_db(self):
-        """Initialize SQLite database for shared state"""
+    def _init_database(self):
+        """Initialize the relational database schema."""
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         
-        if not Path(self.db_path).exists():
-            self.logger.info(f"Creating new shared state database: {self.db_path}")
-        else:
-            self.logger.info(f"Using existing shared state database: {self.db_path}")
-        
-        self._create_shared_state_schema()
-    
-    def _create_shared_state_schema(self):
-        """Create shared state schema"""
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS agent_shared_state (
-                    key TEXT PRIMARY KEY,
-                    value TEXT NOT NULL,
-                    namespace TEXT,
-                    owner_agent_id TEXT NOT NULL,
-                    scope TEXT DEFAULT 'shared',
-                    created_at TEXT NOT NULL,
-                    expires_at TEXT,
-                    metadata TEXT
-                )
-            ''')
-            conn.execute('CREATE INDEX IF NOT EXISTS idx_namespace ON agent_shared_state(namespace)')
-            conn.execute('CREATE INDEX IF NOT EXISTS idx_owner ON agent_shared_state(owner_agent_id)')
-            conn.execute('CREATE INDEX IF NOT EXISTS idx_expires ON agent_shared_state(expires_at)')
-    
-    def _extract_namespace(self, key: str) -> Optional[str]:
-        """Extract namespace from key using agent_id.purpose.detail convention"""
-        parts = key.split('.')
-        if len(parts) >= 2:
-            return '.'.join(parts[:2])  # agent_id.purpose
-        return None
-    
-    def set_shared_state(self, key: str, value: Any, owner_agent_id: str = "system", 
-                        scope: str = "shared", expires_at: Optional[str] = None, 
-                        metadata: Optional[Dict[str, Any]] = None):
-        """Set shared state value with SQLite persistence"""
-        return self.create_shared_state(key, value, owner_agent_id, scope, expires_at, metadata)
-    
-    def create_shared_state(self, key: str, value: Any, owner_agent_id: str = "system",
-                          scope: str = "shared", expires_at: Optional[str] = None,
-                          metadata: Optional[Dict[str, Any]] = None) -> str:
-        """Create/update shared state using SQLite (standardized API)"""
-        # Convert value to JSON string
-        value_json = json.dumps(value) if not isinstance(value, str) else value
-        
-        # Extract namespace from key
-        namespace = self._extract_namespace(key)
-        
-        # Prepare metadata
-        metadata_json = json.dumps(metadata) if metadata else None
-        
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute('''
-                INSERT OR REPLACE INTO agent_shared_state 
-                (key, value, namespace, owner_agent_id, scope, created_at, expires_at, metadata)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                key, value_json, namespace, owner_agent_id, scope,
-                timestamp_utc(), expires_at, metadata_json
-            ))
-        
-        self.logger.info(f"Set shared state: {key} (owner: {owner_agent_id}, scope: {scope})")
-        return key
-    
-    def update_shared_state(self, key: str, value: Any, owner_agent_id: str = "system") -> bool:
-        """Update shared state if it exists (standardized API)"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute('SELECT key FROM agent_shared_state WHERE key = ?', (key,))
-            if cursor.fetchone():
-                return bool(self.create_shared_state(key, value, owner_agent_id))
-        return False
-    
-    def get_shared_state(self, key: str) -> Optional[Any]:
-        """Get shared state value from SQLite"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute('SELECT value FROM agent_shared_state WHERE key = ?', (key,))
-            row = cursor.fetchone()
-            if row:
-                try:
-                    # Try to parse as JSON, fallback to string
-                    return json.loads(row[0])
-                except json.JSONDecodeError:
-                    return row[0]
-        return None
-    
-    def list_shared_state(self) -> List[Dict[str, Any]]:
-        """List all shared state keys from SQLite (standardized API)"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute('''
-                SELECT key, namespace, owner_agent_id, scope, created_at, expires_at 
-                FROM agent_shared_state ORDER BY created_at DESC
-            ''')
-            return [
-                {
-                    'key': row[0],
-                    'namespace': row[1],
-                    'owner_agent_id': row[2],
-                    'scope': row[3],
-                    'created_at': row[4],
-                    'expires_at': row[5]
-                }
-                for row in cursor.fetchall()
-            ]
-    
-    def delete_shared_state(self, key: str) -> bool:
-        """Remove shared state key from SQLite (standardized API)"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute('DELETE FROM agent_shared_state WHERE key = ?', (key,))
-            return cursor.rowcount > 0
-    
-    def clear_shared_state(self) -> int:
-        """Clear all shared state from SQLite (standardized API)"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute('SELECT COUNT(*) FROM agent_shared_state')
-            count = cursor.fetchone()[0]
-            conn.execute('DELETE FROM agent_shared_state')
-            return count
-    
-    # Async State Management (SQLite Queue Operations)
-    
-    def _init_async_state_db(self):
-        """Initialize async state database."""
-        Path(self.async_db_path).parent.mkdir(parents=True, exist_ok=True)
-        
-        # Initialize schema
-        conn = sqlite3.connect(str(self.async_db_path))
-        try:
+            # Core entities table
             conn.execute("""
-                CREATE TABLE IF NOT EXISTS async_state (
-                    namespace TEXT NOT NULL,
-                    key TEXT NOT NULL,
-                    position INTEGER NOT NULL DEFAULT 0,
-                    data TEXT NOT NULL,
+                CREATE TABLE IF NOT EXISTS entities (
+                    id TEXT PRIMARY KEY,
+                    type TEXT NOT NULL,
                     created_at REAL NOT NULL,
-                    expires_at REAL,
-                    PRIMARY KEY (namespace, key, position)
+                    updated_at REAL NOT NULL
                 )
             """)
             
-            # Indexes for efficient queries
+            # Properties table (EAV pattern)
             conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_async_state_expiry 
-                ON async_state(expires_at) 
-                WHERE expires_at IS NOT NULL
+                CREATE TABLE IF NOT EXISTS properties (
+                    entity_id TEXT NOT NULL,
+                    property TEXT NOT NULL,
+                    value TEXT,
+                    value_type TEXT DEFAULT 'string',
+                    PRIMARY KEY (entity_id, property),
+                    FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE
+                )
             """)
             
+            # Relationships table
             conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_async_state_namespace_key 
-                ON async_state(namespace, key)
+                CREATE TABLE IF NOT EXISTS relationships (
+                    from_id TEXT NOT NULL,
+                    to_id TEXT NOT NULL,
+                    relation_type TEXT NOT NULL,
+                    metadata TEXT,
+                    created_at REAL NOT NULL,
+                    PRIMARY KEY (from_id, to_id, relation_type),
+                    FOREIGN KEY (from_id) REFERENCES entities(id) ON DELETE CASCADE,
+                    FOREIGN KEY (to_id) REFERENCES entities(id) ON DELETE CASCADE
+                )
             """)
+            
+            # Indexes for performance
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(type)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_entities_created ON entities(created_at DESC)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_properties_entity ON properties(entity_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_relationships_from ON relationships(from_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_relationships_to ON relationships(to_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_relationships_type ON relationships(relation_type)")
             
             conn.commit()
-        finally:
-            conn.close()
-        
-        self._async_initialized = True
-        self.logger.info(f"Async state initialized at {self.async_db_path}")
+            
+        self.logger.info(f"Relational state initialized at {self.db_path}")
     
     @contextmanager
-    def _get_async_db(self):
-        """Get async state database connection with proper cleanup."""
-        if not self._async_initialized:
-            raise RuntimeError("Async state not initialized")
-        
-        conn = sqlite3.connect(str(self.async_db_path))
+    def _get_db(self):
+        """Get database connection with proper cleanup."""
+        conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         try:
             yield conn
         finally:
             conn.close()
     
-    async def async_push(self, namespace: str, key: str, data: Dict[str, Any], 
-                        ttl_seconds: Optional[int] = None) -> int:
-        """Push item to async queue (append)."""
-        created_at = time.time()
-        expires_at = created_at + ttl_seconds if ttl_seconds else None
-        
-        with self._get_async_db() as conn:
-            # Get next position
-            cursor = conn.execute(
-                "SELECT MAX(position) as max_pos FROM async_state WHERE namespace = ? AND key = ?",
-                (namespace, key)
-            )
-            row = cursor.fetchone()
-            position = (row['max_pos'] + 1) if row['max_pos'] is not None else 0
-            
-            # Insert new entry
-            conn.execute(
-                """INSERT INTO async_state 
-                   (namespace, key, position, data, created_at, expires_at) 
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (namespace, key, position, json.dumps(data), created_at, expires_at)
-            )
-            conn.commit()
-            
-        self.logger.debug(f"Pushed to {namespace}:{key} at position {position}")
-        return position
+    def _serialize_value(self, value: Any, value_type: str = None) -> Tuple[str, str]:
+        """Serialize a value for storage."""
+        if value is None:
+            return (None, 'null')
+        elif isinstance(value, (dict, list)):
+            return (json.dumps(value), 'json')
+        elif isinstance(value, bool):
+            return (str(value).lower(), 'boolean')
+        elif isinstance(value, (int, float)):
+            return (str(value), 'number')
+        else:
+            return (str(value), value_type or 'string')
     
-    async def async_pop(self, namespace: str, key: str) -> Optional[Dict[str, Any]]:
-        """Pop item from async queue (remove and return first)."""
-        with self._get_async_db() as conn:
-            # Get first item
-            cursor = conn.execute(
-                """SELECT * FROM async_state 
-                   WHERE namespace = ? AND key = ? 
-                   ORDER BY position ASC LIMIT 1""",
-                (namespace, key)
-            )
-            row = cursor.fetchone()
-            
-            if not row:
-                return None
-            
-            # Delete it
-            conn.execute(
-                """DELETE FROM async_state 
-                   WHERE namespace = ? AND key = ? AND position = ?""",
-                (namespace, key, row['position'])
-            )
-            conn.commit()
-            
-            data = json.loads(row['data'])
-            self.logger.debug(f"Popped from {namespace}:{key}")
-            return data
+    def _deserialize_value(self, value: str, value_type: str) -> Any:
+        """Deserialize a value from storage."""
+        if value is None or value_type == 'null':
+            return None
+        elif value_type == 'json':
+            return json.loads(value)
+        elif value_type == 'boolean':
+            return value.lower() == 'true'
+        elif value_type == 'number':
+            return float(value) if '.' in value else int(value)
+        else:
+            return value
     
-    async def async_peek(self, namespace: str, key: str) -> Optional[Dict[str, Any]]:
-        """Peek at first item without removing."""
-        with self._get_async_db() as conn:
-            cursor = conn.execute(
-                """SELECT data FROM async_state 
-                   WHERE namespace = ? AND key = ? 
-                   ORDER BY position ASC LIMIT 1""",
-                (namespace, key)
-            )
-            row = cursor.fetchone()
-            
-            if not row:
-                return None
-            
-            return json.loads(row['data'])
-    
-    async def async_get_queue(self, namespace: str, key: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
-        """Get items in queue order."""
-        with self._get_async_db() as conn:
-            query = """SELECT data FROM async_state 
-                       WHERE namespace = ? AND key = ? 
-                       ORDER BY position ASC"""
-            
-            if limit:
-                query += f" LIMIT {limit}"
-                
-            cursor = conn.execute(query, (namespace, key))
-            return [json.loads(row['data']) for row in cursor.fetchall()]
-    
-    async def async_queue_length(self, namespace: str, key: str) -> int:
-        """Get number of items in queue."""
-        with self._get_async_db() as conn:
-            cursor = conn.execute(
-                "SELECT COUNT(*) as count FROM async_state WHERE namespace = ? AND key = ?",
-                (namespace, key)
-            )
-            return cursor.fetchone()['count']
-    
-    async def async_delete_queue(self, namespace: str, key: str) -> int:
-        """Delete all entries for namespace:key."""
-        with self._get_async_db() as conn:
-            cursor = conn.execute(
-                "DELETE FROM async_state WHERE namespace = ? AND key = ?",
-                (namespace, key)
-            )
-            conn.commit()
-            
-            deleted = cursor.rowcount
-            if deleted > 0:
-                self.logger.debug(f"Deleted {deleted} entries from {namespace}:{key}")
-            return deleted
-    
-    async def async_get_keys(self, namespace: str) -> List[str]:
-        """Get all keys in namespace."""
-        with self._get_async_db() as conn:
-            cursor = conn.execute(
-                "SELECT DISTINCT key FROM async_state WHERE namespace = ? ORDER BY key",
-                (namespace,)
-            )
-            return [row['key'] for row in cursor.fetchall()]
-    
-    async def async_cleanup_expired(self) -> int:
-        """Remove expired entries."""
+    def create_entity(self, entity_id: str, entity_type: str, 
+                     properties: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Create a new entity with properties."""
         current_time = time.time()
         
-        with self._get_async_db() as conn:
-            cursor = conn.execute(
-                "DELETE FROM async_state WHERE expires_at IS NOT NULL AND expires_at < ?",
-                (current_time,)
+        with self._get_db() as conn:
+            # Create entity
+            conn.execute(
+                "INSERT INTO entities (id, type, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                (entity_id, entity_type, current_time, current_time)
             )
+            
+            # Add properties if provided
+            if properties:
+                for prop, value in properties.items():
+                    serialized, value_type = self._serialize_value(value)
+                    conn.execute(
+                        "INSERT INTO properties (entity_id, property, value, value_type) VALUES (?, ?, ?, ?)",
+                        (entity_id, prop, serialized, value_type)
+                    )
+            
             conn.commit()
             
-            deleted = cursor.rowcount
-            if deleted > 0:
-                self.logger.info(f"Cleaned up {deleted} expired entries")
-            return deleted
+        self.logger.debug(f"Created entity {entity_id} of type {entity_type}")
+        
+        return {
+            "id": entity_id,
+            "type": entity_type,
+            "created_at": current_time,
+            "updated_at": current_time,
+            "properties": properties or {}
+        }
+    
+    def update_entity(self, entity_id: str, properties: Dict[str, Any]) -> bool:
+        """Update entity properties."""
+        current_time = time.time()
+        
+        with self._get_db() as conn:
+            # Check entity exists
+            cursor = conn.execute("SELECT 1 FROM entities WHERE id = ?", (entity_id,))
+            if not cursor.fetchone():
+                return False
+            
+            # Update timestamp
+            conn.execute(
+                "UPDATE entities SET updated_at = ? WHERE id = ?",
+                (current_time, entity_id)
+            )
+            
+            # Update properties
+            for prop, value in properties.items():
+                if value is None:
+                    # Delete property
+                    conn.execute(
+                        "DELETE FROM properties WHERE entity_id = ? AND property = ?",
+                        (entity_id, prop)
+                    )
+                else:
+                    # Upsert property
+                    serialized, value_type = self._serialize_value(value)
+                    conn.execute(
+                        "INSERT OR REPLACE INTO properties (entity_id, property, value, value_type) VALUES (?, ?, ?, ?)",
+                        (entity_id, prop, serialized, value_type)
+                    )
+            
+            conn.commit()
+            
+        self.logger.debug(f"Updated entity {entity_id}")
+        return True
+    
+    def delete_entity(self, entity_id: str) -> bool:
+        """Delete an entity and all its properties/relationships."""
+        with self._get_db() as conn:
+            cursor = conn.execute("DELETE FROM entities WHERE id = ?", (entity_id,))
+            conn.commit()
+            deleted = cursor.rowcount > 0
+            
+        if deleted:
+            self.logger.debug(f"Deleted entity {entity_id}")
+        return deleted
+    
+    def get_entity(self, entity_id: str, include: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
+        """Get an entity with optional includes."""
+        include = include or ['properties']
+        
+        with self._get_db() as conn:
+            # Get entity
+            cursor = conn.execute(
+                "SELECT * FROM entities WHERE id = ?",
+                (entity_id,)
+            )
+            row = cursor.fetchone()
+            
+            if not row:
+                return None
+            
+            result = {
+                "id": row['id'],
+                "type": row['type'],
+                "created_at": row['created_at'],
+                "created_at_iso": numeric_to_iso(row['created_at']),
+                "updated_at": row['updated_at'],
+                "updated_at_iso": numeric_to_iso(row['updated_at'])
+            }
+            
+            # Include properties
+            if 'properties' in include:
+                props = {}
+                cursor = conn.execute(
+                    "SELECT property, value, value_type FROM properties WHERE entity_id = ?",
+                    (entity_id,)
+                )
+                for prop_row in cursor.fetchall():
+                    props[prop_row['property']] = self._deserialize_value(
+                        prop_row['value'], prop_row['value_type']
+                    )
+                result['properties'] = props
+            
+            # Include relationships
+            if 'relationships' in include:
+                rels = {
+                    'from': [],  # This entity points to others
+                    'to': []     # Others point to this entity
+                }
+                
+                # Outgoing relationships
+                cursor = conn.execute(
+                    "SELECT to_id, relation_type, metadata, created_at FROM relationships WHERE from_id = ?",
+                    (entity_id,)
+                )
+                for rel_row in cursor.fetchall():
+                    rel = {
+                        "to": rel_row['to_id'],
+                        "type": rel_row['relation_type'],
+                        "created_at": rel_row['created_at'],
+                        "created_at_iso": numeric_to_iso(rel_row['created_at'])
+                    }
+                    if rel_row['metadata']:
+                        rel['metadata'] = json.loads(rel_row['metadata'])
+                    rels['from'].append(rel)
+                
+                # Incoming relationships
+                cursor = conn.execute(
+                    "SELECT from_id, relation_type, metadata, created_at FROM relationships WHERE to_id = ?",
+                    (entity_id,)
+                )
+                for rel_row in cursor.fetchall():
+                    rel = {
+                        "from": rel_row['from_id'],
+                        "type": rel_row['relation_type'],
+                        "created_at": rel_row['created_at'],
+                        "created_at_iso": numeric_to_iso(rel_row['created_at'])
+                    }
+                    if rel_row['metadata']:
+                        rel['metadata'] = json.loads(rel_row['metadata'])
+                    rels['to'].append(rel)
+                
+                result['relationships'] = rels
+            
+            return result
+    
+    def query_entities(self, entity_type: Optional[str] = None,
+                      where: Optional[Dict[str, Any]] = None,
+                      include: Optional[List[str]] = None,
+                      order_by: Optional[str] = None,
+                      limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Query entities with filters."""
+        include = include or ['properties']
+        
+        with self._get_db() as conn:
+            # Build query
+            query = "SELECT DISTINCT e.* FROM entities e"
+            conditions = []
+            params = []
+            
+            # Join properties if filtering by them
+            if where:
+                query += " LEFT JOIN properties p ON e.id = p.entity_id"
+            
+            # Add type filter
+            if entity_type:
+                conditions.append("e.type = ?")
+                params.append(entity_type)
+            
+            # Add property filters
+            if where:
+                for prop, value in where.items():
+                    conditions.append("(p.property = ? AND p.value = ?)")
+                    serialized, _ = self._serialize_value(value)
+                    params.extend([prop, serialized])
+            
+            # Apply conditions
+            if conditions:
+                query += " WHERE " + " AND ".join(conditions)
+            
+            # Add ordering
+            if order_by:
+                query += f" ORDER BY e.{order_by}"
+            else:
+                query += " ORDER BY e.created_at DESC"
+            
+            # Add limit
+            if limit:
+                query += f" LIMIT {limit}"
+            
+            # Execute query
+            cursor = conn.execute(query, params)
+            
+            # Build results
+            results = []
+            for row in cursor.fetchall():
+                entity = self.get_entity(row['id'], include=include)
+                if entity:
+                    results.append(entity)
+            
+            return results
+    
+    def create_relationship(self, from_id: str, to_id: str, relation_type: str,
+                          metadata: Optional[Dict[str, Any]] = None) -> bool:
+        """Create a relationship between entities."""
+        current_time = time.time()
+        
+        with self._get_db() as conn:
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO relationships (from_id, to_id, relation_type, metadata, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (from_id, to_id, relation_type, json.dumps(metadata) if metadata else None, current_time)
+                )
+                conn.commit()
+                
+                self.logger.debug(f"Created relationship {from_id} -{relation_type}-> {to_id}")
+                return True
+                
+            except sqlite3.IntegrityError:
+                self.logger.warning(f"Relationship already exists or entities not found")
+                return False
+    
+    def delete_relationship(self, from_id: str, to_id: str, relation_type: str) -> bool:
+        """Delete a specific relationship."""
+        with self._get_db() as conn:
+            cursor = conn.execute(
+                "DELETE FROM relationships WHERE from_id = ? AND to_id = ? AND relation_type = ?",
+                (from_id, to_id, relation_type)
+            )
+            conn.commit()
+            deleted = cursor.rowcount > 0
+            
+        if deleted:
+            self.logger.debug(f"Deleted relationship {from_id} -{relation_type}-> {to_id}")
+        return deleted
+    
+    def query_relationships(self, from_id: Optional[str] = None,
+                          to_id: Optional[str] = None,
+                          relation_type: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Query relationships with filters."""
+        with self._get_db() as conn:
+            # Build query
+            query = "SELECT * FROM relationships WHERE 1=1"
+            params = []
+            
+            if from_id:
+                query += " AND from_id = ?"
+                params.append(from_id)
+            
+            if to_id:
+                query += " AND to_id = ?"
+                params.append(to_id)
+            
+            if relation_type:
+                query += " AND relation_type = ?"
+                params.append(relation_type)
+            
+            query += " ORDER BY created_at DESC"
+            
+            # Execute query
+            cursor = conn.execute(query, params)
+            
+            # Build results
+            results = []
+            for row in cursor.fetchall():
+                rel = {
+                    "from": row['from_id'],
+                    "to": row['to_id'],
+                    "type": row['relation_type'],
+                    "created_at": row['created_at'],
+                    "created_at_iso": numeric_to_iso(row['created_at'])
+                }
+                if row['metadata']:
+                    rel['metadata'] = json.loads(row['metadata'])
+                results.append(rel)
+            
+            return results
 
 
-# Global state manager instance - initialized by daemon core
-state_manager: Optional[CoreStateManager] = None
+# Global state manager instance
+state_manager: Optional[RelationalStateManager] = None
 
 
-def get_state_manager() -> CoreStateManager:
+def get_state_manager() -> RelationalStateManager:
     """Get the global state manager instance."""
     if state_manager is None:
         raise RuntimeError("State manager not initialized")
     return state_manager
 
 
-def initialize_state() -> CoreStateManager:
+def initialize_state() -> RelationalStateManager:
     """Initialize the global state manager."""
     global state_manager
     if state_manager is None:
-        state_manager = CoreStateManager()
-        logger.info("Core state manager initialized")
+        state_manager = RelationalStateManager()
+        logger.info("Relational state manager initialized")
     return state_manager
 
 
-# Event Handlers - expose state functionality through events
+# Event Handlers - Clean relational API
 
 @event_handler("system:context")
 async def handle_context(context: Dict[str, Any]) -> None:
-    """Receive infrastructure context - state manager is available."""
-    # State manager is now a core service, always available
+    """Receive infrastructure context."""
     if state_manager:
-        logger.info("Core state manager connected to event system")
+        logger.info("Relational state manager connected to event system")
     else:
-        logger.error("State manager not available in core module")
+        logger.error("State manager not available")
 
 
-@event_handler("state:get")
-async def handle_get(data: Dict[str, Any]) -> Dict[str, Any]:
+@event_handler("state:entity:create")
+async def handle_entity_create(data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Get a value from shared state.
+    Create a new entity.
     
     Args:
-        namespace (str): The namespace to get from (default: "global")
-        key (str): The key to retrieve (required)
+        id (str): Entity ID (optional, will generate if not provided)
+        type (str): Entity type (required)
+        properties (dict): Initial properties (optional)
     
     Returns:
-        Dictionary with value, found status, namespace, and key
+        The created entity
     
     Example:
-        {"namespace": "agent", "key": "session_data"}
+        {
+            "type": "agent",
+            "id": "agent_123",  # Optional
+            "properties": {
+                "status": "active",
+                "model": "sonnet"
+            }
+        }
     """
     if not state_manager:
         return {"error": "State infrastructure not available"}
-        
-    namespace = data.get("namespace", "global")
-    key = data.get("key", "")
     
-    if not key:
-        return {"error": "Key is required"}
+    entity_type = data.get("type")
+    if not entity_type:
+        return {"error": "Entity type is required"}
     
-    # Handle shared: prefix for backward compatibility
-    if key.startswith("shared:"):
-        key = key[7:]  # Remove "shared:" prefix
+    entity_id = data.get("id") or f"{entity_type}_{uuid.uuid4().hex[:8]}"
+    properties = data.get("properties", {})
     
     try:
-        # Prefix key with namespace if provided
-        full_key = f"{namespace}:{key}" if namespace != "global" else key
-        value = state_manager.get_shared_state(full_key)
-        return {
-            "value": value,
-            "found": value is not None,
-            "namespace": namespace,
-            "key": key
-        }
+        entity = state_manager.create_entity(entity_id, entity_type, properties)
+        return entity
     except Exception as e:
-        logger.error(f"Error getting state: {e}")
+        logger.error(f"Error creating entity: {e}")
         return {"error": str(e)}
 
 
-@event_handler("state:set")
-async def handle_set(data: Dict[str, Any]) -> Dict[str, Any]:
+@event_handler("state:entity:update")
+async def handle_entity_update(data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Set a value in shared state.
+    Update entity properties.
     
     Args:
-        namespace (str): The namespace to set in (default: "global")
-        key (str): The key to set (required)
-        value (any): The value to store (required)
-        metadata (dict): Optional metadata to attach (default: {})
+        id (str): Entity ID (required)
+        properties (dict): Properties to update (set to None to delete)
     
     Returns:
-        Dictionary with status, namespace, and key
+        Success status
     
     Example:
-        {"namespace": "agent", "key": "config", "value": {"model": "claude-2"}}
+        {
+            "id": "agent_123",
+            "properties": {
+                "status": "terminated",
+                "old_property": None  # This deletes the property
+            }
+        }
     """
     if not state_manager:
         return {"error": "State infrastructure not available"}
-        
-    namespace = data.get("namespace", "global")
-    key = data.get("key", "")
-    value = data.get("value")
-    metadata = data.get("metadata", {})
     
-    if not key:
-        return {"error": "Key is required"}
+    entity_id = data.get("id")
+    if not entity_id:
+        return {"error": "Entity ID is required"}
     
-    # Handle shared: prefix for backward compatibility
-    if key.startswith("shared:"):
-        key = key[7:]  # Remove "shared:" prefix
+    properties = data.get("properties", {})
     
     try:
-        # Prefix key with namespace if provided
-        full_key = f"{namespace}:{key}" if namespace != "global" else key
-        state_manager.set_shared_state(full_key, value, "system", "shared", None, metadata)
-        return {
-            "status": "set",
-            "namespace": namespace,
-            "key": key
-        }
+        success = state_manager.update_entity(entity_id, properties)
+        if success:
+            return {"status": "updated", "id": entity_id}
+        else:
+            return {"error": "Entity not found", "id": entity_id}
     except Exception as e:
-        logger.error(f"Error setting state: {e}")
+        logger.error(f"Error updating entity: {e}")
         return {"error": str(e)}
 
 
-@event_handler("state:delete")
-async def handle_delete(data: Dict[str, Any]) -> Dict[str, Any]:
+@event_handler("state:entity:delete")
+async def handle_entity_delete(data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Delete a key from shared state.
+    Delete an entity.
     
     Args:
-        namespace (str): The namespace to delete from (default: "global")
-        key (str): The key to delete (required)
+        id (str): Entity ID (required)
     
     Returns:
-        Dictionary with status, namespace, and key
+        Success status
     """
     if not state_manager:
         return {"error": "State infrastructure not available"}
-        
-    namespace = data.get("namespace", "global")
-    key = data.get("key", "")
     
-    if not key:
-        return {"error": "Key is required"}
-    
-    # Handle shared: prefix for backward compatibility
-    if key.startswith("shared:"):
-        key = key[7:]  # Remove "shared:" prefix
+    entity_id = data.get("id")
+    if not entity_id:
+        return {"error": "Entity ID is required"}
     
     try:
-        # Prefix key with namespace if provided
-        full_key = f"{namespace}:{key}" if namespace != "global" else key
-        state_manager.delete_shared_state(full_key)
-        return {
-            "status": "deleted",
-            "namespace": namespace,
-            "key": key
-        }
+        success = state_manager.delete_entity(entity_id)
+        if success:
+            return {"status": "deleted", "id": entity_id}
+        else:
+            return {"error": "Entity not found", "id": entity_id}
     except Exception as e:
-        logger.error(f"Error deleting state: {e}")
+        logger.error(f"Error deleting entity: {e}")
         return {"error": str(e)}
 
 
-@event_handler("state:list") 
-async def handle_list(data: Dict[str, Any]) -> Dict[str, Any]:
+@event_handler("state:entity:get")
+async def handle_entity_get(data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    List keys in shared state.
+    Get an entity.
     
     Args:
-        namespace (str): Filter by namespace (optional)
-        pattern (str): Filter by pattern (optional, supports * wildcard)
+        id (str): Entity ID (required)
+        include (list): What to include - properties, relationships (default: ['properties'])
     
     Returns:
-        Dictionary with list of keys
+        The entity or None
+    
+    Example:
+        {
+            "id": "agent_123",
+            "include": ["properties", "relationships"]
+        }
     """
     if not state_manager:
         return {"error": "State infrastructure not available"}
-        
-    namespace = data.get("namespace")
-    pattern = data.get("pattern")
+    
+    entity_id = data.get("id")
+    if not entity_id:
+        return {"error": "Entity ID is required"}
+    
+    include = data.get("include", ["properties"])
     
     try:
-        # Get all keys
-        all_keys = [item['key'] for item in state_manager.list_shared_state()]
-        
-        # Filter by namespace if provided
-        if namespace:
-            prefix = f"{namespace}:"
-            all_keys = [k for k in all_keys if k.startswith(prefix)]
-        
-        # Filter by pattern if provided
-        if pattern:
-            import fnmatch
-            all_keys = [k for k in all_keys if fnmatch.fnmatch(k, pattern)]
-        
-        return {
-            "keys": all_keys,
-            "count": len(all_keys)
-        }
+        entity = state_manager.get_entity(entity_id, include=include)
+        if entity:
+            return entity
+        else:
+            return {"error": "Entity not found", "id": entity_id}
     except Exception as e:
-        logger.error(f"Error listing state: {e}")
+        logger.error(f"Error getting entity: {e}")
         return {"error": str(e)}
 
 
-# Async state handlers
-
-@event_handler("async_state:get")
-async def handle_async_get(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Get value from async state."""
-    if not state_manager:
-        return {"error": "Async state infrastructure not available"}
-        
-    namespace = data.get("namespace", "default")
-    key = data.get("key", "")
+@event_handler("state:entity:query")
+async def handle_entity_query(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Query entities.
     
-    if not key:
-        return {"error": "Key is required"}
+    Args:
+        type (str): Filter by entity type (optional)
+        where (dict): Filter by properties (optional)
+        include (list): What to include (default: ['properties'])
+        order_by (str): Order by field (default: created_at DESC)
+        limit (int): Limit results (optional)
+    
+    Returns:
+        List of matching entities
+    
+    Example:
+        {
+            "type": "agent",
+            "where": {"status": "active"},
+            "include": ["properties", "relationships"],
+            "limit": 10
+        }
+    """
+    if not state_manager:
+        return {"error": "State infrastructure not available"}
     
     try:
-        value = await state_manager.async_peek(namespace, key)
+        entities = state_manager.query_entities(
+            entity_type=data.get("type"),
+            where=data.get("where"),
+            include=data.get("include", ["properties"]),
+            order_by=data.get("order_by"),
+            limit=data.get("limit")
+        )
         return {
-            "value": value,
-            "found": value is not None,
-            "namespace": namespace,
-            "key": key
+            "entities": entities,
+            "count": len(entities)
         }
     except Exception as e:
-        logger.error(f"Error getting async state: {e}")
+        logger.error(f"Error querying entities: {e}")
         return {"error": str(e)}
 
 
-@event_handler("async_state:set")
-async def handle_async_set(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Set value in async state."""
-    if not state_manager:
-        return {"error": "Async state infrastructure not available"}
-        
-    namespace = data.get("namespace", "default")
-    key = data.get("key", "")
-    value = data.get("value")
+@event_handler("state:relationship:create")
+async def handle_relationship_create(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Create a relationship between entities.
     
-    if not key:
-        return {"error": "Key is required"}
+    Args:
+        from (str): Source entity ID (required)
+        to (str): Target entity ID (required)
+        type (str): Relationship type (required)
+        metadata (dict): Additional metadata (optional)
+    
+    Returns:
+        Success status
+    
+    Example:
+        {
+            "from": "originator_1",
+            "to": "construct_1",
+            "type": "spawned",
+            "metadata": {"purpose": "observer"}
+        }
+    """
+    if not state_manager:
+        return {"error": "State infrastructure not available"}
+    
+    from_id = data.get("from")
+    to_id = data.get("to")
+    relation_type = data.get("type")
+    
+    if not all([from_id, to_id, relation_type]):
+        return {"error": "from, to, and type are required"}
+    
+    metadata = data.get("metadata")
     
     try:
-        await state_manager.async_push(namespace, key, value)
-        return {
-            "status": "set",
-            "namespace": namespace,
-            "key": key
-        }
+        success = state_manager.create_relationship(from_id, to_id, relation_type, metadata)
+        if success:
+            return {
+                "status": "created",
+                "from": from_id,
+                "to": to_id,
+                "type": relation_type
+            }
+        else:
+            return {"error": "Failed to create relationship (already exists or entities not found)"}
     except Exception as e:
-        logger.error(f"Error setting async state: {e}")
+        logger.error(f"Error creating relationship: {e}")
         return {"error": str(e)}
 
 
-@event_handler("async_state:delete")
-async def handle_async_delete(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Delete key from async state."""
-    if not state_manager:
-        return {"error": "Async state infrastructure not available"}
-        
-    namespace = data.get("namespace", "default")
-    key = data.get("key", "")
+@event_handler("state:relationship:delete")
+async def handle_relationship_delete(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Delete a relationship.
     
-    if not key:
-        return {"error": "Key is required"}
+    Args:
+        from (str): Source entity ID (required)
+        to (str): Target entity ID (required)
+        type (str): Relationship type (required)
+    
+    Returns:
+        Success status
+    """
+    if not state_manager:
+        return {"error": "State infrastructure not available"}
+    
+    from_id = data.get("from")
+    to_id = data.get("to")
+    relation_type = data.get("type")
+    
+    if not all([from_id, to_id, relation_type]):
+        return {"error": "from, to, and type are required"}
     
     try:
-        deleted_count = await state_manager.async_delete_queue(namespace, key)
-        return {
-            "status": "deleted",
-            "namespace": namespace,
-            "key": key,
-            "deleted_count": deleted_count
-        }
+        success = state_manager.delete_relationship(from_id, to_id, relation_type)
+        if success:
+            return {
+                "status": "deleted",
+                "from": from_id,
+                "to": to_id,
+                "type": relation_type
+            }
+        else:
+            return {"error": "Relationship not found"}
     except Exception as e:
-        logger.error(f"Error deleting async state: {e}")
+        logger.error(f"Error deleting relationship: {e}")
         return {"error": str(e)}
 
 
-@event_handler("async_state:push")
-async def handle_async_push(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Push value to async queue."""
-    if not state_manager:
-        return {"error": "Async state infrastructure not available"}
-        
-    namespace = data.get("namespace", "default")
-    queue_name = data.get("queue_name", "")
-    value = data.get("value")
+@event_handler("state:relationship:query")
+async def handle_relationship_query(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Query relationships.
     
-    if not queue_name:
-        return {"error": "Queue name is required"}
+    Args:
+        from (str): Filter by source entity (optional)
+        to (str): Filter by target entity (optional)
+        type (str): Filter by relationship type (optional)
+    
+    Returns:
+        List of matching relationships
+    
+    Example:
+        {
+            "from": "originator_1",
+            "type": "spawned"
+        }
+    """
+    if not state_manager:
+        return {"error": "State infrastructure not available"}
     
     try:
-        position = await state_manager.async_push(namespace, queue_name, value)
+        relationships = state_manager.query_relationships(
+            from_id=data.get("from"),
+            to_id=data.get("to"),
+            relation_type=data.get("type")
+        )
         return {
-            "status": "pushed",
-            "namespace": namespace,
-            "queue_name": queue_name,
-            "position": position
+            "relationships": relationships,
+            "count": len(relationships)
         }
     except Exception as e:
-        logger.error(f"Error pushing to async queue: {e}")
-        return {"error": str(e)}
-
-
-@event_handler("async_state:pop")
-async def handle_async_pop(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Pop value from async queue."""
-    if not state_manager:
-        return {"error": "Async state infrastructure not available"}
-        
-    namespace = data.get("namespace", "default")
-    queue_name = data.get("queue_name", "")
-    
-    if not queue_name:
-        return {"error": "Queue name is required"}
-    
-    try:
-        value = await state_manager.async_pop(namespace, queue_name)
-        return {
-            "value": value,
-            "found": value is not None,
-            "namespace": namespace,
-            "queue_name": queue_name
-        }
-    except Exception as e:
-        logger.error(f"Error popping from async queue: {e}")
-        return {"error": str(e)}
-
-
-@event_handler("async_state:get_keys")
-async def handle_async_get_keys(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Get all keys in a namespace."""
-    if not state_manager:
-        return {"error": "Async state infrastructure not available"}
-        
-    namespace = data.get("namespace", "default")
-    
-    try:
-        keys = await state_manager.async_get_keys(namespace)
-        return {
-            "keys": keys,
-            "count": len(keys),
-            "namespace": namespace
-        }
-    except Exception as e:
-        logger.error(f"Error getting async state keys: {e}")
-        return {"error": str(e)}
-
-
-@event_handler("async_state:queue_length")
-async def handle_async_queue_length(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Get length of async queue."""
-    if not state_manager:
-        return {"error": "Async state infrastructure not available"}
-        
-    namespace = data.get("namespace", "default") 
-    queue_name = data.get("queue_name", "")
-    
-    if not queue_name:
-        return {"error": "Queue name is required"}
-    
-    try:
-        length = await state_manager.async_queue_length(namespace, queue_name)
-        return {
-            "length": length,
-            "namespace": namespace,
-            "queue_name": queue_name
-        }
-    except Exception as e:
-        logger.error(f"Error getting async queue length: {e}")
+        logger.error(f"Error querying relationships: {e}")
         return {"error": str(e)}

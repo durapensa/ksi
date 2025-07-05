@@ -183,6 +183,19 @@ def ensure_utc_suffix(timestamp_str: str) -> str:
     return timestamp_str
 
 
+def numeric_to_iso(timestamp: float) -> str:
+    """
+    Convert numeric timestamp (Unix epoch) to ISO 8601 UTC format with 'Z' suffix
+    
+    Args:
+        timestamp: Numeric timestamp from time.time()
+        
+    Returns:
+        str: ISO 8601 UTC timestamp, e.g., "2025-06-20T23:17:27.832348Z"
+    """
+    return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat().replace('+00:00', 'Z')
+
+
 # Deprecated: TimestampManager class for backward compatibility
 # TODO: Remove after migrating all usages
 class TimestampManager:
@@ -200,3 +213,4 @@ class TimestampManager:
     format_for_message_bus = staticmethod(format_for_message_bus)
     get_timezone_offset = staticmethod(get_timezone_offset)
     ensure_utc_suffix = staticmethod(ensure_utc_suffix)
+    numeric_to_iso = staticmethod(numeric_to_iso)

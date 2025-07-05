@@ -9,6 +9,7 @@ Uses composition service for all profile/configuration needs.
 
 import asyncio
 import json
+import time
 import uuid
 from typing import Any, Dict, TypedDict
 
@@ -17,6 +18,7 @@ from typing_extensions import NotRequired
 from ksi_common import format_for_logging
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
+from ksi_common.timestamps import timestamp_utc
 from ksi_daemon.capability_enforcer import get_capability_enforcer
 from ksi_daemon.event_system import event_handler, get_router
 from ksi_daemon.mcp import mcp_config_manager
@@ -372,6 +374,55 @@ async def handle_spawn_agent(data: Dict[str, Any]) -> Dict[str, Any]:
     # Register agent
     agents[agent_id] = agent_info
     
+    # Create agent entity in relational state
+    if event_emitter:
+        # Create agent entity
+        entity_props = {
+            "status": "active",
+            "profile": profile_name or compose_name,
+            "agent_type": agent_type,
+            "purpose": purpose,
+            "capabilities": expanded_capabilities,
+            "session_id": session_id,
+            "permission_profile": permission_profile,
+            "sandbox_dir": sandbox_dir,
+            "mcp_config_path": str(mcp_config_path) if mcp_config_path else None
+        }
+        
+        entity_result = await event_emitter("state:entity:create", {
+            "id": agent_id,
+            "type": "agent",
+            "properties": entity_props
+        })
+        
+        if entity_result and isinstance(entity_result, list):
+            entity_result = entity_result[0] if entity_result else {}
+        
+        if entity_result and "error" not in entity_result:
+            logger.debug(f"Created agent entity {agent_id}")
+        else:
+            logger.warning(f"Failed to create agent entity: {entity_result}")
+        
+        # Create relationship if this is a construct
+        if originator_agent_id:
+            rel_result = await event_emitter("state:relationship:create", {
+                "from": originator_agent_id,
+                "to": agent_id,
+                "type": "spawned",
+                "metadata": {
+                    "purpose": purpose,
+                    "spawned_at": metadata.spawned_at
+                }
+            })
+            
+            if rel_result and isinstance(rel_result, list):
+                rel_result = rel_result[0] if rel_result else {}
+            
+            if rel_result and rel_result.get("status") == "created":
+                logger.info(f"Created spawned relationship: {originator_agent_id} -> {agent_id}")
+            else:
+                logger.warning(f"Failed to create relationship: {rel_result}")
+    
     # Start agent thread
     agent_task = asyncio.create_task(run_agent_thread(agent_id))
     agent_threads[agent_id] = agent_task
@@ -434,6 +485,25 @@ async def handle_terminate_agent(data: AgentTerminateData) -> Dict[str, Any]:
             logger.debug(f"Cleaned up MCP config for agent {agent_id}")
         except Exception as e:
             logger.error(f"Failed to clean up MCP config for agent {agent_id}: {e}")
+    
+    # Update agent entity status in state
+    if event_emitter:
+        update_result = await event_emitter("state:entity:update", {
+            "id": agent_id,
+            "properties": {
+                "status": "terminated",
+                "terminated_at": time.time(),  # numeric for DB storage
+                "terminated_at_iso": timestamp_utc()  # ISO for display
+            }
+        })
+        
+        if update_result and isinstance(update_result, list):
+            update_result = update_result[0] if update_result else {}
+        
+        if update_result and update_result.get("status") == "updated":
+            logger.debug(f"Updated agent entity {agent_id} to terminated")
+        else:
+            logger.warning(f"Failed to update agent entity status: {update_result}")
     
     # Remove from active agents
     del agents[agent_id]
@@ -684,22 +754,49 @@ async def handle_list_constructs(data: Dict[str, Any]) -> Dict[str, Any]:
     if not originator_id:
         return {"error": "originator_agent_id required"}
     
-    # Find all constructs for this originator
+    if not event_emitter:
+        return {"error": "Event system not available"}
+    
+    # Query relationships to find constructs
+    rel_result = await event_emitter("state:relationship:query", {
+        "from": originator_id,
+        "type": "spawned"
+    })
+    
+    if rel_result and isinstance(rel_result, list):
+        rel_result = rel_result[0] if rel_result else {}
+    
+    if not rel_result or "error" in rel_result:
+        return {"error": "Failed to query relationships", "details": rel_result}
+    
+    relationships = rel_result.get("relationships", [])
     constructs = []
-    for agent_id, info in agents.items():
-        if info.get("originator_agent_id") == originator_id:
+    
+    # Get details for each construct
+    for rel in relationships:
+        construct_id = rel["to"]
+        
+        # Get construct entity
+        entity_result = await event_emitter("state:entity:get", {
+            "id": construct_id,
+            "include": ["properties"]
+        })
+        
+        if entity_result and isinstance(entity_result, list):
+            entity_result = entity_result[0] if entity_result else {}
+        
+        if entity_result and "error" not in entity_result:
+            props = entity_result.get("properties", {})
             construct_entry = {
-                "agent_id": agent_id,
-                "status": info.get("status"),
-                "purpose": info.get("purpose"),
-                "created_at": info.get("created_at"),
-                "profile": info.get("profile")
+                "agent_id": construct_id,
+                "status": props.get("status", "unknown"),
+                "purpose": props.get("purpose") or rel.get("metadata", {}).get("purpose"),
+                "profile": props.get("profile"),
+                "created_at": entity_result.get("created_at"),
+                "created_at_iso": entity_result.get("created_at_iso"),
+                "spawned_at": rel.get("metadata", {}).get("spawned_at", entity_result.get("created_at")),
+                "spawned_at_iso": rel.get("created_at_iso")
             }
-            
-            # Include metadata if available
-            if "metadata" in info and isinstance(info["metadata"], AgentMetadata):
-                construct_entry["spawned_at"] = info["metadata"].spawned_at
-                
             constructs.append(construct_entry)
     
     return {

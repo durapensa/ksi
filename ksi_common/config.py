@@ -82,6 +82,9 @@ class KSIBaseConfig(BaseSettings):
     # Checkpoint system database
     checkpoint_db_path: Path = Path(DEFAULT_DB_DIR) / "checkpoint.db"
     
+    # Agent relationships database
+    agent_relationships_db_path: Path = Path(DEFAULT_DB_DIR) / "agent_relationships.db"
+    
     # Event logging database (separate from state)
     event_db_path: Path = Path(DEFAULT_DB_DIR) / "events.db"
     event_write_queue_size: int = 5000
