@@ -119,6 +119,11 @@ class KSIBaseConfig(BaseSettings):
         """Get the daemon log file path."""
         return self.daemon_log_dir / "daemon.log"
     
+    @property
+    def tool_usage_log_file(self) -> Path:
+        """Get the tool usage log file path."""
+        return self.daemon_log_dir / "tool_usage.jsonl"
+    
     daemon_tmp_dir: Path = Path(DEFAULT_VAR_DIR) / "tmp"
     
     # Completion timeouts (in seconds)

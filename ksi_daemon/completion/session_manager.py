@@ -7,7 +7,7 @@ Provides session-aware request routing and recovery mechanisms.
 """
 
 import asyncio
-from typing import Dict, Any, Optional, Set
+from typing import Dict, Any, Optional, Set, List
 from datetime import datetime, timedelta
 
 from ksi_common.logging import get_bound_logger

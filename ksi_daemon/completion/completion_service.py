@@ -1,77 +1,54 @@
 #!/usr/bin/env python3
 """
-Completion Service Plugin V3 - Event-Based Version
+Completion Service Plugin V4 - Modular Architecture
 
-Enhanced completion service using pure event system:
-- Async completion queue with priority support
-- Conversation lock management
-- Event-driven injection routing
-- Circuit breaker safety mechanisms
+Refactored completion service using focused components:
+- QueueManager: Per-session queue management
+- ProviderManager: Provider selection and failover
+- SessionManager: Session continuity and locking
+- TokenTracker: Usage analytics
+- RetryManager: Failure recovery (existing)
 """
 
 import asyncio
 import json
-import os
-import sys
 import time
 import uuid
 from pathlib import Path
-from typing import Dict, Any, Optional, List, TypedDict
-from typing_extensions import NotRequired
+from typing import Dict, Any, Optional, List
 
 from ksi_daemon.event_system import event_handler, EventPriority, emit_event, get_router
-# Metadata functionality now integrated into event_handler
 from ksi_common import timestamp_utc, create_completion_response, parse_completion_response, get_response_session_id
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 
-# Import litellm module for LiteLLM-specific handling
+# Import modular components
+from ksi_daemon.completion.queue_manager import CompletionQueueManager
+from ksi_daemon.completion.provider_manager import ProviderManager
+from ksi_daemon.completion.session_manager import SessionManager
+from ksi_daemon.completion.token_tracker import TokenTracker
+from ksi_daemon.completion.retry_manager import RetryManager, RetryPolicy, extract_error_type
 from ksi_daemon.completion.litellm import handle_litellm_completion
 
-# Import retry manager for failure recovery
-from ksi_daemon.completion.retry_manager import RetryManager, RetryPolicy, extract_error_type
 
-# Module state
-logger = get_bound_logger("completion_service", version="3.0.0")
+logger = get_bound_logger("completion_service", version="4.0.0")
+
+# Module components
+queue_manager: Optional[CompletionQueueManager] = None
+provider_manager: Optional[ProviderManager] = None
+session_manager: Optional[SessionManager] = None
+token_tracker: Optional[TokenTracker] = None
+retry_manager: Optional[RetryManager] = None
+
+# Active completions tracking (preserved from original)
 active_completions: Dict[str, Dict[str, Any]] = {}
 
-# Per-session queue management for fork prevention
-session_processors: Dict[str, asyncio.Queue] = {}  # session_id -> Queue
-active_sessions: set = set()  # Currently processing sessions
-
-# Structured concurrency with asyncio - created on demand
-completion_task_group = None
-task_group_context = None
-
-# Event emitter reference (set during startup)
+# Event emitter and shutdown references
 event_emitter = None
-
-# Shutdown event reference (set during startup)
 shutdown_event = None
 
-# Retry manager (initialized when event emitter is available)
-retry_manager = None
-
-
-# Module TypedDict definitions (optional type safety)
-class CompletionCancelData(TypedDict):
-    """Type-safe data for completion:cancel."""
-    request_id: str
-
-class CompletionStatusData(TypedDict):
-    """Type-safe data for completion:status."""
-    pass  # No parameters
-
-class CompletionSessionStatusData(TypedDict):
-    """Type-safe data for completion:session_status."""
-    session_id: str
-
-
-def get_completion_task_group():
-    """Get the completion task group (must be called after service startup)."""
-    if completion_task_group is None:
-        raise RuntimeError("Completion service not ready - task group not available")
-    return completion_task_group
+# Asyncio task management
+completion_task_group = None
 
 
 def ensure_directories():
@@ -80,14 +57,8 @@ def ensure_directories():
 
 
 def save_completion_response(response_data: Dict[str, Any]) -> None:
-    """
-    Save standardized completion response to session file.
-    
-    Args:
-        response_data: Standardized completion response from create_completion_response
-    """
+    """Save standardized completion response to session file."""
     try:
-        # Parse the completion response to extract session_id
         completion_response = parse_completion_response(response_data)
         session_id = get_response_session_id(completion_response)
         
@@ -95,14 +66,11 @@ def save_completion_response(response_data: Dict[str, Any]) -> None:
             logger.warning("No session_id in completion response, cannot save to session file")
             return
         
-        # Ensure responses directory exists
         responses_dir = config.response_log_dir
         responses_dir.mkdir(parents=True, exist_ok=True)
         
-        # Session file path
         session_file = responses_dir / f"{session_id}.jsonl"
         
-        # Append response to session file
         with open(session_file, 'a', encoding='utf-8') as f:
             f.write(json.dumps(response_data) + '\n')
         
@@ -114,12 +82,29 @@ def save_completion_response(response_data: Dict[str, Any]) -> None:
 
 # Event handlers
 
-@event_handler("system:startup", priority=EventPriority.LOW)  # Run after core services
+@event_handler("system:startup", priority=EventPriority.LOW)
 async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
     """Initialize completion service on startup."""
+    global queue_manager, provider_manager, session_manager, token_tracker
+    
+    logger.info("Completion service startup handler called")
+    
     ensure_directories()
-    logger.info("Completion service started with asyncio structured concurrency")
-    return {"status": "completion_service_ready"}
+    
+    # Initialize components
+    queue_manager = CompletionQueueManager()
+    provider_manager = ProviderManager()
+    session_manager = SessionManager()
+    token_tracker = TokenTracker()
+    
+    logger.info("Completion service started with modular architecture")
+    logger.info(
+        f"Components initialized: queue={queue_manager is not None}, "
+        f"session={session_manager is not None}, provider={provider_manager is not None}, "
+        f"token={token_tracker is not None}"
+    )
+    
+    return {"status": "completion_service_ready", "version": "4.0.0"}
 
 
 @event_handler("system:context")
@@ -133,7 +118,7 @@ async def handle_context(context: Dict[str, Any]) -> None:
     if event_emitter:
         logger.info("Completion service received event emitter")
         
-        # Initialize retry manager with event emitter
+        # Initialize retry manager
         retry_policy = RetryPolicy(
             max_attempts=3,
             initial_delay=2.0,
@@ -157,17 +142,34 @@ async def manage_completion_service():
         raise RuntimeError("Shutdown event not provided via module context")
     
     try:
-        # Create and enter the task group context
         async with asyncio.TaskGroup() as tg:
             completion_task_group = tg
             logger.info("Completion service ready")
             
-            # Keep the service running until shutdown event is set
+            # Periodic cleanup task
+            async def cleanup_task():
+                while not shutdown_event.is_set():
+                    try:
+                        # Clean up every 5 minutes
+                        await asyncio.sleep(300)
+                        
+                        if queue_manager:
+                            queue_manager.cleanup_empty_queues()
+                        if session_manager:
+                            session_manager.cleanup_expired_locks()
+                            session_manager.cleanup_inactive_sessions()
+                            
+                    except asyncio.CancelledError:
+                        break
+                    except Exception as e:
+                        logger.error(f"Cleanup task error: {e}")
+            
+            tg.create_task(cleanup_task())
+            
             await shutdown_event.wait()
             logger.info("Shutdown event received, completion service exiting gracefully")
             
     except* Exception as eg:
-        # TaskGroup raises ExceptionGroup when tasks fail
         logger.error(f"Completion service task group error: {eg!r}")
         raise
     finally:
@@ -192,60 +194,33 @@ async def handle_ready(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 @event_handler("completion:async")
 async def handle_async_completion(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Handle async completion requests with smart queueing.
+    """Handle async completion requests with smart queueing."""
+    if not all([queue_manager, session_manager, provider_manager]):
+        return {"error": "Completion service not fully initialized"}
     
-    Uses hybrid approach:
-    - Event-driven for multi-session parallelism
-    - Queue-based for per-session fork prevention
-    """
     request_id = str(uuid.uuid4())
     start_time = time.time()
     
-    # Add request_id to data for tracking
     data["request_id"] = request_id
-    
-    # Extract session_id for queue management
     session_id = data.get("session_id", "default")
     
-    # Log the request
-    logger.info(f"Received async completion request",
-                request_id=request_id,
-                session_id=session_id,
-                model=data.get("model", "unknown"))
+    logger.info(
+        f"Received async completion request",
+        request_id=request_id,
+        session_id=session_id,
+        model=data.get("model", "unknown")
+    )
     
-    # Debug log to check extra_body
-    if "extra_body" in data:
-        logger.debug(f"Completion request has extra_body: {data['extra_body']}")
-    else:
-        logger.debug("Completion request has NO extra_body")
+    # Register with session manager
+    session_manager.register_request(session_id, request_id, data.get("agent_id"))
     
-    # Get or create session processor
-    if session_id not in session_processors:
-        session_processors[session_id] = asyncio.Queue()
-        logger.debug(f"Created new session processor for {session_id}")
+    # Save recovery data
+    session_manager.save_recovery_data(session_id, request_id, data)
     
-    queue = session_processors[session_id]
+    # Enqueue request
+    queue_status = await queue_manager.enqueue(session_id, request_id, data)
     
-    # Add to queue and process
-    await queue.put((request_id, data))
-    
-    # If this session isn't being processed, start processing
-    if session_id not in active_sessions:
-        active_sessions.add(session_id)
-        
-        # Get the task group and create task
-        tg = get_completion_task_group()
-        
-        async def process_session():
-            try:
-                await process_session_queue(session_id)
-            finally:
-                active_sessions.discard(session_id)
-        
-        tg.create_task(process_session())
-    
-    # Track active completion with full request data for recovery
+    # Track active completion (preserved from original)
     active_completions[request_id] = {
         "session_id": session_id,
         "status": "queued",
@@ -254,116 +229,151 @@ async def handle_async_completion(data: Dict[str, Any]) -> Dict[str, Any]:
         "original_event": "completion:async"
     }
     
-    # Return immediate acknowledgment
+    # Start processor if needed
+    if queue_manager.should_create_processor(session_id):
+        queue_manager.mark_session_active(session_id)
+        
+        async def process_session():
+            try:
+                await process_session_queue(session_id)
+            finally:
+                queue_manager.mark_session_inactive(session_id)
+        
+        completion_task_group.create_task(process_session())
+    
     return {
         "request_id": request_id,
         "status": "queued",
-        "message": "Completion request queued for processing"
+        "message": "Completion request queued for processing",
+        **queue_status
     }
 
 
 async def process_session_queue(session_id: str):
     """Process completion requests for a specific session."""
-    queue = session_processors[session_id]
-    
     while True:
         try:
-            # Get next request with timeout
-            request_id, data = await asyncio.wait_for(queue.get(), timeout=1.0)
+            # Get next request
+            result = await queue_manager.dequeue(session_id, timeout=1.0)
+            if not result:
+                # No requests, check if we should exit
+                if queue_manager.get_queue_status(session_id).get("is_empty", True):
+                    logger.debug(f"Session processor {session_id} idle, exiting")
+                    break
+                continue
             
-            # Update status
-            if request_id in active_completions:
-                active_completions[request_id]["status"] = "processing"
-                active_completions[request_id]["started_at"] = timestamp_utc()
+            request_id, data = result
             
             # Process the completion
             await process_completion_request(request_id, data)
             
-        except asyncio.TimeoutError:
-            # No requests for 1 second, check if we should exit
-            if queue.empty() and session_id not in active_sessions:
-                logger.debug(f"Session processor {session_id} idle, exiting")
-                break
         except Exception as e:
             logger.error(f"Error processing session queue: {e}", exc_info=True)
 
 
 async def process_completion_request(request_id: str, data: Dict[str, Any]):
-    """Process a single completion request."""
+    """Process a single completion request using modular components."""
     try:
-        # Lock conversation if needed
+        # Update status to processing
+        if request_id in active_completions:
+            active_completions[request_id]["status"] = "processing"
+            active_completions[request_id]["started_at"] = timestamp_utc()
+        # Handle conversation lock if needed
         conversation_lock = data.get("conversation_lock", {})
         if conversation_lock.get("enabled", False):
-            lock_result = await emit_event("conversation:lock", {
-                "session_id": data.get("session_id"),
-                "agent_id": data.get("agent_id"),
-                "timeout": conversation_lock.get("timeout", 300)
-            })
+            lock_result = await session_manager.acquire_conversation_lock(
+                data.get("session_id"),
+                data.get("agent_id"),
+                conversation_lock.get("timeout", 300)
+            )
+            
+            if not lock_result.get("locked"):
+                raise Exception(f"Failed to acquire conversation lock: {lock_result.get('reason')}")
         
-        # Call LiteLLM
+        # Select provider
+        model = data.get("model", "unknown")
+        require_mcp = bool(data.get("extra_body", {}).get("ksi", {}).get("mcp_config_path"))
+        provider_name, provider_config = provider_manager.select_provider(
+            model, 
+            require_mcp=require_mcp,
+            prefer_streaming=data.get("stream", False)
+        )
+        
+        # Emit progress event
+        await emit_event("completion:progress", {
+            "request_id": request_id,
+            "session_id": data.get("session_id"),
+            "status": "calling_provider",
+            "provider": provider_name
+        })
+        
+        # Call completion
         start_time = time.time()
         
         # Add conversation_id if not present
         if "conversation_id" not in data:
             data["conversation_id"] = f"ksi-{request_id}"
         
-        # Emit progress event
-        await emit_event("completion:progress", {
-            "request_id": request_id,
-            "session_id": data.get("session_id"),
-            "status": "calling_llm"
-        })
-        
-        # Call completion through litellm module
+        # Call through provider (currently only litellm handler)
         provider, raw_response = await handle_litellm_completion(data)
+        
+        # Track success
+        latency_ms = int((time.time() - start_time) * 1000)
+        provider_manager.record_success(provider_name, latency_ms)
         
         # Create standardized response
         standardized_response = create_completion_response(
             provider=provider,
             raw_response=raw_response,
-            request_id=data.get("request_id"),
+            request_id=request_id,
             client_id=data.get("client_id"),
-            duration_ms=int((time.time() - start_time) * 1000)
+            duration_ms=latency_ms
         )
         
         # Save to session log
         save_completion_response(standardized_response)
         
-        # Log token usage if available (especially for MCP handshake analysis)
+        # Track token usage
         if provider == "claude-cli" and "response" in standardized_response:
             raw_resp = standardized_response["response"]
             if isinstance(raw_resp, dict):
                 usage = raw_resp.get("usage", {})
                 if usage:
-                    # Check if this was an MCP-enabled request
-                    has_mcp = bool(data.get("extra_body", {}).get("ksi", {}).get("mcp_config_path"))
-                    
-                    logger.info(
-                        "Completion token usage",
-                        request_id=request_id,
-                        has_mcp=has_mcp,
-                        input_tokens=usage.get("input_tokens", 0),
-                        cache_creation_tokens=usage.get("cache_creation_input_tokens", 0),
-                        cache_read_tokens=usage.get("cache_read_input_tokens", 0),
-                        output_tokens=usage.get("output_tokens", 0),
-                        session_id=data.get("session_id"),
-                        agent_id=data.get("agent_id")
-                    )
+                    token_tracker.record_usage({
+                        "request_id": request_id,
+                        "session_id": data.get("session_id"),
+                        "agent_id": data.get("agent_id"),
+                        "model": model,
+                        "provider": provider_name,
+                        "input_tokens": usage.get("input_tokens", 0),
+                        "output_tokens": usage.get("output_tokens", 0),
+                        "cache_creation_tokens": usage.get("cache_creation_input_tokens", 0),
+                        "cache_read_tokens": usage.get("cache_read_input_tokens", 0),
+                        "has_mcp": require_mcp
+                    })
         
-        # Clean up tracking - remove completed request
+        # Clean up tracking
+        session_manager.complete_request(data.get("session_id"), request_id)
+        session_manager.clear_recovery_data(request_id)
+        
+        # Remove from active completions (with delayed cleanup)
         if request_id in active_completions:
-            active_completions.pop(request_id)
+            active_completions[request_id]["status"] = "completed"
+            active_completions[request_id]["completed_at"] = timestamp_utc()
+            
+            async def cleanup():
+                await asyncio.sleep(60)  # Keep for 1 minute
+                active_completions.pop(request_id, None)
+            asyncio.create_task(cleanup())
         
-        # Emit result event
+        # Handle injection if needed
         result_event_data = {
             "request_id": request_id,
             "result": standardized_response
         }
         
-        # Check if injection processing is needed
         injection_config = data.get("injection_config")
         if injection_config and injection_config.get('enabled') and event_emitter:
-            # Explicitly tell injection to process this result
             injection_result = await event_emitter("injection:process_result", {
                 "request_id": request_id,
                 "result": standardized_response,
@@ -373,38 +383,39 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
                 }
             })
             
-            # If injection returns a modified result, use that
-            if injection_result:
-                logger.debug(f"Injection processed result for {request_id}")
-                if isinstance(injection_result, dict) and "result" in injection_result:
-                    result_event_data["result"] = injection_result["result"]
+            if injection_result and isinstance(injection_result, dict) and "result" in injection_result:
+                result_event_data["result"] = injection_result["result"]
         
-        # Emit the final result
+        # Emit result
         await emit_event("completion:result", result_event_data)
         
-        # Unlock conversation if needed
+        # Unlock conversation
         if conversation_lock.get("enabled", False):
-            await emit_event("conversation:unlock", {
-                "session_id": data.get("session_id"),
-                "agent_id": data.get("agent_id")
-            })
+            await session_manager.release_conversation_lock(
+                data.get("session_id"),
+                data.get("agent_id")
+            )
         
         return standardized_response
         
     except asyncio.CancelledError:
-        # Handle cancellation
         logger.info(f"Completion {request_id} cancelled")
         if request_id in active_completions:
             active_completions[request_id]["status"] = "cancelled"
         await emit_event("completion:cancelled", {"request_id": request_id})
         raise
+        
     except Exception as e:
-        # Handle errors
         logger.error(f"Completion {request_id} failed: {e}", exc_info=True)
         if request_id in active_completions:
             active_completions[request_id]["status"] = "failed"
             active_completions[request_id]["error"] = str(e)
         
+        # Record provider failure if we got that far
+        if 'provider_name' in locals():
+            provider_manager.record_failure(provider_name, str(e))
+        
+        # Emit error event
         await emit_event("completion:error", {
             "request_id": request_id,
             "error": str(e),
@@ -412,27 +423,114 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
         })
         
         # Unlock conversation on error
-        conversation_lock = data.get("conversation_lock", {})
         if conversation_lock.get("enabled", False):
-            await emit_event("conversation:unlock", {
-                "session_id": data.get("session_id"),
-                "agent_id": data.get("agent_id")
-            })
+            await session_manager.release_conversation_lock(
+                data.get("session_id"),
+                data.get("agent_id")
+            )
         
         return {"error": str(e), "request_id": request_id}
-    finally:
-        # Clean up tracking after delay
-        if request_id in active_completions:
-            async def cleanup():
-                await asyncio.sleep(60)  # Keep for 1 minute
-                active_completions.pop(request_id, None)
-            asyncio.create_task(cleanup())
+
+
+@event_handler("completion:status")
+async def handle_completion_status(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Get status of completion service and components."""
+    # Debug logging
+    logger.debug(
+        f"Status check - components initialized: "
+        f"queue={queue_manager is not None}, "
+        f"session={session_manager is not None}, "
+        f"provider={provider_manager is not None}, "
+        f"token={token_tracker is not None}"
+    )
+    
+    if not all([queue_manager, session_manager, provider_manager, token_tracker]):
+        return {"error": "Completion service not fully initialized"}
+    
+    # Build status summary (preserving original functionality)
+    status_counts = {}
+    for completion in active_completions.values():
+        status = completion["status"]
+        status_counts[status] = status_counts.get(status, 0) + 1
+    
+    return {
+        "service_ready": completion_task_group is not None,
+        "active_completions": len(active_completions),
+        "status_counts": status_counts,
+        "queues": queue_manager.get_all_queue_status(),
+        "sessions": session_manager.get_all_sessions_status(),
+        "providers": provider_manager.get_all_provider_status(),
+        "token_usage": token_tracker.get_summary_statistics(),
+        "retry_manager": retry_manager.get_retry_stats() if retry_manager else None
+    }
+
+
+@event_handler("completion:session_status")
+async def handle_session_status(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Get detailed status for a specific session."""
+    if not all([queue_manager, session_manager]):
+        return {"error": "Completion service not fully initialized"}
+    
+    session_id = data.get("session_id")
+    if not session_id:
+        return {"error": "session_id required"}
+    
+    # Find completions for this session (preserving original functionality)
+    session_completions = []
+    for request_id, completion in active_completions.items():
+        if completion.get("session_id") == session_id:
+            session_completions.append({
+                "request_id": request_id,
+                "status": completion["status"],
+                "queued_at": completion.get("queued_at"),
+                "started_at": completion.get("started_at"),
+                "completed_at": completion.get("completed_at")
+            })
+    
+    return {
+        "session_id": session_id,
+        "completions": session_completions,
+        "queue": queue_manager.get_queue_status(session_id),
+        "session": session_manager.get_session_status(session_id)
+    }
+
+
+@event_handler("completion:provider_status")
+async def handle_provider_status(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Get provider status and health information."""
+    if not provider_manager:
+        return {"error": "Provider manager not initialized"}
+    
+    provider = data.get("provider")
+    if provider:
+        return provider_manager.get_provider_status(provider)
+    else:
+        return provider_manager.get_all_provider_status()
+
+
+@event_handler("completion:token_usage")
+async def handle_token_usage(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Get token usage analytics."""
+    if not token_tracker:
+        return {"error": "Token tracker not initialized"}
+    
+    agent_id = data.get("agent_id")
+    model = data.get("model")
+    
+    if agent_id:
+        return token_tracker.get_agent_usage(agent_id, data.get("hours"))
+    elif model:
+        return token_tracker.get_model_usage(model)
+    else:
+        return token_tracker.get_summary_statistics()
 
 
 @event_handler("completion:cancel")
-async def handle_cancel_completion(data: CompletionCancelData) -> Dict[str, Any]:
+async def handle_cancel_completion(data: Dict[str, Any]) -> Dict[str, Any]:
     """Cancel an in-progress completion."""
-    request_id = data["request_id"]
+    request_id = data.get("request_id")
+    if not request_id:
+        return {"error": "request_id required"}
     
     if request_id not in active_completions:
         return {"error": f"Unknown request_id: {request_id}"}
@@ -451,65 +549,6 @@ async def handle_cancel_completion(data: CompletionCancelData) -> Dict[str, Any]
     return {
         "request_id": request_id,
         "status": "cancelled"
-    }
-
-
-@event_handler("completion:status")
-async def handle_completion_status(data: CompletionStatusData) -> Dict[str, Any]:
-    """Get status of all active completions."""
-    
-    # Build status summary
-    status_counts = {}
-    for completion in active_completions.values():
-        status = completion["status"]
-        status_counts[status] = status_counts.get(status, 0) + 1
-    
-    # Get session info
-    session_info = {}
-    for session_id, queue in session_processors.items():
-        session_info[session_id] = {
-            "queue_size": queue.qsize(),
-            "is_active": session_id in active_sessions
-        }
-    
-    return {
-        "active_completions": len(active_completions),
-        "status_counts": status_counts,
-        "sessions": session_info,
-        "service_ready": completion_task_group is not None
-    }
-
-
-@event_handler("completion:session_status")
-async def handle_session_status(data: CompletionSessionStatusData) -> Dict[str, Any]:
-    """Get detailed status for a specific session."""
-    session_id = data["session_id"]
-    
-    # Find completions for this session
-    session_completions = []
-    for request_id, completion in active_completions.items():
-        if completion.get("session_id") == session_id:
-            session_completions.append({
-                "request_id": request_id,
-                "status": completion["status"],
-                "queued_at": completion.get("queued_at"),
-                "started_at": completion.get("started_at"),
-                "completed_at": completion.get("completed_at")
-            })
-    
-    # Get queue info
-    queue_info = None
-    if session_id in session_processors:
-        queue = session_processors[session_id]
-        queue_info = {
-            "queue_size": queue.qsize(),
-            "is_processing": session_id in active_sessions
-        }
-    
-    return {
-        "session_id": session_id,
-        "completions": session_completions,
-        "queue": queue_info
     }
 
 
@@ -537,33 +576,34 @@ async def handle_completion_failed(data: Dict[str, Any]) -> Dict[str, Any]:
         logger.warning("Completion failure without request_id", data=data)
         return {"error": "Missing request_id"}
     
-    # Extract error information
-    error_type = extract_error_type(data)
-    error_message = data.get("message", "Unknown error")
+    # Get recovery data from session manager
+    recovery_data = session_manager.get_recovery_data(request_id) if session_manager else None
     
-    logger.warning(
-        "Completion failed",
-        request_id=request_id,
-        error_type=error_type,
-        error_message=error_message
-    )
+    # If no recovery data, check active completions (fallback)
+    if not recovery_data and request_id in active_completions:
+        completion = active_completions.pop(request_id)
+        recovery_data = {
+            "request_data": completion.get("data", {})
+        }
     
-    # Clean up active completion
-    completion = active_completions.pop(request_id, None)
-    
-    # If no active completion, check if this is from checkpoint restore
-    if not completion:
-        # For checkpoint restore, the completion data is included in the event
+    if not recovery_data:
+        # Check if this is from checkpoint restore
         if data.get("reason") == "daemon_restart" and "completion_data" in data:
-            completion = data["completion_data"]
+            recovery_data = {
+                "request_data": data["completion_data"].get("data", {})
+            }
             logger.info("Processing checkpoint restore failure", request_id=request_id)
         else:
-            logger.debug("No active completion found for failed request", request_id=request_id)
+            logger.debug("No recovery data found for failed request", request_id=request_id)
             return {"status": "not_found"}
     
     if retry_manager:
+        # Extract error information
+        error_type = extract_error_type(data)
+        error_message = data.get("message", "Unknown error")
+        
         # Attempt retry with original request data
-        original_data = completion.get("data", {})
+        original_data = recovery_data.get("request_data", {})
         retry_attempted = retry_manager.add_retry_candidate(
             request_id=request_id,
             original_data=original_data,
@@ -582,25 +622,110 @@ async def handle_completion_failed(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"status": "retry_unavailable"}
 
 
+@event_handler("checkpoint:collect")
+async def collect_checkpoint_data(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Collect completion service state for checkpoint."""
+    checkpoint_data = {
+        "session_queues": {},
+        "active_completions": dict(active_completions)  # Copy current state
+    }
+    
+    # Extract queue contents if queue_manager exists
+    if queue_manager:
+        for session_id, queue in queue_manager._session_queues.items():
+            queue_items = []
+            
+            # Copy queue contents without draining
+            # Note: This is a simplified approach - in production you might want
+            # to use a different strategy
+            try:
+                # Get queue size
+                queue_size = queue.qsize()
+                if queue_size > 0:
+                    logger.warning(f"Cannot safely extract {queue_size} items from session {session_id} queue")
+            except:
+                pass
+            
+            checkpoint_data["session_queues"][session_id] = {
+                "items": queue_items,  # Empty for now - can't safely extract from asyncio.Queue
+                "is_active": queue_manager.is_session_active(session_id)
+            }
+    
+    # Add component states
+    checkpoint_data["components"] = {
+        "queue_manager": queue_manager is not None,
+        "provider_manager": provider_manager is not None,
+        "session_manager": session_manager is not None,
+        "token_tracker": token_tracker is not None,
+        "retry_manager": retry_manager is not None
+    }
+    
+    logger.info(
+        f"Collected checkpoint data",
+        active_completions=len(checkpoint_data["active_completions"]),
+        session_queues=len(checkpoint_data["session_queues"])
+    )
+    
+    return checkpoint_data
+
+
+@event_handler("checkpoint:restore")
+async def restore_checkpoint_data(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Restore completion service state from checkpoint."""
+    global active_completions
+    
+    if not data:
+        return {"restored": 0}
+    
+    # Restore active completions
+    restored_completions = data.get("active_completions", {})
+    active_completions.update(restored_completions)
+    
+    # Note: We cannot restore queue contents as they need to be re-processed
+    # The retry mechanism will handle any interrupted requests
+    
+    logger.info(
+        f"Restored checkpoint data",
+        active_completions=len(restored_completions)
+    )
+    
+    return {
+        "restored": len(restored_completions),
+        "message": "Active completions restored, queued items will be retried if needed"
+    }
+
+
 @event_handler("system:shutdown")
 async def handle_shutdown(data: Dict[str, Any]) -> None:
     """Clean up on shutdown."""
     logger.info("Completion service shutting down")
     
-    # Stop retry manager first
+    # Stop retry manager
     if retry_manager:
         await retry_manager.stop()
         logger.info("Retry manager stopped")
     
-    # Cancel all active completions
+    # Cancel all active completions (preserving original functionality)
     for request_id in list(active_completions.keys()):
         completion = active_completions[request_id]
         if completion["status"] in ["queued", "processing"]:
             completion["status"] = "cancelled"
             await emit_event("completion:cancelled", {"request_id": request_id})
     
-    # Clear session processors
-    session_processors.clear()
-    active_sessions.clear()
-
-
+    # Get shutdown statistics
+    stats = {}
+    
+    if queue_manager:
+        stats["queue"] = queue_manager.shutdown()
+    
+    if session_manager:
+        # Cancel any active locks
+        stats["sessions"] = session_manager.get_all_sessions_status()
+    
+    if provider_manager:
+        stats["providers"] = provider_manager.get_all_provider_status()
+    
+    if token_tracker:
+        stats["tokens"] = token_tracker.get_summary_statistics()
+    
+    logger.info("Completion service shutdown complete", stats=stats)

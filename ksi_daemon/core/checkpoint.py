@@ -109,56 +109,41 @@ async def load_latest_checkpoint() -> Optional[Dict[str, Any]]:
 
 
 async def extract_completion_state() -> Dict[str, Any]:
-    """Extract state from completion service."""
-    # Import here to avoid circular dependency
-    from ksi_daemon.completion import completion_service
-    
-    state = {
-        "timestamp": timestamp_utc(),
-        "session_queues": {},
-        "active_completions": {}
-    }
-    
-    # Extract session queue contents
-    # We can't serialize asyncio.Queue directly, so extract items
-    for session_id, queue in completion_service.session_processors.items():
-        queue_items = []
+    """Extract state from completion service via event system."""
+    try:
+        # Use event system to collect checkpoint data
+        result = await emit_event("checkpoint:collect", {})
         
-        # Temporarily drain queue to list
-        temp_items = []
-        try:
-            while True:
-                item = queue.get_nowait()
-                temp_items.append(item)
-        except asyncio.QueueEmpty:
-            pass
-        
-        # Put items back and record them
-        for item in temp_items:
-            queue.put_nowait(item)
-            # item is (request_id, data)
-            queue_items.append({
-                "request_id": item[0],
-                "data": item[1]
-            })
-        
-        state["session_queues"][session_id] = queue_items
-    
-    # Extract active completions (already serializable)
-    state["active_completions"] = dict(completion_service.active_completions)
-    
-    # Count items
-    total_queued = sum(len(items) for items in state["session_queues"].values())
-    total_active = len(state["active_completions"])
-    
-    logger.info(
-        "Extracted completion state",
-        sessions=len(state["session_queues"]),
-        queued_requests=total_queued,
-        active_requests=total_active
-    )
-    
-    return state
+        # Handle both single and multi-handler responses
+        if isinstance(result, list):
+            # Find the completion service response
+            for response in result:
+                if isinstance(response, dict) and "session_queues" in response:
+                    return response
+            # If no completion service response found, return empty state
+            return {
+                "timestamp": timestamp_utc(),
+                "session_queues": {},
+                "active_completions": {}
+            }
+        elif isinstance(result, dict) and "session_queues" in result:
+            # Single response from completion service
+            return result
+        else:
+            # No valid response
+            logger.warning("No checkpoint data received from completion service")
+            return {
+                "timestamp": timestamp_utc(),
+                "session_queues": {},
+                "active_completions": {}
+            }
+    except Exception as e:
+        logger.error(f"Failed to extract completion state: {e}", exc_info=True)
+        return {
+            "timestamp": timestamp_utc(),
+            "session_queues": {},
+            "active_completions": {}
+        }
 
 
 async def restore_completion_state(state: Dict[str, Any]) -> Dict[str, Any]:

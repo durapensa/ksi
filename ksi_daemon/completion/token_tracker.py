@@ -78,7 +78,7 @@ class TokenTracker:
     
     def __init__(self):
         """Initialize the token tracker."""
-        self._usage_log_path = config.tool_usage_log_path
+        self._usage_log_path = config.tool_usage_log_file
         self._in_memory_records: List[TokenUsageRecord] = []
         self._max_memory_records = 10000
         

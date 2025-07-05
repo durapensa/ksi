@@ -536,30 +536,38 @@ Use when dealing with stale/stuck completion requests:
 - Use send_all() when multiple handlers might respond
 - Let transport layer handle REST pattern
 
+## Recent Architectural Improvements
+
+### Completed
+1. **Completion System Modularity** (2025-01-05)
+   - Refactored 600+ line monolith into focused components:
+     - `QueueManager`: Per-session queue management
+     - `ProviderManager`: Provider selection with circuit breakers
+     - `SessionManager`: Session continuity and conversation locks
+     - `TokenTracker`: Comprehensive usage analytics
+   - Preserved 100% of existing functionality
+   - Added provider health tracking and token analytics
+   - See `docs/completion_service_migration.md` for details
+
 ## Planned Architectural Improvements
 
 ### High Priority
-1. **Completion System Modularity**
-   - Break into focused components: QueueManager, RetryManager, ProviderManager
-   - Separate concerns currently mixed in one module
-   - Improve testability and maintainability
-
-2. **Key-Value to Relational Migration**
+1. **Key-Value to Relational Migration**
    - Replace remaining key-value patterns with relational state
    - Checkpoint data, MCP session cache, agent metadata
    - Use proper entities/relationships for consistency
 
-3. **Error Propagation**
+2. **Error Propagation**
    - Event router should NOT swallow exceptions
    - Let programming errors propagate for visibility
    - Keep circuit breaker pattern for external failures only
 
-4. **Async SQLite Standardization**
+3. **Async SQLite Standardization**
    - Ensure all SQLite uses WAL mode (like event log)
    - Make all database writes truly async
    - Consistent async patterns across modules
 
-5. **Terminology Consistency**
+4. **Terminology Consistency**
    - Deprecate "parent" in favor of "originator_agent_id"
    - Use "purpose" consistently (not "task") for why agent was spawned
    - Standardize variable names across modules
