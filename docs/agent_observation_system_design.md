@@ -359,6 +359,22 @@ await emit_event("observation:subscribe", {
 
 **Key Design Decision**: Instead of a specialized agent relationship store, we implemented a universal relational state system that can handle all types of entities and relationships. This provides maximum flexibility for future features.
 
+### Phase 3: Observation Subscription System ✓ COMPLETED
+- Created `ObservationManager` component in `ksi_daemon/observation/`
+- Implemented subscription event handlers: subscribe/unsubscribe/list
+- Integrated observation into event router's emit method
+- Added pattern matching with fnmatch for flexible event filtering
+- Implemented sampling rate support for high-volume events
+- Created notify_observers for sending observe:begin/end events
+- Prevented observation loops by excluding observe:* and observation:* events
+- Added comprehensive test script in examples/
+
+**Key Implementation Details**:
+- Source agent detection from context or data (`agent_id`, `source_agent`)
+- Observation events include original data, results, errors, and handler count
+- Subscriptions stored both in memory and relational state
+- Clean integration without modifying existing event handler signatures
+
 ## Implementation Phases
 
 ### Phase 1: Agent Metadata (Immediate)

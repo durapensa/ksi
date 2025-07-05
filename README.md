@@ -157,9 +157,9 @@ See [Plugin Development Guide](ksi_daemon/PLUGIN_DEVELOPMENT_GUIDE.md) for detai
 ## Documentation
 
 - [API Reference](docs/API_REFERENCE.md) - Complete REST-style API documentation
-- [Event Catalog](ksi_daemon/EVENT_CATALOG.md) - All available system events
 - [Plugin Architecture](ksi_daemon/PLUGGY_ARCHITECTURE.md) - Plugin system design
 - [Architecture Analysis](docs/ksi_architecture_analysis.md) - Deep technical dive
+- [Agent Observation Design](docs/agent_observation_system_design.md) - Agent observation system
 
 ## Contributing
 

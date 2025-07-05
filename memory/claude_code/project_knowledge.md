@@ -6,7 +6,8 @@ Core technical reference for KSI (Kubernetes-Style Infrastructure) - a resilient
 
 **Latest Features**:
 - **Universal Relational State**: Entity-property-relationship model for all state
-- Agent observation system foundation with originator-construct tracking
+- **Agent Observation System**: Complete subscription-based event observation between agents
+- Agent originator-construct tracking with relationship metadata
 - Shutdown coordination with barrier pattern and service acknowledgments
 - Automatic retry for failed operations with exponential backoff
 - Checkpoint/restore for all daemon restarts (not just dev mode)
@@ -159,6 +160,7 @@ All state managed through entity-property-relationship model in `ksi_daemon/core
 - **completion/retry_manager.py** - Retry scheduling with exponential backoff
 - **completion/claude_cli_litellm_provider.py** - Spawns Claude processes (graceful cleanup, MCP support)
 - **agent/agent_service.py** - Agent lifecycle (uses capability_enforcer for spawning)
+- **observation/observation_manager.py** - Agent event observation subscriptions
 - **conversation/conversation_service.py** - Session tracking
 - **messaging/message_bus.py** - Pub/sub messaging (with shutdown acknowledgment)
 - **permissions/permission_service.py** - Security boundaries
@@ -188,8 +190,10 @@ await emit_event("completion:async", data)
 ### Available Namespaces
 - **system**: health, shutdown, discover, help, startup, context, ready, shutdown_complete
 - **completion**: async, queue_status, result, status, failed
-- **agent**: spawn, terminate, list, send_message
+- **agent**: spawn, terminate, list, send_message, list_constructs, info
 - **state**: entity:create, entity:update, entity:delete, entity:get, entity:query, entity:bulk_create, relationship:create, relationship:delete, relationship:query, graph:traverse, aggregate:count
+- **observation**: subscribe, unsubscribe, list
+- **observe**: begin, end (sent to observers when target events occur)
 - **message**: subscribe, publish, unsubscribe
 - **conversation**: list, search, active, acquire_lock, release_lock
 - **monitor**: get_events, get_stats, clear_log
@@ -343,6 +347,48 @@ components:
       agent_messaging: true
       spawn_agents: true
 ```
+
+## Agent Observation System
+
+### Overview
+- **Subscription-based observation**: Agents can observe events from other agents
+- **Pattern matching**: Flexible event filtering with wildcard support
+- **Originator-construct tracking**: Built-in relationship metadata
+- **Integrated with event router**: Transparent event interception
+
+### Observation Events
+```python
+# Subscribe to observe
+{"event": "observation:subscribe", "data": {
+    "observer": "originator_1",
+    "target": "construct_1", 
+    "events": ["message:*", "error:*"],
+    "filter": {
+        "exclude": ["system:health"],
+        "sampling_rate": 1.0
+    }
+}}
+
+# Observers receive
+{"event": "observe:begin", "data": {
+    "source": "construct_1",
+    "original_event": "message:send",
+    "original_data": {...}
+}}
+
+{"event": "observe:end", "data": {
+    "source": "construct_1",
+    "original_event": "message:send",
+    "result": {...},
+    "errors": []
+}}
+```
+
+### Integration
+- Event router checks for observers on each emit
+- Source agent identified from context or data
+- Prevents loops by excluding observe:* events
+- Stored in both memory and relational state
 
 ## Common Issues
 

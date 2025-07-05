@@ -8,6 +8,7 @@ All modules communicate via events with clear async patterns.
 
 import asyncio
 import inspect
+import uuid
 from typing import Dict, Any, List, Callable, Optional, Set, Union, TypeVar, Tuple, Type
 from functools import wraps
 import sys
@@ -185,6 +186,22 @@ class EventRouter:
         else:
             context["event"] = event
             context["router"] = self
+        
+        # Check for observation - extract source agent from context or data
+        source_agent = context.get("agent_id") or context.get("source_agent") or data.get("agent_id")
+        observation_id = None
+        matching_subscriptions = []
+        
+        # Don't observe observation events to prevent loops
+        if source_agent and not event.startswith("observe:") and not event.startswith("observation:"):
+            # Import here to avoid circular dependency
+            from ksi_daemon.observation import should_observe_event, notify_observers
+            
+            matching_subscriptions = should_observe_event(event, source_agent)
+            if matching_subscriptions:
+                observation_id = f"obs_{uuid.uuid4().hex[:8]}"
+                # Notify observers of event begin
+                await notify_observers(matching_subscriptions, "begin", event, data, source_agent)
             
         # Apply middleware
         for mw in self._middleware:
@@ -203,6 +220,10 @@ class EventRouter:
                 handlers.append(handler)
                 
         if not handlers:
+            # Still notify observers even if no handlers
+            if matching_subscriptions:
+                await notify_observers(matching_subscriptions, "end", event, 
+                                     {"status": "no_handlers"}, source_agent)
             return []
             
         # Execute handlers concurrently
@@ -213,9 +234,14 @@ class EventRouter:
         
         # Filter results
         valid_results = []
+        errors = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 logger.error(f"Handler {handlers[i].name} failed for {event}: {result}")
+                errors.append({
+                    "handler": handlers[i].name,
+                    "error": str(result)
+                })
                 # Emit error event
                 await self.emit("event:error", {
                     "event": event,
@@ -224,6 +250,16 @@ class EventRouter:
                 })
             elif result is not None:
                 valid_results.append(result)
+        
+        # Notify observers of event completion
+        if matching_subscriptions:
+            observation_result = {
+                "results": valid_results,
+                "errors": errors,
+                "handler_count": len(handlers)
+            }
+            await notify_observers(matching_subscriptions, "end", event, 
+                                 observation_result, source_agent)
                 
         return valid_results
         
