@@ -20,6 +20,7 @@ from ksi_common.logging import get_bound_logger
 from ksi_daemon.capability_enforcer import get_capability_enforcer
 from ksi_daemon.event_system import event_handler, get_router
 from ksi_daemon.mcp import mcp_config_manager
+from ksi_daemon.agent.metadata import AgentMetadata
 
 # Module state
 logger = get_bound_logger("agent_service", version="2.0.0")
@@ -302,6 +303,26 @@ async def handle_spawn_agent(data: Dict[str, Any]) -> Dict[str, Any]:
         else:
             logger.warning(f"Failed to create sandbox for agent {agent_id}")
     
+    # Extract originator information
+    originator_agent_id = data.get("originator_agent_id")
+    purpose = data.get("purpose")
+    
+    # Determine agent type
+    if originator_agent_id:
+        agent_type = "construct"
+    elif data.get("agent_type") == "originator":
+        agent_type = "originator"
+    else:
+        agent_type = "system"
+    
+    # Create agent metadata
+    metadata = AgentMetadata(
+        agent_id=agent_id,
+        originator_agent_id=originator_agent_id,
+        agent_type=agent_type,
+        purpose=purpose
+    )
+    
     # Create MCP config for agent if MCP is enabled
     mcp_config_path = None
     if config.mcp_enabled:
@@ -341,7 +362,11 @@ async def handle_spawn_agent(data: Dict[str, Any]) -> Dict[str, Any]:
         "permission_profile": permission_profile,
         "sandbox_dir": sandbox_dir,
         "mcp_config_path": str(mcp_config_path) if mcp_config_path else None,
-        "conversation_id": conversation_id if 'conversation_id' in locals() else None
+        "conversation_id": conversation_id if 'conversation_id' in locals() else None,
+        "metadata": metadata,
+        "originator_agent_id": originator_agent_id,  # Quick access
+        "agent_type": agent_type,  # Quick access
+        "purpose": purpose  # Quick access
     }
     
     # Register agent
@@ -359,7 +384,11 @@ async def handle_spawn_agent(data: Dict[str, Any]) -> Dict[str, Any]:
         "profile": profile_name,
         "composition": compose_name,
         "session_id": session_id,
-        "config": agent_config
+        "config": agent_config,
+        "originator_agent_id": originator_agent_id,
+        "agent_type": agent_type,
+        "purpose": purpose,
+        "metadata": metadata.to_dict()
     }
 
 
@@ -625,16 +654,58 @@ async def handle_list_agents(data: AgentListData) -> Dict[str, Any]:
         if filter_status and info.get("status") != filter_status:
             continue
         
-        agent_list.append({
+        agent_entry = {
             "agent_id": agent_id,
             "status": info.get("status"),
             "profile": info.get("profile"),
-            "created_at": info.get("created_at")
-        })
+            "created_at": info.get("created_at"),
+            "agent_type": info.get("agent_type", "system"),
+            "originator_agent_id": info.get("originator_agent_id"),
+            "purpose": info.get("purpose")
+        }
+        
+        # Include full metadata if available
+        if "metadata" in info and isinstance(info["metadata"], AgentMetadata):
+            agent_entry["metadata"] = info["metadata"].to_dict()
+            
+        agent_list.append(agent_entry)
     
     return {
         "agents": agent_list,
         "count": len(agent_list)
+    }
+
+
+@event_handler("agent:list_constructs")
+async def handle_list_constructs(data: Dict[str, Any]) -> Dict[str, Any]:
+    """List construct agents for a specific originator."""
+    originator_id = data.get("originator_agent_id")
+    
+    if not originator_id:
+        return {"error": "originator_agent_id required"}
+    
+    # Find all constructs for this originator
+    constructs = []
+    for agent_id, info in agents.items():
+        if info.get("originator_agent_id") == originator_id:
+            construct_entry = {
+                "agent_id": agent_id,
+                "status": info.get("status"),
+                "purpose": info.get("purpose"),
+                "created_at": info.get("created_at"),
+                "profile": info.get("profile")
+            }
+            
+            # Include metadata if available
+            if "metadata" in info and isinstance(info["metadata"], AgentMetadata):
+                construct_entry["spawned_at"] = info["metadata"].spawned_at
+                
+            constructs.append(construct_entry)
+    
+    return {
+        "originator_agent_id": originator_id,
+        "constructs": constructs,
+        "count": len(constructs)
     }
 
 
