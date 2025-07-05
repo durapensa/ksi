@@ -13,28 +13,17 @@ components:
       message_queue_size: 100
       priority: "normal"
       
-  - name: "ksi_tools"
+  - name: "capabilities"
     inline:
-      # Basic tools for single agent operation
-      allowed_tools:
-        - "system:health"
-        - "state:get"
-        - "state:set"
-        - "state:list"
-      disallowed_tools: 
-        - "agent:spawn"        # No spawning other agents
-        - "agent:send_message" # No inter-agent messaging
+      # Declarative capabilities for single agent operation
+      state_write: true         # Can read and write shared state
+      # Note: base capability (system:health, etc.) is always enabled
+      # Multi-agent capabilities explicitly disabled
         
   - name: "permissions"
     inline:
-      # Link to permission profile
+      # Link to permission profile for security boundaries
       profile: "standard"
-      # Explicitly disable multi-agent capabilities
-      overrides:
-        capabilities:
-          multi_agent_todo: false
-          agent_messaging: false
-          spawn_agents: false
           
 variables:
   enable_tools:

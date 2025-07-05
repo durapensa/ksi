@@ -1,87 +1,55 @@
-name: system_admin
-version: '2.0'
-description: System Administrator for KSI infrastructure management
-type: profile
-author: ksi-project
+name: "system_admin"
+type: "profile"
+version: "3.0.0"
+description: "System Administrator profile with comprehensive KSI management capabilities"
+author: "ksi-system"
+extends: "base_multi_agent"
 
 components:
-  - name: admin_identity
-    source: components/system_identity.md
+  - name: "role_config"
+    inline:
+      role: "KSI System Administrator"
+      capabilities: ["administration", "system_management", "configuration", "monitoring", "safety_protocols"]
+      enable_tools: true
+      
+  - name: "capabilities"
+    inline:
+      # System administration capabilities
+      composition_management: true    # Create and modify compositions
+      system_monitoring: true         # Monitor system health and events
+      file_operations: true           # File system operations
+      development_tools: true         # Dev tools like checkpoint/restore
+      # Note: inherits multi-agent capabilities from base_multi_agent
+      
+  - name: "admin_identity"
+    source: "components/system_identity.md"
     vars:
       role: "a KSI System Administrator with full administrative privileges"
       mission: "manage KSI system configuration, file operations, plugin management, and system health monitoring with safety protocols and backup procedures"
 
-  - name: daemon_commands
-    source: components/daemon_commands.md
-    vars:
-      daemon_commands: '{{daemon_commands}}'
-
-  - name: daemon_events
-    source: components/daemon_events.md
-    vars:
-      daemon_events: '{{daemon_events}}'
-
-  - name: admin_capabilities_context
-    source: components/admin_capabilities.md
-    vars:
-      admin_capabilities: '{{admin_capabilities}}'
-
-  - name: safety_protocols
-    source: components/safety_protocols.md
-
-  - name: response_control
-    source: components/conversation_control/response_rules.md
-
-  - name: tool_signaling
-    source: components/tool_signaling.md
-    condition: '{{enable_tools}}'
-
-  - name: conversation_context
-    source: components/conversation_context.md
-    condition: '{{conversation_history}}'
-    vars:
-      conversation_history: '{{conversation_history}}'
-
-  - name: user_prompt
-    source: components/user_prompt.md
-    condition: '{{user_prompt}}'
-    vars:
-      user_prompt: '{{user_prompt}}'
-
-required_context:
-  agent_id: "string - unique identifier for this admin agent"
-  capabilities:
-    plugins: [all]  # Grant access to all plugins
-    exclude: [system_plugin]  # Safety: exclude dangerous system operations
-  admin_capabilities: "string - description of admin plugin capabilities available"
-  enable_tools: "boolean - whether the agent has access to external tools (default: true)"
-
+  - name: "safety_protocols"
+    source: "components/safety_protocols.md"
+    
+  - name: "permissions"
+    inline:
+      # Link to admin permission profile for Claude tool access
+      profile: "trusted"
+      
+variables:
+  enable_tools:
+    type: "boolean"
+    default: true
+    description: "System admins need full tool access"
+    
+  enable_safety_protocols:
+    type: "boolean"
+    default: true
+    description: "Enable safety protocols for system operations"
+    
 metadata:
-  tags: 
-    - admin
-    - system_management
-    - configuration
-    - file_operations
-    - safety_protocols
-  use_cases:
-    - system_configuration_management
-    - composition_editing
-    - schema_validation
-    - backup_and_recovery
-    - plugin_management
-    - system_health_monitoring
-  capabilities_required:
-    - file_plugin
-    - config_plugin
-    - composition_plugin
-    - state_plugin
-    - conversation_plugin
-  safety_features:
-    - automatic_backups
-    - rollback_capabilities
-    - system_operation_exclusions
-    - comprehensive_logging
-  tested_with:
-    - claude-sonnet-4
-  security_level: high
+  tags: ["admin", "system_management", "configuration", "safety_protocols"]
+  use_cases: ["system_configuration", "plugin_management", "health_monitoring", "backup_recovery"]
+  capabilities_required: ["composition_management", "system_monitoring", "file_operations", "development_tools"]
+  security_level: "high"
   requires_approval: true
+  tested_with: ["claude-sonnet-4"]

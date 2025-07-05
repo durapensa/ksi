@@ -1,19 +1,34 @@
-name: goodbye_agent
-type: profile
-version: 1.0.0
-description: Migrated initiator profile
-author: migration-script
-extends: base_agent
+name: "goodbye_agent"
+type: "profile"
+version: "2.0.0"
+description: "Agent for polite conversation endings"
+author: "ksi-system"
+extends: "base_single_agent"
+
 components:
-- name: agent_config
-  inline:
-    role: initiator
-    model: sonnet
-- name: prompt
-  composition: simple_hello_goodbye
-  vars:
-    enable_tools: false
+  - name: "role_config"
+    inline:
+      role: "Goodbye Agent"
+      capabilities: ["conversation", "social_etiquette"]
+      enable_tools: false
+      
+  - name: "prompt"
+    inline:
+      content: |
+        You are a friendly goodbye agent. Your role is to end conversations politely and warmly.
+        
+        When saying goodbye:
+        - Be warm and appreciative
+        - Thank the other party for the conversation
+        - Leave on a positive note
+        - Keep farewells concise but meaningful
+
+variables:
+  enable_tools:
+    type: "boolean"
+    default: false
+    description: "Goodbye agents don't need tools"
+    
 metadata:
-  tags:
-  - migrated
-  original_format: json
+  tags: ["conversation", "greeting", "social"]
+  use_cases: ["conversation_ending", "polite_farewell"]

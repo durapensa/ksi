@@ -1,7 +1,0 @@
-{
-  "experiment_name": "entropy_analysis",
-  "output_filename": "entropy_report.md",
-  "output_format": "markdown",
-  "report_title": "Cognitive Entropy Analysis Report",
-  "analysis_type": "entropy"
-}

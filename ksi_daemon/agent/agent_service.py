@@ -17,6 +17,7 @@ from typing_extensions import NotRequired
 from ksi_common import format_for_logging
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
+from ksi_daemon.capability_enforcer import get_capability_enforcer
 from ksi_daemon.event_system import event_handler, get_router
 from ksi_daemon.mcp import mcp_config_manager
 
@@ -204,13 +205,35 @@ async def handle_spawn_agent(data: Dict[str, Any]) -> Dict[str, Any]:
         
         if compose_result and compose_result.get("status") == "success":
             profile = compose_result["profile"]
+            
+            # Validate and resolve capabilities for agent spawn
+            enforcer = get_capability_enforcer()
+            
+            # Extract capabilities from composed profile
+            # Only look for the top-level "capabilities" component (dict of boolean flags)
+            profile_capabilities = profile.get("capabilities", {})
+            
+            # Validate and resolve capabilities for agent spawn
+            resolved = enforcer.validate_agent_spawn(profile_capabilities)
+            allowed_events = resolved["allowed_events"]
+            allowed_claude_tools = resolved["allowed_claude_tools"]
+            expanded_capabilities = resolved["expanded_capabilities"]
+            
+            logger.info(
+                f"Resolved capabilities for agent {agent_id}",
+                capabilities=expanded_capabilities,
+                event_count=len(allowed_events),
+                claude_tool_count=len(allowed_claude_tools)
+            )
+            
             # Extract config from composed profile
             agent_config = {
                 "model": profile.get("model", "sonnet"),
-                "capabilities": profile.get("capabilities", []),
                 "role": profile.get("role", "assistant"),
                 "enable_tools": profile.get("enable_tools", False),
-                "tools": profile.get("tools", [])
+                "expanded_capabilities": expanded_capabilities,
+                "allowed_events": allowed_events,
+                "allowed_claude_tools": allowed_claude_tools
             }
             composed_prompt = profile.get("composed_prompt")
         else:
@@ -479,18 +502,19 @@ async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
         # Forward to completion service using new async interface
         prompt = message.get("prompt", "")
         if prompt and event_emitter:
-            # Get agent permissions
-            perm_result = await event_emitter("permission:get_agent", {
-                "agent_id": agent_id
-            })
+            # Use resolved tool lists from agent config (no need to query permissions again)
+            agent_config = agent_info.get("config", {})
+            permissions = {
+                "allowed_tools": agent_config.get("allowed_claude_tools", []),
+                "profile": agent_info.get("permission_profile", "standard")
+            }
             
-            permissions = {}
-            if perm_result and "permissions" in perm_result:
-                # Get allowed tools for claude-cli
-                perms = perm_result["permissions"]
-                if "tools" in perms and "allowed" in perms["tools"]:
-                    permissions["allowed_tools"] = perms["tools"]["allowed"]
-                permissions["profile"] = perms.get("level", "unknown")
+            logger.debug(
+                f"Agent {agent_id} completion with tools",
+                claude_tools=len(permissions["allowed_tools"]),
+                ksi_events=len(agent_config.get("allowed_events", [])),
+                profile=permissions["profile"]
+            )
             
             # Prepare completion request with permission context
             completion_data = {
@@ -510,6 +534,7 @@ async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
                     "agent_id": agent_id,
                     "sandbox_dir": agent_info.get("sandbox_dir"),
                     "permissions": permissions,
+                    "allowed_events": agent_config.get("allowed_events", []),  # Add resolved events
                     "session_id": agent_info.get("session_id"),
                     "mcp_config_path": agent_info.get("mcp_config_path")
                 }

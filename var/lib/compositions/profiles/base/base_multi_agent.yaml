@@ -8,30 +8,17 @@ extends: "base_single_agent"  # Inherit all single-agent capabilities
 components:
   - name: "agent_config"
     inline:
-      # Additional descriptive capabilities for multi-agent coordination
+      # Descriptive capabilities for multi-agent coordination
       capabilities: ["conversation", "analysis", "task_execution", "coordination", "delegation", "collaboration"]
       
-  - name: "ksi_tools"
+  - name: "capabilities"
     inline:
-      # Additional tools for multi-agent operation
-      allowed_tools:
-        - "system:health"
-        - "state:get"
-        - "state:set"
-        - "state:list"
-        - "agent:spawn"         # Can spawn child agents
-        - "agent:list"          # Can list other agents
-        - "agent:status"        # Can check agent status
-        - "agent:send_message"  # Can send direct messages to specific agents
-        - "agent:terminate"     # Can terminate child agents
-        - "conversation:create" # Can create new conversations
-        - "conversation:active" # Can check active conversations
-        # Message bus events for pub/sub communication
-        - "message:subscribe"   # Subscribe to message channels
-        - "message:unsubscribe" # Unsubscribe from channels
-        - "message:publish"     # Publish messages to channels
-        - "message:subscriptions" # List current subscriptions
-      disallowed_tools: []
+      # Declarative capabilities that resolve to tool lists
+      state_write: true        # Can modify shared state
+      agent_messaging: true    # Can use message bus and direct messaging
+      spawn_agents: true       # Can create and manage child agents
+      conversation_management: true  # Can create conversations
+      multi_agent_todo: true   # Can use shared todo lists
       
   - name: "permissions"
     inline:

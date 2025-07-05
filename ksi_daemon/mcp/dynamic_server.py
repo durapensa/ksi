@@ -123,7 +123,7 @@ class KSIDynamicMCPServer(FastMCP):
             )
             return minimal_tools
         
-        # Full handshake - generate tools based on permissions
+        # Full handshake - generate tools based on agent config
         logger.info(
             "Full handshake for new session",
             agent_id=agent_id,
@@ -131,79 +131,100 @@ class KSIDynamicMCPServer(FastMCP):
             session_key=session_key
         )
         
-        # Get agent permissions
-        permissions = await self._get_agent_permissions(agent_id)
+        # Get agent info (includes resolved tool lists)
+        agent_info = await self._get_agent_info(agent_id)
         
         # Generate available tools
-        tools = await self._generate_tools_for_permissions(permissions)
+        tools = await self._generate_tools_for_agent(agent_info)
         
         # Cache for future thin handshakes
         self.session_cache[session_key] = {
             "agent_id": agent_id,
             "conversation_id": conversation_id,
-            "permissions": permissions,
+            "agent_info": agent_info,
             "tools": tools,
             "created": datetime.now()
         }
         
         return tools
     
-    async def _get_agent_permissions(self, agent_id: str) -> Dict[str, Any]:
-        """Get permissions for an agent from KSI daemon."""
+    async def _get_agent_info(self, agent_id: str) -> Dict[str, Any]:
+        """Get agent info including resolved tool lists from KSI daemon."""
+        try:
+            # Try to get agent info first (includes resolved tools)
+            result = await self.ksi_client.send_event(
+                "agent:status",
+                {"agent_id": agent_id}
+            )
+            
+            if isinstance(result, dict) and "config" in result:
+                agent_config = result["config"]
+                # Use resolved tool lists if available
+                return {
+                    "allowed_events": agent_config.get("allowed_events", []),
+                    "allowed_claude_tools": agent_config.get("allowed_claude_tools", []),
+                    "profile": result.get("permission_profile", "standard")
+                }
+                
+        except Exception as e:
+            logger.debug(f"Failed to get agent info for {agent_id}: {e}")
+            
+        # Fallback to permission query for backward compatibility
         try:
             result = await self.ksi_client.send_event(
                 "permission:get_agent",
                 {"agent_id": agent_id}
             )
-            return result if isinstance(result, dict) else {}
+            
+            if isinstance(result, dict) and "permissions" in result:
+                perms = result["permissions"]
+                return {
+                    "allowed_events": perms.get("tools", {}).get("allowed", []),
+                    "allowed_claude_tools": [],
+                    "profile": perms.get("level", "restricted")
+                }
+                
         except Exception as e:
             logger.warning(
                 "Failed to get agent permissions, using defaults",
                 agent_id=agent_id,
                 error=str(e)
             )
-            # Default minimal permissions
-            return {
-                "allowed_tools": ["system:health"],
-                "profile": "restricted"
-            }
+            
+        # Default minimal permissions
+        return {
+            "allowed_events": ["system:health"],
+            "allowed_claude_tools": [],
+            "profile": "restricted"
+        }
     
-    async def _generate_tools_for_permissions(
+    async def _generate_tools_for_agent(
         self, 
-        permissions: Dict[str, Any]
+        agent_info: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
-        """Generate MCP tools based on agent permissions."""
+        """Generate MCP tools based on agent's resolved capabilities."""
         tools = []
         
-        # Get allowed events
-        allowed_tools = set(permissions.get("allowed_tools", []))
-        allowed_modules = permissions.get("allowed_modules", [])
-        disallowed_tools = set(permissions.get("disallowed_tools", []))
-        
-        # Get events from allowed modules
-        for module in allowed_modules:
-            try:
-                module_events = await self.ksi_client.send_event(
-                    "module:list_events",
-                    {"module_name": module, "detail": False}
-                )
-                if isinstance(module_events, dict) and "events" in module_events:
-                    allowed_tools.update(module_events["events"].keys())
-            except Exception as e:
-                logger.warning(f"Failed to get events for module {module}: {e}")
-        
-        # Remove disallowed tools
-        allowed_tools -= disallowed_tools
+        # Get allowed events from agent's resolved capabilities
+        allowed_events = agent_info.get("allowed_events", [])
+        profile = agent_info.get("profile", "restricted")
         
         # Generate tool for each allowed event
-        for event_name in allowed_tools:
+        for event_name in allowed_events:
             tool = await self._create_tool_for_event(event_name)
             if tool:
                 tools.append(tool)
         
         # Add raw event tool for trusted profiles
-        if permissions.get("profile") in ["trusted", "researcher"]:
+        if profile in ["trusted", "researcher"]:
             tools.append(self._get_raw_event_tool())
+        
+        logger.info(
+            "Generated MCP tools for agent",
+            event_count=len(allowed_events),
+            tool_count=len(tools),
+            profile=profile
+        )
         
         return tools
     

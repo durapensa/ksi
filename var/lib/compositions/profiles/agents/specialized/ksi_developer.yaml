@@ -3,7 +3,7 @@ type: "profile"
 version: "1.0.0"
 description: "KSI Project Developer profile for daemon development"
 author: "ksi-project"
-extends: "base_agent"
+extends: "base_multi_agent"
 
 components:
   - name: "role_config"
@@ -12,14 +12,20 @@ components:
       capabilities: ["coding", "debugging", "testing", "architecture", "daemon_management", "memory_system"]
       enable_tools: true
       
+  - name: "capabilities"
+    inline:
+      # Additional capabilities beyond base_multi_agent
+      system_monitoring: true     # Can monitor system state and events
+      development_tools: true     # Can use dev tools like checkpoint/restore
+      composition_management: true # Can modify compositions
+      
   - name: "system_instructions"
     inline:
       instructions: "Use Read to check memory/README.md and CLAUDE.md for project context. Work within the established daemon architecture. Test thoroughly with the daemon system. Document important discoveries in appropriate memory/ files."
       
   - name: "prompt"
-    composition: "ksi_project_developer"
-    vars:
-      enable_tools: true
+    inline:
+      content: "You are a KSI Project Developer. Your mission is to develop and maintain the KSI daemon system. You have access to development tools, system monitoring, and composition management capabilities."
 
 variables:
   enable_tools:

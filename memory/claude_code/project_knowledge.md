@@ -10,6 +10,7 @@ Core technical reference for KSI (Kubernetes-Style Infrastructure) - a resilient
 - Checkpoint/restore for all daemon restarts (not just dev mode)
 - Session recovery for interrupted completion requests
 - MCP token optimization with thin handshake implementation
+- Declarative capability system replacing hardcoded tool lists
 
 ## System Architecture
 
@@ -148,7 +149,7 @@ All state functionality consolidated in `ksi_daemon/core/state.py`:
 - **completion/completion_service.py** - Async completion management (with retry logic, token usage logging)
 - **completion/retry_manager.py** - Retry scheduling with exponential backoff
 - **completion/claude_cli_litellm_provider.py** - Spawns Claude processes (graceful cleanup, MCP support)
-- **agent/agent_service.py** - Agent lifecycle (asyncio tasks only, MCP config generation)
+- **agent/agent_service.py** - Agent lifecycle (uses capability_enforcer for spawning)
 - **conversation/conversation_service.py** - Session tracking
 - **messaging/message_bus.py** - Pub/sub messaging (with shutdown acknowledgment)
 - **permissions/permission_service.py** - Security boundaries
@@ -297,11 +298,43 @@ echo '{"event": "system:health", "data": {}}' | nc -U var/run/daemon.sock | jq
 
 ## MCP Integration
 - **Single daemon-managed MCP server** on port 8080 (streamable-http)
-- **Dynamic permissions** - tools filtered per agent based on allowed_tools
+- **Dynamic tool generation** - creates tools from agent's resolved capabilities
 - **Thin handshake optimization** - minimal tool descriptions after first completion
 - **Session persistence** - MCP sessions saved in `var/db/mcp_sessions.db`
 - **Token usage logging** - tracks MCP overhead (~3000-5000 cache creation tokens)
 - **Agent MCP configs** - generated in `var/tmp/{agent_id}_mcp_config.json`
+
+## Declarative Capability System
+
+### Overview
+- **Single source of truth**: `var/lib/capability_mappings.yaml` defines all capabilities
+- **Capability → Event mapping**: Declarative mapping replaces hardcoded tool lists
+- **Automatic tool generation**: MCP dynamically creates tools from resolved events
+- **Clean separation**: Capabilities (what agent can do) vs Permissions (enforcement)
+
+### Architecture
+- **ksi_common/capability_resolver.py** - Loads mappings, resolves capabilities to events/tools
+- **ksi_daemon/capability_enforcer.py** - Runtime security enforcement for agent spawning
+- **Agent profiles** - Use simple capability flags instead of explicit tool lists
+- **Inheritance** - base_single_agent → base_multi_agent → specialized profiles
+
+### Key Capabilities
+- **base**: Core system access (health, help, discover) - always enabled
+- **state_write**: Shared state management (requires state_read)
+- **agent_messaging**: Inter-agent communication via message bus
+- **spawn_agents**: Create and manage child agents
+- **development_tools**: Debug features like checkpoint/restore
+- **network_access**: External API and web access
+
+### Usage in Profiles
+```yaml
+components:
+  - name: "capabilities"
+    inline:
+      state_write: true
+      agent_messaging: true
+      spawn_agents: true
+```
 
 ## Common Issues
 
