@@ -131,11 +131,16 @@ All state managed through entity-property-relationship model in `ksi_daemon/core
 {"event": "state:entity:delete", "data": {"id": "agent_123"}}
 {"event": "state:entity:get", "data": {"id": "agent_123", "include": ["properties", "relationships"]}}
 {"event": "state:entity:query", "data": {"type": "agent", "where": {"status": "active"}, "limit": 10}}
+{"event": "state:entity:bulk_create", "data": {"entities": [{"type": "agent", "properties": {...}}, ...]}}
 
 # Relationship operations
 {"event": "state:relationship:create", "data": {"from": "originator_1", "to": "construct_1", "type": "spawned"}}
 {"event": "state:relationship:delete", "data": {"from": "originator_1", "to": "construct_1", "type": "spawned"}}
 {"event": "state:relationship:query", "data": {"from": "originator_1", "type": "spawned"}}
+
+# Graph operations
+{"event": "state:graph:traverse", "data": {"from": "originator_1", "types": ["spawned"], "depth": 2}}
+{"event": "state:aggregate:count", "data": {"target": "entities", "group_by": "type"}}
 ```
 
 ## Active Modules
@@ -184,7 +189,7 @@ await emit_event("completion:async", data)
 - **system**: health, shutdown, discover, help, startup, context, ready, shutdown_complete
 - **completion**: async, queue_status, result, status, failed
 - **agent**: spawn, terminate, list, send_message
-- **state**: entity:create, entity:update, entity:delete, entity:get, entity:query, relationship:create, relationship:delete, relationship:query
+- **state**: entity:create, entity:update, entity:delete, entity:get, entity:query, entity:bulk_create, relationship:create, relationship:delete, relationship:query, graph:traverse, aggregate:count
 - **message**: subscribe, publish, unsubscribe
 - **conversation**: list, search, active, acquire_lock, release_lock
 - **monitor**: get_events, get_stats, clear_log

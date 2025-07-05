@@ -772,3 +772,220 @@ async def handle_relationship_query(data: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error querying relationships: {e}")
         return {"error": str(e)}
+
+
+@event_handler("state:graph:traverse")
+async def handle_graph_traverse(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Traverse the graph from an entity following relationships.
+    
+    Args:
+        from (str): Starting entity ID (required)
+        direction (str): "outgoing", "incoming", or "both" (default: "outgoing")
+        types (list): Filter by relationship types (optional)
+        depth (int): Maximum traversal depth (default: 1)
+        include_entities (bool): Include full entity data (default: False)
+    
+    Returns:
+        Graph traversal results with entities and relationships
+    
+    Example:
+        {
+            "from": "originator_1",
+            "direction": "outgoing",
+            "types": ["spawned"],
+            "depth": 2,
+            "include_entities": true
+        }
+    """
+    if not state_manager:
+        return {"error": "State infrastructure not available"}
+    
+    from_id = data.get("from")
+    if not from_id:
+        return {"error": "from entity ID is required"}
+    
+    direction = data.get("direction", "outgoing")
+    rel_types = data.get("types", [])
+    depth = min(data.get("depth", 1), 5)  # Limit depth to prevent runaway queries
+    include_entities = data.get("include_entities", False)
+    
+    try:
+        visited = set()
+        result = {
+            "root": from_id,
+            "nodes": {},
+            "edges": []
+        }
+        
+        # Breadth-first traversal
+        queue = [(from_id, 0)]
+        
+        while queue:
+            current_id, current_depth = queue.pop(0)
+            
+            if current_id in visited or current_depth > depth:
+                continue
+                
+            visited.add(current_id)
+            
+            # Get entity data if requested
+            if include_entities:
+                entity = state_manager.get_entity(current_id, include=["properties"])
+                if entity:
+                    result["nodes"][current_id] = entity
+            else:
+                result["nodes"][current_id] = {"id": current_id}
+            
+            if current_depth < depth:
+                # Get relationships based on direction
+                if direction in ["outgoing", "both"]:
+                    rels = state_manager.query_relationships(from_id=current_id)
+                    for rel in rels:
+                        if not rel_types or rel["type"] in rel_types:
+                            result["edges"].append(rel)
+                            queue.append((rel["to"], current_depth + 1))
+                
+                if direction in ["incoming", "both"]:
+                    rels = state_manager.query_relationships(to_id=current_id)
+                    for rel in rels:
+                        if not rel_types or rel["type"] in rel_types:
+                            result["edges"].append(rel)
+                            queue.append((rel["from"], current_depth + 1))
+        
+        result["node_count"] = len(result["nodes"])
+        result["edge_count"] = len(result["edges"])
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error traversing graph: {e}")
+        return {"error": str(e)}
+
+
+@event_handler("state:entity:bulk_create")
+async def handle_entity_bulk_create(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Create multiple entities in a single operation.
+    
+    Args:
+        entities (list): List of entity definitions
+    
+    Returns:
+        Results for each entity creation
+    
+    Example:
+        {
+            "entities": [
+                {"type": "agent", "id": "agent_1", "properties": {...}},
+                {"type": "agent", "id": "agent_2", "properties": {...}}
+            ]
+        }
+    """
+    if not state_manager:
+        return {"error": "State infrastructure not available"}
+    
+    entities = data.get("entities", [])
+    if not entities:
+        return {"error": "entities list is required"}
+    
+    results = []
+    success_count = 0
+    
+    for entity_data in entities:
+        try:
+            entity_type = entity_data.get("type")
+            if not entity_type:
+                results.append({"error": "Entity type is required"})
+                continue
+            
+            entity_id = entity_data.get("id") or f"{entity_type}_{uuid.uuid4().hex[:8]}"
+            properties = entity_data.get("properties", {})
+            
+            entity = state_manager.create_entity(entity_id, entity_type, properties)
+            results.append(entity)
+            success_count += 1
+            
+        except Exception as e:
+            results.append({"error": str(e)})
+    
+    return {
+        "results": results,
+        "total": len(entities),
+        "success": success_count,
+        "failed": len(entities) - success_count
+    }
+
+
+@event_handler("state:aggregate:count")
+async def handle_aggregate_count(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Count entities or relationships with grouping.
+    
+    Args:
+        target (str): "entities" or "relationships" (required)
+        group_by (str): Field to group by (optional)
+        where (dict): Filter conditions (optional)
+    
+    Returns:
+        Count results, optionally grouped
+    
+    Example:
+        {
+            "target": "entities",
+            "group_by": "type",
+            "where": {"status": "active"}
+        }
+    """
+    if not state_manager:
+        return {"error": "State infrastructure not available"}
+    
+    target = data.get("target")
+    if target not in ["entities", "relationships"]:
+        return {"error": "target must be 'entities' or 'relationships'"}
+    
+    group_by = data.get("group_by")
+    where = data.get("where", {})
+    
+    try:
+        with state_manager._get_db() as conn:
+            if target == "entities":
+                if group_by == "type":
+                    query = "SELECT type, COUNT(*) as count FROM entities"
+                    if where:
+                        # Simple type filter for now
+                        if "type" in where:
+                            query += f" WHERE type = '{where['type']}'"
+                    query += " GROUP BY type"
+                else:
+                    query = "SELECT COUNT(*) as total FROM entities"
+                    
+                cursor = conn.execute(query)
+                
+                if group_by:
+                    results = {}
+                    for row in cursor.fetchall():
+                        results[row[0]] = row[1]
+                    return {"counts": results, "grouped_by": group_by}
+                else:
+                    return {"total": cursor.fetchone()[0]}
+                    
+            else:  # relationships
+                if group_by == "type":
+                    query = "SELECT relation_type, COUNT(*) as count FROM relationships GROUP BY relation_type"
+                else:
+                    query = "SELECT COUNT(*) as total FROM relationships"
+                    
+                cursor = conn.execute(query)
+                
+                if group_by:
+                    results = {}
+                    for row in cursor.fetchall():
+                        results[row[0]] = row[1]
+                    return {"counts": results, "grouped_by": "relation_type"}
+                else:
+                    return {"total": cursor.fetchone()[0]}
+                    
+    except Exception as e:
+        logger.error(f"Error in aggregate count: {e}")
+        return {"error": str(e)}
