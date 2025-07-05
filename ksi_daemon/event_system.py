@@ -79,6 +79,7 @@ class EventRouter:
     
     def __init__(self):
         import time
+        import os
         
         # Track router start time for uptime calculation
         self._start_time = time.time()
@@ -116,6 +117,13 @@ class EventRouter:
         self._shutdown_event = asyncio.Event()
         self._shutdown_in_progress = False
         self._shutdown_timeout = 30.0  # seconds
+        
+        # Error propagation mode
+        # When True: Programming errors in handlers are propagated to caller
+        # When False: Errors are caught, logged, and event:error is emitted (default)
+        self._propagate_errors = os.environ.get("KSI_PROPAGATE_ERRORS", "false").lower() == "true"
+        if self._propagate_errors:
+            logger.warning("ERROR PROPAGATION ENABLED - Programming errors will crash handlers")
         
     def register_handler(self, event: str, handler: EventHandler):
         """Register an event handler."""
@@ -163,6 +171,23 @@ class EventRouter:
     def get_service(self, name: str) -> Optional[Any]:
         """Get a registered service."""
         return self._services.get(name)
+    
+    def set_error_propagation(self, enabled: bool) -> bool:
+        """Enable or disable error propagation mode.
+        
+        Args:
+            enabled: True to propagate errors, False to catch and log them
+            
+        Returns:
+            Previous setting
+        """
+        previous = self._propagate_errors
+        self._propagate_errors = enabled
+        if enabled:
+            logger.warning("ERROR PROPAGATION ENABLED - Programming errors will crash handlers")
+        else:
+            logger.info("Error propagation disabled - errors will be caught and logged")
+        return previous
         
     async def emit(self, event: str, data: Any = None, 
                    context: Optional[Dict[str, Any]] = None) -> List[Any]:
@@ -189,24 +214,23 @@ class EventRouter:
             context["event"] = event
             context["router"] = self
         
-        # Log event to event log if available
-        if hasattr(self, 'event_log') and self.event_log:
-            # Strip large payloads and file references
-            log_data = self._prepare_log_data(event, data)
-            
+        # Log event to reference-based event log
+        if hasattr(self, 'reference_event_log') and self.reference_event_log:
             # Extract metadata for logging
-            client_id = context.get("client_id") or context.get("agent_id")
+            originator_id = context.get("originator_id") or context.get("agent_id") or context.get("client_id")
+            construct_id = context.get("construct_id") or data.get("construct_id")
             correlation_id = context.get("correlation_id")
             event_id = context.get("event_id") or data.get("request_id")
             
-            # Log the event
-            self.event_log.log_event(
+            # Log the event with full data (reference log will handle stripping)
+            asyncio.create_task(self.reference_event_log.log_event(
                 event_name=event,
-                data=log_data,
-                client_id=client_id,
+                data=data,
+                originator_id=originator_id,
+                construct_id=construct_id,
                 correlation_id=correlation_id,
                 event_id=event_id
-            )
+            ))
         
         # Check for observation - extract source agent from context or data
         source_agent = context.get("agent_id") or context.get("source_agent") or data.get("agent_id")
@@ -248,29 +272,39 @@ class EventRouter:
             return []
             
         # Execute handlers concurrently
-        results = await asyncio.gather(
-            *[handler(data, context) for handler in handlers],
-            return_exceptions=True
-        )
-        
-        # Filter results
-        valid_results = []
-        errors = []
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                logger.error(f"Handler {handlers[i].name} failed for {event}: {result}")
-                errors.append({
-                    "handler": handlers[i].name,
-                    "error": str(result)
-                })
-                # Emit error event
-                await self.emit("event:error", {
-                    "event": event,
-                    "handler": handlers[i].name,
-                    "error": str(result)
-                })
-            elif result is not None:
-                valid_results.append(result)
+        if self._propagate_errors:
+            # In error propagation mode, let exceptions bubble up
+            results = await asyncio.gather(
+                *[handler(data, context) for handler in handlers]
+            )
+            # All results are valid if we get here
+            valid_results = [r for r in results if r is not None]
+            errors = []
+        else:
+            # Default mode: catch exceptions and continue
+            results = await asyncio.gather(
+                *[handler(data, context) for handler in handlers],
+                return_exceptions=True
+            )
+            
+            # Filter results
+            valid_results = []
+            errors = []
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    logger.error(f"Handler {handlers[i].name} failed for {event}: {result}")
+                    errors.append({
+                        "handler": handlers[i].name,
+                        "error": str(result)
+                    })
+                    # Emit error event
+                    await self.emit("event:error", {
+                        "event": event,
+                        "handler": handlers[i].name,
+                        "error": str(result)
+                    })
+                elif result is not None:
+                    valid_results.append(result)
         
         # Notify observers of event completion
         if matching_subscriptions:
@@ -698,6 +732,32 @@ def get_router() -> EventRouter:
     if _global_router is None:
         _global_router = EventRouter()
     return _global_router
+
+
+@event_handler("system:error_propagation")
+async def handle_error_propagation(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Control error propagation mode.
+    
+    Args:
+        data: Dict with 'enabled' (bool) to set mode, or empty to query
+        
+    Returns:
+        Current and previous error propagation state
+    """
+    router = get_router()
+    
+    if "enabled" in data:
+        previous = router.set_error_propagation(data["enabled"])
+        return {
+            "enabled": router._propagate_errors,
+            "previous": previous,
+            "changed": previous != router._propagate_errors
+        }
+    else:
+        return {
+            "enabled": router._propagate_errors,
+            "mode": "propagate" if router._propagate_errors else "catch"
+        }
 
 
 async def emit_event(event: str, data: Any = None) -> List[Any]:

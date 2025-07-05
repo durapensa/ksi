@@ -15,7 +15,7 @@ DEFAULT_SHUTDOWN_TIMEOUT = 10.0     # 10 seconds for graceful shutdown
 # Directory structure (relative to working directory)
 DEFAULT_VAR_DIR = "var"
 DEFAULT_LOG_DIR = "var/logs"
-DEFAULT_SESSION_LOG_DIR = "var/logs/responses"
+DEFAULT_RESPONSE_LOG_DIR = "var/logs/responses"
 DEFAULT_DAEMON_LOG_DIR = "var/logs/daemon"
 DEFAULT_STATE_DIR = "var/state"
 DEFAULT_DB_DIR = "var/db"
@@ -48,7 +48,7 @@ MESSAGE_BUS_EVENTS = [
 ]
 
 # File patterns
-SESSION_LOG_PATTERN = "*.jsonl"
+RESPONSE_LOG_PATTERN = "*.jsonl"
 MESSAGE_BUS_LOG = "message_bus.jsonl"
 DEFAULT_PID_FILE = "ksi_daemon.pid"
 

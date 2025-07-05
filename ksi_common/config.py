@@ -9,10 +9,15 @@ Environment Variables:
     KSI_LOG_LEVEL - Logging level (default: INFO)
     KSI_LOG_FORMAT - Log format: json or console (default: console)
     KSI_LOG_DIR - Log directory (default: var/logs)  
-    KSI_SESSION_LOG_DIR - Session logs directory (default: var/logs/responses)
+    KSI_RESPONSE_LOG_DIR - Response logs directory (default: var/logs/responses)
     KSI_STATE_DIR - State directory (default: var/state)
     KSI_SOCKET_TIMEOUT - Socket timeout in seconds (default: 5.0)
     KSI_DEBUG - Enable debug mode (default: false)
+    
+    Event Log Configuration:
+    KSI_EVENT_LOG_DIR - Event log directory (default: var/logs/events)
+    KSI_EVENT_REFERENCE_THRESHOLD - Size threshold for payload references in bytes (default: 5120)
+    KSI_EVENT_DAILY_FILE_NAME - Daily event log filename (default: events.jsonl)
     
     TUI Configuration:
     KSI_TUI_DEFAULT_MODEL - Default model for TUI apps (default: claude-cli/sonnet)
@@ -38,7 +43,7 @@ from .paths import KSIPaths
 from .constants import (
     DEFAULT_VAR_DIR,
     DEFAULT_LOG_DIR,
-    DEFAULT_SESSION_LOG_DIR,
+    DEFAULT_RESPONSE_LOG_DIR,
     DEFAULT_DAEMON_LOG_DIR,
     DEFAULT_STATE_DIR,
     DEFAULT_DB_DIR,
@@ -65,8 +70,7 @@ class KSIBaseConfig(BaseSettings):
     
     # Logging configuration
     log_dir: Path = Path(DEFAULT_LOG_DIR)
-    session_log_dir: Path = Path(DEFAULT_SESSION_LOG_DIR)  # Session logs migrated to responses directory
-    response_log_dir: Path = Path(DEFAULT_SESSION_LOG_DIR)  # Provider-agnostic completion responses
+    response_log_dir: Path = Path(DEFAULT_RESPONSE_LOG_DIR)  # Provider-agnostic completion responses
     log_level: str = DEFAULT_LOG_LEVEL
     log_format: Literal["json", "console"] = "console"
     
@@ -92,6 +96,11 @@ class KSIBaseConfig(BaseSettings):
     event_flush_interval: float = 1.0  # seconds
     event_retention_days: int = 30
     event_recovery: bool = False  # Set KSI_EVENT_RECOVERY=true to enable
+    
+    # Reference-based event log configuration
+    event_log_dir: Path = Path(DEFAULT_LOG_DIR) / "events"
+    event_reference_threshold: int = 5 * 1024  # 5KB - payloads larger than this are stored as references
+    event_daily_file_name: str = "events.jsonl"  # Name for daily event log files
     
     # Library and composition paths (shared infrastructure)
     lib_dir: Path = Path(DEFAULT_VAR_DIR) / "lib"
@@ -165,8 +174,8 @@ class KSIBaseConfig(BaseSettings):
         directories = [
             self.socket_path.parent,  # var/run
             self.log_dir,            # var/logs
-            self.session_log_dir,    # var/logs/responses
             self.response_log_dir,   # var/logs/responses
+            self.event_log_dir,      # var/logs/events
             self.state_dir,          # var/state
             self.db_dir,             # var/db
             self.lib_dir,            # var/lib

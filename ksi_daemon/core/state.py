@@ -15,10 +15,10 @@ All state operations go through a minimal set of event handlers.
 
 import asyncio
 import json
-import sqlite3
+import aiosqlite
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple, Union
 
@@ -37,15 +37,23 @@ class RelationalStateManager:
     def __init__(self):
         self.logger = logger
         self.db_path = str(config.db_path)
-        self._init_database()
+        # Initialization is now async - call from startup
+        self._initialized = False
     
-    def _init_database(self):
+    async def _init_database(self):
         """Initialize the relational database schema."""
+        if self._initialized:
+            return
+            
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         
-        with sqlite3.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path) as conn:
+            # Enable WAL mode for better concurrency
+            await conn.execute("PRAGMA journal_mode=WAL")
+            await conn.execute("PRAGMA synchronous=NORMAL")
+            
             # Core entities table
-            conn.execute("""
+            await conn.execute("""
                 CREATE TABLE IF NOT EXISTS entities (
                     id TEXT PRIMARY KEY,
                     type TEXT NOT NULL,
@@ -55,7 +63,7 @@ class RelationalStateManager:
             """)
             
             # Properties table (EAV pattern)
-            conn.execute("""
+            await conn.execute("""
                 CREATE TABLE IF NOT EXISTS properties (
                     entity_id TEXT NOT NULL,
                     property TEXT NOT NULL,
@@ -67,7 +75,7 @@ class RelationalStateManager:
             """)
             
             # Relationships table
-            conn.execute("""
+            await conn.execute("""
                 CREATE TABLE IF NOT EXISTS relationships (
                     from_id TEXT NOT NULL,
                     to_id TEXT NOT NULL,
@@ -81,26 +89,28 @@ class RelationalStateManager:
             """)
             
             # Indexes for performance
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(type)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_entities_created ON entities(created_at DESC)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_properties_entity ON properties(entity_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_relationships_from ON relationships(from_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_relationships_to ON relationships(to_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_relationships_type ON relationships(relation_type)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(type)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_entities_created ON entities(created_at DESC)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_properties_entity ON properties(entity_id)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_relationships_from ON relationships(from_id)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_relationships_to ON relationships(to_id)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_relationships_type ON relationships(relation_type)")
             
-            conn.commit()
+            await conn.commit()
             
+        self._initialized = True
         self.logger.info(f"Relational state initialized at {self.db_path}")
     
-    @contextmanager
-    def _get_db(self):
+    @asynccontextmanager
+    async def _get_db(self):
         """Get database connection with proper cleanup."""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        await self._init_database()  # Ensure initialized
+        conn = await aiosqlite.connect(self.db_path)
+        conn.row_factory = aiosqlite.Row
         try:
             yield conn
         finally:
-            conn.close()
+            await conn.close()
     
     def _serialize_value(self, value: Any, value_type: str = None) -> Tuple[str, str]:
         """Serialize a value for storage."""
@@ -128,14 +138,14 @@ class RelationalStateManager:
         else:
             return value
     
-    def create_entity(self, entity_id: str, entity_type: str, 
-                     properties: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    async def create_entity(self, entity_id: str, entity_type: str, 
+                           properties: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Create a new entity with properties."""
         current_time = time.time()
         
-        with self._get_db() as conn:
+        async with self._get_db() as conn:
             # Create entity
-            conn.execute(
+            await conn.execute(
                 "INSERT INTO entities (id, type, created_at, updated_at) VALUES (?, ?, ?, ?)",
                 (entity_id, entity_type, current_time, current_time)
             )
@@ -144,12 +154,12 @@ class RelationalStateManager:
             if properties:
                 for prop, value in properties.items():
                     serialized, value_type = self._serialize_value(value)
-                    conn.execute(
+                    await conn.execute(
                         "INSERT INTO properties (entity_id, property, value, value_type) VALUES (?, ?, ?, ?)",
                         (entity_id, prop, serialized, value_type)
                     )
             
-            conn.commit()
+            await conn.commit()
             
         self.logger.debug(f"Created entity {entity_id} of type {entity_type}")
         
@@ -161,18 +171,18 @@ class RelationalStateManager:
             "properties": properties or {}
         }
     
-    def update_entity(self, entity_id: str, properties: Dict[str, Any]) -> bool:
+    async def update_entity(self, entity_id: str, properties: Dict[str, Any]) -> bool:
         """Update entity properties."""
         current_time = time.time()
         
-        with self._get_db() as conn:
+        async with self._get_db() as conn:
             # Check entity exists
-            cursor = conn.execute("SELECT 1 FROM entities WHERE id = ?", (entity_id,))
-            if not cursor.fetchone():
-                return False
+            async with conn.execute("SELECT 1 FROM entities WHERE id = ?", (entity_id,)) as cursor:
+                if not await cursor.fetchone():
+                    return False
             
             # Update timestamp
-            conn.execute(
+            await conn.execute(
                 "UPDATE entities SET updated_at = ? WHERE id = ?",
                 (current_time, entity_id)
             )
@@ -181,45 +191,45 @@ class RelationalStateManager:
             for prop, value in properties.items():
                 if value is None:
                     # Delete property
-                    conn.execute(
+                    await conn.execute(
                         "DELETE FROM properties WHERE entity_id = ? AND property = ?",
                         (entity_id, prop)
                     )
                 else:
                     # Upsert property
                     serialized, value_type = self._serialize_value(value)
-                    conn.execute(
+                    await conn.execute(
                         "INSERT OR REPLACE INTO properties (entity_id, property, value, value_type) VALUES (?, ?, ?, ?)",
                         (entity_id, prop, serialized, value_type)
                     )
             
-            conn.commit()
+            await conn.commit()
             
         self.logger.debug(f"Updated entity {entity_id}")
         return True
     
-    def delete_entity(self, entity_id: str) -> bool:
+    async def delete_entity(self, entity_id: str) -> bool:
         """Delete an entity and all its properties/relationships."""
-        with self._get_db() as conn:
-            cursor = conn.execute("DELETE FROM entities WHERE id = ?", (entity_id,))
-            conn.commit()
+        async with self._get_db() as conn:
+            cursor = await conn.execute("DELETE FROM entities WHERE id = ?", (entity_id,))
+            await conn.commit()
             deleted = cursor.rowcount > 0
             
         if deleted:
             self.logger.debug(f"Deleted entity {entity_id}")
         return deleted
     
-    def get_entity(self, entity_id: str, include: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
+    async def get_entity(self, entity_id: str, include: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
         """Get an entity with optional includes."""
         include = include or ['properties']
         
-        with self._get_db() as conn:
+        async with self._get_db() as conn:
             # Get entity
-            cursor = conn.execute(
+            async with conn.execute(
                 "SELECT * FROM entities WHERE id = ?",
                 (entity_id,)
-            )
-            row = cursor.fetchone()
+            ) as cursor:
+                row = await cursor.fetchone()
             
             if not row:
                 return None
@@ -236,14 +246,14 @@ class RelationalStateManager:
             # Include properties
             if 'properties' in include:
                 props = {}
-                cursor = conn.execute(
+                async with conn.execute(
                     "SELECT property, value, value_type FROM properties WHERE entity_id = ?",
                     (entity_id,)
-                )
-                for prop_row in cursor.fetchall():
-                    props[prop_row['property']] = self._deserialize_value(
-                        prop_row['value'], prop_row['value_type']
-                    )
+                ) as cursor:
+                    async for prop_row in cursor:
+                        props[prop_row['property']] = self._deserialize_value(
+                            prop_row['value'], prop_row['value_type']
+                        )
                 result['properties'] = props
             
             # Include relationships
@@ -254,42 +264,42 @@ class RelationalStateManager:
                 }
                 
                 # Outgoing relationships
-                cursor = conn.execute(
+                async with conn.execute(
                     "SELECT to_id, relation_type, metadata, created_at FROM relationships WHERE from_id = ?",
                     (entity_id,)
-                )
-                for rel_row in cursor.fetchall():
-                    rel = {
-                        "to": rel_row['to_id'],
-                        "type": rel_row['relation_type'],
-                        "created_at": rel_row['created_at'],
-                        "created_at_iso": numeric_to_iso(rel_row['created_at'])
-                    }
-                    if rel_row['metadata']:
-                        rel['metadata'] = json.loads(rel_row['metadata'])
-                    rels['from'].append(rel)
+                ) as cursor:
+                    async for rel_row in cursor:
+                        rel = {
+                            "to": rel_row['to_id'],
+                            "type": rel_row['relation_type'],
+                            "created_at": rel_row['created_at'],
+                            "created_at_iso": numeric_to_iso(rel_row['created_at'])
+                        }
+                        if rel_row['metadata']:
+                            rel['metadata'] = json.loads(rel_row['metadata'])
+                        rels['from'].append(rel)
                 
                 # Incoming relationships
-                cursor = conn.execute(
+                async with conn.execute(
                     "SELECT from_id, relation_type, metadata, created_at FROM relationships WHERE to_id = ?",
                     (entity_id,)
-                )
-                for rel_row in cursor.fetchall():
-                    rel = {
-                        "from": rel_row['from_id'],
-                        "type": rel_row['relation_type'],
-                        "created_at": rel_row['created_at'],
-                        "created_at_iso": numeric_to_iso(rel_row['created_at'])
-                    }
-                    if rel_row['metadata']:
-                        rel['metadata'] = json.loads(rel_row['metadata'])
-                    rels['to'].append(rel)
+                ) as cursor:
+                    async for rel_row in cursor:
+                        rel = {
+                            "from": rel_row['from_id'],
+                            "type": rel_row['relation_type'],
+                            "created_at": rel_row['created_at'],
+                            "created_at_iso": numeric_to_iso(rel_row['created_at'])
+                        }
+                        if rel_row['metadata']:
+                            rel['metadata'] = json.loads(rel_row['metadata'])
+                        rels['to'].append(rel)
                 
                 result['relationships'] = rels
             
             return result
     
-    def query_entities(self, entity_type: Optional[str] = None,
+    async def query_entities(self, entity_type: Optional[str] = None,
                       where: Optional[Dict[str, Any]] = None,
                       include: Optional[List[str]] = None,
                       order_by: Optional[str] = None,
@@ -297,7 +307,7 @@ class RelationalStateManager:
         """Query entities with filters."""
         include = include or ['properties']
         
-        with self._get_db() as conn:
+        async with self._get_db() as conn:
             # Build query
             query = "SELECT DISTINCT e.* FROM entities e"
             conditions = []
@@ -334,59 +344,59 @@ class RelationalStateManager:
                 query += f" LIMIT {limit}"
             
             # Execute query
-            cursor = conn.execute(query, params)
-            
-            # Build results
-            results = []
-            for row in cursor.fetchall():
-                entity = self.get_entity(row['id'], include=include)
-                if entity:
-                    results.append(entity)
+            async with conn.execute(query, params) as cursor:
+                
+                # Build results
+                results = []
+                async for row in cursor:
+                    entity = await self.get_entity(row['id'], include=include)
+                    if entity:
+                        results.append(entity)
             
             return results
     
-    def create_relationship(self, from_id: str, to_id: str, relation_type: str,
+    async def create_relationship(self, from_id: str, to_id: str, relation_type: str,
                           metadata: Optional[Dict[str, Any]] = None) -> bool:
         """Create a relationship between entities."""
         current_time = time.time()
         
-        with self._get_db() as conn:
+        async with self._get_db() as conn:
             try:
-                conn.execute(
+                await conn.execute(
                     """
                     INSERT INTO relationships (from_id, to_id, relation_type, metadata, created_at)
                     VALUES (?, ?, ?, ?, ?)
                     """,
                     (from_id, to_id, relation_type, json.dumps(metadata) if metadata else None, current_time)
                 )
-                conn.commit()
+                await conn.commit()
                 
                 self.logger.debug(f"Created relationship {from_id} -{relation_type}-> {to_id}")
                 return True
                 
-            except sqlite3.IntegrityError:
+            except aiosqlite.IntegrityError:
                 self.logger.warning(f"Relationship already exists or entities not found")
                 return False
     
-    def delete_relationship(self, from_id: str, to_id: str, relation_type: str) -> bool:
+    async def delete_relationship(self, from_id: str, to_id: str, relation_type: str) -> bool:
         """Delete a specific relationship."""
-        with self._get_db() as conn:
-            cursor = conn.execute(
+        async with self._get_db() as conn:
+            cursor = await conn.execute(
                 "DELETE FROM relationships WHERE from_id = ? AND to_id = ? AND relation_type = ?",
                 (from_id, to_id, relation_type)
             )
-            conn.commit()
+            await conn.commit()
             deleted = cursor.rowcount > 0
             
         if deleted:
             self.logger.debug(f"Deleted relationship {from_id} -{relation_type}-> {to_id}")
         return deleted
     
-    def query_relationships(self, from_id: Optional[str] = None,
+    async def query_relationships(self, from_id: Optional[str] = None,
                           to_id: Optional[str] = None,
                           relation_type: Optional[str] = None) -> List[Dict[str, Any]]:
         """Query relationships with filters."""
-        with self._get_db() as conn:
+        async with self._get_db() as conn:
             # Build query
             query = "SELECT * FROM relationships WHERE 1=1"
             params = []
@@ -406,21 +416,21 @@ class RelationalStateManager:
             query += " ORDER BY created_at DESC"
             
             # Execute query
-            cursor = conn.execute(query, params)
-            
-            # Build results
-            results = []
-            for row in cursor.fetchall():
-                rel = {
-                    "from": row['from_id'],
-                    "to": row['to_id'],
-                    "type": row['relation_type'],
-                    "created_at": row['created_at'],
-                    "created_at_iso": numeric_to_iso(row['created_at'])
-                }
-                if row['metadata']:
-                    rel['metadata'] = json.loads(row['metadata'])
-                results.append(rel)
+            async with conn.execute(query, params) as cursor:
+                
+                # Build results
+                results = []
+                async for row in cursor:
+                    rel = {
+                        "from": row['from_id'],
+                        "to": row['to_id'],
+                        "type": row['relation_type'],
+                        "created_at": row['created_at'],
+                        "created_at_iso": numeric_to_iso(row['created_at'])
+                    }
+                    if row['metadata']:
+                        rel['metadata'] = json.loads(row['metadata'])
+                    results.append(rel)
             
             return results
 
@@ -490,7 +500,7 @@ async def handle_entity_create(data: Dict[str, Any]) -> Dict[str, Any]:
     properties = data.get("properties", {})
     
     try:
-        entity = state_manager.create_entity(entity_id, entity_type, properties)
+        entity = await state_manager.create_entity(entity_id, entity_type, properties)
         return entity
     except Exception as e:
         logger.error(f"Error creating entity: {e}")
@@ -528,7 +538,7 @@ async def handle_entity_update(data: Dict[str, Any]) -> Dict[str, Any]:
     properties = data.get("properties", {})
     
     try:
-        success = state_manager.update_entity(entity_id, properties)
+        success = await state_manager.update_entity(entity_id, properties)
         if success:
             return {"status": "updated", "id": entity_id}
         else:
@@ -557,7 +567,7 @@ async def handle_entity_delete(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": "Entity ID is required"}
     
     try:
-        success = state_manager.delete_entity(entity_id)
+        success = await state_manager.delete_entity(entity_id)
         if success:
             return {"status": "deleted", "id": entity_id}
         else:
@@ -595,7 +605,7 @@ async def handle_entity_get(data: Dict[str, Any]) -> Dict[str, Any]:
     include = data.get("include", ["properties"])
     
     try:
-        entity = state_manager.get_entity(entity_id, include=include)
+        entity = await state_manager.get_entity(entity_id, include=include)
         if entity:
             return entity
         else:
@@ -632,7 +642,7 @@ async def handle_entity_query(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": "State infrastructure not available"}
     
     try:
-        entities = state_manager.query_entities(
+        entities = await state_manager.query_entities(
             entity_type=data.get("type"),
             where=data.get("where"),
             include=data.get("include", ["properties"]),
@@ -683,7 +693,7 @@ async def handle_relationship_create(data: Dict[str, Any]) -> Dict[str, Any]:
     metadata = data.get("metadata")
     
     try:
-        success = state_manager.create_relationship(from_id, to_id, relation_type, metadata)
+        success = await state_manager.create_relationship(from_id, to_id, relation_type, metadata)
         if success:
             return {
                 "status": "created",
@@ -722,7 +732,7 @@ async def handle_relationship_delete(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": "from, to, and type are required"}
     
     try:
-        success = state_manager.delete_relationship(from_id, to_id, relation_type)
+        success = await state_manager.delete_relationship(from_id, to_id, relation_type)
         if success:
             return {
                 "status": "deleted",
@@ -760,7 +770,7 @@ async def handle_relationship_query(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": "State infrastructure not available"}
     
     try:
-        relationships = state_manager.query_relationships(
+        relationships = await state_manager.query_relationships(
             from_id=data.get("from"),
             to_id=data.get("to"),
             relation_type=data.get("type")
@@ -831,7 +841,7 @@ async def handle_graph_traverse(data: Dict[str, Any]) -> Dict[str, Any]:
             
             # Get entity data if requested
             if include_entities:
-                entity = state_manager.get_entity(current_id, include=["properties"])
+                entity = await state_manager.get_entity(current_id, include=["properties"])
                 if entity:
                     result["nodes"][current_id] = entity
             else:
@@ -840,14 +850,14 @@ async def handle_graph_traverse(data: Dict[str, Any]) -> Dict[str, Any]:
             if current_depth < depth:
                 # Get relationships based on direction
                 if direction in ["outgoing", "both"]:
-                    rels = state_manager.query_relationships(from_id=current_id)
+                    rels = await state_manager.query_relationships(from_id=current_id)
                     for rel in rels:
                         if not rel_types or rel["type"] in rel_types:
                             result["edges"].append(rel)
                             queue.append((rel["to"], current_depth + 1))
                 
                 if direction in ["incoming", "both"]:
-                    rels = state_manager.query_relationships(to_id=current_id)
+                    rels = await state_manager.query_relationships(to_id=current_id)
                     for rel in rels:
                         if not rel_types or rel["type"] in rel_types:
                             result["edges"].append(rel)
@@ -902,7 +912,7 @@ async def handle_entity_bulk_create(data: Dict[str, Any]) -> Dict[str, Any]:
             entity_id = entity_data.get("id") or f"{entity_type}_{uuid.uuid4().hex[:8]}"
             properties = entity_data.get("properties", {})
             
-            entity = state_manager.create_entity(entity_id, entity_type, properties)
+            entity = await state_manager.create_entity(entity_id, entity_type, properties)
             results.append(entity)
             success_count += 1
             
@@ -948,7 +958,7 @@ async def handle_aggregate_count(data: Dict[str, Any]) -> Dict[str, Any]:
     where = data.get("where", {})
     
     try:
-        with state_manager._get_db() as conn:
+        async with state_manager._get_db() as conn:
             if target == "entities":
                 if group_by == "type":
                     query = "SELECT type, COUNT(*) as count FROM entities"
@@ -960,15 +970,16 @@ async def handle_aggregate_count(data: Dict[str, Any]) -> Dict[str, Any]:
                 else:
                     query = "SELECT COUNT(*) as total FROM entities"
                     
-                cursor = conn.execute(query)
-                
-                if group_by:
-                    results = {}
-                    for row in cursor.fetchall():
-                        results[row[0]] = row[1]
-                    return {"counts": results, "grouped_by": group_by}
-                else:
-                    return {"total": cursor.fetchone()[0]}
+                async with conn.execute(query) as cursor:
+                    
+                    if group_by:
+                        results = {}
+                        async for row in cursor:
+                            results[row[0]] = row[1]
+                        return {"counts": results, "grouped_by": group_by}
+                    else:
+                        row = await cursor.fetchone()
+                        return {"total": row[0]}
                     
             else:  # relationships
                 if group_by == "type":
@@ -976,15 +987,16 @@ async def handle_aggregate_count(data: Dict[str, Any]) -> Dict[str, Any]:
                 else:
                     query = "SELECT COUNT(*) as total FROM relationships"
                     
-                cursor = conn.execute(query)
-                
-                if group_by:
-                    results = {}
-                    for row in cursor.fetchall():
-                        results[row[0]] = row[1]
-                    return {"counts": results, "grouped_by": "relation_type"}
-                else:
-                    return {"total": cursor.fetchone()[0]}
+                async with conn.execute(query) as cursor:
+                    
+                    if group_by:
+                        results = {}
+                        async for row in cursor:
+                            results[row[0]] = row[1]
+                        return {"counts": results, "grouped_by": "relation_type"}
+                    else:
+                        row = await cursor.fetchone()
+                        return {"total": row[0]}
                     
     except Exception as e:
         logger.error(f"Error in aggregate count: {e}")

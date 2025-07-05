@@ -8,6 +8,8 @@ Supports filtering, pagination, and statistics.
 """
 
 from typing import Dict, Any, List, Optional
+import json
+import asyncio
 
 from ksi_daemon.event_system import event_handler
 from ksi_common.logging import get_bound_logger
@@ -24,6 +26,23 @@ PLUGIN_INFO = {
 }
 
 
+async def _load_event_from_file(file_path: str, file_offset: int) -> Optional[Dict[str, Any]]:
+    """Load a single event from JSONL file at given offset."""
+    try:
+        def read_line():
+            with open(file_path, 'r') as f:
+                f.seek(file_offset)
+                line = f.readline()
+                if line:
+                    return json.loads(line.strip())
+            return None
+        
+        return await asyncio.get_event_loop().run_in_executor(None, read_line)
+    except Exception as e:
+        logger.error(f"Failed to load event from {file_path}:{file_offset} - {e}")
+    return None
+
+
 @event_handler("system:startup")
 async def handle_startup(config: Dict[str, Any]) -> Dict[str, Any]:
     """Initialize monitor module."""
@@ -36,7 +55,9 @@ async def handle_startup(config: Dict[str, Any]) -> Dict[str, Any]:
 async def handle_context(context: Dict[str, Any]) -> None:
     """Receive module context with event router reference."""
     global event_router
-    event_router = context.get("event_router")
+    # Get router directly to avoid JSON serialization issues
+    from ksi_daemon.event_system import get_router
+    event_router = get_router()
     logger.info("Monitor module received event router context")
 
 
@@ -57,38 +78,53 @@ async def handle_get_events(data: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Dictionary with events list and metadata
     """
-    if not event_router or not hasattr(event_router, 'event_log'):
-        return {"error": "Event log not available"}
+    if not event_router or not hasattr(event_router, 'reference_event_log'):
+        return {"error": "Reference event log not available"}
     
     try:
         # Extract query parameters
         event_patterns = data.get("event_patterns")
-        client_id = data.get("client_id") 
+        originator_id = data.get("client_id")  # Map client_id to originator_id
         since = data.get("since")
         until = data.get("until")
         limit = data.get("limit", 100)  # Default limit
         reverse = data.get("reverse", True)
         
-        # Query event log
-        events = event_router.event_log.get_events(
+        # Convert time strings to timestamps if needed
+        if isinstance(since, str):
+            from ksi_common.timestamps import parse_iso_timestamp
+            since = parse_iso_timestamp(since).timestamp()
+        if isinstance(until, str):
+            from ksi_common.timestamps import parse_iso_timestamp
+            until = parse_iso_timestamp(until).timestamp()
+        
+        # Query metadata from SQLite
+        metadata_results = await event_router.reference_event_log.query_metadata(
             event_patterns=event_patterns,
-            client_id=client_id,
-            since=since,
-            until=until,
-            limit=limit,
-            reverse=reverse
+            originator_id=originator_id,
+            start_time=since,
+            end_time=until,
+            limit=limit
         )
         
-        # Get stats for metadata
-        stats = event_router.event_log.get_stats()
+        # Load full events from files
+        events = []
+        for meta in metadata_results:
+            # Read event from JSONL file
+            event = await _load_event_from_file(meta["file_path"], meta["file_offset"])
+            if event:
+                events.append(event)
+        
+        # TODO: Get stats from reference log
+        total_events = len(metadata_results)
         
         return {
-            "events": [event.to_dict() for event in events],  # Convert objects to dicts for JSON
+            "events": events,
             "count": len(events),
-            "total_events": stats["total_events"],
+            "total_events": total_events,
             "query": {
                 "event_patterns": event_patterns,
-                "client_id": client_id,
+                "client_id": originator_id,
                 "since": since,
                 "until": until,
                 "limit": limit,
@@ -109,17 +145,23 @@ async def handle_get_stats(data: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Dictionary with event log statistics
     """
-    if not event_router or not hasattr(event_router, 'event_log'):
-        return {"error": "Event log not available"}
+    if not event_router or not hasattr(event_router, 'reference_event_log'):
+        return {"error": "Reference event log not available"}
     
     try:
-        stats = event_router.event_log.get_stats()
+        # For reference-based event log, return basic info
+        ref_log = event_router.reference_event_log
         
         # Add router stats
         router_stats = getattr(event_router, 'stats', {})
         
         return {
-            "event_log": stats,
+            "event_log": {
+                "type": "reference_event_log",
+                "db_path": str(ref_log.db_path),
+                "events_dir": str(ref_log.events_dir),
+                "message": "Detailed stats not available for file-based log"
+            },
             "router": router_stats
         }
         
@@ -136,26 +178,10 @@ async def handle_clear_log(data: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Confirmation of log clearing
     """
-    if not event_router or not hasattr(event_router, 'event_log'):
-        return {"error": "Event log not available"}
-    
-    try:
-        # Get stats before clearing
-        old_stats = event_router.event_log.get_stats()
-        
-        # Clear log
-        event_router.event_log.clear()
-        
-        logger.info("Event log cleared by admin request")
-        
-        return {
-            "status": "cleared",
-            "events_cleared": old_stats["total_events"]
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to clear log: {e}")
-        return {"error": f"Clear failed: {str(e)}"}
+    return {
+        "error": "Clear operation not supported for reference event log",
+        "message": "File-based logs should be managed through log rotation"
+    }
 
 
 @event_handler("monitor:subscribe")
@@ -175,37 +201,10 @@ async def handle_subscribe(data: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Subscription confirmation
     """
-    if not event_router or not hasattr(event_router, 'event_log'):
-        return {"error": "Event log not available"}
-    
-    # Get subscription parameters
-    client_id = data.get("client_id")
-    patterns = data.get("event_patterns", ["*"])
-    
-    # Get transport writer
-    writer = data.get("writer")
-    if not writer:
-        return {"error": "No writer available for streaming"}
-    
-    try:
-        # Subscribe to event stream
-        subscription = event_router.event_log.subscribe(
-            client_id=client_id,
-            patterns=patterns,
-            writer=writer
-        )
-        
-        logger.info(f"Client {client_id} subscribed to events: {patterns}")
-        
-        return {
-            "status": "subscribed",
-            "client_id": client_id,
-            "patterns": patterns
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to subscribe {client_id}: {e}")
-        return {"error": f"Subscription failed: {str(e)}"}
+    return {
+        "error": "Real-time subscription not yet implemented for reference event log",
+        "message": "Use polling with monitor:get_events or implement file tailing"
+    }
 
 
 @event_handler("monitor:unsubscribe")
@@ -220,28 +219,10 @@ async def handle_unsubscribe(data: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Unsubscribe confirmation
     """
-    if not event_router or not hasattr(event_router, 'event_log'):
-        return {"error": "Event log not available"}
-    
-    # Get client ID
-    client_id = data.get("client_id")
-    if not client_id:
-        return {"error": "No client_id provided"}
-    
-    try:
-        # Unsubscribe from event stream
-        event_router.event_log.unsubscribe(client_id)
-        
-        logger.info(f"Client {client_id} unsubscribed from events")
-        
-        return {
-            "status": "unsubscribed",
-            "client_id": client_id
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to unsubscribe {client_id}: {e}")
-        return {"error": f"Unsubscribe failed: {str(e)}"}
+    return {
+        "error": "Subscription not implemented for reference event log",
+        "message": "No active subscriptions to unsubscribe from"
+    }
 
 
 @event_handler("monitor:query")
@@ -258,38 +239,10 @@ async def handle_query(data: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Query results with metadata
     """
-    if not event_router or not hasattr(event_router, 'event_log'):
-        return {"error": "Event log not available"}
-    
-    # Get query parameters
-    query = data.get("query")
-    params = data.get("params", ())
-    limit = data.get("limit", 1000)
-    
-    if not query:
-        return {"error": "No query provided"}
-    
-    # Security: Only allow SELECT queries
-    if not query.strip().upper().startswith("SELECT"):
-        return {"error": "Only SELECT queries are allowed"}
-    
-    try:
-        # Add limit if not present
-        if "LIMIT" not in query.upper():
-            query = f"{query} LIMIT {limit}"
-        
-        # Execute query
-        results = event_router.event_log.query_db(query, params)
-        
-        return {
-            "results": results,
-            "count": len(results),
-            "query": query
-        }
-        
-    except Exception as e:
-        logger.error(f"Query failed: {e}")
-        return {"error": f"Query failed: {str(e)}"}
+    return {
+        "error": "Direct SQL queries not supported for reference event log",
+        "message": "Use monitor:get_events with filters instead"
+    }
 
 
 @event_handler("monitor:get_session_events")
@@ -306,39 +259,35 @@ async def handle_get_session_events(data: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Events for the session
     """
-    if not event_router or not hasattr(event_router, 'event_log'):
-        return {"error": "Event log not available"}
+    if not event_router or not hasattr(event_router, 'reference_event_log'):
+        return {"error": "Reference event log not available"}
     
     session_id = data.get("session_id")
     if not session_id:
         return {"error": "No session_id provided"}
     
-    include_memory = data.get("include_memory", True)
     reverse = data.get("reverse", True)
     
     try:
-        events = []
-        
-        # Get events from database
-        db_events = event_router.event_log.query_db(
-            """SELECT * FROM events 
-               WHERE session_id = ? OR json_extract(data, '$.session_id') = ?
-               ORDER BY timestamp""",
-            (session_id, session_id)
+        # Query all events and filter by session_id
+        # Note: Reference event log doesn't have direct session filtering yet
+        metadata_results = await event_router.reference_event_log.query_metadata(
+            limit=1000  # Get recent events
         )
-        events.extend(db_events)
         
-        # Get events from memory buffer if requested
-        if include_memory:
-            memory_events = event_router.event_log.get_events(limit=None)
-            # Filter for session
-            for event in memory_events:
-                event_data = event.get("data", {})
-                if event_data.get("session_id") == session_id:
-                    # Check if not already in db results
-                    if not any(e.get("event_id") == event.get("event_id") 
-                             for e in db_events if e.get("event_id")):
-                        events.append(event)
+        # Load and filter events by session
+        events = []
+        for meta in metadata_results:
+            if meta.get("session_id") == session_id:
+                # Read event from JSONL file
+                event = await _load_event_from_file(meta["file_path"], meta["file_offset"])
+                if event:
+                    events.append(event)
+            else:
+                # Also check in data field
+                event = await _load_event_from_file(meta["file_path"], meta["file_offset"])
+                if event and event.get("data", {}).get("session_id") == session_id:
+                    events.append(event)
         
         # Sort by timestamp
         events.sort(key=lambda e: e.get("timestamp", 0), reverse=reverse)
@@ -347,7 +296,7 @@ async def handle_get_session_events(data: Dict[str, Any]) -> Dict[str, Any]:
             "session_id": session_id,
             "events": events,
             "count": len(events),
-            "sources": ["database"] + (["memory"] if include_memory else [])
+            "sources": ["file_storage"]
         }
         
     except Exception as e:
@@ -368,37 +317,27 @@ async def handle_get_correlation_chain(data: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Events in the correlation chain
     """
-    if not event_router or not hasattr(event_router, 'event_log'):
-        return {"error": "Event log not available"}
+    if not event_router or not hasattr(event_router, 'reference_event_log'):
+        return {"error": "Reference event log not available"}
     
     correlation_id = data.get("correlation_id")
     if not correlation_id:
         return {"error": "No correlation_id provided"}
     
-    include_memory = data.get("include_memory", True)
-    
     try:
-        events = []
-        
-        # Get events from database
-        db_events = event_router.event_log.query_db(
-            """SELECT * FROM events 
-               WHERE correlation_id = ?
-               ORDER BY timestamp""",
-            (correlation_id,)
+        # Query events by correlation_id
+        metadata_results = await event_router.reference_event_log.query_metadata(
+            limit=1000  # Get recent events
         )
-        events.extend(db_events)
         
-        # Get events from memory buffer if requested
-        if include_memory:
-            memory_events = event_router.event_log.get_events(limit=None)
-            # Filter for correlation
-            for event in memory_events:
-                if event.get("correlation_id") == correlation_id:
-                    # Check if not already in db results
-                    if not any(e.get("event_id") == event.get("event_id") 
-                             for e in db_events if e.get("event_id")):
-                        events.append(event)
+        # Load events with matching correlation_id
+        events = []
+        for meta in metadata_results:
+            if meta.get("correlation_id") == correlation_id:
+                # Read event from JSONL file
+                event = await _load_event_from_file(meta["file_path"], meta["file_offset"])
+                if event:
+                    events.append(event)
         
         # Sort by timestamp to show chain progression
         events.sort(key=lambda e: e.get("timestamp", 0))

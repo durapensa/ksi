@@ -9,7 +9,7 @@ from typing import Optional
 from .constants import (
     DEFAULT_VAR_DIR,
     DEFAULT_LOG_DIR,
-    DEFAULT_SESSION_LOG_DIR,
+    DEFAULT_RESPONSE_LOG_DIR,
     DEFAULT_DAEMON_LOG_DIR,
     DEFAULT_STATE_DIR,
     DEFAULT_DB_DIR,
@@ -65,9 +65,9 @@ class KSIPaths:
         return self.base_dir / DEFAULT_LOG_DIR
     
     @property
-    def session_logs_dir(self) -> Path:
-        """Get session logs directory path."""
-        return self.base_dir / DEFAULT_SESSION_LOG_DIR
+    def response_logs_dir(self) -> Path:
+        """Get response logs directory path."""
+        return self.base_dir / DEFAULT_RESPONSE_LOG_DIR
     
     @property
     def daemon_logs_dir(self) -> Path:
@@ -117,16 +117,16 @@ class KSIPaths:
         path.mkdir(parents=True, exist_ok=True)
         return path
     
-    def get_session_log_path(self, session_id: str) -> Path:
-        """Get path for a specific session log file.
+    def get_response_log_path(self, session_id: str) -> Path:
+        """Get path for a specific response log file.
         
         Args:
             session_id: Session ID
             
         Returns:
-            Path: Full path to session log file
+            Path: Full path to response log file
         """
-        return self.session_logs_dir / f"{session_id}.jsonl"
+        return self.response_logs_dir / f"{session_id}.jsonl"
     
     def get_message_bus_log_path(self) -> Path:
         """Get path for message bus log file.
@@ -134,7 +134,7 @@ class KSIPaths:
         Returns:
             Path: Full path to message bus log file
         """
-        return self.session_logs_dir / "message_bus.jsonl"
+        return self.response_logs_dir / "message_bus.jsonl"
     
     
     def get_export_path(self, filename: str) -> Path:

@@ -11,7 +11,7 @@ from typing import Dict, Any, Optional
 
 from ksi_common.logging import get_bound_logger
 from .event_system import EventRouter, get_router
-from .event_log import EventLog
+from ksi_daemon.core.reference_event_log import ReferenceEventLog
 
 # Core state management
 from ksi_daemon.core.state import initialize_state, get_state_manager
@@ -43,10 +43,10 @@ class EventDaemonCore:
             # Store reference to daemon core in router for shutdown handling
             self.router._daemon_core = self
             
-            # Initialize event log and attach to router
-            logger.info("Initializing event log...")
-            self.router.event_log = EventLog()
-            await self.router.event_log.start()
+            # Initialize reference-based event log and attach to router
+            logger.info("Initializing reference event log...")
+            self.router.reference_event_log = ReferenceEventLog()
+            await self.router.reference_event_log.initialize()
             logger.info("Event log initialized and started")
             
             # Initialize state infrastructure first (core dependency)
@@ -70,7 +70,16 @@ class EventDaemonCore:
                 "state_manager": self.state_manager,  # Core state management
                 "async_state": self.state_manager  # Async state operations via same manager
             }
-            await self.router.emit("system:context", context)
+            # Pass infrastructure context to modules
+            # Note: We don't pass router or daemon_core to avoid JSON serialization issues in event log
+            safe_context = {
+                "config": config,
+                "emit_event": self.router.emit,  # Proper async event emitter
+                "shutdown_event": self.shutdown_event,  # Shutdown coordination
+                "state_manager": self.state_manager,  # Core state management
+                "async_state": self.state_manager  # Async state operations via same manager
+            }
+            await self.router.emit("system:context", safe_context)
             
             # Collect background tasks from modules
             logger.info("Collecting background tasks from modules...")
@@ -112,6 +121,7 @@ class EventDaemonCore:
         import ksi_daemon.core.discovery
         import ksi_daemon.core.monitor
         import ksi_daemon.core.checkpoint   # Dev mode checkpoint/restore
+        import ksi_daemon.core.event_log_handlers  # Event log query handlers
         
         # Transport modules
         import ksi_daemon.transport.unix_socket
@@ -203,10 +213,7 @@ class EventDaemonCore:
             logger.info("Stopping background tasks...")
             await self.router.stop_all_tasks()
             
-            # Stop event log
-            if hasattr(self.router, 'event_log') and self.router.event_log:
-                logger.info("Stopping event log...")
-                await self.router.event_log.stop()
+            # Reference event log is file-based and doesn't need explicit cleanup
             
             self.running = False
             logger.info("Daemon core shutdown complete")
