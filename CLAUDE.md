@@ -141,6 +141,35 @@ Essential development practices for Claude Code when working with KSI.
   - Logging is automatically configured when importing from ksi_daemon
   - Plugins should use `from ksi_common.logging import get_bound_logger`
 
+## Capability System
+
+### Overview
+- **Declarative capabilities** - Agent profiles use capability flags instead of tool lists
+- **Single source of truth** - `var/lib/capability_mappings.yaml` defines all capabilities
+- **Automatic resolution** - Capabilities expand to events and Claude tools automatically
+- **Clean inheritance** - base_single_agent → base_multi_agent → specialized profiles
+
+### Working with Capabilities
+- **When creating profiles** - Use capability flags, not explicit tool lists:
+  ```yaml
+  - name: "capabilities"
+    inline:
+      state_write: true
+      agent_messaging: true
+      spawn_agents: true
+  ```
+- **When updating capabilities** - Edit `capability_mappings.yaml`, then reload compositions
+- **When debugging** - Check resolved events in agent spawn response
+- **NO backward compatibility** - All profiles must use the new system
+
+### Key Capabilities
+- **base** - Core system access (always enabled)
+- **state_write** - Shared state management
+- **agent_messaging** - Inter-agent communication
+- **spawn_agents** - Child agent creation
+- **file_access** - Claude file tools (Read, Write, etc.)
+- **network_access** - Web access tools
+
 ## Project Organization
 
 ### Directory Structure
