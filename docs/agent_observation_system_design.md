@@ -233,7 +233,44 @@ observe_agents:
     - "observe:query"  # Query observation history
 ```
 
-### 6. Use Cases
+### 6. Relational State Foundation
+
+The observation system is built on KSI's universal relational state system:
+
+#### Entity-Property-Relationship Model
+- **Entities**: Agents, subscriptions, observation records
+- **Properties**: Stored as key-value pairs with type preservation
+- **Relationships**: spawned, observes, owns, monitors
+
+#### Example State Operations
+```python
+# Agent entity
+await emit_event("state:entity:create", {
+    "type": "agent",
+    "id": agent_id,
+    "properties": {
+        "status": "active",
+        "agent_type": agent_type,
+        "profile": profile_name
+    }
+})
+
+# Spawned relationship
+await emit_event("state:relationship:create", {
+    "from": originator_id,
+    "to": construct_id,
+    "type": "spawned",
+    "metadata": {"purpose": purpose}
+})
+
+# Query constructs
+result = await emit_event("state:relationship:query", {
+    "from": originator_id,
+    "type": "spawned"
+})
+```
+
+### 7. Use Cases
 
 #### A. Multi-Aspect Observation
 

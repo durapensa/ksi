@@ -2,9 +2,11 @@
 
 Core technical reference for KSI (Kubernetes-Style Infrastructure) - a resilient daemon system for orchestrating autonomous AI agents with production-grade reliability.
 
-**Current State**: Pure event-based architecture with coordinated shutdown, automatic checkpoint/restore, and retry logic. Universal state preservation across restarts.
+**Current State**: Pure event-based architecture with coordinated shutdown, automatic checkpoint/restore, and retry logic. Universal state preservation across restarts. **NEW**: Universal relational state system replacing key-value paradigm.
 
 **Latest Features**:
+- **Universal Relational State**: Entity-property-relationship model for all state
+- Agent observation system foundation with originator-construct tracking
 - Shutdown coordination with barrier pattern and service acknowledgments
 - Automatic retry for failed operations with exponential backoff
 - Checkpoint/restore for all daemon restarts (not just dev mode)
@@ -114,24 +116,26 @@ result = await client.send_with_errors("validate:all", {...}, error_mode="collec
 
 ## Core State Infrastructure
 
-### Unified State Management
-All state functionality consolidated in `ksi_daemon/core/state.py`:
-- **Session tracking**: In-memory conversation state
-- **Shared state**: SQLite persistent key-value store
-- **Async queues**: SQLite-backed queue operations
+### Universal Relational State System
+All state managed through entity-property-relationship model in `ksi_daemon/core/state.py`:
+- **Entities**: Any object (agents, sessions, configs, etc.) with properties
+- **Properties**: Key-value attributes stored in EAV pattern
+- **Relationships**: Typed connections between entities (spawned, observes, owns)
+- **Timestamps**: Numeric storage with automatic ISO conversion for display
 
 ### State APIs
 ```python
-# Shared state
-{"event": "state:set", "data": {"key": "k", "value": "v", "namespace": "ns"}}
-{"event": "state:get", "data": {"key": "k", "namespace": "ns"}}
-{"event": "state:delete", "data": {"key": "k", "namespace": "ns"}}
-{"event": "state:list", "data": {"namespace": "ns", "pattern": "*"}}
+# Entity operations
+{"event": "state:entity:create", "data": {"type": "agent", "id": "agent_123", "properties": {...}}}
+{"event": "state:entity:update", "data": {"id": "agent_123", "properties": {"status": "active"}}}
+{"event": "state:entity:delete", "data": {"id": "agent_123"}}
+{"event": "state:entity:get", "data": {"id": "agent_123", "include": ["properties", "relationships"]}}
+{"event": "state:entity:query", "data": {"type": "agent", "where": {"status": "active"}, "limit": 10}}
 
-# Async queues
-{"event": "async_state:push", "data": {"namespace": "ns", "queue_name": "q", "value": {}}}
-{"event": "async_state:pop", "data": {"namespace": "ns", "queue_name": "q"}}
-{"event": "async_state:queue_length", "data": {"namespace": "ns", "queue_name": "q"}}
+# Relationship operations
+{"event": "state:relationship:create", "data": {"from": "originator_1", "to": "construct_1", "type": "spawned"}}
+{"event": "state:relationship:delete", "data": {"from": "originator_1", "to": "construct_1", "type": "spawned"}}
+{"event": "state:relationship:query", "data": {"from": "originator_1", "type": "spawned"}}
 ```
 
 ## Active Modules
@@ -180,8 +184,7 @@ await emit_event("completion:async", data)
 - **system**: health, shutdown, discover, help, startup, context, ready, shutdown_complete
 - **completion**: async, queue_status, result, status, failed
 - **agent**: spawn, terminate, list, send_message
-- **state**: get, set, delete, list
-- **async_state**: push, pop, get, set, delete, queue_length
+- **state**: entity:create, entity:update, entity:delete, entity:get, entity:query, relationship:create, relationship:delete, relationship:query
 - **message**: subscribe, publish, unsubscribe
 - **conversation**: list, search, active, acquire_lock, release_lock
 - **monitor**: get_events, get_stats, clear_log
