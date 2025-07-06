@@ -28,29 +28,81 @@ CHECKPOINT_DB = config.checkpoint_db_path
 
 
 async def initialize_checkpoint_db():
-    """Initialize checkpoint database with schema."""
+    """Initialize checkpoint database with proper relational schema."""
     try:
         import aiosqlite
     except ImportError:
         logger.error("aiosqlite not installed. Run: pip install aiosqlite")
         return False
     
+    # Delete existing database for clean start
+    if CHECKPOINT_DB.exists():
+        CHECKPOINT_DB.unlink()
+        logger.info("Deleted existing checkpoint database for clean start")
+    
     async with aiosqlite.connect(CHECKPOINT_DB) as db:
+        # Enable WAL mode for better concurrency
+        await db.execute("PRAGMA journal_mode=WAL")
+        
+        # Create checkpoints table
         await db.execute("""
             CREATE TABLE IF NOT EXISTS checkpoints (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                checkpoint_data TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                restored_at TEXT,
+                status TEXT NOT NULL DEFAULT 'active',
+                total_requests INTEGER NOT NULL DEFAULT 0,
+                total_sessions INTEGER NOT NULL DEFAULT 0
             )
         """)
+        
+        # Create checkpoint_requests table
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS checkpoint_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                checkpoint_id INTEGER NOT NULL,
+                request_id TEXT NOT NULL,
+                session_id TEXT,
+                status TEXT NOT NULL,
+                request_data TEXT NOT NULL,
+                queued_at TEXT,
+                started_at TEXT,
+                completed_at TEXT,
+                error TEXT,
+                FOREIGN KEY (checkpoint_id) REFERENCES checkpoints(id),
+                UNIQUE(checkpoint_id, request_id)
+            )
+        """)
+        
+        # Create checkpoint_sessions table
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS checkpoint_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                checkpoint_id INTEGER NOT NULL,
+                session_id TEXT NOT NULL,
+                queue_depth INTEGER NOT NULL DEFAULT 0,
+                is_active INTEGER NOT NULL DEFAULT 0,
+                active_request TEXT,
+                FOREIGN KEY (checkpoint_id) REFERENCES checkpoints(id),
+                UNIQUE(checkpoint_id, session_id)
+            )
+        """)
+        
+        # Create indexes
+        await db.execute("CREATE INDEX idx_checkpoints_status ON checkpoints(status)")
+        await db.execute("CREATE INDEX idx_checkpoints_created ON checkpoints(created_at)")
+        await db.execute("CREATE INDEX idx_requests_checkpoint ON checkpoint_requests(checkpoint_id)")
+        await db.execute("CREATE INDEX idx_sessions_checkpoint ON checkpoint_sessions(checkpoint_id)")
+        
         await db.commit()
-        logger.info("Checkpoint database initialized", path=str(CHECKPOINT_DB))
+        logger.info("Checkpoint database initialized with relational schema", path=str(CHECKPOINT_DB))
     
     return True
 
 
 async def save_checkpoint(checkpoint_data: Dict[str, Any]) -> bool:
-    """Save checkpoint to database."""
+    """Save checkpoint to database using relational schema."""
     try:
         import aiosqlite
     except ImportError:
@@ -59,23 +111,97 @@ async def save_checkpoint(checkpoint_data: Dict[str, Any]) -> bool:
     
     try:
         async with aiosqlite.connect(CHECKPOINT_DB) as db:
-            await db.execute(
-                "INSERT INTO checkpoints (timestamp, checkpoint_data) VALUES (?, ?)",
-                (timestamp_utc(), json.dumps(checkpoint_data))
+            # Count totals
+            total_requests = len(checkpoint_data.get("active_completions", {}))
+            total_sessions = len(checkpoint_data.get("session_queues", {}))
+            
+            # Create checkpoint record
+            cursor = await db.execute(
+                """INSERT INTO checkpoints (created_at, reason, status, total_requests, total_sessions) 
+                   VALUES (?, ?, 'active', ?, ?)""",
+                (
+                    checkpoint_data.get("timestamp", timestamp_utc()),
+                    checkpoint_data.get("reason", "manual"),
+                    total_requests,
+                    total_sessions
+                )
             )
-            await db.commit()
+            checkpoint_id = cursor.lastrowid
+            
+            # Save requests
+            for request_id, completion_data in checkpoint_data.get("active_completions", {}).items():
+                await db.execute(
+                    """INSERT INTO checkpoint_requests 
+                       (checkpoint_id, request_id, session_id, status, request_data, 
+                        queued_at, started_at, completed_at, error)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        checkpoint_id,
+                        request_id,
+                        completion_data.get("session_id"),
+                        completion_data.get("status", "unknown"),
+                        json.dumps(completion_data.get("data", {})),
+                        completion_data.get("queued_at"),
+                        completion_data.get("started_at"),
+                        completion_data.get("completed_at"),
+                        completion_data.get("error")
+                    )
+                )
+            
+            # Save sessions with queue items
+            for session_id, session_data in checkpoint_data.get("session_queues", {}).items():
+                # Handle both list (old format) and dict (new format)
+                if isinstance(session_data, list):
+                    queue_items = session_data
+                    is_active = False
+                    active_request = None
+                else:
+                    queue_items = session_data.get("items", [])
+                    is_active = session_data.get("is_active", False)
+                    active_request = session_data.get("active_request")
+                
+                # Save session metadata
+                await db.execute(
+                    """INSERT INTO checkpoint_sessions 
+                       (checkpoint_id, session_id, queue_depth, is_active, active_request)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (
+                        checkpoint_id,
+                        session_id,
+                        len(queue_items),
+                        1 if is_active else 0,
+                        active_request
+                    )
+                )
+                
+                # Save queued items as pending requests
+                for item in queue_items:
+                    await db.execute(
+                        """INSERT INTO checkpoint_requests 
+                           (checkpoint_id, request_id, session_id, status, request_data, queued_at)
+                           VALUES (?, ?, ?, 'queued', ?, ?)""",
+                        (
+                            checkpoint_id,
+                            item.get("request_id"),
+                            session_id,
+                            json.dumps(item.get("data", {})),
+                            item.get("timestamp", timestamp_utc())
+                        )
+                    )
             
             # Keep only last 5 checkpoints
             await db.execute("""
-                DELETE FROM checkpoints 
+                UPDATE checkpoints SET status = 'archived'
                 WHERE id NOT IN (
                     SELECT id FROM checkpoints 
+                    WHERE status = 'active'
                     ORDER BY id DESC LIMIT 5
                 )
             """)
+            
             await db.commit()
             
-        logger.info("Checkpoint saved successfully")
+        logger.info(f"Checkpoint {checkpoint_id} saved: {total_requests} requests, {total_sessions} sessions")
         return True
         
     except Exception as e:
@@ -93,16 +219,87 @@ async def load_latest_checkpoint() -> Optional[Dict[str, Any]]:
     
     try:
         async with aiosqlite.connect(CHECKPOINT_DB) as db:
+            # Get latest active checkpoint
             async with db.execute(
-                "SELECT checkpoint_data FROM checkpoints ORDER BY id DESC LIMIT 1"
+                """SELECT id, created_at, reason, total_requests, total_sessions 
+                   FROM checkpoints 
+                   WHERE status = 'active' 
+                   ORDER BY id DESC LIMIT 1"""
             ) as cursor:
-                row = await cursor.fetchone()
-                if row:
-                    return json.loads(row[0])
+                checkpoint_row = await cursor.fetchone()
+                if not checkpoint_row:
+                    logger.info("No active checkpoint found")
+                    return None
+                
+            checkpoint_id, created_at, reason, total_requests, total_sessions = checkpoint_row
+            
+            # Build checkpoint data structure
+            checkpoint_data = {
+                "timestamp": created_at,
+                "reason": reason,
+                "checkpoint_id": checkpoint_id,
+                "active_completions": {},
+                "session_queues": {}
+            }
+            
+            # Load requests
+            async with db.execute(
+                """SELECT request_id, session_id, status, request_data, 
+                          queued_at, started_at, completed_at, error
+                   FROM checkpoint_requests
+                   WHERE checkpoint_id = ?""",
+                (checkpoint_id,)
+            ) as cursor:
+                async for row in cursor:
+                    request_id, session_id, status, request_data, queued_at, started_at, completed_at, error = row
+                    checkpoint_data["active_completions"][request_id] = {
+                        "session_id": session_id,
+                        "status": status,
+                        "data": json.loads(request_data) if request_data else {},
+                        "queued_at": queued_at,
+                        "started_at": started_at,
+                        "completed_at": completed_at,
+                        "error": error
+                    }
+            
+            # Load sessions  
+            async with db.execute(
+                """SELECT session_id, queue_depth, is_active, active_request
+                   FROM checkpoint_sessions
+                   WHERE checkpoint_id = ?""",
+                (checkpoint_id,)
+            ) as cursor:
+                async for row in cursor:
+                    session_id, queue_depth, is_active, active_request = row
                     
-        logger.info("No checkpoint found")
-        return None
-        
+                    # Load queued items for this session
+                    queue_items = []
+                    async with db.execute(
+                        """SELECT request_id, request_data, queued_at
+                           FROM checkpoint_requests
+                           WHERE checkpoint_id = ? AND session_id = ? AND status = 'queued'
+                           ORDER BY id""",
+                        (checkpoint_id, session_id)
+                    ) as item_cursor:
+                        async for item_row in item_cursor:
+                            req_id, req_data, queued_at = item_row
+                            queue_items.append({
+                                "request_id": req_id,
+                                "data": json.loads(req_data) if req_data else {},
+                                "timestamp": queued_at
+                            })
+                    
+                    checkpoint_data["session_queues"][session_id] = {
+                        "items": queue_items,
+                        "is_active": bool(is_active),
+                        "active_request": active_request
+                    }
+            
+            logger.info(
+                f"Loaded checkpoint {checkpoint_id} with {total_requests} requests, {total_sessions} sessions"
+            )
+            return checkpoint_data
+                    
     except Exception as e:
         logger.error(f"Failed to load checkpoint: {e}", exc_info=True)
         return None
@@ -294,6 +491,10 @@ async def _create_checkpoint(save_if_empty: bool = True, reason: str = "manual")
         else:
             logger.debug(f"Creating {reason} checkpoint (empty state)")
         
+        # Add metadata
+        state["timestamp"] = timestamp_utc()
+        state["reason"] = reason
+        
         # Save checkpoint - shield from cancellation during shutdown
         try:
             save_result = await asyncio.shield(save_checkpoint(state))
@@ -359,24 +560,13 @@ async def _update_checkpoint(modified_data: Dict[str, Any]) -> bool:
         return False
     
     try:
-        async with aiosqlite.connect(CHECKPOINT_DB) as db:
-            # Get latest checkpoint ID
-            async with db.execute(
-                "SELECT id FROM checkpoints ORDER BY id DESC LIMIT 1"
-            ) as cursor:
-                row = await cursor.fetchone()
-                if not row:
-                    return False
-                
-                checkpoint_id = row[0]
-                
-                # Update the checkpoint
-                await db.execute(
-                    "UPDATE checkpoints SET checkpoint_data = ? WHERE id = ?",
-                    (json.dumps(modified_data), checkpoint_id)
-                )
-                await db.commit()
-                return True
+        # Since we're using a relational schema now, we need to 
+        # delete and recreate rather than update a JSON blob
+        # This is more complex but maintains relational integrity
+        
+        # For now, just save as a new checkpoint
+        # In practice, we'd update individual rows
+        return await save_checkpoint(modified_data)
                 
     except Exception as e:
         logger.error(f"Failed to update checkpoint: {e}", exc_info=True)
@@ -388,24 +578,51 @@ async def _remove_checkpoint_request(request_id: str) -> Dict[str, Any]:
     if is_checkpoint_disabled:
         return {"error": "Checkpoint system disabled"}
     
-    checkpoint = await load_latest_checkpoint()
-    if not checkpoint:
-        return {"error": "No checkpoint found"}
-    
-    active_completions = checkpoint.get("active_completions", {})
-    if request_id not in active_completions:
-        return {"error": f"Request {request_id} not found in checkpoint"}
-    
-    # Remove the request
-    del active_completions[request_id]
-    checkpoint["active_completions"] = active_completions
-    
-    # Update the checkpoint
-    if await _update_checkpoint(checkpoint):
+    try:
+        import aiosqlite
+    except ImportError:
+        return {"error": "aiosqlite not installed"}
+        
+    try:
+        async with aiosqlite.connect(CHECKPOINT_DB) as db:
+            # Get latest active checkpoint
+            async with db.execute(
+                "SELECT id FROM checkpoints WHERE status = 'active' ORDER BY id DESC LIMIT 1"
+            ) as cursor:
+                row = await cursor.fetchone()
+                if not row:
+                    return {"error": "No active checkpoint found"}
+                    
+            checkpoint_id = row[0]
+            
+            # Check if request exists
+            async with db.execute(
+                "SELECT id FROM checkpoint_requests WHERE checkpoint_id = ? AND request_id = ?",
+                (checkpoint_id, request_id)
+            ) as cursor:
+                if not await cursor.fetchone():
+                    return {"error": f"Request {request_id} not found in checkpoint"}
+            
+            # Delete the request
+            await db.execute(
+                "DELETE FROM checkpoint_requests WHERE checkpoint_id = ? AND request_id = ?",
+                (checkpoint_id, request_id)
+            )
+            
+            # Update checkpoint totals
+            await db.execute(
+                "UPDATE checkpoints SET total_requests = total_requests - 1 WHERE id = ?",
+                (checkpoint_id,)
+            )
+            
+            await db.commit()
+            
         logger.info(f"Removed checkpoint request {request_id}")
         return {"status": "removed", "request_id": request_id}
-    else:
-        return {"error": "Failed to update checkpoint"}
+        
+    except Exception as e:
+        logger.error(f"Failed to remove checkpoint request: {e}", exc_info=True)
+        return {"error": str(e)}
 
 
 async def _clear_checkpoint_requests(filter_type: str = "all") -> Dict[str, Any]:
@@ -413,42 +630,75 @@ async def _clear_checkpoint_requests(filter_type: str = "all") -> Dict[str, Any]
     if is_checkpoint_disabled:
         return {"error": "Checkpoint system disabled"}
     
-    checkpoint = await load_latest_checkpoint()
-    if not checkpoint:
-        return {"error": "No checkpoint found"}
-    
-    active_completions = checkpoint.get("active_completions", {})
-    original_count = len(active_completions)
-    
-    if filter_type == "failed":
-        # Remove only failed requests
-        filtered_completions = {
-            req_id: req_data for req_id, req_data in active_completions.items()
-            if req_data.get("status") != "failed"
-        }
-        checkpoint["active_completions"] = filtered_completions
-        removed_count = original_count - len(filtered_completions)
-        logger.info(f"Cleared {removed_count} failed requests from checkpoint")
+    try:
+        import aiosqlite
+    except ImportError:
+        return {"error": "aiosqlite not installed"}
         
-    elif filter_type == "all":
-        # Remove all requests
-        checkpoint["active_completions"] = {}
-        removed_count = original_count
-        logger.info(f"Cleared all {removed_count} requests from checkpoint")
-        
-    else:
-        return {"error": f"Unknown filter type: {filter_type}"}
-    
-    # Update the checkpoint
-    if await _update_checkpoint(checkpoint):
+    try:
+        async with aiosqlite.connect(CHECKPOINT_DB) as db:
+            # Get latest active checkpoint
+            async with db.execute(
+                "SELECT id FROM checkpoints WHERE status = 'active' ORDER BY id DESC LIMIT 1"
+            ) as cursor:
+                row = await cursor.fetchone()
+                if not row:
+                    return {"error": "No active checkpoint found"}
+                    
+            checkpoint_id = row[0]
+            
+            # Count requests before clearing
+            async with db.execute(
+                "SELECT COUNT(*) FROM checkpoint_requests WHERE checkpoint_id = ? AND status != 'queued'",
+                (checkpoint_id,)
+            ) as cursor:
+                original_count = (await cursor.fetchone())[0]
+            
+            if filter_type == "failed":
+                # Delete only failed requests
+                result = await db.execute(
+                    "DELETE FROM checkpoint_requests WHERE checkpoint_id = ? AND status = 'failed'",
+                    (checkpoint_id,)
+                )
+                removed_count = result.rowcount
+                
+            elif filter_type == "all":
+                # Delete all non-queued requests
+                result = await db.execute(
+                    "DELETE FROM checkpoint_requests WHERE checkpoint_id = ? AND status != 'queued'",
+                    (checkpoint_id,)
+                )
+                removed_count = result.rowcount
+                
+            else:
+                return {"error": f"Unknown filter type: {filter_type}"}
+            
+            # Update checkpoint totals
+            await db.execute(
+                "UPDATE checkpoints SET total_requests = total_requests - ? WHERE id = ?",
+                (removed_count, checkpoint_id)
+            )
+            
+            # Count remaining
+            async with db.execute(
+                "SELECT COUNT(*) FROM checkpoint_requests WHERE checkpoint_id = ? AND status != 'queued'",
+                (checkpoint_id,)
+            ) as cursor:
+                remaining_count = (await cursor.fetchone())[0]
+            
+            await db.commit()
+            
+        logger.info(f"Cleared {removed_count} {filter_type} requests from checkpoint")
         return {
             "status": "cleared",
             "filter": filter_type,
             "removed_count": removed_count,
-            "remaining_count": len(checkpoint["active_completions"])
+            "remaining_count": remaining_count
         }
-    else:
-        return {"error": "Failed to update checkpoint"}
+        
+    except Exception as e:
+        logger.error(f"Failed to clear checkpoint requests: {e}", exc_info=True)
+        return {"error": str(e)}
 
 
 @event_handler("dev:checkpoint")

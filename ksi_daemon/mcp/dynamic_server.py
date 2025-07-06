@@ -105,6 +105,17 @@ class KSIDynamicMCPServer(FastMCP):
         
         # Check if this is a known session (thin handshake)
         if session_key in self.session_cache:
+            # Update last seen in database
+            try:
+                async with aiosqlite.connect(self.session_db_path) as db:
+                    await db.execute(
+                        "UPDATE mcp_sessions SET last_seen = ?, thin_handshake = 1 WHERE session_key = ?",
+                        (datetime.now().isoformat(), session_key)
+                    )
+                    await db.commit()
+            except Exception as e:
+                logger.debug(f"Failed to update session last seen: {e}")
+            
             # Calculate approximate token savings
             full_tools = self.session_cache[session_key].get("tools", [])
             minimal_tools = self._get_minimal_tools(self.session_cache[session_key])
@@ -138,13 +149,60 @@ class KSIDynamicMCPServer(FastMCP):
         tools = await self._generate_tools_for_agent(agent_info)
         
         # Cache for future thin handshakes
-        self.session_cache[session_key] = {
+        session_data = {
             "agent_id": agent_id,
             "conversation_id": conversation_id,
             "agent_info": agent_info,
             "tools": tools,
             "created": datetime.now()
         }
+        self.session_cache[session_key] = session_data
+        
+        # Save to database
+        try:
+            async with aiosqlite.connect(self.session_db_path) as db:
+                # Save session
+                cursor = await db.execute(
+                    """INSERT INTO mcp_sessions 
+                       (session_key, agent_id, conversation_id, created_at, last_seen, 
+                        thin_handshake, config_path, response_count)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        session_key,
+                        agent_id,
+                        conversation_id,
+                        datetime.now().isoformat(),
+                        datetime.now().isoformat(),
+                        0,  # First handshake is always full
+                        agent_info.get("config_path", ""),
+                        0
+                    )
+                )
+                session_id = cursor.lastrowid
+                
+                # Save tools
+                for tool in tools:
+                    if isinstance(tool, dict) and "name" in tool:
+                        await db.execute(
+                            """INSERT INTO mcp_session_tools 
+                               (session_id, tool_name, added_at, usage_count)
+                               VALUES (?, ?, ?, ?)""",
+                            (
+                                session_id,
+                                tool["name"],
+                                datetime.now().isoformat(),
+                                0
+                            )
+                        )
+                
+                await db.commit()
+                
+                # Store DB ID in cache for later use
+                self.session_cache[session_key]["_db_id"] = session_id
+                
+        except Exception as e:
+            logger.warning(f"Failed to save MCP session to database: {e}")
+            # Continue normally even if database save fails
         
         return tools
     
@@ -275,12 +333,39 @@ class KSIDynamicMCPServer(FastMCP):
         if ctx and hasattr(ctx, 'request_context'):
             agent_id = ctx.request_context.headers.get("X-KSI-Agent-ID", "unknown")
         
+        tool_name = f"ksi_{event_name.replace(':', '_')}"
         logger.info(
             "MCP tool invoked",
             agent_id=agent_id,
             event=event_name,
-            tool=f"ksi_{event_name.replace(':', '_')}"
+            tool=tool_name
         )
+        
+        # Track tool usage in database
+        if ctx and hasattr(ctx, 'request_context'):
+            conversation_id = ctx.request_context.headers.get("X-KSI-Conversation-ID", "unknown")
+            session_key = f"{agent_id}:{conversation_id}"
+            
+            try:
+                async with aiosqlite.connect(self.session_db_path) as db:
+                    # Get session ID
+                    async with db.execute(
+                        "SELECT id FROM mcp_sessions WHERE session_key = ?",
+                        (session_key,)
+                    ) as cursor:
+                        row = await cursor.fetchone()
+                        if row:
+                            session_id = row[0]
+                            # Increment tool usage
+                            await db.execute(
+                                """UPDATE mcp_session_tools 
+                                   SET usage_count = usage_count + 1 
+                                   WHERE session_id = ? AND tool_name = ?""",
+                                (session_id, tool_name)
+                            )
+                            await db.commit()
+            except Exception as e:
+                logger.debug(f"Failed to track tool usage: {e}")
         
         try:
             result = await self.ksi_client.send_event(event_name, data)
@@ -431,41 +516,61 @@ class KSIDynamicMCPServer(FastMCP):
         self._load_sessions_task = asyncio.create_task(self._load_sessions())
     
     async def _load_sessions(self):
-        """Load persisted sessions from database."""
+        """Initialize MCP sessions database with proper relational schema."""
         try:
             # Ensure DB directory exists
             self.session_db_path.parent.mkdir(parents=True, exist_ok=True)
             
+            # Delete existing database for clean start
+            if self.session_db_path.exists():
+                self.session_db_path.unlink()
+                logger.info("Deleted existing MCP sessions database for clean start")
+            
             async with aiosqlite.connect(self.session_db_path) as db:
-                # Create table if not exists
+                # Enable WAL mode for better concurrency
+                await db.execute("PRAGMA journal_mode=WAL")
+                
+                # Create sessions table
                 await db.execute("""
                     CREATE TABLE IF NOT EXISTS mcp_sessions (
-                        session_key TEXT PRIMARY KEY,
-                        session_data TEXT NOT NULL,
-                        last_seen TIMESTAMP NOT NULL
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        session_key TEXT UNIQUE NOT NULL,
+                        agent_id TEXT NOT NULL,
+                        conversation_id TEXT,
+                        created_at TEXT NOT NULL,
+                        last_seen TEXT NOT NULL,
+                        thin_handshake INTEGER NOT NULL DEFAULT 0,
+                        is_active INTEGER NOT NULL DEFAULT 1,
+                        config_path TEXT,
+                        response_count INTEGER NOT NULL DEFAULT 0
                     )
                 """)
+                
+                # Create session tools table
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS mcp_session_tools (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        session_id INTEGER NOT NULL,
+                        tool_name TEXT NOT NULL,
+                        added_at TEXT NOT NULL,
+                        usage_count INTEGER NOT NULL DEFAULT 0,
+                        FOREIGN KEY (session_id) REFERENCES mcp_sessions(id),
+                        UNIQUE(session_id, tool_name)
+                    )
+                """)
+                
+                # Create indexes
+                await db.execute("CREATE INDEX idx_sessions_key ON mcp_sessions(session_key)")
+                await db.execute("CREATE INDEX idx_sessions_agent ON mcp_sessions(agent_id)")
+                await db.execute("CREATE INDEX idx_sessions_last_seen ON mcp_sessions(last_seen)")
+                await db.execute("CREATE INDEX idx_session_tools_session ON mcp_session_tools(session_id)")
+                
                 await db.commit()
                 
-                # Load sessions less than 24 hours old
-                cutoff = (datetime.now() - timedelta(hours=24)).isoformat()
-                async with db.execute(
-                    "SELECT session_key, session_data, last_seen FROM mcp_sessions WHERE last_seen > ?",
-                    (cutoff,)
-                ) as cursor:
-                    async for row in cursor:
-                        session_key, session_data_json, last_seen_str = row
-                        try:
-                            session_data = json.loads(session_data_json)
-                            self.session_cache[session_key] = session_data
-                            self.session_last_seen[session_key] = datetime.fromisoformat(last_seen_str)
-                        except Exception as e:
-                            logger.warning(f"Failed to load session {session_key}: {e}")
-                
-                logger.info(f"Loaded {len(self.session_cache)} MCP sessions from persistence")
+                logger.info("MCP sessions database initialized with relational schema")
                 
         except Exception as e:
-            logger.error(f"Failed to load MCP sessions: {e}")
+            logger.error(f"Failed to initialize MCP sessions database: {e}")
     
     async def _save_sessions(self):
         """Save current sessions to database."""
@@ -474,30 +579,62 @@ class KSIDynamicMCPServer(FastMCP):
             
         try:
             async with aiosqlite.connect(self.session_db_path) as db:
-                # Save all current sessions
+                # Update last_seen for all current sessions
                 for session_key, session_data in self.session_cache.items():
                     last_seen = self.session_last_seen.get(session_key, datetime.now())
                     
-                    # Don't save full tool schemas to save space
-                    save_data = session_data.copy()
-                    if "tools" in save_data:
-                        # Only save tool names, not full definitions
-                        save_data["tools"] = [
-                            {"name": t.get("name")} if isinstance(t, dict) else t
-                            for t in save_data["tools"]
-                        ]
-                    
-                    await db.execute(
-                        "INSERT OR REPLACE INTO mcp_sessions (session_key, session_data, last_seen) VALUES (?, ?, ?)",
-                        (session_key, json.dumps(save_data), last_seen.isoformat())
-                    )
+                    # Check if session exists in DB
+                    if "_db_id" in session_data:
+                        # Update existing session
+                        await db.execute(
+                            "UPDATE mcp_sessions SET last_seen = ? WHERE id = ?",
+                            (last_seen.isoformat(), session_data["_db_id"])
+                        )
+                    else:
+                        # Session created outside of list_tools, save it now
+                        try:
+                            cursor = await db.execute(
+                                """INSERT INTO mcp_sessions 
+                                   (session_key, agent_id, conversation_id, created_at, last_seen, 
+                                    thin_handshake, config_path, response_count)
+                                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                                (
+                                    session_key,
+                                    session_data.get("agent_id", "unknown"),
+                                    session_data.get("conversation_id", "unknown"), 
+                                    session_data.get("created", datetime.now()).isoformat(),
+                                    last_seen.isoformat(),
+                                    1 if last_seen > session_data.get("created", last_seen) else 0,
+                                    session_data.get("agent_info", {}).get("config_path", ""),
+                                    0
+                                )
+                            )
+                            session_id = cursor.lastrowid
+                            session_data["_db_id"] = session_id
+                            
+                            # Save tools if present
+                            for tool in session_data.get("tools", []):
+                                if isinstance(tool, dict) and "name" in tool:
+                                    await db.execute(
+                                        """INSERT INTO mcp_session_tools 
+                                           (session_id, tool_name, added_at, usage_count)
+                                           VALUES (?, ?, ?, ?)""",
+                                        (
+                                            session_id,
+                                            tool["name"],
+                                            datetime.now().isoformat(),
+                                            0
+                                        )
+                                    )
+                        except Exception as e:
+                            logger.debug(f"Failed to save session {session_key}: {e}")
                 
                 # Clean up old sessions
                 cutoff = (datetime.now() - timedelta(hours=24)).isoformat()
                 await db.execute("DELETE FROM mcp_sessions WHERE last_seen < ?", (cutoff,))
                 
                 await db.commit()
-                logger.debug(f"Saved {len(self.session_cache)} MCP sessions to persistence")
+                logger.debug(f"Saved {len(self.session_cache)} MCP sessions to database")
                 
         except Exception as e:
             logger.error(f"Failed to save MCP sessions: {e}")
