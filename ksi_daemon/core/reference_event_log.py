@@ -309,8 +309,17 @@ class ReferenceEventLog:
             conditions.append("timestamp <= ?")
             params.append(end_time)
         
-        # Event pattern matching would require LIKE queries
-        # For now, keep it simple
+        # Event pattern matching using LIKE
+        if event_patterns:
+            pattern_conditions = []
+            for pattern in event_patterns:
+                # Convert wildcard to SQL LIKE pattern
+                sql_pattern = pattern.replace('*', '%')
+                pattern_conditions.append("event_name LIKE ?")
+                params.append(sql_pattern)
+            
+            if pattern_conditions:
+                conditions.append(f"({' OR '.join(pattern_conditions)})")
         
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         limit_clause = f"LIMIT {limit}" if limit else ""
