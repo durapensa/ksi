@@ -7,7 +7,7 @@ Core technical reference for KSI (Kubernetes-Style Infrastructure) - a resilient
 **Latest Features**:
 - **Universal Relational State**: Entity-property-relationship model for all state
 - **Agent Observation System**: Complete subscription-based event observation between agents
-- **Reference-Based Event Log**: File-based event storage with selective payload references
+- **Reference-Based Event Log**: ✓ File-based event storage with selective payload references (old event_log.py removed)
 - **Terminology Migration**: ✓ Complete conversion from client_id/parent_id to originator_id/construct_id
 - Agent originator-construct tracking with relationship metadata
 - Shutdown coordination with barrier pattern and service acknowledgments
@@ -119,13 +119,14 @@ result = await client.send_with_errors("validate:all", {...}, error_mode="collec
 
 ## Core Infrastructure
 
-### Event Log System
-High-performance event logging in `ksi_daemon/event_log.py`:
-- **Ring buffer**: Memory-efficient with configurable size (default 10k events)
-- **SQLite persistence**: Durable storage with proper indexes
-- **Payload stripping**: Large content removed, file references preserved
-- **Real-time streaming**: Subscribe to event patterns
+### Reference-Based Event Log System
+High-performance event logging in `ksi_daemon/core/reference_event_log.py`:
+- **File-based storage**: Daily JSONL files in `var/logs/events/YYYY-MM-DD/`
+- **SQLite metadata index**: Fast queries without loading full events
+- **Selective payload references**: Large payloads (>5KB) stored as file references
+- **Pattern matching**: SQL LIKE queries for event filtering (e.g., "system:*")
 - **Integrated in router**: All events automatically logged via emit()
+- **No in-memory buffer**: Direct file writes for durability
 
 ### Universal Relational State System
 Agent data managed through entity-property-relationship model in `ksi_daemon/core/state.py`:
