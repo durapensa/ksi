@@ -642,7 +642,8 @@ def _score_composition_for_context(comp_info: Dict[str, Any], context: Selection
         if version >= 2.0:
             score += 5
             reasons.append("Recent version")
-    except:
+    except (ValueError, TypeError):
+        # Invalid version format, skip scoring
         pass
     
     # Prefer well-documented compositions

@@ -218,7 +218,8 @@ class ReferenceEventLog:
         try:
             size = len(json.dumps(value))
             return size > self.reference_threshold
-        except:
+        except (TypeError, ValueError) as e:
+            logger.debug(f"Error serializing value for size check: {e}")
             return False
     
     async def _write_to_file(self, entry: ReferenceEventLogEntry) -> Tuple[Path, int]:

@@ -532,7 +532,7 @@ def parse_docstring_params(func: Callable) -> Dict[str, Dict[str, Any]]:
                         # Try to parse the default value
                         try:
                             default = ast.literal_eval(default_text)
-                        except:
+                        except (ValueError, SyntaxError):
                             default = default_text
 
                     params[name] = {"type": type_str, "description": desc_part, "required": required}

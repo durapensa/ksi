@@ -670,8 +670,8 @@ async def collect_checkpoint_data(data: Dict[str, Any]) -> Dict[str, Any]:
                 queue_size = queue.qsize()
                 if queue_size > 0:
                     logger.warning(f"Cannot safely extract {queue_size} items from session {session_id} queue")
-            except:
-                pass
+            except Exception as e:
+                logger.debug(f"Error getting queue size for session {session_id}: {e}")
             
             checkpoint_data["session_queues"][session_id] = {
                 "items": queue_items,  # Empty for now - can't safely extract from asyncio.Queue

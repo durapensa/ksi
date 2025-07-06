@@ -186,7 +186,7 @@ class DaemonProtocolTester:
             print("⚠️  Some tests failed - documentation may need updates")
             
         # Save detailed results
-        report_file = Path("var/experiments/results/protocol_validation.json")
+        report_file = config.var_dir / "experiments/results/protocol_validation.json"
         with open(report_file, 'w') as f:
             json.dump({
                 "timestamp": time.time(),

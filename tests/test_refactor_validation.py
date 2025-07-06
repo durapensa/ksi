@@ -124,7 +124,7 @@ def test_directory_migration():
                 os.access(config.response_log_dir, os.W_OK))
     
     # Test old sessions directory not being used for new logs
-    old_sessions_dir = Path("var/logs/sessions")
+    old_sessions_dir = config.log_dir / "sessions"
     if old_sessions_dir.exists():
         # If it exists, it should be empty or only have old files
         recent_files = []
