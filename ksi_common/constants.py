@@ -58,7 +58,7 @@ DEFAULT_LOG_FORMAT = "console"  # or "json"
 
 # Agent defaults
 DEFAULT_AGENT_PROFILE = "ksi-developer"
-DEFAULT_MODEL = "sonnet"
+DEFAULT_MODEL = "claude-sonnet-4-20250514"
 
 # Protocol version
 PROTOCOL_VERSION = "1.0"

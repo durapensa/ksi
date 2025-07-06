@@ -211,7 +211,7 @@ async def handle_async_completion(data: Dict[str, Any]) -> Dict[str, Any]:
         f"Received async completion request",
         request_id=request_id,
         session_id=session_id,
-        model=data.get("model", "unknown")
+        model=data.get("model", config.completion_default_model)
     )
     
     # Register with session manager
@@ -298,8 +298,8 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
             if not lock_result.get("locked"):
                 raise Exception(f"Failed to acquire conversation lock: {lock_result.get('reason')}")
         
-        # Select provider
-        model = data.get("model", "unknown")
+        # Select provider - use config default if not specified
+        model = data.get("model", config.completion_default_model)
         require_mcp = bool(data.get("extra_body", {}).get("ksi", {}).get("mcp_config_path"))
         provider_name, provider_config = provider_manager.select_provider(
             model, 
@@ -321,6 +321,10 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
         # Add conversation_id if not present
         if "conversation_id" not in data:
             data["conversation_id"] = f"ksi-{request_id}"
+        
+        # Ensure model is set in data for litellm
+        if "model" not in data:
+            data["model"] = model
         
         # Call through provider (currently only litellm handler)
         provider, raw_response = await handle_litellm_completion(data)

@@ -47,8 +47,9 @@ metadata:
   
   # NEW: Validation tracking
   validated_for:
-    - claude_version: "1.0.43 (Claude Code)"
-      model: "claude-cli/sonnet"
+    - model_version: "claude-sonnet-4-20250514"
+      extra_version: "1.0.43 (Claude Code)"
+      model: "claude-cli/claude-sonnet-4-20250514"
       validation_date: "2025-07-06"
       test_suite: "prompt_effectiveness_v1"
       overall_score: 0.92
@@ -104,8 +105,9 @@ async def validate_composition_with_tests(composition_name: str, test_suite: str
     
     # Create validation record
     validation_record = {
-        "claude_version": get_claude_version(),
-        "model": "claude-cli/sonnet",
+        "model_version": get_model_version(),
+        "extra_version": get_extra_version(),
+        "model": f"claude-cli/{get_model_version()}",
         "validation_date": datetime.now().isoformat()[:10],
         "test_suite": test_suite,
         "overall_score": calculate_overall_score(results),
@@ -123,9 +125,9 @@ async def validate_composition_with_tests(composition_name: str, test_suite: str
 
 **B. Validation Query Capabilities**:
 ```python
-# Find compositions validated for current Claude version
+# Find compositions validated for current model version
 validated_compositions = await query_compositions_by_validation(
-    claude_version="1.0.43",
+    model_version="claude-sonnet-4-20250514",
     min_score=0.8,
     max_contamination=0.05
 )
@@ -166,6 +168,37 @@ async def handle_validate(data: Dict[str, Any]) -> Dict[str, Any]:
     return {"valid": composition_valid}
 ```
 
+#### Helper Functions for Version Discovery:
+```python
+def get_model_version() -> str:
+    """Extract actual model version from Claude verbose output."""
+    try:
+        result = subprocess.run(
+            ["claude", "--verbose", "--output-format", "json", "-p", "ping"],
+            capture_output=True, text=True, check=True
+        )
+        data = json.loads(result.stdout)
+        for item in data:
+            if item.get("type") == "system" and item.get("subtype") == "init":
+                return item.get("model", "unknown")
+        return "unknown"
+    except Exception as e:
+        logger.error(f"Failed to get model version: {e}")
+        return "unknown"
+
+def get_extra_version() -> str:
+    """Get Claude Code client version."""
+    try:
+        result = subprocess.run(
+            ["claude", "--version"], 
+            capture_output=True, text=True, check=True
+        )
+        return result.stdout.strip()
+    except Exception as e:
+        logger.error(f"Failed to get extra version: {e}")
+        return "unknown"
+```
+
 #### New `composition:query_validated` Event:
 ```python
 @event_handler("composition:query_validated")
@@ -173,7 +206,8 @@ async def handle_query_validated(data: Dict[str, Any]) -> Dict[str, Any]:
     """Query compositions by validation criteria."""
     
     filters = {
-        "claude_version": data.get("claude_version"),
+        "model_version": data.get("model_version"),
+        "extra_version": data.get("extra_version"),
         "model": data.get("model"), 
         "min_score": data.get("min_score", 0.0),
         "max_contamination": data.get("max_contamination", 1.0),
@@ -240,7 +274,7 @@ async def handle_query_validated(data: Dict[str, Any]) -> Dict[str, Any]:
 ```bash
 # Find compositions validated for research tasks with high reliability
 echo '{"event": "composition:query_validated", "data": {
-  "claude_version": "1.0.43",
+  "model_version": "claude-sonnet-4-20250514",
   "use_cases": ["research", "analysis"],
   "min_score": 0.85,
   "max_contamination": 0.03
@@ -259,9 +293,9 @@ echo '{"event": "composition:validate", "data": {
 
 ### Scenario 3: Claude Version Migration
 ```bash
-# Check which compositions need re-validation for new Claude version
+# Check which compositions need re-validation for new model version
 echo '{"event": "composition:query_validated", "data": {
-  "claude_version": "1.0.44",
+  "model_version": "claude-sonnet-4-20250520", 
   "require_current_version": true
 }}' | nc -U var/run/daemon.sock
 ```
@@ -277,5 +311,6 @@ echo '{"event": "composition:query_validated", "data": {
 This enhancement provides structured quality assurance for KSI compositions while leveraging the existing robust foundation.
 
 ---
-*Proposal created: 2025-07-06*  
-*Claude Version: 1.0.43 (Claude Code)*
+*Proposal updated: 2025-07-06*  
+*Model Version: claude-opus-4-20250514*  
+*Extra Version: 1.0.43 (Claude Code)*

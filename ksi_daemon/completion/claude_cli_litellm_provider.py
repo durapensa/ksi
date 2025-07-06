@@ -46,7 +46,7 @@ from ksi_common.logging import get_bound_logger
 # Configuration
 logger = get_bound_logger("claude_cli_provider", version="3.0.0")
 CLAUDE_BIN = Path(os.getenv("CLAUDE_BIN", "claude")).expanduser()
-DEFAULT_CLAUDE_MODEL = "sonnet"  # claude CLI only accepts "sonnet" or "opus"
+# No default model - completion service must provide one
 
 # Replicate model name detection constants
 REPLICATE_MODEL_NAME_WITH_ID_LENGTH = 64
@@ -65,7 +65,7 @@ def build_cmd(
     prompt: str,
     *,
     output_format: str = "json",
-    model_alias: str = DEFAULT_CLAUDE_MODEL,
+    model_name: str,
     allowed_tools: Optional[List[str]] = None,
     disallowed_tools: Optional[List[str]] = None,
     session_id: Optional[str] = None,
@@ -79,7 +79,7 @@ def build_cmd(
         "--output-format",
         output_format,
         "--model",
-        model_alias,
+        model_name,
     ]
     if allowed_tools:
         cmd += ["--allowedTools"] + allowed_tools
@@ -116,8 +116,7 @@ def map_subprocess_error_to_litellm(e: Exception, model: str) -> Exception:
     if isinstance(e, subprocess.TimeoutExpired):
         return Timeout(
             message=f"Claude CLI timed out after {e.timeout}s",
-            model=model,
-            llm_provider="claude-cli"
+            model=model
         )
     
     elif isinstance(e, subprocess.CalledProcessError):
@@ -125,29 +124,25 @@ def map_subprocess_error_to_litellm(e: Exception, model: str) -> Exception:
         if e.returncode in [-9, -15]:  # SIGKILL, SIGTERM
             return ServiceUnavailableError(
                 message=f"Claude CLI terminated with signal {e.returncode}",
-                model=model,
-                llm_provider="claude-cli"
+                model=model
             )
         elif e.returncode == 1:  # General error - could be bad prompt
             stderr = e.stderr if hasattr(e, 'stderr') else ""
             return BadRequestError(
                 message=f"Claude CLI error: {stderr or 'Invalid request'}",
-                model=model,
-                llm_provider="claude-cli"
+                model=model
             )
         else:
             return APIError(
                 message=f"Claude CLI failed with code {e.returncode}",
                 model=model,
-                llm_provider="claude-cli",
                 status_code=500
             )
     
     elif isinstance(e, FileNotFoundError):
         return APIConnectionError(
             message=f"Claude CLI not found at {CLAUDE_BIN}",
-            model=model,
-            llm_provider="claude-cli"
+            model=model
         )
     
     elif isinstance(e, ClaudeCLIError):
@@ -155,14 +150,12 @@ def map_subprocess_error_to_litellm(e: Exception, model: str) -> Exception:
         if e.status_code == 400:
             return BadRequestError(
                 message=e.message,
-                model=model,
-                llm_provider="claude-cli"
+                model=model
             )
         else:
             return APIError(
                 message=e.message,
                 model=model,
-                llm_provider="claude-cli",
                 status_code=e.status_code
             )
     
@@ -170,7 +163,6 @@ def map_subprocess_error_to_litellm(e: Exception, model: str) -> Exception:
     return APIError(
         message=f"Claude CLI error: {str(e)}",
         model=model,
-        llm_provider="claude-cli",
         status_code=500
     )
 
@@ -179,7 +171,8 @@ class ClaudeCLIProvider(CustomLLM):
     """
     KSI-integrated LiteLLM provider for Claude CLI.
     
-    Use via model="claude-cli/sonnet" or model="claude-cli/opus"
+    LiteLLM calls this provider with pure model names (e.g., "claude-sonnet-4-20250514")
+    after stripping the "claude-cli/" prefix used for routing.
     
     This provider is designed specifically for KSI and integrates with:
     - KSI's configuration system for timeouts
@@ -303,8 +296,7 @@ class ClaudeCLIProvider(CustomLLM):
 
     async def _acompletion(self, messages, *args, **kwargs):
         """Claude CLI execution with intelligent retry logic"""
-        prompt, model_alias = self._extract_prompt_and_model(messages, *args, **kwargs)
-        full_model = f"claude-cli/{model_alias}"
+        prompt, model_name = self._extract_prompt_and_model(messages, *args, **kwargs)
         
         # Extract request_id for process tracking
         request_id = kwargs.get("request_id", str(uuid.uuid4()))
@@ -327,7 +319,7 @@ class ClaudeCLIProvider(CustomLLM):
         
         logger.info(
             "Starting Claude CLI completion",
-            model=model_alias,
+            model=model_name,
             session_id=kwargs.get("session_id"),
             timeout_strategy=timeouts,
             sandbox_dir=sandbox_dir,
@@ -349,7 +341,7 @@ class ClaudeCLIProvider(CustomLLM):
             cmd = build_cmd(
                 prompt,
                 output_format="json",
-                model_alias=model_alias,
+                model_name=model_name,
                 allowed_tools=allowed,
                 disallowed_tools=disallowed,
                 session_id=session_id,
@@ -370,7 +362,7 @@ class ClaudeCLIProvider(CustomLLM):
                         self._run_claude_async_with_progress(
                             cmd,
                             timeout,
-                            full_model,
+                            model_name,
                             sandbox_dir,
                             request_id
                         ),
@@ -381,12 +373,11 @@ class ClaudeCLIProvider(CustomLLM):
                     from litellm.exceptions import Timeout
                     raise Timeout(
                         message=f"Claude CLI timed out after {timeout}s",
-                        model=full_model,
-                        llm_provider="claude-cli"
+                        model=model_name
                     )
                 
                 # Success - process the result
-                return self._process_claude_result(result, model_alias, prompt)
+                return self._process_claude_result(result, model_name, prompt)
                 
             except subprocess.TimeoutExpired as e:
                 if attempt < len(timeouts) - 1:  # Not final attempt
@@ -399,11 +390,11 @@ class ClaudeCLIProvider(CustomLLM):
                     await asyncio.sleep(config.claude_retry_backoff)
                 else:
                     # Final attempt failed - map to LiteLLM exception
-                    raise map_subprocess_error_to_litellm(e, full_model)
+                    raise map_subprocess_error_to_litellm(e, model_name)
                     
             except Exception as e:
                 # Map all errors to LiteLLM exceptions
-                raise map_subprocess_error_to_litellm(e, full_model)
+                raise map_subprocess_error_to_litellm(e, model_name)
     
     async def _run_claude_async_with_progress(self, cmd: List[str], timeout: int, model: str, sandbox_dir: Optional[str] = None, request_id: str = None):
         """Run Claude with asyncio subprocess and progress monitoring"""
@@ -581,7 +572,7 @@ class ClaudeCLIProvider(CustomLLM):
                 async with self.process_lock:
                     self.active_processes.pop(request_id, None)
     
-    def _process_claude_result(self, result, model_alias: str, prompt: str):
+    def _process_claude_result(self, result, model_name: str, prompt: str):
         """Process successful Claude CLI result and create LiteLLM response"""
         raw_response = result.stdout
         stderr_output = result.stderr
@@ -592,7 +583,7 @@ class ClaudeCLIProvider(CustomLLM):
         
         # Create LiteLLM response with raw JSON
         response = litellm.completion(  # type: ignore
-            model=f"claude-cli/{model_alias}",
+            model=model_name,
             mock_response=raw_response,  # Pass raw JSON string
             messages=[{"role": "user", "content": prompt}],
         )
@@ -625,35 +616,21 @@ class ClaudeCLIProvider(CustomLLM):
         return response
 
     def _extract_prompt_and_model(self, messages, *args, **kwargs):
-        """Extract prompt and validate model from LiteLLM kwargs"""
+        """Extract prompt and model from LiteLLM kwargs - receives pure model name"""
         prompt = messages[-1]["content"]
         
-        # Extract model from kwargs (LiteLLM passes it here)
-        full_model = kwargs.get("model", f"claude-cli/{DEFAULT_CLAUDE_MODEL}")
-        
-        # Extract the part after provider prefix using LiteLLM pattern
-        # This handles both "claude-cli/sonnet" and edge cases like just "sonnet"
-        parts = full_model.split("/", 1)
-        if len(parts) == 2 and parts[0] == "claude-cli":
-            # Standard format: claude-cli/model
-            model_alias = parts[1]
-        elif len(parts) == 1:
-            # Just model name without provider prefix
-            model_alias = parts[0]
-        else:
-            # Unexpected format, use default
-            model_alias = DEFAULT_CLAUDE_MODEL
-            
-        # Validate model - claude CLI only accepts "sonnet" or "opus"
-        if model_alias not in ["sonnet", "opus"]:
-            logger.warning(
-                f"Claude CLI model '{model_alias}' not supported, using {DEFAULT_CLAUDE_MODEL}",
-                requested_model=model_alias,
-                valid_models=["sonnet", "opus"]
+        # LiteLLM strips the "claude-cli/" prefix before calling this provider
+        # So we receive only the pure model name (e.g., "claude-sonnet-4-20250514")
+        model_name = kwargs.get("model")
+        if not model_name:
+            raise BadRequestError(
+                message="No model specified. Completion service must provide a model.",
+                model="unknown"
             )
-            model_alias = DEFAULT_CLAUDE_MODEL
-            
-        return prompt, model_alias
+        
+        # Pass the model name directly to claude CLI - no processing needed
+        logger.debug(f"Using model: {model_name}")
+        return prompt, model_name
 
 
 # Register provider with LiteLLM

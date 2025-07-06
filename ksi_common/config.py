@@ -48,6 +48,7 @@ from .constants import (
     DEFAULT_STATE_DIR,
     DEFAULT_DB_DIR,
     DEFAULT_RUN_DIR,
+    DEFAULT_MODEL,
     DEFAULT_EXPORT_DIR,
     DEFAULT_SOCKET_PATH,
     DEFAULT_SOCKET_TIMEOUT,
@@ -139,6 +140,9 @@ class KSIBaseConfig(BaseSettings):
     completion_timeout_default: int = 300  # 5 minutes default
     completion_timeout_min: int = 60       # 1 minute minimum
     completion_timeout_max: int = 1800     # 30 minutes maximum
+    
+    # Completion model default
+    completion_default_model: str = f"claude-cli/{DEFAULT_MODEL}"
     
     # Claude CLI progressive timeouts (in seconds)
     claude_timeout_attempts: List[int] = [300, 900, 1800]  # 5min, 15min, 30min

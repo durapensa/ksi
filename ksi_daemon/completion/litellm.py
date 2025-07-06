@@ -32,7 +32,6 @@ logging.getLogger("litellm").setLevel(logging.CRITICAL)
 logger = get_bound_logger("litellm_provider", version="1.0.0")
 
 # Configuration
-DEFAULT_MODEL = "claude-cli/sonnet"  # Use the correct provider name
 COMPLETION_TIMEOUT = 900.0  # 15 minutes - reasonable for Claude
 
 # Module state
@@ -52,7 +51,10 @@ async def handle_litellm_completion(data: Dict[str, Any]) -> Tuple[str, Dict[str
     start_time = time.time()
     
     # Extract key parameters for logging
-    model = data.get("model", DEFAULT_MODEL)
+    model = data.get("model")
+    if not model:
+        raise ValueError("No model specified")
+    
     session_id = data.get("session_id")
     request_id = data.get("request_id", str(uuid.uuid4()))
     
@@ -101,6 +103,16 @@ async def handle_litellm_completion(data: Dict[str, Any]) -> Tuple[str, Dict[str
         return provider, raw_response
         
     except Exception as e:
+        # Add provider context to errors based on model routing
+        if model and model.startswith("claude-cli/"):
+            # Enhance the error with provider context for KSI error handling
+            if hasattr(e, '__dict__'):
+                e.llm_provider = "claude-cli"
+            else:
+                # For exceptions that don't allow attribute setting, wrap them
+                logger.error(f"LiteLLM completion error (claude-cli provider): {e}", exc_info=True)
+                raise RuntimeError(f"Claude CLI provider error: {e}") from e
+        
         logger.error(f"LiteLLM completion error: {e}", exc_info=True)
         raise
 
