@@ -327,47 +327,6 @@ async def handle_inspect_module(data: Dict[str, Any]) -> Dict[str, Any]:
     return {"module": info}
 
 
-@event_handler("api:schema")
-async def handle_api_schema(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Get complete API schema using direct function inspection."""
-    router = get_router()
-    modules = router.get_modules()
-    
-    schema = {
-        "events": {},
-        "modules": {},
-        "total_events": 0
-    }
-    
-    # Collect all unique events by directly inspecting handler functions
-    unique_events = {}
-    for module_name in modules:
-        module_info = router.inspect_module(module_name)
-        if module_info:
-            for handler in module_info["handlers"]:
-                event_name = handler["event"]
-                if event_name not in unique_events:
-                    # Simple event info
-                    unique_events[event_name] = {
-                        "event": event_name,
-                        "module": module_name,
-                        "handler": handler["function"],
-                        "async": handler["async"],
-                        "priority": handler["priority"]
-                    }
-    
-    schema["events"] = unique_events
-    schema["total_events"] = len(unique_events)
-    
-    # Group by module
-    for module_name, module_info in modules.items():
-        schema["modules"][module_name] = {
-            "events": [h["event"] for h in router.inspect_module(module_name)["handlers"]],
-            "count": len([h["event"] for h in router.inspect_module(module_name)["handlers"]])
-        }
-    
-    return schema
-
 
 @event_handler("system:health")
 async def handle_system_health(data: Dict[str, Any]) -> Dict[str, Any]:

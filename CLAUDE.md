@@ -68,7 +68,6 @@ Essential development practices for Claude Code when working with KSI.
 - **Module introspection available**:
   - List modules: `echo '{"event": "module:list", "data": {}}' | nc -U var/run/daemon.sock`
   - List events: `echo '{"event": "module:events", "data": {}}' | nc -U var/run/daemon.sock`
-  - API schema: `echo '{"event": "api:schema", "data": {}}' | nc -U var/run/daemon.sock`
 
 ### Session ID Management (Critical)
 - **NEVER invent session IDs** - claude-cli only accepts session IDs it has generated
@@ -215,7 +214,7 @@ source .venv/bin/activate          # Always first
 
 # Module introspection
 echo '{"event": "module:list", "data": {}}' | nc -U var/run/daemon.sock
-echo '{"event": "api:schema", "data": {}}' | nc -U var/run/daemon.sock
+echo '{"event": "system:discover", "data": {"detail": true}}' | nc -U var/run/daemon.sock
 
 # Common operations
 echo '{"event": "system:health", "data": {}}' | nc -U var/run/daemon.sock

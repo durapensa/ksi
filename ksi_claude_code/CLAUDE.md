@@ -204,6 +204,7 @@ for agent in agents:
 
 ### Experimental Phase Focus
 - **Direct Socket Communication**: Proven more reliable than EventClient wrapper
+- **Comprehensive Discovery**: `system:discover` provides full API documentation with parameters
 - **Baseline Performance**: Establishing metrics via socket-based experiments
 - **Pattern Documentation**: Gathering data for future client improvements
 - **System Understanding**: Deep analysis of daemon capabilities
@@ -211,10 +212,10 @@ for agent in agents:
 ### Known Issues
 
 #### EventClient Discovery Mechanism
-- **Problem**: Discovery expects `{"events": {"namespace": [event_list]}}` but receives `{"events": {"event:name": {details}}}`
+- **Problem**: EventClient wrapper has discovery timeout issues
 - **Symptom**: 5-second timeout during discovery, falls back to bootstrap-only mode
-- **Workaround**: Use direct socket communication (see `experiments/socket_patterns_documentation.md`)
-- **Fix Status**: Low priority - direct socket works reliably
+- **Workaround**: Use direct socket communication with `system:discover` event
+- **Fix Status**: Low priority - direct socket + system:discover works reliably
 
 #### Safety Limitations
 - **No global agent limits**: Unlimited agents can be spawned
@@ -242,6 +243,9 @@ for agent in agents:
 
 ### Common Event Patterns
 ```python
+# Discover events with full documentation
+{"event": "system:discover", "data": {"namespace": "composition", "detail": true}}
+
 # Spawn agent
 {"event": "agent:spawn", "data": {"profile": "...", "prompt": "..."}}
 
@@ -267,6 +271,12 @@ print(f"Raw response: {result}")
 
 # Monitor socket directly
 tail -f var/logs/daemon/daemon.log
+
+# Discover available events and their parameters
+echo '{"event": "system:discover", "data": {"namespace": "agent"}}' | nc -U var/run/daemon.sock
+
+# Get help for specific events
+echo '{"event": "system:help", "data": {"event": "composition:create"}}' | nc -U var/run/daemon.sock
 ```
 
 ## Best Practices

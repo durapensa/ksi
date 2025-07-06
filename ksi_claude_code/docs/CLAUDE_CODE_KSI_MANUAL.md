@@ -99,6 +99,34 @@ async for observation in observer.stream_observations(subscription):
         print(f"Progress: {observation['data']['percentage']}%")
 ```
 
+### 4. Discovery and Introspection Tools
+
+The discovery system provides comprehensive API documentation and event introspection:
+
+```python
+# Get comprehensive event documentation with parameters and descriptions
+echo '{"event": "system:discover", "data": {"detail": true, "namespace": "composition"}}' | nc -U var/run/daemon.sock
+
+# Multiple output formats supported
+echo '{"event": "system:discover", "data": {"format_style": "compact"}}' | nc -U var/run/daemon.sock
+echo '{"event": "system:discover", "data": {"format_style": "mcp"}}' | nc -U var/run/daemon.sock
+
+# Get help for specific events  
+echo '{"event": "system:help", "data": {"event": "composition:create"}}' | nc -U var/run/daemon.sock
+
+# Filter by namespace, module, or pattern
+echo '{"event": "system:discover", "data": {"namespace": "agent", "pattern": "*spawn*"}}' | nc -U var/run/daemon.sock
+```
+
+**Key Discovery Features:**
+- **Parameter extraction**: Automatically analyzes function signatures and docstrings
+- **Event triggers**: Shows which events each handler emits  
+- **Multiple formats**: Verbose, compact, ultra-compact, MCP-compatible
+- **Comprehensive filtering**: By namespace, module, pattern, or specific events
+- **Real-time**: Always reflects current daemon state and loaded modules
+
+**Note**: `system:discover` is the canonical discovery endpoint providing comprehensive API documentation.
+
 ## Key Usage Patterns
 
 ### 1. Agent Conversations for Complex Tasks
