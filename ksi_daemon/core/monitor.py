@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Monitor Plugin - Event-Based Version
+Monitor Module - Event-Based Version
 
 Event log query API for pull-based monitoring.
 Provides endpoints for querying the daemon event log without broadcast overhead.
@@ -18,8 +18,8 @@ from ksi_common.logging import get_bound_logger
 logger = get_bound_logger("monitor", version="1.0.0")
 event_router = None  # Set during startup
 
-# Plugin info
-PLUGIN_INFO = {
+# Module info
+MODULE_INFO = {
     "name": "monitor",
     "version": "1.0.0",
     "description": "Event log query API for monitoring"

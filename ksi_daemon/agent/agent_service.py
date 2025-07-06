@@ -37,7 +37,7 @@ identity_storage_path = config.identity_storage_path
 event_emitter = None
 
 
-# Per-plugin TypedDict definitions (optional type safety)
+# Per-module TypedDict definitions (optional type safety)
 class AgentTerminateData(TypedDict):
     """Type-safe data for agent:terminate."""
     agent_id: str
@@ -82,7 +82,7 @@ def save_identities():
 # System event handlers
 @event_handler("system:context")
 async def handle_context(context: Dict[str, Any]) -> None:
-    """Receive plugin context with event emitter."""
+    """Receive module context with event emitter."""
     global event_emitter
     # Get router for event emission
     router = get_router()

@@ -42,7 +42,7 @@ class ConfigValidateData(TypedDict):
 
 class ConfigReloadData(TypedDict):
     """Type-safe data for config:reload."""
-    component: NotRequired[str]  # 'daemon', 'plugins', 'compositions'
+    component: NotRequired[str]  # 'daemon', 'modules', 'compositions'
 
 class ConfigBackupData(TypedDict):
     """Type-safe data for config:backup."""
@@ -102,7 +102,7 @@ async def handle_context(context: Dict[str, Any]) -> None:
     """Receive infrastructure from daemon context."""
     # Ensure backup directory exists
     CONFIG_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    logger.info(f"Config service plugin initialized with backup dir: {CONFIG_BACKUP_DIR}")
+    logger.info(f"Config service module initialized with backup dir: {CONFIG_BACKUP_DIR}")
 
 
 def _resolve_config_file(config_type: str, file_path: Optional[str] = None) -> Dict[str, Any]:
@@ -514,9 +514,9 @@ async def handle_reload(data: ConfigReloadData) -> Dict[str, Any]:
             await router.emit("daemon:config_reload", {})
             results["reloaded"].append("daemon")
         
-        if component in ["plugins", "all"]:
-            await router.emit("plugins:reload", {})
-            results["reloaded"].append("plugins")
+        if component in ["modules", "all"]:
+            await router.emit("modules:reload", {})
+            results["reloaded"].append("modules")
         
         if component in ["compositions", "all"]:
             await router.emit("composition:reload", {})

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Event Discovery Plugin - Simplified Pure Event-Based Version
+Event Discovery Module - Simplified Pure Event-Based Version
 
 Provides essential discovery capabilities:
 - List all events with parameters

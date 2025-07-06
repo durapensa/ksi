@@ -75,7 +75,7 @@ class EventHandler:
 
 
 class EventRouter:
-    """Pure async event router - the heart of the new plugin system."""
+    """Pure async event router - the heart of the module system."""
     
     def __init__(self):
         import time

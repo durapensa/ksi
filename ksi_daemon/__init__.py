@@ -31,7 +31,7 @@ def parse_args():
 
 def setup_logging():
     """
-    Logging is now configured at module import time to ensure plugins get proper configuration.
+    Logging is now configured at module import time to ensure modules get proper configuration.
     This function is kept for compatibility but just returns the logger.
     """
     return logger  # Use the already configured structlog bound logger

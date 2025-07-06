@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Simple Health Check Plugin - Event-Based Version
+Simple Health Check Module - Event-Based Version
 
 Provides basic health check functionality for the KSI daemon.
 Migrated to pure event system.
@@ -15,8 +15,8 @@ from ksi_common.logging import get_bound_logger
 # Logger
 logger = get_bound_logger("health", version="1.0.0")
 
-# Plugin info
-PLUGIN_INFO = {
+# Module info
+MODULE_INFO = {
     "name": "health",
     "version": "1.0.0",
     "description": "Health check provider"
@@ -31,8 +31,8 @@ async def handle_startup(config: Dict[str, Any]) -> Dict[str, Any]:
     """Initialize health check plugin."""
     global startup_time
     startup_time = time.time()
-    logger.info("Health plugin initialized")
-    return {"plugin.health": {"loaded": True}}
+    logger.info("Health module initialized")
+    return {"module.health": {"loaded": True}}
 
 
 # Health handler moved to daemon_core.py to avoid duplicate responses
@@ -41,6 +41,6 @@ async def handle_startup(config: Dict[str, Any]) -> Dict[str, Any]:
 @event_handler("system:shutdown")
 async def handle_shutdown(data: Dict[str, Any]) -> None:
     """Clean up on shutdown."""
-    logger.info("Health plugin shutting down")
+    logger.info("Health module shutting down")
 
 

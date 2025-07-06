@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Enhanced Plugin Introspection
+Enhanced Module Introspection
 
 Extends the basic introspection to discover:
 - Event emissions (event_emitter calls)
 - State dependencies (state namespace usage)
-- Plugin inter-dependencies
+- Module inter-dependencies
 """
 
 import ast
@@ -184,46 +184,22 @@ class StateUsageExtractor:
 
 
 def _extract_direct_event_handlers(module) -> List[str]:
-    """Extract events handled directly in ksi_handle_event hook.
+    """Extract events handled directly in event handler functions.
     
     Looks for patterns like:
     - if event_name == "completion:async":
     - elif event_name == "some:event":
     """
     try:
-        # Find ksi_handle_event function in module
-        if not hasattr(module, 'ksi_handle_event'):
-            return []
-            
-        func = module.ksi_handle_event
-        source = inspect.getsource(func)
-        tree = ast.parse(source)
-        
+        # Find event handler functions in module
         events = []
         
-        class EventNameVisitor(ast.NodeVisitor):
-            def visit_Compare(self, node):
-                # Look for: event_name == "some:event"
-                if (isinstance(node.left, ast.Name) and 
-                    node.left.id == 'event_name' and
-                    len(node.ops) == 1 and
-                    isinstance(node.ops[0], ast.Eq) and
-                    len(node.comparators) == 1):
-                    
-                    comparator = node.comparators[0]
-                    if isinstance(comparator, ast.Constant):
-                        event = comparator.value
-                        if isinstance(event, str) and ':' in event:
-                            events.append(event)
-                    elif isinstance(comparator, ast.Str):  # Python < 3.8
-                        event = comparator.s
-                        if ':' in event:
-                            events.append(event)
-                
-                self.generic_visit(node)
-        
-        visitor = EventNameVisitor()
-        visitor.visit(tree)
+        # Look for functions with @event_handler decorator
+        for name, obj in inspect.getmembers(module):
+            if hasattr(obj, '_event_handler_metadata'):
+                metadata = obj._event_handler_metadata
+                if 'event' in metadata:
+                    events.append(metadata['event'])
         
         return list(set(events))  # Remove duplicates
         
@@ -232,8 +208,31 @@ def _extract_direct_event_handlers(module) -> List[str]:
         return []
 
 
+def collect_event_metadata(module) -> Dict[str, List[Dict[str, Any]]]:
+    """Collect event handler metadata from a module."""
+    event_metadata = {}
+    
+    for name, obj in inspect.getmembers(module):
+        if hasattr(obj, '_event_handler_metadata'):
+            metadata = obj._event_handler_metadata
+            event = metadata.get('event', 'unknown')
+            
+            if event not in event_metadata:
+                event_metadata[event] = []
+            
+            event_metadata[event].append({
+                'event': event,
+                'function': name,
+                'summary': f"Event handler for {event}",
+                'parameters': {},
+                'discovered_by': 'decorator'
+            })
+    
+    return event_metadata
+
+
 def collect_enhanced_metadata(module) -> Dict[str, Any]:
-    """Collect comprehensive metadata about a plugin module.
+    """Collect comprehensive metadata about a module.
     
     Combines:
     - Basic event handler discovery
@@ -247,18 +246,17 @@ def collect_enhanced_metadata(module) -> Dict[str, Any]:
     }
     
     # Get provided events (from decorators)
-    import ksi_daemon.plugin_utils as plugin_utils
-    provided_events = plugin_utils.collect_event_metadata(module)
+    provided_events = collect_event_metadata(module)
     
-    # Also check for events handled directly in ksi_handle_event
+    # Also check for events handled directly
     additional_events = _extract_direct_event_handlers(module)
     for event in additional_events:
         if event not in provided_events:
             provided_events[event] = [{
                 'event': event,
-                'summary': 'Handled directly in ksi_handle_event',
+                'summary': 'Event handler',
                 'parameters': {},
-                'discovered_by': 'ksi_handle_event'
+                'discovered_by': 'direct'
             }]
     
     metadata['provides']['events'] = list(provided_events.keys())
@@ -295,40 +293,37 @@ def collect_enhanced_metadata(module) -> Dict[str, Any]:
     return metadata
 
 
-def discover_plugin_relationships(plugin_manager) -> Dict[str, Any]:
-    """Discover relationships between all loaded plugins.
+def discover_module_relationships(modules: List[Any]) -> Dict[str, Any]:
+    """Discover relationships between loaded modules.
     
-    Returns a graph of plugin dependencies based on event consumption.
+    Returns a graph of module dependencies based on event consumption.
     """
     relationships = {
-        'plugins': {},
+        'modules': {},
         'event_providers': {},
         'event_consumers': {},
         'state_namespaces': {}
     }
     
-    # Get all plugins
-    plugins = plugin_manager.get_plugins()
-    logger.debug(f"Found {len(plugins)} plugins to analyze")
+    logger.debug(f"Found {len(modules)} modules to analyze")
     
-    # Iterate through all loaded plugins
-    for plugin in plugins:
-        logger.debug(f"Analyzing plugin: {plugin}")
+    # Iterate through all loaded modules
+    for module in modules:
+        logger.debug(f"Analyzing module: {module}")
         
-        # Plugins can be modules or instances
-        if hasattr(plugin, '__module__'):
+        # Modules can be modules or instances
+        if hasattr(module, '__module__'):
             # It's an instance - get its module
-            module_name = plugin.__module__
+            module_name = module.__module__
             module = sys.modules.get(module_name)
-        elif hasattr(plugin, '__name__'):
+        elif hasattr(module, '__name__'):
             # It's already a module
-            module_name = plugin.__name__
-            module = plugin
+            module_name = module.__name__
         else:
-            logger.debug(f"Plugin {plugin} has neither __module__ nor __name__ attribute")
+            logger.debug(f"Module {module} has neither __module__ nor __name__ attribute")
             continue
             
-        logger.debug(f"Plugin module name: {module_name}")
+        logger.debug(f"Module name: {module_name}")
         
         if not module:
             logger.debug(f"Module {module_name} not found")
@@ -336,7 +331,7 @@ def discover_plugin_relationships(plugin_manager) -> Dict[str, Any]:
         
         # Collect enhanced metadata
         metadata = collect_enhanced_metadata(module)
-        relationships['plugins'][module_name] = metadata
+        relationships['modules'][module_name] = metadata
         
         # Index event providers
         for event_type in metadata['provides']['events']:
@@ -352,7 +347,7 @@ def discover_plugin_relationships(plugin_manager) -> Dict[str, Any]:
             if event_name not in relationships['event_consumers']:
                 relationships['event_consumers'][event_name] = []
             relationships['event_consumers'][event_name].append({
-                'plugin': module_name,
+                'module': module_name,
                 'functions': consumed['functions']
             })
         
@@ -361,7 +356,7 @@ def discover_plugin_relationships(plugin_manager) -> Dict[str, Any]:
             if namespace not in relationships['state_namespaces']:
                 relationships['state_namespaces'][namespace] = []
             relationships['state_namespaces'][namespace].append({
-                'plugin': module_name,
+                'module': module_name,
                 'access': info['access'],
                 'operations': info['operations']
             })
@@ -369,7 +364,7 @@ def discover_plugin_relationships(plugin_manager) -> Dict[str, Any]:
     return relationships
 
 
-def validate_plugin_dependencies(relationships: Dict[str, Any]) -> Dict[str, Any]:
+def validate_module_dependencies(relationships: Dict[str, Any]) -> Dict[str, Any]:
     """Validate that all consumed events have providers."""
     validation = {
         'valid': True,
@@ -384,7 +379,7 @@ def validate_plugin_dependencies(relationships: Dict[str, Any]) -> Dict[str, Any
         if event not in relationships['event_providers']:
             validation['orphaned_events'].append({
                 'event': event,
-                'consumers': [c['plugin'] for c in consumers]
+                'consumers': [c['module'] for c in consumers]
             })
             validation['errors'].append(f"Event {event} has consumers but no provider")
             validation['valid'] = False

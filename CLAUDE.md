@@ -53,24 +53,22 @@ Essential development practices for Claude Code when working with KSI.
   - **Relational state** - Agent application data (entities/relationships)
   - Don't mix infrastructure with application data
 
-### Plugin System (Simplified)
-- **Follows pluggy best practices** - plugins are just objects with hooks
-- **No hot reloading** - restart daemon to reload plugins (simpler, more reliable)
-- **Absolute imports** - all plugins use `from ksi_daemon.X import Y`
+### Module System (Pure Event-Based)
+- **Event-driven architecture** - modules communicate only through events
+- **No hot reloading** - restart daemon to reload modules (simpler, more reliable)
+- **Absolute imports** - all modules use `from ksi_daemon.X import Y`
 - **Centralized sys.path** - ksi_common ensures project root is on Python path
-- **Async task pattern**: Plugins request async tasks via ksi_ready hook:
+- **Background task pattern**: Modules can register background tasks:
   ```python
-  @hookimpl
-  def ksi_ready():
-      return {
-          "service": "my_service",
-          "tasks": [{"name": "background_task", "coroutine": my_async_function()}]
-      }
+  @background_task
+  async def my_background_task():
+      # Task logic here
+      pass
   ```
-- **Plugin introspection available**:
-  - List plugins: `echo '{"event": "plugin:list", "data": {}}' | nc -U var/run/daemon.sock`
-  - List hooks: `echo '{"event": "plugin:hooks", "data": {}}' | nc -U var/run/daemon.sock`
-  - Inspect plugin: `echo '{"event": "plugin:inspect", "data": {"plugin_name": "..."}}' | nc -U var/run/daemon.sock`
+- **Module introspection available**:
+  - List modules: `echo '{"event": "module:list", "data": {}}' | nc -U var/run/daemon.sock`
+  - List events: `echo '{"event": "module:events", "data": {}}' | nc -U var/run/daemon.sock`
+  - API schema: `echo '{"event": "api:schema", "data": {}}' | nc -U var/run/daemon.sock`
 
 ### Session ID Management (Critical)
 - **NEVER invent session IDs** - claude-cli only accepts session IDs it has generated
@@ -104,14 +102,14 @@ Essential development practices for Claude Code when working with KSI.
 - **Complete transitions** - when moving files/features, verify functionality then remove old locations
 - **System integrity** - ensure system functions as designed after cleanup
 
-### Simplification Patterns (Pluggy Best Practices)
-- **Single source of truth** - Don't pass redundant objects (e.g., both plugin_loader and plugin_manager)
-- **Minimal context** - Pass only what plugins actually need in ksi_plugin_context
-- **Direct access** - Use plugin_manager directly, not through intermediate objects
-- **Consistent naming** - Use the same name for the same concept everywhere (emit_event)
-- **No unnecessary wrappers** - Avoid wrapping pluggy functionality unless adding value
-- **Module-level simplicity** - Plugins are simple modules with functions, not complex classes
-- **Avoid confusion** - Don't create multiple ways to access the same functionality
+### Simplification Patterns (Event System Best Practices)
+- **Single source of truth** - Don't pass redundant objects between modules
+- **Minimal context** - Pass only what event handlers actually need
+- **Direct event emission** - Use emit_event directly from router context
+- **Consistent naming** - Use the same event names everywhere
+- **No unnecessary wrappers** - Avoid wrapping event functionality unless adding value
+- **Module-level simplicity** - Modules are simple files with event handlers
+- **Avoid confusion** - Don't create multiple ways to emit the same event
 
 ### Cleanup Philosophy
 - **Distinguish legacy from incomplete** - "Legacy" means truly obsolete; "Incomplete" means work-in-progress
@@ -137,7 +135,7 @@ Essential development practices for Claude Code when working with KSI.
   - Event routing traces  
   - Module import attempts
   - Configuration details
-- **Plugin logging** - Plugins use structured logging with logger names: `ksi.plugin.{plugin_name}`
+- **Module logging** - Modules use structured logging with appropriate logger names
 - **Log locations**:
   - Main daemon log: `var/logs/daemon/daemon.log`
   - Response logs: `var/logs/responses/{session_id}.jsonl`
@@ -190,7 +188,7 @@ Essential development practices for Claude Code when working with KSI.
 ### Key File Locations
 - `daemon_control.py` - Primary daemon control (not .sh)
 - `interfaces/chat.py` - Basic chat interface
-- `ksi_daemon/plugins/completion/claude_cli_litellm_provider.py` - Provider
+- `ksi_daemon/completion/claude_cli_litellm_provider.py` - Provider
 
 ## Critical Warnings
 ⚠️ **NEVER run TUI scripts** without `--test-connection` flag:
@@ -215,9 +213,9 @@ source .venv/bin/activate          # Always first
 ./daemon_control.py restart        # Restart daemon
 ./daemon_control.py dev            # Development mode with auto-restart
 
-# Plugin introspection
-echo '{"event": "plugin:list", "data": {}}' | nc -U var/run/daemon.sock
-echo '{"event": "plugin:hooks", "data": {}}' | nc -U var/run/daemon.sock
+# Module introspection
+echo '{"event": "module:list", "data": {}}' | nc -U var/run/daemon.sock
+echo '{"event": "api:schema", "data": {}}' | nc -U var/run/daemon.sock
 
 # Common operations
 echo '{"event": "system:health", "data": {}}' | nc -U var/run/daemon.sock

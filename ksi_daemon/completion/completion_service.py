@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Completion Service Plugin V4 - Modular Architecture
+Completion Service Module V4 - Modular Architecture
 
 Refactored completion service using focused components:
 - QueueManager: Per-session queue management

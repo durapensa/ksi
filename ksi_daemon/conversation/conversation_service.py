@@ -28,7 +28,7 @@ cache_ttl_seconds = 60  # Refresh cache every minute
 responses_dir_path = None
 exports_dir = None
 
-# Per-plugin TypedDict definitions (optional type safety)
+# Per-module TypedDict definitions (optional type safety)
 class ConversationListData(TypedDict):
     """Type-safe data for conversation:list."""
     limit: NotRequired[int]

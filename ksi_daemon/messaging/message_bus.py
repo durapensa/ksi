@@ -437,8 +437,8 @@ async def handle_context(context: Dict[str, Any]) -> None:
 @event_handler("system:startup")
 async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
     """Initialize message bus."""
-    logger.info("Message bus plugin started (consolidated)")
-    return {"plugin.message_bus": {"loaded": True}}
+    logger.info("Message bus module started (consolidated)")
+    return {"module.message_bus": {"loaded": True}}
 
 
 @shutdown_handler("message_bus")
@@ -454,7 +454,7 @@ async def handle_shutdown(data: Dict[str, Any]) -> None:
     # Clear client subscription tracking  
     client_subscriptions.clear()
     
-    logger.info("Message bus plugin stopped")
+    logger.info("Message bus module stopped")
     
     # Acknowledge shutdown completion
     router = get_router()

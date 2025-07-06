@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Correlation Tracing Plugin - Event-Based Version
+Correlation Tracing Module - Event-Based Version
 
 Provides correlation ID tracing functionality for debugging and monitoring
 complex event chains in the KSI daemon system.
@@ -15,8 +15,8 @@ from ksi_common.logging import get_bound_logger
 # Module state
 logger = get_bound_logger("correlation", version="1.0.0")
 
-# Plugin info
-PLUGIN_INFO = {
+# Module info
+MODULE_INFO = {
     "name": "correlation",
     "version": "1.0.0",
     "description": "Correlation ID tracing and monitoring"
@@ -26,8 +26,8 @@ PLUGIN_INFO = {
 @event_handler("system:startup")
 async def handle_startup(config: Dict[str, Any]) -> Dict[str, Any]:
     """Initialize correlation plugin."""
-    logger.info("Correlation tracing plugin started")
-    return {"plugin.correlation": {"loaded": True}}
+    logger.info("Correlation tracing module started")
+    return {"module.correlation": {"loaded": True}}
 
 
 @event_handler("correlation:trace")
@@ -186,7 +186,7 @@ async def handle_shutdown(data: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error cleaning up traces: {e}")
     
-    logger.info("Correlation tracing plugin stopped")
-    return {"plugin.correlation": {"stopped": True}}
+    logger.info("Correlation tracing module stopped")
+    return {"module.correlation": {"stopped": True}}
 
 

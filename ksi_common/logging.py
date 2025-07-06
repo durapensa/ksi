@@ -129,7 +129,7 @@ def configure_structlog(
 
 # Note: Removed get_logger() function. Use structlog.get_logger() directly.
 # Applications should call configure_structlog() at startup.
-# Libraries and plugins should just use structlog.get_logger() without configuration.
+# Libraries and modules should just use structlog.get_logger() without configuration.
 
 
 def bind_connection_context(
@@ -165,11 +165,11 @@ def get_bound_logger(component: str, **default_context):
     """
     Get a bound logger with component identity and optional default context.
     
-    This is the preferred way to create loggers in KSI plugins and components.
+    This is the preferred way to create loggers in KSI modules and components.
     Uses the single "ksi" logger with component context bound at creation time.
     
     Best practice usage:
-        # In plugin module
+        # In module
         logger = get_bound_logger("completion_service", version="3.0.0")
         
         # For request context (when available)

@@ -125,7 +125,7 @@ All commands use this JSON format:
             "State Management": ["state", "async_state"],
             "Multi-Agent": ["agent", "message"],
             "Advanced": ["injection", "orchestration", "composition"],
-            "Monitoring": ["monitor", "plugin", "permission"]
+            "Monitoring": ["monitor", "module", "permission"]
         }
         
         for use_case, namespace_list in use_cases.items():

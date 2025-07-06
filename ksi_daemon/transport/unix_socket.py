@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unix Socket Transport Plugin - Event-Based Version
+Unix Socket Transport Module - Event-Based Version
 
 Handles Unix domain socket communication using pure event system.
 """
@@ -23,8 +23,8 @@ client_connections = {}
 client_subscriptions = {}  # client_id -> set of event patterns they're subscribed to
 transport_instance = None
 
-# Plugin info
-PLUGIN_INFO = {
+# Module info
+MODULE_INFO = {
     "name": "unix_socket_transport",
     "version": "2.0.0",
     "description": "Unix domain socket transport layer"
@@ -235,8 +235,8 @@ async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
     socket_path = str(config.socket_path)
     transport_instance = UnixSocketTransport(socket_path)
     
-    logger.info("Unix socket transport plugin starting")
-    return {"plugin.unix_socket_transport": {"loaded": True}}
+    logger.info("Unix socket transport module starting")
+    return {"module.unix_socket_transport": {"loaded": True}}
 
 
 @event_handler("system:ready")
@@ -356,7 +356,7 @@ async def handle_shutdown(data: Dict[str, Any]) -> Dict[str, Any]:
     if transport_instance:
         await transport_instance.stop()
     
-    logger.info("Unix socket transport plugin stopped")
+    logger.info("Unix socket transport module stopped")
     return {"status": "unix_socket_transport_stopped"}
 
 

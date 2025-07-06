@@ -77,11 +77,11 @@ async with EventClient() as client:
 - **Selective References**: Large payloads (>5KB) stored separately
 - **Pattern Matching**: SQL LIKE queries (e.g., "system:*")
 
-### Plugin System
-- **Pluggy-Based**: Standard plugin architecture
-- **Hook Pattern**: `@hookimpl` decorated functions
-- **Dynamic Loading**: Plugins in `ksi_daemon/plugins/`
-- **Async Tasks**: Return coroutines from `ksi_ready` hook
+### Module System
+- **Pure Event-Based**: All modules use `@event_handler` decorators
+- **Auto-Registration**: Handlers register at module import time
+- **Event Communication**: No direct module imports, only events
+- **Background Tasks**: Use `@background_task` decorator
 
 ## Key Modules
 
@@ -156,8 +156,8 @@ echo '{"event": "system:health", "data": {}}' | nc -U var/run/daemon.sock
 # List agents
 echo '{"event": "agent:list", "data": {}}' | nc -U var/run/daemon.sock
 
-# Plugin introspection
-echo '{"event": "plugin:list", "data": {}}' | nc -U var/run/daemon.sock
+# Module introspection
+echo '{"event": "module:list", "data": {}}' | nc -U var/run/daemon.sock
 ```
 
 ### Debugging
@@ -179,6 +179,7 @@ tail -f var/logs/daemon/daemon.log
 3. **Observable**: Comprehensive event logging and monitoring
 4. **Modular**: Clean module boundaries, no coupling
 5. **Declarative**: Capabilities and permissions, not code
+
 
 ---
 *For development practices, see `/Users/dp/projects/ksi/CLAUDE.md`*

@@ -119,7 +119,7 @@ class OrchestrationInstance:
     termination_conditions: Dict[str, Any] = field(default_factory=dict)
 
 
-class OrchestrationPlugin:
+class OrchestrationModule:
     """Core orchestration plugin implementation."""
     
     def __init__(self):
@@ -382,8 +382,8 @@ class OrchestrationPlugin:
         del orchestrations[instance.orchestration_id]
 
 
-# Create plugin instance
-orchestration_plugin = OrchestrationPlugin()
+# Create module instance
+orchestration_module = OrchestrationModule()
 
 
 # System event handlers
@@ -402,7 +402,7 @@ async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
     """Initialize orchestration service on startup."""
     
     # Ensure orchestration patterns directory exists
-    patterns_dir = orchestration_plugin.patterns_dir
+    patterns_dir = orchestration_module.patterns_dir
     patterns_dir.mkdir(parents=True, exist_ok=True)
     
     logger.info(f"Orchestration service started - patterns dir: {patterns_dir}")
@@ -418,7 +418,7 @@ async def handle_shutdown(data: Dict[str, Any]) -> None:
     """Clean up on shutdown."""
     # Terminate all active orchestrations
     for instance in list(orchestrations.values()):
-        await orchestration_plugin._terminate_orchestration(instance, "shutdown")
+        await orchestration_module._terminate_orchestration(instance, "shutdown")
     
     logger.info("Orchestration service shutdown")
 
@@ -434,13 +434,13 @@ async def handle_orchestration_start(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": "pattern required"}
     
     # Execute async orchestration start
-    return await orchestration_plugin.start_orchestration(pattern, vars)
+    return await orchestration_module.start_orchestration(pattern, vars)
 
 
 @event_handler("orchestration:message")
 async def handle_orchestration_message(data: Dict[str, Any]) -> Dict[str, Any]:
     """Route a message within an orchestration."""
-    return await orchestration_plugin.route_message(data)
+    return await orchestration_module.route_message(data)
 
 
 @event_handler("orchestration:status")
@@ -490,14 +490,14 @@ async def handle_orchestration_terminate(data: Dict[str, Any]) -> Dict[str, Any]
     instance = orchestrations[orchestration_id]
     
     # Terminate orchestration
-    await orchestration_plugin._terminate_orchestration(instance, "manual")
+    await orchestration_module._terminate_orchestration(instance, "manual")
     return {"status": "terminated"}
 
 
 @event_handler("orchestration:list_patterns")
 async def handle_list_patterns(data: Dict[str, Any]) -> Dict[str, Any]:
     """List available orchestration patterns."""
-    patterns_dir = orchestration_plugin.patterns_dir
+    patterns_dir = orchestration_module.patterns_dir
     patterns = []
     
     if patterns_dir.exists():
@@ -522,7 +522,7 @@ async def handle_load_pattern(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": "pattern name required"}
     
     try:
-        pattern = await orchestration_plugin.load_pattern(pattern_name)
+        pattern = await orchestration_module.load_pattern(pattern_name)
         return {
             "status": "loaded",
             "pattern": pattern

@@ -85,10 +85,14 @@ class DaemonError(KSIError):
         super().__init__(message, code="DAEMON_ERROR", **kwargs)
 
 
-class PluginError(KSIError):
-    """Raised when plugin encounters an error."""
+class ModuleError(KSIError):
+    """Raised when module encounters an error."""
     
-    def __init__(self, plugin_name: str, message: str, **kwargs):
-        full_message = f"Plugin '{plugin_name}' error: {message}"
-        super().__init__(full_message, code="PLUGIN_ERROR", **kwargs)
-        self.plugin_name = plugin_name
+    def __init__(self, module_name: str, message: str, **kwargs):
+        full_message = f"Module '{module_name}' error: {message}"
+        super().__init__(full_message, code="MODULE_ERROR", **kwargs)
+        self.module_name = module_name
+
+
+# Backward compatibility alias
+PluginError = ModuleError
