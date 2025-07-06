@@ -225,5 +225,12 @@ echo '{"event": "conversation:active", "data": {}}' | nc -U var/run/daemon.sock
 ## Available Tools
 Task, Bash, Glob, Grep, LS, Read, Edit, MultiEdit, Write, WebFetch, WebSearch
 
+## KSI Integration Tools
+**For Python tools to interact with KSI**: See `ksi_claude_code/CLAUDE.md`
+- Agent spawning and conversation management
+- Real-time observation and monitoring
+- Graph database operations
+- Composition and capability management
+
 ---
 **Technical Details**: See `memory/claude_code/project_knowledge.md`

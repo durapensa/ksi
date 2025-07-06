@@ -250,7 +250,7 @@ autonomous_experiments/outputs/
 agent_profiles/temp_*.json
 
 # Experimental/debug files
-experiments/
+# experiments/  # Removed - we want to track experiment code
 test_spawn*.py
 *_debug.py
 *_test.py
