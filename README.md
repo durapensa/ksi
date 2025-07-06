@@ -16,7 +16,7 @@ KSI provides infrastructure for running and managing AI agents as persistent, au
 - ⚡ **Event-Driven Architecture** - Pure async event system with no polling
 - 🛡️ **Coordinated Shutdown** - Graceful shutdown with completion guarantees
 - 🤖 **Multi-Agent Support** - Orchestrate conversations between multiple AI instances
-- 🔌 **Plugin Architecture** - Extend functionality without modifying core
+- 📦 **Modular Design** - Extend functionality through event-based modules
 - 📊 **Real-time Monitoring** - Beautiful TUI for observing system state
 - 🚀 **Production Ready** - Proper daemonization, logging, and error handling
 - 🔧 **MCP Integration** - Model Context Protocol server for tool access
@@ -100,7 +100,7 @@ async with EventClient() as client:
 
 ## Architecture
 
-KSI follows a microkernel architecture where the core daemon is minimal (~500 lines) and all functionality is provided through plugins:
+KSI follows a microkernel architecture where the core daemon is minimal and all functionality is provided through event-based modules:
 
 ```
 ┌─────────────────┐
@@ -112,7 +112,7 @@ KSI follows a microkernel architecture where the core daemon is minimal (~500 li
 └────────┬────────┘
          │
 ┌────────▼────────────────────────────────┐
-│              Plugins                     │
+│              Modules                     │
 ├──────────────┬──────────────┬───────────┤
 │ Completion   │   Agent      │    MCP    │
 │  Service     │  Manager     │  Server   │
@@ -126,7 +126,7 @@ KSI follows a microkernel architecture where the core daemon is minimal (~500 li
 
 1. **Everything is an Event** - No polling, no timers, pure event-driven
 2. **Fail-Safe by Default** - Automatic recovery from all failure modes
-3. **Plugin-First Design** - Core functionality implemented as plugins
+3. **Module-Based Design** - Core functionality implemented as modules
 4. **Single Socket** - All communication through one Unix domain socket
 5. **Async Native** - Built on Python's asyncio for performance
 
@@ -137,9 +137,9 @@ KSI follows a microkernel architecture where the core daemon is minimal (~500 li
 - **Graceful Shutdown**: Critical operations complete before daemon exit
 - **Process Monitoring**: Automatic detection and recovery of failed agent processes
 
-## Plugin Development
+## Module Development
 
-Create custom plugins to extend KSI:
+Create custom modules to extend KSI:
 
 ```python
 from ksi_daemon.event_system import event_handler
@@ -149,17 +149,16 @@ async def handle_custom_event(data):
     # Your logic here
     return {"status": "processed"}
 
-# Plugin is auto-registered on import
+# Module is auto-registered on import
 ```
 
-See [Plugin Development Guide](ksi_daemon/PLUGIN_DEVELOPMENT_GUIDE.md) for details.
+See the module development documentation for details.
 
 ## Documentation
 
 - [API Reference](docs/API_REFERENCE.md) - Complete REST-style API documentation
-- [Plugin Architecture](ksi_daemon/PLUGGY_ARCHITECTURE.md) - Plugin system design
 - [Architecture Analysis](docs/ksi_architecture_analysis.md) - Deep technical dive
-- [Agent Observation Design](docs/agent_observation_system_design.md) - Agent observation system
+- [Memory Knowledge](memory/claude_code/project_knowledge.md) - Technical reference
 
 ## Contributing
 
@@ -186,7 +185,6 @@ MIT License - see [LICENSE](LICENSE) file for details.
 ## Acknowledgments
 
 - Built for [Claude](https://claude.ai) by Anthropic
-- Plugin system powered by [pluggy](https://pluggy.readthedocs.io/)
 - TUI components use [Textual](https://textual.textualize.io/)
 - Inspired by Kubernetes' approach to container orchestration
 
