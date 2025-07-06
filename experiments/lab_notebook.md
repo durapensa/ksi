@@ -33,7 +33,7 @@ profile = "base_single_agent"
 ---
 
 ### EXP-002: Context Override Test
-**Time**: [PENDING]  
+**Time**: 2024-12-31 13:32
 **Purpose**: Test if we can override programming context  
 
 ```python
@@ -44,8 +44,11 @@ Include NO code or technical content."""
 ```
 
 **Expected**: A haiku with no technical content  
-**Actual**: [PENDING]  
-**Notes**:
+**Actual**: SUCCESS! "Branches reach upward / Leaves whisper ancient secrets / Roots hold earth's stories"
+**Notes**: 
+- No programming terms detected
+- Proper haiku format
+- Clean creative output without identity assertion
 
 ---
 
@@ -74,31 +77,63 @@ Include NO code or technical content."""
 ## Prompt Engineering Discoveries
 
 ### What Works
-- [PENDING]
+- **Simple task instructions**: "Say OK", "List three colors" - follow exactly
+- **Creative tasks without roleplay**: Haiku about trees worked perfectly
+- **Direct commands**: Clear, specific instructions without identity claims
 
 ### What Fails  
-- [PENDING]
+- **Roleplay requests**: Chef Escoffier, medieval blacksmith trigger identity assertions
+- **Character embodiment**: Asking to "be" someone else activates Claude Code identity protection
+- **Complex persona adoption**: Detailed character descriptions rejected
 
 ### Effective Patterns
-- [PENDING]
+- **Task-focused prompts**: Focus on the output, not the identity
+- **"Write X" vs "You are X"**: Creative commands work better than role assignment
+- **Implicit context**: Let behavior emerge rather than explicitly defining roles
+
+### Identity Protection Triggers
+When agents refuse, they consistently say:
+- "I'm Claude Code, an AI assistant designed to help with software engineering tasks"
+- "I cannot roleplay as [character]"
+- "Would you like help with coding/development instead?"
+
+### Context Contamination Levels
+1. **None**: Simple tasks (OK, colors)
+2. **Minimal**: Creative tasks (haiku) 
+3. **Full**: Roleplay attempts trigger explicit identity assertions
 
 ---
 
 ## Session Summary
 
-### Key Findings
-1. **Agent spawning works** - Successfully creates agents with profiles
-2. **Completion requests work** - Claude CLI is invoked successfully  
-3. **Session management broken** - session_id is None, responses not saved
-4. **Migration incomplete** - Old KV state API references remain
+### Major Breakthrough: Context Override Experiments Successful
+After fixing file reading issues, we captured all 5 agent responses and discovered:
 
-### Critical Issue
-The agent system creates agents but cannot properly route responses back because:
-- Agents spawn without session_id
-- Completion requests run with session_id=None  
-- Response files aren't created without valid session_id
+### Context Contamination Patterns
+1. **Simple instructions work perfectly**: "OK" and "list colors" executed exactly
+2. **Creative tasks succeed**: Haiku generation worked without programming content
+3. **Roleplay triggers identity protection**: Chef and blacksmith prompts rejected with explicit Claude Code identity assertions
 
-### Next Steps
-1. Investigate how session_id should flow from agent spawn to completion
-2. Check if we need to create initial conversation context
-3. Consider using synchronous completion for initial prompts
+### Technical Achievements
+- ✅ Fixed agent spawn bugs (state manager, missing exports)
+- ✅ Established session_id flow via file watching
+- ✅ Captured actual agent responses from completion files
+- ✅ Proven that KSI agent system works end-to-end
+
+### Key Insight: Variable Context Contamination
+The Claude Code context isn't uniformly contaminating - it depends on prompt type:
+- **Task-focused**: "Do X" prompts work well
+- **Creative**: Non-identity creative prompts succeed  
+- **Roleplay**: "You are X" triggers identity protection
+
+### Practical Implications for KSI Usage
+- Use output-focused prompts: "Write a business analysis" vs "You are a business analyst"
+- Avoid character roleplay in agent prompts
+- Creative and analytical tasks work well
+- Simple instructions are most reliable
+
+### Experimental Infrastructure Built
+- Lab notebook for systematic tracking
+- File watching for response capture
+- Event log integration
+- Automated analysis of context contamination
