@@ -43,6 +43,9 @@ retry_manager: Optional[RetryManager] = None
 # Active completions tracking (preserved from original)
 active_completions: Dict[str, Dict[str, Any]] = {}
 
+# Task tracking for cancellation support
+active_tasks: Dict[str, asyncio.Task] = {}  # request_id -> task
+
 # Event emitter and shutdown references
 event_emitter = None
 shutdown_event = None
@@ -274,6 +277,11 @@ async def process_session_queue(session_id: str):
 async def process_completion_request(request_id: str, data: Dict[str, Any]):
     """Process a single completion request using modular components."""
     try:
+        # Register current task for cancellation support
+        current_task = asyncio.current_task()
+        if current_task:
+            active_tasks[request_id] = current_task
+        
         # Update status to processing
         if request_id in active_completions:
             active_completions[request_id]["status"] = "processing"
@@ -364,6 +372,7 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
             async def cleanup():
                 await asyncio.sleep(60)  # Keep for 1 minute
                 active_completions.pop(request_id, None)
+                active_tasks.pop(request_id, None)  # Clean up task tracking
             asyncio.create_task(cleanup())
         
         # Handle injection if needed
@@ -402,6 +411,8 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
         logger.info(f"Completion {request_id} cancelled")
         if request_id in active_completions:
             active_completions[request_id]["status"] = "cancelled"
+        # Clean up task tracking immediately on cancellation
+        active_tasks.pop(request_id, None)
         await emit_event("completion:cancelled", {"request_id": request_id})
         raise
         
@@ -410,6 +421,9 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
         if request_id in active_completions:
             active_completions[request_id]["status"] = "failed"
             active_completions[request_id]["error"] = str(e)
+        
+        # Clean up task tracking on failure
+        active_tasks.pop(request_id, None)
         
         # Record provider failure if we got that far
         if 'provider_name' in locals():
@@ -456,6 +470,7 @@ async def handle_completion_status(data: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "service_ready": completion_task_group is not None,
         "active_completions": len(active_completions),
+        "active_tasks": len(active_tasks),
         "status_counts": status_counts,
         "queues": queue_manager.get_all_queue_status(),
         "sessions": session_manager.get_all_sessions_status(),
@@ -540,9 +555,21 @@ async def handle_cancel_completion(data: Dict[str, Any]) -> Dict[str, Any]:
     if completion["status"] in ["completed", "failed", "cancelled"]:
         return {"error": f"Request {request_id} already {completion['status']}"}
     
-    # TODO: Implement actual cancellation logic
-    # For now, just mark as cancelled
+    # Implement actual cancellation logic
     completion["status"] = "cancelled"
+    
+    # Cancel the actual asyncio task if it's still running
+    if request_id in active_tasks:
+        task = active_tasks[request_id]
+        if not task.done():
+            logger.debug(f"Cancelling asyncio task for request {request_id}")
+            task.cancel()
+            # Task cleanup will happen in the CancelledError handler
+        else:
+            # Task already finished, just clean up tracking
+            active_tasks.pop(request_id, None)
+    else:
+        logger.warning(f"No active task found for request {request_id} - may have already completed")
     
     logger.info(f"Cancelled completion {request_id}")
     
@@ -705,12 +732,23 @@ async def handle_shutdown(data: Dict[str, Any]) -> None:
         await retry_manager.stop()
         logger.info("Retry manager stopped")
     
-    # Cancel all active completions (preserving original functionality)
+    # Cancel all active completions and tasks
     for request_id in list(active_completions.keys()):
         completion = active_completions[request_id]
         if completion["status"] in ["queued", "processing"]:
             completion["status"] = "cancelled"
+            
+            # Cancel the actual task if it exists
+            if request_id in active_tasks:
+                task = active_tasks[request_id]
+                if not task.done():
+                    logger.debug(f"Shutdown: cancelling task for request {request_id}")
+                    task.cancel()
+            
             await emit_event("completion:cancelled", {"request_id": request_id})
+    
+    # Clear task tracking
+    active_tasks.clear()
     
     # Get shutdown statistics
     stats = {}

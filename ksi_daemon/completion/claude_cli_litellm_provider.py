@@ -18,9 +18,8 @@ import asyncio
 import json
 import os
 import subprocess
-import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -195,34 +194,32 @@ class ClaudeCLIProvider(CustomLLM):
     
     def __init__(self):
         super().__init__()
-        # Dedicated executor for long-running Claude operations
-        self.claude_executor = ThreadPoolExecutor(
-            max_workers=config.claude_max_workers,
-            thread_name_prefix="claude-cli"
-        )
         # Track active processes for cleanup on cancellation
-        self.active_processes = {}  # thread_id -> subprocess.Popen
-        self.process_lock = threading.Lock()
+        self.active_processes = {}  # request_id -> subprocess.Process
+        self.process_lock = asyncio.Lock()
         
         logger.info(
             "Claude CLI provider initialized",
             claude_bin=str(CLAUDE_BIN),
-            max_workers=config.claude_max_workers,
             timeout_attempts=config.claude_timeout_attempts,
             progress_timeout=config.claude_progress_timeout
         )
 
-    def _cleanup_active_processes(self):
+    async def _cleanup_active_processes(self):
         """Clean up any active subprocess on cancellation"""
-        with self.process_lock:
-            for thread_id, process in list(self.active_processes.items()):
+        async with self.process_lock:
+            for request_id, process in list(self.active_processes.items()):
                 try:
-                    if process.poll() is None:  # Process still running
-                        logger.warning(f"Killing active Claude process (PID: {process.pid}) due to cancellation")
-                        process.kill()
-                        process.wait(timeout=5)
+                    if process.returncode is None:  # Process still running
+                        logger.warning(f"Killing active Claude process (PID: {process.pid}, request: {request_id}) due to cancellation")
+                        process.terminate()
+                        try:
+                            await asyncio.wait_for(process.wait(), timeout=5)
+                        except asyncio.TimeoutError:
+                            process.kill()
+                            await process.wait()
                 except Exception as e:
-                    logger.error(f"Error cleaning up process: {e}")
+                    logger.error(f"Error cleaning up process {request_id}: {e}")
             self.active_processes.clear()
 
     def shutdown(self):
@@ -230,14 +227,17 @@ class ClaudeCLIProvider(CustomLLM):
         logger.info("Shutting down Claude CLI provider")
         
         # Clean up any active processes first
-        self._cleanup_active_processes()
-        
-        # Shut down the executor
         try:
-            self.claude_executor.shutdown(wait=True, cancel_futures=True)
-            logger.info("Claude executor shut down successfully")
+            # Check if we're in an async context
+            try:
+                asyncio.get_running_loop()
+                # We're in an event loop, create a task
+                asyncio.create_task(self._cleanup_active_processes())
+            except RuntimeError:
+                # No event loop, we can run directly
+                asyncio.run(self._cleanup_active_processes())
         except Exception as e:
-            logger.error(f"Error shutting down executor: {e}")
+            logger.error(f"Error cleaning up processes during shutdown: {e}")
         
         logger.info("Claude CLI provider shutdown complete")
 
@@ -289,7 +289,7 @@ class ClaudeCLIProvider(CustomLLM):
             return await self._acompletion(messages, *args, **kwargs)
         except asyncio.CancelledError:
             # Clean up any running subprocesses on cancellation
-            self._cleanup_active_processes()
+            await self._cleanup_active_processes()
             raise
 
     async def astreaming(self, messages, *args, **kwargs):
@@ -305,6 +305,9 @@ class ClaudeCLIProvider(CustomLLM):
         """Claude CLI execution with intelligent retry logic"""
         prompt, model_alias = self._extract_prompt_and_model(messages, *args, **kwargs)
         full_model = f"claude-cli/{model_alias}"
+        
+        # Extract request_id for process tracking
+        request_id = kwargs.get("request_id", str(uuid.uuid4()))
         
         # Extract KSI parameters from extra_body
         extra_body = kwargs.get("extra_body", {})
@@ -361,19 +364,15 @@ class ClaudeCLIProvider(CustomLLM):
                     session_id=session_id
                 )
                 
-                # Use thread executor with proper cancellation support
-                loop = asyncio.get_event_loop()
-                
-                # Use asyncio.wait_for to ensure proper cancellation
+                # Use asyncio subprocess with proper cancellation support
                 try:
                     result = await asyncio.wait_for(
-                        loop.run_in_executor(
-                            self.claude_executor,
-                            self._run_claude_sync_with_progress,
+                        self._run_claude_async_with_progress(
                             cmd,
                             timeout,
                             full_model,
-                            sandbox_dir
+                            sandbox_dir,
+                            request_id
                         ),
                         timeout=timeout
                     )
@@ -406,8 +405,8 @@ class ClaudeCLIProvider(CustomLLM):
                 # Map all errors to LiteLLM exceptions
                 raise map_subprocess_error_to_litellm(e, full_model)
     
-    def _run_claude_sync_with_progress(self, cmd: List[str], timeout: int, model: str, sandbox_dir: Optional[str] = None):
-        """Run Claude with cross-platform progress monitoring"""
+    async def _run_claude_async_with_progress(self, cmd: List[str], timeout: int, model: str, sandbox_dir: Optional[str] = None, request_id: str = None):
+        """Run Claude with asyncio subprocess and progress monitoring"""
         progress_timeout = config.claude_progress_timeout  # 5 minutes default
         
         # Set working directory - use sandbox if provided, else project root
@@ -419,105 +418,108 @@ class ClaudeCLIProvider(CustomLLM):
             logger.debug("Using project root as working directory")
         
         logger.debug(
-            "Executing Claude CLI",
+            "Executing Claude CLI with asyncio",
             cmd=" ".join(cmd),
             timeout=timeout,
             progress_timeout=progress_timeout,
-            working_dir=str(working_dir)
+            working_dir=str(working_dir),
+            request_id=request_id
         )
         
         start_time = time.time()
         last_output_time = time.time()
         stdout_chunks = []
         stderr_chunks = []
-        output_lock = threading.Lock()
         
-        def update_last_output_time():
+        async def read_stream_async(stream, chunks, stream_name):
+            """Read from stream using asyncio"""
             nonlocal last_output_time
-            with output_lock:
-                last_output_time = time.time()
-        
-        def read_stream(stream, chunks, stream_name):
-            """Read from stream in a separate thread"""
             try:
                 while True:
-                    chunk = stream.read(1024)
+                    chunk = await stream.read(1024)
                     if not chunk:
                         break
-                    chunks.append(chunk)
-                    update_last_output_time()
-                    if stream_name == "stderr" and chunk.strip():
-                        logger.debug(f"Claude stderr: {chunk.strip()}")
-            except ValueError:
-                # Stream closed
+                    chunk_str = chunk.decode('utf-8', errors='replace')
+                    chunks.append(chunk_str)
+                    last_output_time = time.time()
+                    if stream_name == "stderr" and chunk_str.strip():
+                        logger.debug(f"Claude stderr: {chunk_str.strip()}")
+            except asyncio.CancelledError:
+                # Stream reading cancelled - this is expected during process cancellation
                 pass
             except Exception as e:
                 logger.error(f"Error reading {stream_name}: {e}")
         
+        process = None
         try:
-            # Start process
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
+            # Start async subprocess
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
                 cwd=str(working_dir),
                 env=os.environ
             )
             
             # Register process for cleanup on cancellation
-            thread_id = threading.get_ident()
-            with self.process_lock:
-                self.active_processes[thread_id] = process
+            if request_id:
+                async with self.process_lock:
+                    self.active_processes[request_id] = process
             
-            # Start reader threads for cross-platform compatibility
-            stdout_thread = threading.Thread(
-                target=read_stream, 
-                args=(process.stdout, stdout_chunks, "stdout"),
-                daemon=True
+            # Start async stream readers
+            stdout_task = asyncio.create_task(
+                read_stream_async(process.stdout, stdout_chunks, "stdout")
             )
-            stderr_thread = threading.Thread(
-                target=read_stream, 
-                args=(process.stderr, stderr_chunks, "stderr"),
-                daemon=True
+            stderr_task = asyncio.create_task(
+                read_stream_async(process.stderr, stderr_chunks, "stderr")
             )
-            
-            stdout_thread.start()
-            stderr_thread.start()
             
             # Monitor progress and timeouts
-            while process.poll() is None:
+            while process.returncode is None:
                 current_time = time.time()
                 elapsed = current_time - start_time
                 
                 # Check if no output for progress_timeout seconds (might be hanging)
-                with output_lock:
-                    time_since_output = current_time - last_output_time
-                    if time_since_output > progress_timeout:
-                        logger.error(
-                            f"No output for {progress_timeout}s, killing process",
-                            elapsed=elapsed
-                        )
+                time_since_output = current_time - last_output_time
+                if time_since_output > progress_timeout:
+                    logger.error(
+                        f"No output for {progress_timeout}s, killing process",
+                        elapsed=elapsed,
+                        request_id=request_id
+                    )
+                    process.terminate()
+                    try:
+                        await asyncio.wait_for(process.wait(), timeout=5)
+                    except asyncio.TimeoutError:
                         process.kill()
-                        process.wait()
-                        raise subprocess.TimeoutExpired(cmd, progress_timeout)
+                        await process.wait()
+                    raise subprocess.TimeoutExpired(cmd, progress_timeout)
                 
                 # Check overall timeout
                 if elapsed > timeout:
                     logger.error(
                         f"Overall timeout {timeout}s exceeded, killing process",
-                        elapsed=elapsed
+                        elapsed=elapsed,
+                        request_id=request_id
                     )
-                    process.kill()
-                    process.wait()
+                    process.terminate()
+                    try:
+                        await asyncio.wait_for(process.wait(), timeout=5)
+                    except asyncio.TimeoutError:
+                        process.kill()
+                        await process.wait()
                     raise subprocess.TimeoutExpired(cmd, timeout)
                 
                 # Sleep briefly to avoid busy waiting
-                time.sleep(1)
+                await asyncio.sleep(1)
             
-            # Wait for reader threads to finish
-            stdout_thread.join(timeout=5)
-            stderr_thread.join(timeout=5)
+            # Wait for stream readers to complete
+            try:
+                await asyncio.wait_for(asyncio.gather(stdout_task, stderr_task), timeout=5)
+            except asyncio.TimeoutError:
+                logger.warning("Stream readers timed out, cancelling")
+                stdout_task.cancel()
+                stderr_task.cancel()
             
             # Combine all output
             stdout = ''.join(stdout_chunks)
@@ -527,7 +529,8 @@ class ClaudeCLIProvider(CustomLLM):
             if process.returncode != 0:
                 logger.error(
                     f"Claude CLI failed with code {process.returncode}",
-                    stderr=stderr[:500]  # First 500 chars of stderr
+                    stderr=stderr[:500],  # First 500 chars of stderr
+                    request_id=request_id
                 )
                 raise subprocess.CalledProcessError(process.returncode, cmd, stdout, stderr)
             
@@ -543,25 +546,40 @@ class ClaudeCLIProvider(CustomLLM):
             logger.info(
                 "Claude CLI completed successfully",
                 elapsed=f"{elapsed:.1f}s",
-                output_size=len(stdout)
+                output_size=len(stdout),
+                request_id=request_id
             )
             
             return CompletedProcessResult(process.returncode, stdout, stderr)
             
+        except asyncio.CancelledError:
+            # Process cancellation - clean up subprocess
+            if process and process.returncode is None:
+                logger.info(f"Cancelling Claude CLI process (request: {request_id})")
+                process.terminate()
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=5)
+                except asyncio.TimeoutError:
+                    process.kill()
+                    await process.wait()
+            raise
         except Exception:
             # Ensure process is terminated on any error
-            if 'process' in locals():
+            if process and process.returncode is None:
                 try:
+                    process.terminate()
+                    await asyncio.wait_for(process.wait(), timeout=5)
+                except asyncio.TimeoutError:
                     process.kill()
-                    process.wait()
-                except (OSError, subprocess.SubprocessError):
+                    await process.wait()
+                except Exception:
                     pass
             raise
         finally:
             # Clean up process tracking
-            thread_id = threading.get_ident()
-            with self.process_lock:
-                self.active_processes.pop(thread_id, None)
+            if request_id:
+                async with self.process_lock:
+                    self.active_processes.pop(request_id, None)
     
     def _process_claude_result(self, result, model_alias: str, prompt: str):
         """Process successful Claude CLI result and create LiteLLM response"""
