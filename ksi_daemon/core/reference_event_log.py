@@ -358,3 +358,105 @@ class ReferenceEventLog:
                         "payload_refs": json.loads(row[14]) if row[14] else {}
                     })
                 return results
+    
+    async def get_statistics(self) -> Dict[str, Any]:
+        """Get comprehensive statistics about the event log."""
+        if not self.db_initialized:
+            return {"error": "Database not initialized"}
+        
+        stats = {
+            "database": {
+                "path": str(self.db_path),
+                "exists": self.db_path.exists()
+            },
+            "storage": {
+                "events_dir": str(self.events_dir),
+                "total_events": 0,
+                "file_count": 0,
+                "total_size_bytes": 0
+            },
+            "events": {
+                "by_type": {},
+                "by_date": {},
+                "recent_activity": []
+            },
+            "performance": {
+                "avg_payload_size": 0,
+                "referenced_payloads": 0,
+                "inline_payloads": 0
+            }
+        }
+        
+        try:
+            async with aiosqlite.connect(str(self.db_path)) as conn:
+                # Total events count
+                async with conn.execute("SELECT COUNT(*) FROM events_metadata") as cursor:
+                    row = await cursor.fetchone()
+                    stats["storage"]["total_events"] = row[0] if row else 0
+                
+                # Events by type/name
+                async with conn.execute("""
+                    SELECT event_name, COUNT(*) as count 
+                    FROM events_metadata 
+                    GROUP BY event_name 
+                    ORDER BY count DESC 
+                    LIMIT 20
+                """) as cursor:
+                    async for row in cursor:
+                        stats["events"]["by_type"][row[0]] = row[1]
+                
+                # Events by date (last 7 days)
+                async with conn.execute("""
+                    SELECT DATE(datetime(timestamp, 'unixepoch')) as date, COUNT(*) as count
+                    FROM events_metadata 
+                    WHERE timestamp >= ? 
+                    GROUP BY date 
+                    ORDER BY date DESC
+                """, (time.time() - 7*24*3600,)) as cursor:
+                    async for row in cursor:
+                        stats["events"]["by_date"][row[0]] = row[1]
+                
+                # Recent activity (last 10 events)
+                async with conn.execute("""
+                    SELECT timestamp, event_name, originator_id
+                    FROM events_metadata 
+                    ORDER BY timestamp DESC 
+                    LIMIT 10
+                """) as cursor:
+                    async for row in cursor:
+                        stats["events"]["recent_activity"].append({
+                            "timestamp": row[0],
+                            "event_name": row[1],
+                            "originator_id": row[2]
+                        })
+                
+                # Performance metrics
+                async with conn.execute("""
+                    SELECT 
+                        COUNT(CASE WHEN payload_refs != '{}' AND payload_refs IS NOT NULL THEN 1 END) as referenced,
+                        COUNT(CASE WHEN payload_refs = '{}' OR payload_refs IS NULL THEN 1 END) as inline
+                    FROM events_metadata
+                """) as cursor:
+                    row = await cursor.fetchone()
+                    if row:
+                        stats["performance"]["referenced_payloads"] = row[0]
+                        stats["performance"]["inline_payloads"] = row[1]
+            
+            # File system statistics
+            if self.events_dir.exists():
+                total_size = 0
+                file_count = 0
+                for file_path in self.events_dir.rglob("*.jsonl"):
+                    file_count += 1
+                    total_size += file_path.stat().st_size
+                
+                stats["storage"]["file_count"] = file_count
+                stats["storage"]["total_size_bytes"] = total_size
+                
+                if stats["storage"]["total_events"] > 0:
+                    stats["performance"]["avg_payload_size"] = total_size // stats["storage"]["total_events"]
+        
+        except Exception as e:
+            stats["error"] = f"Failed to collect statistics: {e}"
+        
+        return stats

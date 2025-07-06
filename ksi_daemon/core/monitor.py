@@ -115,8 +115,13 @@ async def handle_get_events(data: Dict[str, Any]) -> Dict[str, Any]:
             if event:
                 events.append(event)
         
-        # TODO: Get stats from reference log
-        total_events = len(metadata_results)
+        # Get actual total from database if we're not pattern filtering
+        if event_patterns:
+            total_events = len(metadata_results)  # Pattern filtering doesn't give us true total
+        else:
+            # Get accurate total count from database
+            stats = await event_router.reference_event_log.get_statistics()
+            total_events = stats.get("storage", {}).get("total_events", len(metadata_results))
         
         return {
             "events": events,

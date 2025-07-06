@@ -7,7 +7,6 @@ and implements thin handshakes for efficient session continuity.
 """
 
 import asyncio
-import json
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 

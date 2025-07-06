@@ -91,14 +91,10 @@ async def handle_event_log_stats(data: Dict[str, Any]) -> Dict[str, Any]:
     if not hasattr(router, 'reference_event_log') or not router.reference_event_log:
         return {"error": "Reference event log not available"}
     
-    # TODO: Implement stats for reference event log
-    # For now, return basic info
-    return {
-        "status": "reference_event_log",
-        "db_path": str(router.reference_event_log.db_path),
-        "events_dir": str(router.reference_event_log.events_dir),
-        "message": "Detailed stats not yet implemented for reference log"
-    }
+    # Get comprehensive statistics from reference event log
+    stats = await router.reference_event_log.get_statistics()
+    stats["status"] = "reference_event_log"
+    return stats
 
 
 @event_handler("event_log:clear")

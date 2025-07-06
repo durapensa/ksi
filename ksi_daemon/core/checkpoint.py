@@ -65,7 +65,7 @@ async def initialize_checkpoint_db():
                 request_id TEXT NOT NULL,
                 session_id TEXT,
                 status TEXT NOT NULL,
-                request_data TEXT NOT NULL,
+                request_data TEXT NOT NULL, -- JSON blob: appropriate for temporary pass-through data
                 queued_at TEXT,
                 started_at TEXT,
                 completed_at TEXT,
