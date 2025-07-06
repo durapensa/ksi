@@ -17,6 +17,86 @@ This guide provides a structured approach for the next Claude Code session to re
 - ⏳ Advanced features underutilized
 - ❌ Key gaps identified (query language, evolution, analytics)
 
+## Research Findings (2024-12-31)
+
+### Current Implementation Analysis
+
+**Graph Database (state.py)**
+- Full entity-property-relationship model with SQLite backend
+- BFS traversal algorithm with depth limiting
+- Good indexing on relationships and entities
+- No query language - only event handlers
+- Missing: graph algorithms, pattern matching, shortest path
+
+**Event System & Analytics**
+- Robust event log with timestamp indexing
+- Basic pattern matching (wildcards, SQL LIKE)
+- Time-series analysis exists in observation modules
+- Frequency analysis, n-gram detection, performance tracking
+- Missing: windowed aggregations, complex event processing
+
+**Composition System**
+- Sophisticated resolver with inheritance & mixins
+- Variable substitution and fragment support
+- No actual resolver.py file - logic in composition_service.py
+- Could support hot-reload but not implemented
+- Perfect foundation for capability evolution
+
+**Resource Management**
+- Rate limiting infrastructure exists (RateLimiter class)
+- Token budget placeholders in injection system
+- No actual tracking or enforcement
+- Permission system could be extended
+
+### Graph Database Architecture Decision
+
+After researching embedded graph database options for Python in 2024:
+
+**Option 1: Continue with SQLite + Custom Query Language**
+- ✅ No new dependencies, full control
+- ✅ Already integrated and working
+- ❌ Must build query language from scratch
+- ❌ Limited graph algorithms
+- ❌ Performance concerns for complex traversals
+
+**Option 2: Migrate to Kùzu (Recommended)**
+- ✅ Embedded like SQLite (no server required)
+- ✅ Native Cypher support
+- ✅ ~18x faster than Neo4j for ingestion
+- ✅ Python API with Pandas/Polars integration
+- ✅ MIT license, actively developed
+- ✅ LangChain integration available
+- ❌ Migration effort required
+- ❌ New dependency
+
+**Option 3: Lightweight Alternatives**
+- **Cozo**: Uses Datalog instead of Cypher
+- **SQLite with GraphRAG**: Good for <1000 nodes
+- **RedisGraph**: Requires Redis server
+- **Memgraph**: In-memory, requires more resources
+
+**Recommendation**: Implement Kùzu as a parallel system first, allowing gradual migration while maintaining backward compatibility.
+
+### Updated Implementation Strategy
+
+**Phase 1: Dual-Database Approach (Week 1)**
+1. Add Kùzu alongside SQLite
+2. Mirror critical data to both systems
+3. Implement Cypher event handlers using Kùzu
+4. Keep existing SQLite handlers for compatibility
+
+**Phase 2: Enhanced Analytics (Week 1-2)**
+1. Leverage existing observation modules
+2. Add windowed aggregations to event log
+3. Create time-series event handlers
+4. Build on frequency/pattern analysis
+
+**Phase 3: Migration & Evolution (Week 2-3)**
+1. Gradually move graph operations to Kùzu
+2. Implement capability evolution using compositions
+3. Add resource tracking with existing infrastructure
+4. Deprecate SQLite graph handlers
+
 ## Phase 1: Deep Code Research Tasks
 
 ### 1.1 Graph Database Implementation Deep Dive
@@ -319,6 +399,151 @@ RETURN path
 
 5. **Migration Strategy**: How do we roll out breaking changes gradually?
 
+## Quick Wins with Kùzu Integration
+
+### 1. Parallel Cypher Handler (Day 1)
+```python
+# ksi_daemon/core/kuzu_state.py
+import kuzu
+from ksi_daemon.event_system import event_handler
+
+class KuzuStateManager:
+    def __init__(self):
+        self.db = kuzu.Database(str(config.kuzu_db_path))
+        self.conn = kuzu.Connection(self.db)
+        
+@event_handler("state:cypher:query")
+async def handle_cypher_query(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Execute Cypher query via Kùzu."""
+    query = data.get("query")
+    params = data.get("params", {})
+    
+    result = conn.execute(query, params)
+    return {
+        "columns": result.get_column_names(),
+        "data": result.get_as_df().to_dict('records')
+    }
+```
+
+### 2. Time-Series Event Aggregation (Day 1-2)
+```python
+@event_handler("event_log:aggregate")
+async def handle_event_aggregation(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Aggregate events with time windows."""
+    window = data.get("window", "1h")  # 1h, 5m, 1d
+    aggregation = data.get("aggregation", "count")  # count, rate, avg
+    group_by = data.get("group_by", ["event_type"])
+    
+    # Leverage existing query infrastructure
+    results = await event_log.aggregate_windowed(
+        window=window,
+        aggregation=aggregation,
+        group_by=group_by
+    )
+    return results
+```
+
+### 3. Simple Capability Evolution (Day 2-3)
+```python
+@event_handler("agent:suggest_capabilities")
+async def suggest_capability_evolution(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Suggest capability changes based on performance."""
+    agent_id = data.get("agent_id")
+    
+    # Analyze agent's event patterns
+    metrics = await analyze_agent_performance(agent_id)
+    
+    # Suggest capability additions/removals
+    suggestions = {
+        "add": [],
+        "remove": [],
+        "rationale": {}
+    }
+    
+    if metrics["failed_spawn_attempts"] > 5:
+        suggestions["add"].append("spawn_agents")
+        suggestions["rationale"]["spawn_agents"] = "High spawn failure rate"
+    
+    return suggestions
+```
+
+## Migration Strategy: SQLite to Kùzu
+
+### Phase 1: Shadow Mode (Week 1)
+1. Install Kùzu alongside existing system
+2. Create migration script to copy data
+3. Run both systems in parallel
+4. Compare query results for validation
+
+### Phase 2: Gradual Cutover (Week 2)
+1. New features use Kùzu only
+2. High-performance queries move to Kùzu
+3. Keep SQLite for backward compatibility
+4. Monitor performance differences
+
+### Phase 3: Full Migration (Week 3+)
+1. Migrate remaining queries
+2. Update all event handlers
+3. Deprecate SQLite handlers
+4. Archive SQLite data
+
+### Migration Script Example
+```python
+# migrate_to_kuzu.py
+async def migrate_entities():
+    """Migrate entities from SQLite to Kùzu."""
+    # Create schema in Kùzu
+    conn.execute("""
+        CREATE NODE TABLE Agent(
+            id STRING PRIMARY KEY,
+            type STRING,
+            created_at DOUBLE,
+            properties MAP(STRING, STRING)
+        )
+    """)
+    
+    # Copy data
+    entities = await state_manager.query_entities()
+    for entity in entities:
+        conn.execute("""
+            CREATE (:Agent {
+                id: $id,
+                type: $type,
+                created_at: $created_at,
+                properties: $properties
+            })
+        """, entity)
+```
+
+## Updated Key Questions for Planning Discussion
+
+1. **Dual Database Strategy**: Should we maintain both SQLite and Kùzu long-term or plan for full migration?
+
+2. **Cypher Dialect**: Should we support full Cypher or start with a subset that matches our use cases?
+
+3. **Performance Benchmarks**: What metrics should we track during the migration to validate improvements?
+
+4. **Capability Evolution**: Should evolution be automatic based on metrics or require human approval?
+
+5. **API Compatibility**: How do we ensure existing tools and clients continue working during migration?
+
+## Implementation Priority (Updated)
+
+1. **Immediate (Day 1-2)**:
+   - Set up Kùzu development environment
+   - Create basic Cypher query handler
+   - Implement simple event aggregation
+
+2. **Short-term (Week 1)**:
+   - Build migration tools
+   - Add graph algorithms via Kùzu
+   - Enhance time-series analytics
+
+3. **Medium-term (Week 2-3)**:
+   - Implement capability evolution
+   - Add resource tracking
+   - Complete performance benchmarks
+
 ## Appendix: Code Investigation Commands
 
 ```bash
@@ -336,8 +561,14 @@ rg "limit|quota|resource|budget" ksi_daemon/
 
 # Check time-series related code
 rg "time|timestamp|window|aggregate" ksi_daemon/core/
+
+# Find rate limiting usage
+rg "RateLimiter|rate_limit" ksi_daemon/
+
+# Examine observation analytics
+rg "frequency|pattern|aggregate" ksi_daemon/observation/
 ```
 
 ---
 
-This planning guide provides a structured approach for the next session. Start with the research tasks, then enter planning mode to discuss findings and prioritize implementation based on what you discover in the code.
+This planning guide provides a structured approach for the next session. The research findings strongly suggest adopting Kùzu as a parallel graph database to gain Cypher support while maintaining backward compatibility. Start with quick wins that demonstrate value, then gradually migrate based on performance validation.
