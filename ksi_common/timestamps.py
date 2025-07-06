@@ -196,21 +196,3 @@ def numeric_to_iso(timestamp: float) -> str:
     return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat().replace('+00:00', 'Z')
 
 
-# Deprecated: TimestampManager class for backward compatibility
-# TODO: Remove after migrating all usages
-class TimestampManager:
-    """DEPRECATED: Use module-level functions instead"""
-    utc_now = staticmethod(utc_now)
-    timestamp_utc = staticmethod(timestamp_utc)
-    timestamp_local_iso = staticmethod(timestamp_local_iso)
-    filename_timestamp = staticmethod(filename_timestamp)
-    display_timestamp = staticmethod(display_timestamp)
-    parse_iso_timestamp = staticmethod(parse_iso_timestamp)
-    utc_to_local = staticmethod(utc_to_local)
-    local_to_utc = staticmethod(local_to_utc)
-    format_for_logging = staticmethod(format_for_logging)
-    format_for_display = staticmethod(format_for_display)
-    format_for_message_bus = staticmethod(format_for_message_bus)
-    get_timezone_offset = staticmethod(get_timezone_offset)
-    ensure_utc_suffix = staticmethod(ensure_utc_suffix)
-    numeric_to_iso = staticmethod(numeric_to_iso)

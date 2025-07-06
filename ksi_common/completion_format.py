@@ -124,53 +124,6 @@ def get_response_model(response: Dict[str, Any]) -> Optional[str]:
     return extract_model(provider, raw_response)
 
 
-# Deprecated: CompletionResponse class for backward compatibility
-# TODO: Remove after migrating all usages
-class CompletionResponse:
-    """DEPRECATED: Use create_standardized_response() and helper functions instead."""
-    
-    def __init__(self, provider: str, raw_response: Dict[str, Any], 
-                 request_id: Optional[str] = None, client_id: Optional[str] = None,
-                 duration_ms: Optional[int] = None):
-        self.data = create_standardized_response(provider, raw_response, request_id, client_id, duration_ms)
-    
-    def to_dict(self) -> Dict[str, Any]:
-        return self.data
-    
-    def get_provider(self) -> str:
-        return get_provider(self.data)
-    
-    def get_raw_response(self) -> Dict[str, Any]:
-        return get_raw_response(self.data)
-    
-    def get_request_id(self) -> str:
-        return get_request_id(self.data)
-    
-    def get_timestamp(self) -> str:
-        return get_timestamp(self.data)
-    
-    def get_duration_ms(self) -> Optional[int]:
-        return get_duration_ms(self.data)
-    
-    def get_client_id(self) -> Optional[str]:
-        return get_client_id(self.data)
-    
-    def get_text(self) -> str:
-        return get_response_text(self.data)
-    
-    def get_session_id(self) -> Optional[str]:
-        return get_response_session_id(self.data)
-    
-    def get_usage(self) -> Optional[Dict[str, Any]]:
-        return get_response_usage(self.data)
-    
-    def get_cost(self) -> Optional[float]:
-        return get_response_cost(self.data)
-    
-    def get_model(self) -> Optional[str]:
-        return get_response_model(self.data)
-
-
 def extract_text(provider: str, response: Dict[str, Any]) -> str:
     """Extract response text from provider response."""
     if provider == "claude-cli":
@@ -276,17 +229,6 @@ def extract_model(provider: str, response: Dict[str, Any]) -> Optional[str]:
         return response.get("model")
 
 
-# Deprecated: ProviderHelpers class for backward compatibility
-# TODO: Remove after migrating all usages
-class ProviderHelpers:
-    """DEPRECATED: Use module-level functions instead"""
-    extract_text = staticmethod(extract_text)
-    extract_session_id = staticmethod(extract_session_id)
-    extract_usage = staticmethod(extract_usage)
-    extract_cost = staticmethod(extract_cost)
-    extract_model = staticmethod(extract_model)
-
-
 def create_completion_response(provider: str, raw_response: Dict[str, Any], 
                              **kwargs) -> Dict[str, Any]:
     """
@@ -345,8 +287,4 @@ __all__ = [
     "extract_usage",
     "extract_cost",
     "extract_model",
-    
-    # Deprecated classes
-    "CompletionResponse",
-    "ProviderHelpers",
 ]
