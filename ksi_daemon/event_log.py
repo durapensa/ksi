@@ -9,13 +9,13 @@ Uses ring buffer for memory efficiency with optional persistence.
 import time
 import json
 import asyncio
-import sqlite3
+import aiosqlite
 from typing import Dict, Any, List, Optional, Union, Set, Callable
 from collections import deque
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
 import fnmatch
-from contextlib import contextmanager
+from contextlib import asynccontextmanager
 
 from ksi_common.timestamps import timestamp_utc, format_for_logging, parse_iso_timestamp
 from ksi_common.logging import get_bound_logger
@@ -264,14 +264,14 @@ class EventLog(DaemonEventLog):
         self.subscribers: Dict[str, EventSubscriber] = {}
         
         # SQLite connection (created in start())
-        self.conn: Optional[sqlite3.Connection] = None
+        self.conn: Optional[aiosqlite.Connection] = None
         
         logger.info(f"AsyncSQLiteEventLog initialized with db={self.db_path}")
     
     async def start(self) -> None:
         """Start async writer task and initialize database."""
         # Initialize SQLite with WAL mode for better concurrency
-        self._init_database()
+        await self._init_database()
         
         # Start background writer
         self.writer_task = asyncio.create_task(self._async_writer())
@@ -292,20 +292,20 @@ class EventLog(DaemonEventLog):
                 pass
         
         if self.conn:
-            self.conn.close()
+            await self.conn.close()
         
         logger.info("AsyncSQLiteEventLog stopped")
     
-    def _init_database(self) -> None:
+    async def _init_database(self) -> None:
         """Initialize SQLite database with schema."""
-        self.conn = sqlite3.connect(str(self.db_path))
+        self.conn = await aiosqlite.connect(str(self.db_path))
         
         # Enable WAL mode for better concurrency
-        self.conn.execute("PRAGMA journal_mode=WAL")
-        self.conn.execute("PRAGMA synchronous=NORMAL")
+        await self.conn.execute("PRAGMA journal_mode=WAL")
+        await self.conn.execute("PRAGMA synchronous=NORMAL")
         
         # Create events table with extracted fields for indexing
-        self.conn.execute("""
+        await self.conn.execute("""
             CREATE TABLE IF NOT EXISTS events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp REAL NOT NULL,
@@ -321,13 +321,13 @@ class EventLog(DaemonEventLog):
         """)
         
         # Create indexes for common queries
-        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_timestamp ON events(timestamp)")
-        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_event_name ON events(event_name)")
-        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_session_id ON events(session_id)")
-        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_correlation_id ON events(correlation_id)")
-        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_client_id ON events(client_id)")
+        await self.conn.execute("CREATE INDEX IF NOT EXISTS idx_timestamp ON events(timestamp)")
+        await self.conn.execute("CREATE INDEX IF NOT EXISTS idx_event_name ON events(event_name)")
+        await self.conn.execute("CREATE INDEX IF NOT EXISTS idx_session_id ON events(session_id)")
+        await self.conn.execute("CREATE INDEX IF NOT EXISTS idx_correlation_id ON events(correlation_id)")
+        await self.conn.execute("CREATE INDEX IF NOT EXISTS idx_client_id ON events(client_id)")
         
-        self.conn.commit()
+        await self.conn.commit()
     
     def log_event(self, event_name: str, data: Dict[str, Any], 
                   client_id: Optional[str] = None,
@@ -498,14 +498,14 @@ class EventLog(DaemonEventLog):
                 ))
             
             # Batch insert
-            self.conn.executemany("""
+            await self.conn.executemany("""
                 INSERT INTO events 
                 (timestamp, event_name, event_type, client_id, session_id, 
                  correlation_id, event_id, data)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, rows)
             
-            self.conn.commit()
+            await self.conn.commit()
             
             logger.debug(f"Wrote batch of {len(batch)} events to SQLite")
             
@@ -521,27 +521,27 @@ class EventLog(DaemonEventLog):
             # Load events from last hour
             since = time.time() - 3600
             
-            cursor = self.conn.execute("""
+            async with self.conn.execute("""
                 SELECT timestamp, event_name, client_id, correlation_id, 
                        event_id, data
                 FROM events
                 WHERE timestamp > ?
                 ORDER BY timestamp
                 LIMIT ?
-            """, (since, self.max_size))
-            
-            count = 0
-            for row in cursor:
-                entry = EventLogEntry(
-                    timestamp=row[0],
-                    event_name=row[1],
-                    data=json.loads(row[5]),
-                    client_id=row[2],
-                    correlation_id=row[3],
-                    event_id=row[4]
-                )
-                self.events.append(entry)
-                count += 1
+            """, (since, self.max_size)) as cursor:
+                
+                count = 0
+                async for row in cursor:
+                    entry = EventLogEntry(
+                        timestamp=row[0],
+                        event_name=row[1],
+                        data=json.loads(row[5]),
+                        client_id=row[2],
+                        correlation_id=row[3],
+                        event_id=row[4]
+                    )
+                    self.events.append(entry)
+                    count += 1
             
             logger.info(f"Recovered {count} events from database")
             
@@ -556,19 +556,19 @@ class EventLog(DaemonEventLog):
         try:
             cutoff = time.time() - (config.event_retention_days * 86400)
             
-            cursor = self.conn.execute(
+            cursor = await self.conn.execute(
                 "DELETE FROM events WHERE timestamp < ?",
                 (cutoff,)
             )
             
             if cursor.rowcount > 0:
-                self.conn.commit()
+                await self.conn.commit()
                 logger.info(f"Cleaned up {cursor.rowcount} old events")
                 
         except Exception as e:
             logger.error(f"Failed to cleanup old events: {e}")
     
-    def query_db(self, query: str, params: tuple = ()) -> List[Dict[str, Any]]:
+    async def query_db(self, query: str, params: tuple = ()) -> List[Dict[str, Any]]:
         """
         Execute SQL query and return results.
         
@@ -583,22 +583,21 @@ class EventLog(DaemonEventLog):
             return []
         
         try:
-            self.conn.row_factory = sqlite3.Row
-            cursor = self.conn.execute(query, params)
+            # Set row factory for dict-like access
+            self.conn.row_factory = aiosqlite.Row
             
-            results = []
-            for row in cursor:
-                # Convert Row to dict
-                result = dict(row)
-                # Parse JSON data field if present
-                if 'data' in result:
-                    result['data'] = json.loads(result['data'])
-                results.append(result)
+            async with self.conn.execute(query, params) as cursor:
+                results = []
+                async for row in cursor:
+                    # Convert Row to dict
+                    result = dict(row)
+                    # Parse JSON data field if present
+                    if 'data' in result:
+                        result['data'] = json.loads(result['data'])
+                    results.append(result)
             
             return results
             
         except Exception as e:
             logger.error(f"Query failed: {e}")
             return []
-        finally:
-            self.conn.row_factory = None

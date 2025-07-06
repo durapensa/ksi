@@ -4,12 +4,13 @@ Composition Index - Database indexing and discovery for compositions
 """
 
 import json
-import sqlite3
+import aiosqlite
 import hashlib
 import yaml
+import asyncio
 from pathlib import Path
 from typing import Dict, Any, List, Optional
-from contextlib import contextmanager
+from contextlib import asynccontextmanager
 
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import format_for_logging
@@ -22,20 +23,20 @@ _db_path: Optional[Path] = None
 _initialized = False
 
 
-@contextmanager
-def _get_db():
+@asynccontextmanager
+async def _get_db():
     """Get database connection with proper cleanup."""
     if not _initialized:
         raise RuntimeError("Composition index not initialized")
     
-    conn = sqlite3.connect(str(_db_path))
+    conn = await aiosqlite.connect(str(_db_path))
     try:
         yield conn
     finally:
-        conn.close()
+        await conn.close()
 
 
-def initialize(db_path: Optional[Path] = None):
+async def initialize(db_path: Optional[Path] = None):
     """Initialize composition index database."""
     global _db_path, _initialized
     
@@ -46,10 +47,14 @@ def initialize(db_path: Optional[Path] = None):
     _db_path.parent.mkdir(parents=True, exist_ok=True)
     
     # Initialize schema
-    conn = sqlite3.connect(str(_db_path))
+    conn = await aiosqlite.connect(str(_db_path))
     try:
+        # Enable WAL mode for better concurrency
+        await conn.execute("PRAGMA journal_mode=WAL")
+        await conn.execute("PRAGMA synchronous=NORMAL")
+        
         # Composition repositories table
-        conn.execute('''
+        await conn.execute('''
             CREATE TABLE IF NOT EXISTS composition_repositories (
                 id TEXT PRIMARY KEY,
                 type TEXT NOT NULL,
@@ -62,7 +67,7 @@ def initialize(db_path: Optional[Path] = None):
         ''')
         
         # Composition index table
-        conn.execute('''
+        await conn.execute('''
             CREATE TABLE IF NOT EXISTS composition_index (
                 full_name TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -86,25 +91,25 @@ def initialize(db_path: Optional[Path] = None):
         ''')
         
         # Indexes for efficient queries
-        conn.execute('CREATE INDEX IF NOT EXISTS idx_comp_type ON composition_index(type)')
-        conn.execute('CREATE INDEX IF NOT EXISTS idx_comp_repo ON composition_index(repository_id)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_comp_type ON composition_index(type)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_comp_repo ON composition_index(repository_id)')
         
         # Ensure local repository exists
-        conn.execute('''
+        await conn.execute('''
             INSERT OR IGNORE INTO composition_repositories 
             (id, type, path, status, created_at) 
             VALUES ('local', 'local', ?, 'active', ?)
         ''', (str(config.compositions_dir), format_for_logging()))
         
-        conn.commit()
+        await conn.commit()
     finally:
-        conn.close()
+        await conn.close()
     
     _initialized = True
     logger.info(f"Composition index initialized at {_db_path}")
 
 
-def index_file(file_path: Path) -> bool:
+async def index_file(file_path: Path) -> bool:
     """Index a single composition file."""
     try:
         if not file_path.exists() or file_path.suffix != '.yaml':
@@ -134,8 +139,8 @@ def index_file(file_path: Path) -> bool:
         loading_strategy = metadata.get('loading_strategy', 'single')
         
         # Index entry
-        with _get_db() as conn:
-            conn.execute('''
+        async with _get_db() as conn:
+            await conn.execute('''
                 INSERT OR REPLACE INTO composition_index
                 (full_name, name, type, repository_id, file_path, file_hash, 
                  version, description, author, extends, tags, capabilities, 
@@ -155,7 +160,7 @@ def index_file(file_path: Path) -> bool:
                 metadata.get('ephemeral', False),
                 format_for_logging()
             ))
-            conn.commit()
+            await conn.commit()
         
         logger.debug(f"Indexed composition {full_name} from {file_path}")
         return True
@@ -165,15 +170,15 @@ def index_file(file_path: Path) -> bool:
         return False
 
 
-def rebuild(repository_id: str = 'local') -> int:
+async def rebuild(repository_id: str = 'local') -> int:
     """Rebuild composition index for a repository."""
     if repository_id != 'local':
         return 0
         
     # Clear existing index
-    with _get_db() as conn:
-        conn.execute('DELETE FROM composition_index WHERE repository_id = ?', (repository_id,))
-        conn.commit()
+    async with _get_db() as conn:
+        await conn.execute('DELETE FROM composition_index WHERE repository_id = ?', (repository_id,))
+        await conn.commit()
     
     # Scan composition directory
     if not config.compositions_dir.exists():
@@ -182,14 +187,14 @@ def rebuild(repository_id: str = 'local') -> int:
     
     indexed_count = 0
     for yaml_file in config.compositions_dir.rglob('*.yaml'):
-        if index_file(yaml_file):
+        if await index_file(yaml_file):
             indexed_count += 1
             
     logger.info(f"Indexed {indexed_count} compositions")
     return indexed_count
 
 
-def discover(query: Dict[str, Any]) -> List[Dict[str, Any]]:
+async def discover(query: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Query composition index."""
     conditions = []
     params = []
@@ -227,37 +232,37 @@ def discover(query: Dict[str, Any]) -> List[Dict[str, Any]]:
     
     results = []
     try:
-        with _get_db() as conn:
-            cursor = conn.execute(sql, params)
-            for row in cursor.fetchall():
-                results.append({
-                    'full_name': row[0],
-                    'name': row[1], 
-                    'type': row[2],
-                    'description': row[3],
-                    'version': row[4],
-                    'author': row[5],
-                    'tags': json.loads(row[6] or '[]'),
-                    'capabilities': json.loads(row[7] or '[]'),
-                    'loading_strategy': row[8],
-                    'file_path': row[9]
-                })
+        async with _get_db() as conn:
+            async with conn.execute(sql, params) as cursor:
+                async for row in cursor:
+                    results.append({
+                        'full_name': row[0],
+                        'name': row[1], 
+                        'type': row[2],
+                        'description': row[3],
+                        'version': row[4],
+                        'author': row[5],
+                        'tags': json.loads(row[6] or '[]'),
+                        'capabilities': json.loads(row[7] or '[]'),
+                        'loading_strategy': row[8],
+                        'file_path': row[9]
+                    })
     except Exception as e:
         logger.error(f"Composition discovery failed: {e}")
         
     return results
 
 
-def get_path(full_name: str) -> Optional[Path]:
+async def get_path(full_name: str) -> Optional[Path]:
     """Get file path for a composition."""
     try:
-        with _get_db() as conn:
-            cursor = conn.execute(
+        async with _get_db() as conn:
+            async with conn.execute(
                 'SELECT file_path FROM composition_index WHERE full_name = ?', 
                 (full_name,)
-            )
-            row = cursor.fetchone()
-            return Path(row[0]) if row else None
+            ) as cursor:
+                row = await cursor.fetchone()
+                return Path(row[0]) if row else None
     except Exception as e:
         logger.error(f"Failed to get path for {full_name}: {e}")
         return None
