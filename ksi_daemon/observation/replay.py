@@ -163,7 +163,7 @@ async def replay_observations(data: Dict[str, Any]) -> Dict[str, Any]:
     Args:
         event_patterns (list): Event patterns to replay (e.g. ["task:*", "data:*"])
         filter: Additional filters
-            - client_id: Filter by specific client/agent
+            - originator_id: Filter by specific originator/agent
             - since: Start timestamp
             - until: End timestamp
         speed (float): Replay speed multiplier (1.0 = real-time)
@@ -183,7 +183,7 @@ async def replay_observations(data: Dict[str, Any]) -> Dict[str, Any]:
     # Query from event log through event handler
     query_result = await _event_emitter("event_log:query", {
         "event_patterns": event_patterns,
-        "source_agent": filter_data.get("client_id"),
+        "source_agent": filter_data.get("originator_id"),
         "start_time": filter_data.get("since"),
         "end_time": filter_data.get("until"),
         "limit": filter_data.get("limit", 1000)
@@ -299,7 +299,7 @@ async def analyze_observation_patterns(data: Dict[str, Any]) -> Dict[str, Any]:
     Args:
         event_patterns (list): Event patterns to analyze (default ["*"])
         filter: Additional filters
-            - client_id: Filter by specific client/agent
+            - originator_id: Filter by specific originator/agent
             - since: Start timestamp
             - until: End timestamp
         analysis_type: "frequency", "sequence", "performance", "errors"
@@ -317,7 +317,7 @@ async def analyze_observation_patterns(data: Dict[str, Any]) -> Dict[str, Any]:
     # Query from event log through event handler
     query_result = await _event_emitter("event_log:query", {
         "event_patterns": event_patterns,
-        "source_agent": filter_data.get("client_id"),
+        "source_agent": filter_data.get("originator_id"),
         "start_time": filter_data.get("since"),
         "end_time": filter_data.get("until"),
         "limit": data.get("limit", 1000)

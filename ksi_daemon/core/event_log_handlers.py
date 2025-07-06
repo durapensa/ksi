@@ -39,7 +39,7 @@ async def handle_event_log_query(data: Dict[str, Any]) -> Dict[str, Any]:
     # Map observation parameters to monitor parameters
     query = {
         "event_patterns": data.get("event_patterns"),
-        "client_id": data.get("source_agent"),  # Map source_agent to client_id
+        "originator_id": data.get("source_agent"),  # Map source_agent to originator_id
         "since": data.get("start_time"),  # Map start_time to since
         "until": data.get("end_time"),    # Map end_time to until
         "limit": data.get("limit", 100),

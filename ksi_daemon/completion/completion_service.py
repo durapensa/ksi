@@ -326,7 +326,7 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
             provider=provider,
             raw_response=raw_response,
             request_id=request_id,
-            client_id=data.get("client_id"),
+            client_id=data.get("originator_id"),  # Map originator_id to client_id for now
             duration_ms=latency_ms
         )
         

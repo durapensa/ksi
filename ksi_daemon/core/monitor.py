@@ -69,7 +69,7 @@ async def handle_get_events(data: Dict[str, Any]) -> Dict[str, Any]:
     Args:
         data: Query parameters:
             - event_patterns: List of event name patterns (supports wildcards)
-            - client_id: Filter by specific client  
+            - originator_id: Filter by specific originator  
             - since: Start time (ISO string or timestamp)
             - until: End time (ISO string or timestamp)
             - limit: Maximum number of events to return
@@ -84,7 +84,7 @@ async def handle_get_events(data: Dict[str, Any]) -> Dict[str, Any]:
     try:
         # Extract query parameters
         event_patterns = data.get("event_patterns")
-        originator_id = data.get("client_id")  # Map client_id to originator_id
+        originator_id = data.get("originator_id")
         since = data.get("since")
         until = data.get("until")
         limit = data.get("limit", 100)  # Default limit
@@ -124,7 +124,7 @@ async def handle_get_events(data: Dict[str, Any]) -> Dict[str, Any]:
             "total_events": total_events,
             "query": {
                 "event_patterns": event_patterns,
-                "client_id": originator_id,
+                "originator_id": originator_id,
                 "since": since,
                 "until": until,
                 "limit": limit,
@@ -195,7 +195,7 @@ async def handle_subscribe(data: Dict[str, Any]) -> Dict[str, Any]:
         data: Subscription parameters:
             - event_patterns: List of event name patterns (supports wildcards)
             - filter_fn: Optional additional filter function
-            - client_id: Client identifier
+            - originator_id: Originator identifier
             - writer: Transport writer reference
     
     Returns:
@@ -214,7 +214,7 @@ async def handle_unsubscribe(data: Dict[str, Any]) -> Dict[str, Any]:
     
     Args:
         data: Unsubscribe parameters:
-            - client_id: Client identifier
+            - originator_id: Originator identifier
     
     Returns:
         Unsubscribe confirmation

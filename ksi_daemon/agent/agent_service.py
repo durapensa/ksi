@@ -761,7 +761,7 @@ async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
             completion_data = {
                 "messages": [{"role": "user", "content": prompt}],
                 "agent_id": agent_id,
-                "client_id": agent_id,  # Use agent_id as client_id
+                "originator_id": agent_id,  # Use agent_id as originator_id
                 "session_id": agent_info.get("session_id"),
                 "model": f"claude-cli/{agent_info.get('config', {}).get('model', 'sonnet')}",
                 "priority": "normal",
