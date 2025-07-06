@@ -2,9 +2,9 @@
 Observation system for agent event monitoring with historical analysis.
 """
 
-from .observation_manager import should_observe_event, notify_observers
+from .observation_manager import should_observe_event, notify_observers, notify_observers_async
 
 # Replay module is loaded for its event handlers but doesn't export functions
 import ksi_daemon.observation.replay  # noqa
 
-__all__ = ["should_observe_event", "notify_observers"]
+__all__ = ["should_observe_event", "notify_observers", "notify_observers_async"]

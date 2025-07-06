@@ -671,11 +671,12 @@ def _get_fallback_selection() -> SelectionResult:
 async def load_composition(name: str, comp_type: Optional[str] = None) -> Composition:
     """Load a composition with caching support."""
     # Check dynamic cache first
-    if state_manager:
-        cache_key = f"dynamic_composition:{name}"
-        cached = state_manager.get_shared_state(cache_key)
-        if cached and isinstance(cached, dict):
-            return Composition.from_yaml(cached)
+    # TODO: Update to use new relational state API
+    # if state_manager:
+    #     cache_key = f"dynamic_composition:{name}"
+    #     cached = state_manager.get_shared_state(cache_key)
+    #     if cached and isinstance(cached, dict):
+    #         return Composition.from_yaml(cached)
     
     # Load from file
     return await load_composition_file(name, comp_type)

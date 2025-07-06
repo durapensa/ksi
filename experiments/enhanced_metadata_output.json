@@ -1,0 +1,135 @@
+{
+  "event": "completion:async",
+  "summary": "Request an async completion from an LLM provider",
+  "parameters": {
+    "prompt": {
+      "type": "string",
+      "description": "The prompt text to send to the LLM",
+      "required": true,
+      "example": "Explain quantum computing in simple terms"
+    },
+    "model": {
+      "type": "string",
+      "description": "Model identifier (provider/model format)",
+      "required": true,
+      "allowed_values": [
+        "claude-cli/sonnet",
+        "claude-cli/opus",
+        "claude-cli/haiku",
+        "litellm/gpt-4",
+        "litellm/gpt-3.5-turbo"
+      ],
+      "example": "claude-cli/sonnet"
+    },
+    "session_id": {
+      "type": "string",
+      "description": "Session ID for conversation continuity (omit for new session)",
+      "required": false,
+      "example": "abc-123-def"
+    },
+    "temperature": {
+      "type": "float",
+      "description": "Sampling temperature (0.0-2.0)",
+      "required": false,
+      "default": 0.7,
+      "constraints": {
+        "min": 0.0,
+        "max": 2.0
+      }
+    },
+    "max_tokens": {
+      "type": "integer",
+      "description": "Maximum tokens to generate",
+      "required": false,
+      "default": 4000,
+      "constraints": {
+        "min": 1,
+        "max": 128000
+      }
+    },
+    "priority": {
+      "type": "string",
+      "description": "Request priority for queue management",
+      "required": false,
+      "default": "normal",
+      "allowed_values": [
+        "critical",
+        "high",
+        "normal",
+        "low",
+        "background"
+      ]
+    }
+  },
+  "category": "compute",
+  "performance": {
+    "async_response": true,
+    "typical_duration_ms": 100,
+    "has_side_effects": true,
+    "idempotent": false
+  },
+  "requirements": {
+    "has_cost": true,
+    "requires_auth": false,
+    "rate_limited": true
+  },
+  "description": "\n    Sends a prompt to a language model and returns immediately with a request ID.\n    The actual completion will be delivered asynchronously through the completion:result event.\n    \n    Supports multiple providers including Claude (via claude-cli) and OpenAI models (via litellm).\n    Session management allows for conversation continuity across requests.\n    ",
+  "examples": [
+    {
+      "description": "Basic completion request",
+      "data": {
+        "prompt": "What is the capital of France?",
+        "model": "claude-cli/sonnet"
+      },
+      "expected_result": {
+        "status": "queued",
+        "request_id": "req_123",
+        "estimated_wait_ms": 100
+      }
+    },
+    {
+      "description": "Continue conversation with session",
+      "data": {
+        "prompt": "What about its population?",
+        "model": "claude-cli/sonnet",
+        "session_id": "session_abc123"
+      },
+      "context": "Following up on previous question about Paris",
+      "expected_result": {
+        "status": "queued",
+        "request_id": "req_124",
+        "session_id": "session_abc123_continued"
+      }
+    },
+    {
+      "description": "High-priority request with custom parameters",
+      "data": {
+        "prompt": "Urgent: Summarize this error log",
+        "model": "litellm/gpt-4",
+        "priority": "critical",
+        "temperature": 0.2,
+        "max_tokens": 500
+      },
+      "context": "Production incident response"
+    }
+  ],
+  "best_practices": [
+    "Always handle the async response via completion:result event",
+    "Use session_id for multi-turn conversations",
+    "Set appropriate priority to manage queue effectively",
+    "Monitor costs with high-volume usage",
+    "Use temperature=0 for deterministic outputs"
+  ],
+  "common_errors": [
+    "Invalid model identifier - use provider/model format",
+    "Session not found - session_ids expire after inactivity",
+    "Rate limit exceeded - implement backoff strategy",
+    "Request timeout - check completion:status event"
+  ],
+  "related_events": [
+    "completion:result",
+    "completion:status",
+    "completion:cancel",
+    "completion:session_status"
+  ]
+}

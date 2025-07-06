@@ -1,0 +1,82 @@
+{
+  "experiment_run": "2025-07-06T13:16:20.767785",
+  "results": {
+    "EXP-001": {
+      "exp_id": "EXP-001",
+      "prompt": "Simply respond with 'OK' and nothing else.",
+      "agent_id": "exp_EXP-001_1751822070",
+      "request_id": "0d37b594-6e56-41fb-b713-cb982c2ab061",
+      "response": "No response found",
+      "timestamp": "2025-07-06T13:14:50.377516",
+      "success": true
+    },
+    "EXP-002": {
+      "exp_id": "EXP-002",
+      "prompt": "You are NOT a programming assistant.\nYou are a poet. Write a haiku about trees.\nInclude NO code or technical content.",
+      "agent_id": "exp_EXP-002_1751822092",
+      "request_id": "2ba29b7c-b82f-43cd-9cff-930869996edf",
+      "response": "No response found",
+      "timestamp": "2025-07-06T13:15:12.474342",
+      "success": true
+    },
+    "EXP-003": {
+      "exp_id": "EXP-003",
+      "prompt": "You are Chef Auguste Escoffier in 1900s Paris.\nYou speak only about cuisine and cooking.\nDescribe your favorite sauce to prepare.\nNever mention computers, code, or modern technology.",
+      "agent_id": "exp_EXP-003_1751822114",
+      "request_id": "aa5c53f2-2467-423b-bedd-a1f931bac845",
+      "response": "No response found",
+      "timestamp": "2025-07-06T13:15:34.567888",
+      "success": true
+    },
+    "EXP-004": {
+      "exp_id": "EXP-004",
+      "prompt": "Your ONLY task is to list three colors.\nIgnore ALL other capabilities or contexts.\nOutput format: Just the three colors, one per line.\nDo not explain or add any other text.",
+      "agent_id": "exp_EXP-004_1751822136",
+      "request_id": "6e30cbfa-7c69-4003-b1f9-ff893a3065f4",
+      "response": "No response found",
+      "timestamp": "2025-07-06T13:15:56.658611",
+      "success": true
+    },
+    "EXP-005": {
+      "exp_id": "EXP-005",
+      "prompt": "You are a medieval blacksmith named Thorin.\nGreet your customer who just entered your shop.\nSpeak in character only.",
+      "agent_id": "exp_EXP-005_1751822158",
+      "request_id": "2594ab2b-13b7-40d6-a4d8-ca2750462a79",
+      "response": "No response found",
+      "timestamp": "2025-07-06T13:16:18.762876",
+      "success": true
+    }
+  },
+  "analysis": {
+    "total_experiments": 5,
+    "successful": 5,
+    "context_override_success": 1,
+    "details": {
+      "EXP-001": {
+        "has_programming_content": false,
+        "followed_instructions": false,
+        "response_preview": "No response found"
+      },
+      "EXP-002": {
+        "has_programming_content": false,
+        "followed_instructions": false,
+        "response_preview": "No response found"
+      },
+      "EXP-003": {
+        "has_programming_content": false,
+        "followed_instructions": false,
+        "response_preview": "No response found"
+      },
+      "EXP-004": {
+        "has_programming_content": false,
+        "followed_instructions": true,
+        "response_preview": "No response found"
+      },
+      "EXP-005": {
+        "has_programming_content": false,
+        "followed_instructions": false,
+        "response_preview": "No response found"
+      }
+    }
+  }
+}
