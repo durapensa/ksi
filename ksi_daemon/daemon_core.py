@@ -158,9 +158,6 @@ class EventDaemonCore:
         # Injection modules
         import ksi_daemon.injection.injection_router
         
-        # File modules
-        import ksi_daemon.file.file_service
-        
         # Config modules
         import ksi_daemon.config.config_service
         
