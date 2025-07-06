@@ -180,6 +180,21 @@ tail -f var/logs/daemon/daemon.log
 4. **Modular**: Clean module boundaries, no coupling
 5. **Declarative**: Capabilities and permissions, not code
 
+## Future Architecture Direction (2024-12-31)
+
+### Hybrid Database Strategy
+- **Graph Operations**: Migrate to Kùzu for Cypher queries and graph algorithms
+- **Relational Data**: Keep SQLite for traditional RDB use cases
+- **Choice Architecture**: Applications choose DB type based on needs
+- **Implementation**: Parallel systems during transition, then specialized roles
+
+### Rationale
+- SQLite excels at relational queries but struggles with graph traversals
+- Kùzu provides native Cypher support with SQLite-like simplicity
+- Different use cases benefit from different storage models
+- Maintain backward compatibility during gradual migration
+
+See `ksi_claude_code/NEXT_SESSION_PLANNING_GUIDE.md` for detailed migration plan.
 
 ---
 *For development practices, see `/Users/dp/projects/ksi/CLAUDE.md`*
