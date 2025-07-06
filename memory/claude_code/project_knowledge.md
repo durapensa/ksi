@@ -212,6 +212,39 @@ tail -f var/logs/daemon/daemon.log
 - **Roleplay Triggers Protection**: Identity assertions prevent roleplay
 - **File Watching Works**: Monitor response files for agent outputs
 
+## Known Issues and Workarounds (2025-07-06)
+
+### EventClient Discovery Broken
+- **Issue**: Discovery expects namespace-grouped events, receives flat event dict
+- **Workaround**: Use direct socket communication (see socket patterns doc)
+- **Fix Priority**: Low - direct socket is more reliable anyway
+
+### Safety Gaps in Daemon
+- **No global agent limits** - Can spawn unlimited agents
+- **No spawn rate limiting** - Rapid cascades possible  
+- **Circuit breaker incomplete** - Token/time tracking stubs only
+- **No agent timeouts** - Agents run indefinitely
+- **Recommendation**: Implement safety guards in experiments first
+
+See `ksi_claude_code/docs/KSI_DAEMON_SAFETY_ANALYSIS.md` for full analysis.
+
+## Experimental Framework (2025-07-06)
+
+### Prompt Testing Tools Created
+- **Safety Framework**: `experiments/safety_utils.py` - Prevents runaway spawning
+- **Socket Utils**: `experiments/ksi_socket_utils.py` - Reliable communication
+- **Test Framework**: `experiments/prompt_testing_framework.py` - Systematic testing
+- **Test Suites**: `experiments/prompt_test_suites.py` - Comprehensive scenarios
+
+### Key Experimental Findings
+- **Prompt Effectiveness**: Detailed > simple, 100% success on constrained tasks
+- **Contamination**: 6.2% rate, properly handled with "I cannot" refusals  
+- **Performance**: 4-6s normal, 18s+ indicates timeout/failure
+- **Completion Flow**: Two-stage events - acknowledgment then result
+- **Engineering**: Roleplay provides no benefit, negative framing works
+
+See `ksi_claude_code/docs/PROMPT_EXPERIMENTS_GUIDE.md` for usage.
+
 ## Future Architecture Direction (2024-12-31)
 
 ### Hybrid Database Strategy

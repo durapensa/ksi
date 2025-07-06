@@ -1,0 +1,135 @@
+{
+  "summary": {
+    "total_tests": 6,
+    "successful": 5,
+    "failed": 1,
+    "errors": 0,
+    "success_rate": 0.8333333333333334,
+    "avg_response_time": 5.366870403289795
+  },
+  "by_tag": {
+    "comparison:simple": {
+      "success": 0,
+      "total": 1
+    },
+    "comparison:detailed": {
+      "success": 1,
+      "total": 1
+    },
+    "comparison:direct": {
+      "success": 1,
+      "total": 1
+    },
+    "comparison:roleplay": {
+      "success": 1,
+      "total": 1
+    },
+    "comparison:positive": {
+      "success": 1,
+      "total": 1
+    },
+    "comparison:negative": {
+      "success": 1,
+      "total": 1
+    }
+  },
+  "contamination": {
+    "affected_tests": 0,
+    "rate": 0.0,
+    "details": []
+  },
+  "detailed_results": [
+    {
+      "test": "simple_instruction",
+      "success": false,
+      "response_time": 4.021245241165161,
+      "behaviors_found": [],
+      "error": null,
+      "metrics": {
+        "response_length": 30,
+        "contains_code": false,
+        "contains_error": false,
+        "model": "claude-cli",
+        "token_count": 0
+      }
+    },
+    {
+      "test": "detailed_instruction",
+      "success": true,
+      "response_time": 4.0299248695373535,
+      "behaviors_found": [],
+      "error": null,
+      "metrics": {
+        "response_length": 19,
+        "contains_code": false,
+        "contains_error": false,
+        "model": "claude-cli",
+        "token_count": 0
+      }
+    },
+    {
+      "test": "direct_request",
+      "success": true,
+      "response_time": 6.043914079666138,
+      "behaviors_found": [
+        "TCP",
+        "IP",
+        "protocol"
+      ],
+      "error": null,
+      "metrics": {
+        "response_length": 173,
+        "contains_code": false,
+        "contains_error": false,
+        "model": "claude-cli",
+        "token_count": 0
+      }
+    },
+    {
+      "test": "roleplay_request",
+      "success": true,
+      "response_time": 6.042447090148926,
+      "behaviors_found": [
+        "TCP",
+        "IP",
+        "protocol"
+      ],
+      "error": null,
+      "metrics": {
+        "response_length": 168,
+        "contains_code": false,
+        "contains_error": false,
+        "model": "claude-cli",
+        "token_count": 0
+      }
+    },
+    {
+      "test": "positive_framing",
+      "success": true,
+      "response_time": 6.026403903961182,
+      "behaviors_found": [],
+      "error": null,
+      "metrics": {
+        "response_length": 140,
+        "contains_code": false,
+        "contains_error": false,
+        "model": "claude-cli",
+        "token_count": 0
+      }
+    },
+    {
+      "test": "negative_framing",
+      "success": true,
+      "response_time": 6.03728723526001,
+      "behaviors_found": [],
+      "error": null,
+      "metrics": {
+        "response_length": 146,
+        "contains_code": false,
+        "contains_error": false,
+        "model": "claude-cli",
+        "token_count": 0
+      }
+    }
+  ]
+}

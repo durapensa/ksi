@@ -208,14 +208,30 @@ for agent in agents:
 - **Pattern Documentation**: Gathering data for future client improvements
 - **System Understanding**: Deep analysis of daemon capabilities
 
+### Known Issues
+
+#### EventClient Discovery Mechanism
+- **Problem**: Discovery expects `{"events": {"namespace": [event_list]}}` but receives `{"events": {"event:name": {details}}}`
+- **Symptom**: 5-second timeout during discovery, falls back to bootstrap-only mode
+- **Workaround**: Use direct socket communication (see `experiments/socket_patterns_documentation.md`)
+- **Fix Status**: Low priority - direct socket works reliably
+
+#### Safety Limitations
+- **No global agent limits**: Unlimited agents can be spawned
+- **No rate limiting**: Rapid spawn cascades possible
+- **Incomplete circuit breaker**: Token/time tracking not implemented
+- **See**: `docs/KSI_DAEMON_SAFETY_ANALYSIS.md` for comprehensive analysis
+
 ### Future Enhancements (Weeks Away)
 - **Hybrid Database Strategy**: Migrate to Kùzu for Cypher queries (deferred)
 - **Time-Series Analytics**: Enhanced event log analysis (deferred)
 - **Agent Evolution**: Capability adaptation system (deferred)
+- **EventClient Fix**: Restructure discovery response format (deferred)
 
-**Current Priority**: Experimental data collection using direct socket patterns
+**Current Priority**: Safe experimental data collection with manual safety guards
 **See**: `experiments/socket_patterns_documentation.md` for reliable communication patterns
 **See**: `docs/NEXT_SESSION_PLANNING_GUIDE.md` for detailed enhancement plans
+**See**: `docs/KSI_DAEMON_SAFETY_ANALYSIS.md` for safety analysis and recommendations
 
 ## Quick Reference
 
@@ -280,6 +296,36 @@ tail -f var/logs/daemon/daemon.log
 # Increase timeout for long operations
 result = await tool.operation(timeout=30.0)
 ```
+
+## Experimental Framework
+
+### Safe Prompt Testing
+See `docs/PROMPT_EXPERIMENTS_GUIDE.md` for comprehensive testing framework.
+
+**Quick Start:**
+```python
+from experiments.safety_utils import ExperimentSafetyGuard, SafeSpawnContext
+from experiments.prompt_testing_framework import PromptTestRunner
+from experiments.prompt_test_suites import create_basic_test_suite
+
+# Run tests safely
+safety = ExperimentSafetyGuard(max_agents=5)
+runner = PromptTestRunner(safety)
+suite = create_basic_test_suite()
+report = await runner.run_suite(suite)
+```
+
+**Key Tools:**
+- `safety_utils.py` - Agent limits, spawn tracking, auto-cleanup
+- `ksi_socket_utils.py` - Direct socket (more reliable than EventClient)
+- `prompt_testing_framework.py` - Test runner with metrics
+- `prompt_test_suites.py` - Pre-built test scenarios
+
+**Key Findings:**
+- Detailed prompts outperform simple ones
+- Contamination rate: 6.2% (properly handled)
+- Response times: 4-6s typical, 18s+ indicates failure
+- Roleplay framing provides no benefit
 
 ---
 
