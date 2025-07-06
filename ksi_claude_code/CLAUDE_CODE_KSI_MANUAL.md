@@ -11,7 +11,7 @@ KSI is an event-driven multi-agent system that provides:
 - **Conversation continuity** via claude-cli session management
 - **Observation system** for monitoring agent behavior
 - **Composition system** for dynamic agent creation
-- **State management** through a simple key-value store
+- **State management** through a full graph database with entities and relationships
 
 My approach is to use **Python tools that send events to KSI's Unix socket**, providing clean abstractions over the raw protocol.
 
@@ -45,9 +45,32 @@ result = await tool.continue_conversation(
 )
 ```
 
-### 2. State Management Tools
+### 2. Graph State Management
 ```python
-# Set state via state:set event
+# Create entities and relationships in the graph database
+graph_tool = GraphStateTool()
+
+# Create an entity
+agent_entity = await graph_tool.create_entity(
+    entity_type="agent",
+    properties={"name": "researcher", "status": "active"}
+)
+
+# Create relationships
+await graph_tool.create_relationship(
+    from_entity=coordinator.id,
+    to_entity=agent_entity.id,
+    relationship_type="spawned"
+)
+
+# Traverse the graph
+network = await graph_tool.traverse_graph(
+    start_entity=coordinator.id,
+    max_depth=3,
+    direction="outgoing"
+)
+
+# Simple key-value operations still available
 state_tool = StateManagementTool()
 await state_tool.set("project:status", {
     "completed_features": ["auth", "database"],
