@@ -180,6 +180,38 @@ tail -f var/logs/daemon/daemon.log
 4. **Modular**: Clean module boundaries, no coupling
 5. **Declarative**: Capabilities and permissions, not code
 
+## Socket Communication Patterns (2025-07-06)
+
+### Direct Unix Socket
+- **More Reliable**: EventClient has discovery timeout issues
+- **Pattern**: `echo '{"event": "name", "data": {}}' | nc -U var/run/daemon.sock`
+- **Response**: Always includes event, data, count, correlation_id, timestamp
+- **Documentation**: See `experiments/socket_patterns_documentation.md`
+
+### Event Log Features
+- **Timestamp Filtering**: Use `since` parameter in monitor:get_events
+- **Pattern Matching**: Supports wildcards and arrays of patterns
+- **Efficient Queries**: Server-side filtering reduces data transfer
+
+## Claude Code Integration (2025-07-06)
+
+### Hook System
+- **Configuration**: `.claude/settings.local.json` (project-specific)
+- **Input**: JSON via stdin with session_id, tool_name, tool_input, tool_response
+- **Smart Filtering**: Only triggers on KSI-related commands
+- **Implementation**: `experiments/ksi_hook_monitor.py`
+
+### Session Management
+- **Conversation Files**: `~/.claude/projects/{encoded-path}/*.jsonl`
+- **Session ID**: Filename without .jsonl extension
+- **Resume Pattern**: `claude --resume {session_id} --print` (doesn't work for injection)
+
+### Key Discoveries
+- **Context Contamination**: Spawned agents inherit Claude Code context
+- **Simple Tasks Work**: Direct instructions succeed without contamination
+- **Roleplay Triggers Protection**: Identity assertions prevent roleplay
+- **File Watching Works**: Monitor response files for agent outputs
+
 ## Future Architecture Direction (2024-12-31)
 
 ### Hybrid Database Strategy
