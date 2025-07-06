@@ -232,34 +232,34 @@ class AgentPermissions:
     resources: ResourceLimits
     capabilities: Capabilities
     
-    def can_spawn_child(self, child_permissions: AgentPermissions) -> bool:
-        """Check if this agent can spawn a child with given permissions"""
+    def can_spawn_construct(self, construct_permissions: AgentPermissions) -> bool:
+        """Check if this agent can spawn a construct with given permissions"""
         if not self.capabilities.spawn_agents:
             return False
         
         # Child cannot have more permissions than parent
         # Check tool permissions
-        child_tools = child_permissions.tools.get_effective_allowed_tools()
+        construct_tools = construct_permissions.tools.get_effective_allowed_tools()
         parent_tools = self.tools.get_effective_allowed_tools()
-        if not all(tool in parent_tools for tool in child_tools):
+        if not all(tool in parent_tools for tool in construct_tools):
             return False
         
         # Check filesystem permissions (simplified check)
-        if child_permissions.filesystem.max_file_size_mb > self.filesystem.max_file_size_mb:
+        if construct_permissions.filesystem.max_file_size_mb > self.filesystem.max_file_size_mb:
             return False
-        if child_permissions.filesystem.max_total_size_mb > self.filesystem.max_total_size_mb:
+        if construct_permissions.filesystem.max_total_size_mb > self.filesystem.max_total_size_mb:
             return False
         
         # Check resource limits
-        if child_permissions.resources.max_tokens_per_request > self.resources.max_tokens_per_request:
+        if construct_permissions.resources.max_tokens_per_request > self.resources.max_tokens_per_request:
             return False
-        if child_permissions.resources.max_total_tokens > self.resources.max_total_tokens:
+        if construct_permissions.resources.max_total_tokens > self.resources.max_total_tokens:
             return False
         
         # Check capabilities
-        if child_permissions.capabilities.network_access and not self.capabilities.network_access:
+        if construct_permissions.capabilities.network_access and not self.capabilities.network_access:
             return False
-        if child_permissions.capabilities.spawn_agents and not self.capabilities.spawn_agents:
+        if construct_permissions.capabilities.spawn_agents and not self.capabilities.spawn_agents:
             return False
         
         return True
@@ -371,18 +371,18 @@ class PermissionManager:
             del self.agent_permissions[agent_id]
             logger.info("Removed agent permissions", agent_id=agent_id)
     
-    def validate_spawn_permissions(self, parent_id: str, child_permissions: AgentPermissions) -> bool:
-        """Validate if a parent can spawn a child with given permissions"""
-        parent_perms = self.get_agent_permissions(parent_id)
-        if not parent_perms:
-            logger.error("Parent agent not found", parent_id=parent_id)
+    def validate_spawn_permissions(self, originator_id: str, construct_permissions: AgentPermissions) -> bool:
+        """Validate if an originator can spawn a construct with given permissions"""
+        originator_perms = self.get_agent_permissions(originator_id)
+        if not originator_perms:
+            logger.error("Originator agent not found", originator_id=originator_id)
             return False
         
-        if not parent_perms.can_spawn_child(child_permissions):
+        if not originator_perms.can_spawn_construct(construct_permissions):
             logger.warning(
-                "Parent cannot spawn child with requested permissions",
-                parent_id=parent_id,
-                child_level=child_permissions.level.value
+                "Originator cannot spawn construct with requested permissions",
+                originator_id=originator_id,
+                construct_level=construct_permissions.level.value
             )
             return False
         

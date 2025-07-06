@@ -427,7 +427,7 @@ async def execute_injection(data: Dict[str, Any]) -> Dict[str, Any]:
                 "prompt": content,
                 "session_id": target_session,
                 "model": data.get('model', 'claude-cli/sonnet'),  # Default model
-                "client_id": "injection_router",
+                "originator_id": "injection_router",
                 "request_id": f"inj_{request_id}_{target_session}" if request_id else f"inj_{int(time.time() * 1000)}_{target_session}",
                 "priority": data.get('priority', 'normal'),
                 "injection_metadata": {

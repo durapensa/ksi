@@ -24,7 +24,7 @@ async def handle_event_log_query(data: Dict[str, Any]) -> Dict[str, Any]:
     to the monitor module's get_events handler.
     
     Args:
-        source_agent: Agent ID to filter by (maps to client_id)
+        source_agent: Agent ID to filter by (maps to originator_id)
         event_patterns: List of event name patterns to match
         start_time: Start time for query range (ISO string or timestamp)
         end_time: End time for query range (ISO string or timestamp)

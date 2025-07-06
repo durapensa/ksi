@@ -174,32 +174,32 @@ def apply_permission_overrides(permissions: AgentPermissions, overrides: dict) -
 
 @event_handler("permission:validate_spawn")
 async def handle_validate_spawn(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Validate if parent can spawn child with given permissions.
+    """Validate if originator can spawn construct with given permissions.
     
     Args:
-        parent_id (str): The parent agent ID
-        child_permissions (dict): The requested permissions for the child agent
+        originator_id (str): The originating agent ID
+        construct_permissions (dict): The requested permissions for the construct agent
     
     Returns:
         valid: Whether the spawn is allowed
-        parent_id: The parent agent ID
+        originator_id: The originating agent ID
     """
-    parent_id = data.get("parent_id")
-    child_permissions = data.get("child_permissions")
+    originator_id = data.get("originator_id")
+    construct_permissions = data.get("construct_permissions")
     
-    if not parent_id or not child_permissions:
-        return {"error": "Missing required parameters: parent_id, child_permissions"}
+    if not originator_id or not construct_permissions:
+        return {"error": "Missing required parameters: originator_id, construct_permissions"}
     
     try:
-        child_perms = AgentPermissions.from_dict(child_permissions)
+        construct_perms = AgentPermissions.from_dict(construct_permissions)
     except Exception as e:
-        return {"error": f"Invalid child permissions: {str(e)}"}
+        return {"error": f"Invalid construct permissions: {str(e)}"}
     
-    valid = permission_manager.validate_spawn_permissions(parent_id, child_perms)
+    valid = permission_manager.validate_spawn_permissions(originator_id, construct_perms)
     
     return {
         "valid": valid,
-        "parent_id": parent_id
+        "originator_id": originator_id
     }
 
 
@@ -280,9 +280,9 @@ async def handle_create_sandbox(data: Dict[str, Any]) -> Dict[str, Any]:
         agent_id (str): The agent ID
         config (dict): Sandbox configuration (optional)
             mode (str): Sandbox isolation mode (optional, default: isolated, allowed: isolated, shared, readonly)
-            parent_agent_id (str): Parent agent for nested sandboxes (optional)
+            originator_agent_id (str): Originator agent for nested sandboxes (optional)
             session_id (str): Session ID for shared sandboxes (optional)
-            parent_share (str): Parent sharing mode (optional)
+            originator_share (str): Originator sharing mode (optional)
             session_share (bool): Enable session sharing (optional)
     
     Returns:
@@ -297,9 +297,9 @@ async def handle_create_sandbox(data: Dict[str, Any]) -> Dict[str, Any]:
     config_data = data.get("config", {})
     sandbox_config = SandboxConfig(
         mode=SandboxMode(config_data.get("mode", "isolated")),
-        parent_agent_id=config_data.get("parent_agent_id"),
+        originator_agent_id=config_data.get("originator_agent_id"),
         session_id=config_data.get("session_id"),
-        parent_share=config_data.get("parent_share", "read_only"),
+        originator_share=config_data.get("originator_share", "read_only"),
         session_share=config_data.get("session_share", False)
     )
     

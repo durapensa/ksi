@@ -217,7 +217,7 @@ class EventRouter:
         # Log event to reference-based event log
         if hasattr(self, 'reference_event_log') and self.reference_event_log:
             # Extract metadata for logging
-            originator_id = context.get("originator_id") or context.get("agent_id") or context.get("client_id")
+            originator_id = context.get("originator_id") or context.get("agent_id")
             construct_id = context.get("construct_id") or data.get("construct_id")
             correlation_id = context.get("correlation_id")
             event_id = context.get("event_id") or data.get("request_id")
@@ -883,7 +883,7 @@ def source_filter(allowed_sources: List[str] = None,
         if not context:
             return True
             
-        source = context.get("agent_id") or context.get("client_id") or data.get("agent_id")
+        source = context.get("agent_id") or data.get("agent_id")
         
         if blocked_sources and source in blocked_sources:
             return False

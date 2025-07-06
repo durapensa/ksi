@@ -32,17 +32,17 @@ class SandboxMode(str, Enum):
 class SandboxConfig:
     """Configuration for a sandbox"""
     mode: SandboxMode = SandboxMode.ISOLATED
-    parent_agent_id: Optional[str] = None
+    originator_agent_id: Optional[str] = None
     session_id: Optional[str] = None
-    parent_share: str = "read_only"  # read_only, read_write, none
+    originator_share: str = "read_only"  # read_only, read_write, none
     session_share: bool = False
     
     def to_dict(self) -> Dict:
         return {
             "mode": self.mode.value,
-            "parent_agent_id": self.parent_agent_id,
+            "originator_agent_id": self.originator_agent_id,
             "session_id": self.session_id,
-            "parent_share": self.parent_share,
+            "originator_share": self.originator_share,
             "session_share": self.session_share
         }
     
@@ -50,9 +50,9 @@ class SandboxConfig:
     def from_dict(cls, data: Dict) -> SandboxConfig:
         return cls(
             mode=SandboxMode(data["mode"]),
-            parent_agent_id=data.get("parent_agent_id"),
+            originator_agent_id=data.get("originator_agent_id"),
             session_id=data.get("session_id"),
-            parent_share=data.get("parent_share", "read_only"),
+            originator_share=data.get("originator_share", "read_only"),
             session_share=data.get("session_share", False)
         )
 
@@ -122,12 +122,12 @@ class SandboxManager:
         if config.mode == SandboxMode.SHARED and config.session_id:
             # Shared session sandbox
             sandbox_path = self.shared_root / config.session_id
-        elif config.mode == SandboxMode.NESTED and config.parent_agent_id:
-            # Nested within parent sandbox
-            parent_sandbox = self.get_sandbox(config.parent_agent_id)
-            if not parent_sandbox:
-                raise ValueError(f"Parent agent {config.parent_agent_id} not found")
-            sandbox_path = parent_sandbox.path / "nested" / agent_id
+        elif config.mode == SandboxMode.NESTED and config.originator_agent_id:
+            # Nested within originator sandbox
+            originator_sandbox = self.get_sandbox(config.originator_agent_id)
+            if not originator_sandbox:
+                raise ValueError(f"Originator agent {config.originator_agent_id} not found")
+            sandbox_path = originator_sandbox.path / "nested" / agent_id
         else:
             # Isolated sandbox
             sandbox_path = self.agents_root / agent_id
@@ -182,19 +182,19 @@ class SandboxManager:
                 if not link_path.exists():
                     link_path.symlink_to(resource_path)
         
-        # If nested, optionally link to parent workspace
-        if config.mode == SandboxMode.NESTED and config.parent_agent_id:
-            parent_sandbox = self.get_sandbox(config.parent_agent_id)
-            if parent_sandbox and config.parent_share != "none":
-                parent_link = sandbox_path / "parent"
-                if not parent_link.exists():
-                    parent_link.symlink_to(parent_sandbox.workspace_path)
+        # If nested, optionally link to originator workspace
+        if config.mode == SandboxMode.NESTED and config.originator_agent_id:
+            originator_sandbox = self.get_sandbox(config.originator_agent_id)
+            if originator_sandbox and config.originator_share != "none":
+                originator_link = sandbox_path / "originator"
+                if not originator_link.exists():
+                    originator_link.symlink_to(originator_sandbox.workspace_path)
                     
                     # Make it read-only if specified
-                    if config.parent_share == "read_only":
+                    if config.originator_share == "read_only":
                         # Note: Actual read-only enforcement would require OS-level permissions
                         # For now, this is a logical flag
-                        with open(sandbox_path / ".parent_access", "w") as f:
+                        with open(sandbox_path / ".originator_access", "w") as f:
                             f.write("read_only")
         
         # If session shared, create session shared link
@@ -261,11 +261,11 @@ class SandboxManager:
                 agents.append(agent_id)
         return agents
     
-    def get_nested_agents(self, parent_agent_id: str) -> List[str]:
-        """Get all agents nested under a parent"""
+    def get_nested_agents(self, originator_agent_id: str) -> List[str]:
+        """Get all agents nested under an originator"""
         agents = []
         for agent_id, sandbox in self.sandboxes.items():
-            if sandbox.config.parent_agent_id == parent_agent_id:
+            if sandbox.config.originator_agent_id == originator_agent_id:
                 agents.append(agent_id)
         return agents
     
@@ -306,7 +306,7 @@ class SandboxManager:
             "shared": 0,
             "nested": 0,
             "by_session": {},
-            "by_parent": {}
+            "by_originator": {}
         }
         
         for sandbox in self.sandboxes.values():
@@ -319,9 +319,9 @@ class SandboxManager:
                     stats["by_session"][session_id] = stats["by_session"].get(session_id, 0) + 1
             elif sandbox.config.mode == SandboxMode.NESTED:
                 stats["nested"] += 1
-                parent_id = sandbox.config.parent_agent_id
-                if parent_id:
-                    stats["by_parent"][parent_id] = stats["by_parent"].get(parent_id, 0) + 1
+                originator_id = sandbox.config.originator_agent_id
+                if originator_id:
+                    stats["by_originator"][originator_id] = stats["by_originator"].get(originator_id, 0) + 1
         
         return stats
 

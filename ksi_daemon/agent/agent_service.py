@@ -157,15 +157,15 @@ async def reestablish_observations(data: Dict[str, Any]) -> None:
                 
             relationships = rel_result.get("relationships", [])
             for rel in relationships:
-                child_id = rel.get("to")
-                if child_id:
+                construct_id = rel.get("to")
+                if construct_id:
                     await event_emitter("observation:subscribe", {
                         "observer": agent_id,
-                        "target": child_id,
+                        "target": construct_id,
                         "events": ["task:completed", "error:*"],
                         "filter": {}
                     })
-                    logger.info(f"Re-established observation: {agent_id} -> {child_id}")
+                    logger.info(f"Re-established observation: {agent_id} -> {construct_id}")
         
         # Check if agent should observe parent
         if agent_info.get("originator_agent_id"):

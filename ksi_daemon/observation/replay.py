@@ -422,9 +422,9 @@ def analyze_sequence_patterns_from_events(events: List) -> Dict[str, Any]:
     # Find common sequences (2-grams) - same client
     sequences = []
     for i in range(len(events) - 1):
-        client_id1 = events[i].get("originator_id")
-        client_id2 = events[i+1].get("originator_id")
-        if client_id1 and client_id1 == client_id2:
+        originator_id1 = events[i].get("originator_id")
+        originator_id2 = events[i+1].get("originator_id")
+        if originator_id1 and originator_id1 == originator_id2:
             # Only if events are close in time (within 60 seconds)
             time_diff = events[i+1].get("timestamp", 0) - events[i].get("timestamp", 0)
             if time_diff < 60:
@@ -439,11 +439,11 @@ def analyze_sequence_patterns_from_events(events: List) -> Dict[str, Any]:
     # Find 3-grams for more complex patterns
     trigrams = []
     for i in range(len(events) - 2):
-        client_id1 = events[i].get("originator_id")
-        client_id2 = events[i+1].get("originator_id")
-        client_id3 = events[i+2].get("originator_id")
-        if (client_id1 and 
-            client_id1 == client_id2 == client_id3 and
+        originator_id1 = events[i].get("originator_id")
+        originator_id2 = events[i+1].get("originator_id")
+        originator_id3 = events[i+2].get("originator_id")
+        if (originator_id1 and 
+            originator_id1 == originator_id2 == originator_id3 and
             events[i+2].get("timestamp", 0) - events[i].get("timestamp", 0) < 120):
             trigrams.append((
                 events[i].get("event_name", ""),
