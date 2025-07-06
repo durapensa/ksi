@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "name": "KSI Event Monitor",
+        "description": "Check KSI status after tool use",
+        "matcher": "Bash|Write|Edit|MultiEdit|Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python /Users/dp/projects/ksi/experiments/ksi_hook_monitor.py"
+          }
+        ]
+      }
+    ]
+  }
+}

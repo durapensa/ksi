@@ -200,14 +200,22 @@ for agent in agents:
 4. **Async Everywhere** - No blocking operations
 5. **Session Continuity** - claude-cli manages conversation context
 
-## Future Direction (2024-12-31)
+## Current Direction (2025-07-06)
 
-### Hybrid Database Strategy
-- **Graph Operations**: Migrate to Kùzu for Cypher queries
-- **Relational Data**: Keep SQLite for traditional queries
-- **Gradual Migration**: Run both systems in parallel initially
+### Experimental Phase Focus
+- **Direct Socket Communication**: Proven more reliable than EventClient wrapper
+- **Baseline Performance**: Establishing metrics via socket-based experiments
+- **Pattern Documentation**: Gathering data for future client improvements
+- **System Understanding**: Deep analysis of daemon capabilities
 
-See `docs/NEXT_SESSION_PLANNING_GUIDE.md` for detailed enhancement plans.
+### Future Enhancements (Weeks Away)
+- **Hybrid Database Strategy**: Migrate to Kùzu for Cypher queries (deferred)
+- **Time-Series Analytics**: Enhanced event log analysis (deferred)
+- **Agent Evolution**: Capability adaptation system (deferred)
+
+**Current Priority**: Experimental data collection using direct socket patterns
+**See**: `experiments/socket_patterns_documentation.md` for reliable communication patterns
+**See**: `docs/NEXT_SESSION_PLANNING_GUIDE.md` for detailed enhancement plans
 
 ## Quick Reference
 

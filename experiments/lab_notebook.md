@@ -137,3 +137,80 @@ The Claude Code context isn't uniformly contaminating - it depends on prompt typ
 - File watching for response capture
 - Event log integration
 - Automated analysis of context contamination
+
+---
+
+## 2025-07-06 Session 2: Baseline Performance Experiments
+
+### Context Override Experiments - COMPLETE
+From previous session, we established:
+- ✅ Simple instructions work perfectly (OK, colors)
+- ✅ Creative tasks succeed (haiku without programming content)
+- ❌ Roleplay triggers identity protection (Chef, blacksmith)
+- ✅ File watching successfully captures agent responses
+
+### Core System Baseline Testing
+
+### EXP-BL-001: Agent Network Direct Test
+**Time**: 2025-07-06 17:39
+**Purpose**: Test core KSI systems using direct socket communication
+**Results**: SUCCESS - All core systems functional
+
+**Systems Tested**:
+- ✅ Agent spawn/terminate: Working
+- ✅ Completion system: Working (response files created)
+- ✅ State management: Entity creation/query working
+- ✅ Graph database: Relationship creation/traversal working
+- ✅ Event logging: Query system working
+
+**Performance Metrics**:
+- System uptime: 1566.5s
+- Modules loaded: 25
+- Agent spawn latency: <1s
+- Completion request latency: ~5s
+- Response file creation: Working
+- Entity creation: Working
+- Relationship creation: Working
+- Graph traversal: Working (2 nodes, 1 edge)
+
+### EXP-BL-002: EventClient Discovery Issue
+**Time**: 2025-07-06 17:38
+**Purpose**: Test EventClient-based experiments
+**Results**: FAILED - EventClient discovery timeout
+
+**Issue**: "Separator is not found, and chunk exceed the limit"
+- Event discovery fails after 5s timeout
+- Direct socket communication works perfectly
+- Issue appears to be with client-side event discovery, not daemon
+
+**Workaround**: Use direct socket communication for experiments
+
+### Graph Database Performance - Basic Test
+**Entities Created**: 2 users via bulk_create
+**Relationships Created**: 1 friendship relationship
+**Graph Traversal**: Successfully traversed user_1 → user_2
+**Response Time**: All operations <1s
+
+### Key Findings
+1. **Core KSI functionality is solid** - all systems working
+2. **EventClient has discovery issues** - timeout after 5s
+3. **Direct socket communication is reliable** - all operations succeed
+4. **Graph database is functional** - entity/relationship CRUD, traversal working
+5. **Agent system is stable** - spawn/terminate, completion working
+
+### Next Steps
+- Document direct socket patterns for future KSI improvements
+- Continue experiments using direct socket approach
+- Create socket-based versions of remaining experiments
+- Analyze patterns for future EventClient improvements
+
+### Strategic Decision: Focus on Experiments
+**Core enhancements deprioritized to weeks away:**
+- Graph Query Language (Cypher via Kùzu) - Future enhancement
+- Time-series analytics - Future enhancement  
+- Agent capability evolution - Future enhancement
+
+**Current focus: Gather experimental data using direct socket patterns**
+- Proven reliable communication method
+- Better understanding of daemon capabilities
+- Foundation for future client improvements

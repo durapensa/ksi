@@ -1,0 +1,54 @@
+python experiments/test_claude_injection.py
+Starting Claude injection tests...
+This will inject test messages into the current Claude session.
+You should see the injected content appear in your Claude interface.
+
+Starting in 3 seconds...
+=== Test 1: Simple Text Injection ===
+Claude acknowledged: I see the injection! The test message came through successfully. This confirms the basic injection m...
+✓ Simple injection successful
+
+=== Test 2: JSON Event Injection ===
+Claude acknowledged: Perfect! I received the JSON completion event injection. I can see:
+
+- **Event Type**: `completion:r...
+✓ JSON event injection successful
+
+=== Test 3: Multiple Injections ===
+Injecting event 1...
+Claude acknowledged: I received the first progress event:
+
+- **Agent**: `test_agent_0`
+- **Progress**: 33% - "Progress up...
+✓ Event 1 injected
+Injecting event 2...
+Claude acknowledged: Received progress event 2:
+
+- **Agent**: `test_agent_1`
+- **Progress**: 66% - "Progress update 2"
+
+...
+✓ Event 2 injected
+Injecting event 3...
+Claude acknowledged: Received the final progress event:
+
+- **Agent**: `test_agent_2`
+- **Progress**: 99% - "Progress upda...
+✓ Event 3 injected
+
+=== Test 4: Error Event Injection ===
+Claude acknowledged: Received the error event:
+
+- **Agent**: `failing_agent`
+- **Error**: Connection timeout
+- **Operatio...
+✓ Error event injection successful
+
+=== All Tests Complete ===
+Check your Claude interface for the injected messages.
+
+If injections worked, you should see:
+- A simple text message
+- A JSON completion event
+- Three progress events
+- An error event

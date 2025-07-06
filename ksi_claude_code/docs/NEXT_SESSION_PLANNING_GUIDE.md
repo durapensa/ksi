@@ -527,22 +527,40 @@ async def migrate_entities():
 
 5. **API Compatibility**: How do we ensure existing tools and clients continue working during migration?
 
-## Implementation Priority (Updated)
+## Implementation Priority (Updated - 2025-07-06)
 
-1. **Immediate (Day 1-2)**:
-   - Set up Kùzu development environment
-   - Create basic Cypher query handler
-   - Implement simple event aggregation
+### Current Focus: Experimental Phase
 
-2. **Short-term (Week 1)**:
-   - Build migration tools
-   - Add graph algorithms via Kùzu
-   - Enhance time-series analytics
+**Immediate Experiments (Days)**:
+- Document direct socket communication patterns
+- Continue baseline performance experiments
+- Create socket-based versions of remaining experiments
+- Analyze system behavior under various loads
 
-3. **Medium-term (Week 2-3)**:
-   - Implement capability evolution
-   - Add resource tracking
-   - Complete performance benchmarks
+**Future Enhancements (Weeks Away)**:
+- Set up Kùzu development environment
+- Create basic Cypher query handler
+- Implement simple event aggregation
+- Build migration tools
+- Add graph algorithms via Kùzu
+- Enhance time-series analytics
+- Implement capability evolution
+- Add resource tracking
+- Complete performance benchmarks
+
+### Rationale for Prioritization Change
+
+**Direct socket approach proven superior:**
+- All KSI systems functional via direct communication
+- EventClient has discovery timeout issues
+- Better understanding of daemon capabilities
+- Foundation for future client improvements
+
+**Experimental data collection prioritized:**
+- Establish reliable performance baselines
+- Document communication patterns
+- Understand scaling characteristics
+- Gather data for informed enhancement decisions
 
 ## Appendix: Code Investigation Commands
 

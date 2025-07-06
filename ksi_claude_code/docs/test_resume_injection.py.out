@@ -1,0 +1,9 @@
+Testing resume injection...
+Session ID: 1c5d9e0d-2301-414a-b90b-d738d2311834
+
+Attempting to inject with session ID: 1c5d9e0d-2301-414a-b90b-d738d2311834
+✗ Command failed with code 1
+Error: No conversation found with session ID: 1c5d9e0d-2301-414a-b90b-d738d2311834
+
+
+✗ Injection failed - check error messages above
