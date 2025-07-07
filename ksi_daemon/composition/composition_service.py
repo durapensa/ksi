@@ -23,6 +23,11 @@ from .composition_core import (
     load_composition as load_composition_file,
     FRAGMENTS_BASE, COMPOSITIONS_BASE, SCHEMAS_BASE, CAPABILITIES_BASE
 )
+from .evaluation_utils import (
+    create_evaluation_record, calculate_overall_score, 
+    find_best_evaluation, summarize_evaluation_status,
+    merge_evaluation_record
+)
 
 # Module state
 logger = get_bound_logger("composition_service", version="2.0.0")
@@ -54,9 +59,19 @@ class CompositionValidateData(TypedDict):
     name: str
     type: NotRequired[str]
 
+class CompositionEvaluateData(TypedDict):
+    """Type-safe data for composition:evaluate."""
+    name: str
+    type: NotRequired[str]
+    test_suite: str
+    model: NotRequired[str]
+    update_metadata: NotRequired[bool]
+    test_options: NotRequired[Dict[str, Any]]
+
 class CompositionListData(TypedDict):
     """Type-safe data for composition:list."""
     type: NotRequired[str]
+    include_validation: NotRequired[bool]
 
 class CompositionGetData(TypedDict):
     """Type-safe data for composition:get."""
@@ -224,6 +239,106 @@ async def handle_validate(data: CompositionValidateData) -> Dict[str, Any]:
         }
 
 
+@event_handler("composition:evaluate")
+async def handle_evaluate(data: CompositionEvaluateData) -> Dict[str, Any]:
+    """Evaluate a composition's effectiveness with test results.
+    
+    This handler records test results for a composition. Full integration
+    with automated prompt testing framework is future work.
+    
+    Expected data:
+        name: Composition name
+        type: Optional composition type
+        test_suite: Name of test suite used
+        model: Model used for testing (default from config)
+        update_metadata: Whether to save results to composition (default: False)
+        test_options: Dict containing test results:
+            - test_results: List of test result dicts
+            - performance_metrics: Performance metrics dict
+            - notes: Optional notes about the evaluation
+    """
+    name = data['name']
+    comp_type = data.get('type')
+    test_suite = data['test_suite']
+    model = data.get('model', config.completion_default_model)
+    update_metadata = data.get('update_metadata', False)
+    test_options = data.get('test_options', {})
+    
+    try:
+        # Load the composition
+        composition = await load_composition(name, comp_type)
+        
+        # Extract test results from options
+        test_results = test_options.get('test_results', [])
+        performance_metrics = test_options.get('performance_metrics', {})
+        notes = test_options.get('notes', '')
+        
+        # Calculate overall score
+        overall_score = calculate_overall_score(test_results)
+        
+        # Create evaluation record
+        evaluation_record = create_evaluation_record(
+            model=model,
+            test_suite=test_suite,
+            test_results=test_results,
+            overall_score=overall_score,
+            performance_metrics=performance_metrics,
+            notes=notes
+        )
+        
+        # Update composition metadata if requested
+        if update_metadata:
+            # Get current evaluated_for list or create new one
+            evaluated_for = composition.metadata.get('evaluated_for', [])
+            
+            # Merge new evaluation record
+            evaluated_for = merge_evaluation_record(evaluated_for, evaluation_record)
+            
+            # Update composition metadata
+            composition.metadata['evaluated_for'] = evaluated_for
+            
+            # Save updated composition
+            comp_path = COMPOSITIONS_BASE / composition.type / f"{composition.name}.yaml"
+            import yaml
+            with open(comp_path, 'w') as f:
+                comp_dict = {
+                    'name': composition.name,
+                    'type': composition.type,
+                    'version': composition.version,
+                    'description': composition.description,
+                    'author': composition.author,
+                    'extends': composition.extends,
+                    'mixins': composition.mixins,
+                    'components': [vars(c) for c in composition.components],
+                    'variables': composition.variables,
+                    'metadata': composition.metadata
+                }
+                # Remove None values
+                comp_dict = {k: v for k, v in comp_dict.items() if v is not None}
+                yaml.dump(comp_dict, f, default_flow_style=False, sort_keys=False)
+            
+            logger.info(f"Updated composition {name} with evaluation metadata")
+        
+        # Return evaluation results
+        return {
+            'status': 'success',
+            'composition': {
+                'name': composition.name,
+                'type': composition.type,
+                'version': composition.version
+            },
+            'evaluation': evaluation_record,
+            'metadata_updated': update_metadata
+        }
+        
+    except Exception as e:
+        logger.error(f"Error evaluating composition: {e}")
+        return {
+            'status': 'error',
+            'error': str(e)
+        }
+
+
 @event_handler("composition:discover")
 async def handle_discover(data: Dict[str, Any]) -> Dict[str, Any]:
     """Discover available compositions using index."""
@@ -286,6 +401,7 @@ async def handle_discover(data: Dict[str, Any]) -> Dict[str, Any]:
 async def handle_list(data: CompositionListData) -> Dict[str, Any]:
     """List all compositions of a given type."""
     comp_type = data.get('type', 'all')
+    include_validation = data.get('include_validation', False)
     
     compositions = []
     
@@ -295,7 +411,10 @@ async def handle_list(data: CompositionListData) -> Dict[str, Any]:
         types = [comp_type]
     
     for t in types:
-        discovered = await handle_discover({'type': t})
+        discovered = await handle_discover({
+            'type': t,
+            'include_validation': include_validation
+        })
         compositions.extend(discovered.get('compositions', []))
     
     return {
