@@ -123,8 +123,8 @@ async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
     FRAGMENTS_BASE.mkdir(parents=True, exist_ok=True)
     
     # Initialize and rebuild composition index
-    composition_index.initialize()
-    indexed_count = composition_index.rebuild()
+    await composition_index.initialize()
+    indexed_count = await composition_index.rebuild()
     
     logger.info(f"Composition service started - indexed {indexed_count} compositions")
     return {"status": "composition_service_ready", "indexed": indexed_count}
@@ -344,7 +344,7 @@ async def handle_discover(data: Dict[str, Any]) -> Dict[str, Any]:
     """Discover available compositions using index."""
     try:
         # Use index for fast discovery
-        discovered = composition_index.discover(data)
+        discovered = await composition_index.discover(data)
         
         # Apply metadata filtering if specified
         metadata_filter = data.get('metadata_filter')
@@ -644,7 +644,7 @@ async def handle_create_composition(data: Dict[str, Any]) -> Dict[str, Any]:
 async def _select_composition_for_context(context: SelectionContext) -> SelectionResult:
     """Select the best composition for the given context using scoring algorithm."""
     # Get all available compositions with metadata
-    discovered = composition_index.discover({
+    discovered = await composition_index.discover({
         'type': 'profile',  # Focus on profiles for agent compositions
         'include_metadata': True
     })
@@ -679,7 +679,7 @@ async def _select_composition_for_context(context: SelectionContext) -> Selectio
 
 async def _get_scored_compositions(context: SelectionContext) -> List[Tuple[str, float, List[str]]]:
     """Get all compositions scored for the context."""
-    discovered = composition_index.discover({
+    discovered = await composition_index.discover({
         'type': 'profile',
         'include_metadata': True
     })
