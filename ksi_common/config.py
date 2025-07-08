@@ -107,6 +107,7 @@ class KSIBaseConfig(BaseSettings):
     # Library and composition paths (shared infrastructure)
     lib_dir: Path = Path(DEFAULT_VAR_DIR) / "lib"
     compositions_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/compositions"
+    evaluations_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/evaluations"
     fragments_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/compositions/fragments"
     schemas_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/schemas"
     capabilities_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/capabilities"
@@ -200,6 +201,7 @@ class KSIBaseConfig(BaseSettings):
             self.db_dir,             # var/db
             self.lib_dir,            # var/lib
             self.compositions_dir,   # var/lib/compositions
+            self.evaluations_dir,    # var/lib/evaluations
             self.fragments_dir,      # var/lib/compositions/fragments
             self.schemas_dir,        # var/lib/schemas
             self.capabilities_dir,   # var/lib/capabilities

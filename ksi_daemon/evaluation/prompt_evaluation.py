@@ -37,7 +37,7 @@ def load_test_suite(name: str) -> Optional[Dict[str, Any]]:
         return _test_suite_cache[name]
     
     # Load from file
-    test_suite_path = Path(config.compositions_dir) / "evaluations" / "test_suites" / f"{name}.yaml"
+    test_suite_path = config.evaluations_dir / "test_suites" / f"{name}.yaml"
     
     if not test_suite_path.exists():
         logger.warning(f"Test suite not found: {test_suite_path}")
@@ -55,7 +55,7 @@ def load_test_suite(name: str) -> Optional[Dict[str, Any]]:
 
 def list_available_test_suites() -> List[str]:
     """List all available test suites."""
-    test_suites_dir = Path(config.compositions_dir) / "evaluations" / "test_suites"
+    test_suites_dir = config.evaluations_dir / "test_suites"
     
     if not test_suites_dir.exists():
         return []
@@ -72,7 +72,7 @@ def save_evaluation_result(composition_type: str, composition_name: str,
                           evaluation_name: str, evaluation_data: Dict[str, Any]) -> str:
     """Save evaluation results to file and return filename."""
     # Create results directory if needed
-    results_dir = Path(config.compositions_dir) / "evaluations" / "results"
+    results_dir = config.evaluations_dir / "results"
     results_dir.mkdir(parents=True, exist_ok=True)
     
     # Generate filename: {comp_type}_{comp_name}_{eval_name}_{id}.yaml

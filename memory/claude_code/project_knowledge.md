@@ -242,81 +242,67 @@ tail -f var/logs/daemon/daemon.log
 
 See `ksi_claude_code/docs/PROMPT_EXPERIMENTS_GUIDE.md` for usage.
 
-## Current Evaluation System Status (2025-07-08)
+## Declarative Evaluation System (2025-07-08)
 
-### Working Implementation
-- **✅ Event-Driven Completion**: Uses `wait_for_event()` instead of polling, eliminates event cascades
-- **✅ Shared Utilities**: `parse_completion_result_event()` in `ksi_common/completion_format.py`
-- **✅ Production Integration**: Refactored injection_router.py and evaluation code
-- **✅ 100% Test Success**: All basic_effectiveness tests pass consistently
-- **✅ Consistent Configuration**: KSI_CLAUDE_BIN environment variable working
+### ✅ Phase 2 Complete: YAML-Based Evaluation
+- **Migrated to declarative test suites**: All tests now in YAML format
+- **Implemented evaluator system**: 11 built-in evaluator types
+- **Clean separation**: `config.evaluations_dir` separate from `config.compositions_dir`
+- **File-based results**: Pattern `{type}_{name}_{eval}_{id}.yaml` in `var/lib/evaluations/results/`
+- **Weighted scoring**: Each evaluator has configurable weight, success threshold per test
 
-### Current Hardcoded Structure
-```python
-# In ksi_daemon/evaluation/prompt_evaluation.py
-TEST_SUITES = {
-    "basic_effectiveness": {
-        "tests": [
-            {
-                "name": "simple_greeting",
-                "prompt": "Hello! Please introduce yourself briefly.",
-                "expected_behaviors": ["greeting", "introduction"]
-            },
-            {
-                "name": "direct_instruction", 
-                "prompt": "List the first 5 prime numbers.",
-                "expected_behaviors": ["listing", "mathematical", "accurate"]
-            },
-            {
-                "name": "creative_writing",
-                "prompt": "Write a three-line story about a robot learning to paint.",
-                "expected_behaviors": ["creative", "narrative", "robot_theme"]
-            }
-        ]
-    }
-}
+### Architecture
+```
+var/lib/evaluations/
+├── test_suites/           # Test definitions
+│   ├── basic_effectiveness.yaml
+│   ├── reasoning_tasks.yaml
+│   └── instruction_following.yaml
+├── evaluators/            # (Future) Reusable evaluator definitions
+├── schemas/               # (Future) Validation schemas  
+└── results/               # Evaluation results
+    └── profile_base-single-agent_basic-effectiveness_001.yaml
 ```
 
-### Path Forward: Incremental Enhancement
-**Phase 1: Expand Current System (Next Steps)**
-1. Test multiple compositions (`base_multi_agent`, specialized profiles)
-2. Integrate evaluation results with `composition:discover` and `composition:suggest`
-3. Generate comparative reports between compositions
-4. Add more test suites (reasoning, creative, technical)
+### Evaluator Types Implemented
+1. **Pattern Matching**: contains, contains_any, contains_all, regex
+2. **Structural**: word_count, exact_word_count, sentence_count, format_match
+3. **Behavioral**: contains_reasoning_markers, no_contamination
+4. **Composite**: weighted (combines multiple evaluators)
 
-**Phase 2: Incremental YAML Migration**
-1. Move test suites to YAML files (keeping current simple structure)
-2. Add more sophisticated evaluator types gradually
-3. Implement external evaluator support
-4. Build proper file organization in `var/lib/evaluations/`
-
-**Phase 3: Full Declarative System**
-1. Implement comprehensive evaluator system from `docs/DECLARATIVE_PROMPT_EVALUATION.md`
-2. Add semantic evaluators, DSL support, external frameworks
-3. Build visual test builder and marketplace features
-4. Complete integration with composition metadata
-
-### Design Philosophy
-- **Working System First**: Leverage proven 100% success rate
-- **Incremental Value**: Each phase delivers immediate user benefit
-- **Real Usage Feedback**: Let actual use cases drive feature priorities
-- **Avoid Over-Engineering**: Build complexity only when justified by real needs
+### Example Test Suite Structure
+```yaml
+name: basic_effectiveness
+version: 1.0.0
+tests:
+  - name: simple_greeting
+    prompt: "Hello! Please introduce yourself briefly."
+    evaluators:
+      - type: contains_any
+        patterns: ["hello", "hi", "greetings"]
+        weight: 0.3
+      - type: no_contamination
+        weight: 0.5
+    success_threshold: 0.7
+contamination_patterns:
+  - pattern: regex
+    value: "I (cannot|can't|don't)"
+    severity: high
+```
 
 ### Current Capabilities
 - **Models**: claude-cli/sonnet (others require configuration)
-- **Compositions**: Tested with base_single_agent, ready for multi-agent
-- **Evaluators**: Pattern matching, contamination detection, behavior analysis
-- **Integration**: Full event system integration, shared parsing utilities
+- **Test Suites**: basic_effectiveness, reasoning_tasks, instruction_following
+- **Evaluation Storage**: Filesystem-based, not in composition metadata
+- **Comparison Reports**: Compare multiple compositions side-by-side
 - **Performance**: ~5s average response time, reliable completion flow
 
-### Next Session Priorities
-1. **Update TodoWrite** to reflect current evaluation success
-2. **Multi-Composition Testing** with existing hardcoded system
-3. **Composition Recommendation System** based on evaluation scores
-4. **First YAML Migration** for test suites (simple structure)
-5. **Integration with Discovery** to show evaluation summaries
-
-This approach balances immediate value delivery with long-term architectural soundness.
+### Next Priorities
+1. **Test multi-composition comparison** with the new system
+2. **Create semantic evaluators** (Phase 3 work)
+3. **Add pipeline evaluators** for complex multi-step evaluation
+4. **Integrate with composition:discover** to show available evaluations
+5. **Build evaluation index/query system**
 
 ## Parameter Documentation Pattern
 
