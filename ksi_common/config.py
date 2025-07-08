@@ -35,7 +35,6 @@ Example:
 """
 
 from pydantic_settings import BaseSettings
-from pydantic import Field
 from pathlib import Path
 from typing import Optional, Literal, List
 # Note: Removed stdlib logging import - using pure structlog
@@ -151,11 +150,7 @@ class KSIBaseConfig(BaseSettings):
     claude_progress_timeout: int = 300     # 5 minutes without progress
     claude_max_workers: int = 2            # Max concurrent Claude processes
     claude_retry_backoff: int = 30         # Seconds between retry attempts
-    claude_bin: Optional[str] = Field(
-        default=DEFAULT_CLAUDE_BIN, 
-        env=['KSI_CLAUDE_BIN', 'CLAUDE_BIN'],
-        description="Path to claude binary - accepts both KSI_CLAUDE_BIN and CLAUDE_BIN"
-    )
+    claude_bin: Optional[str] = DEFAULT_CLAUDE_BIN  # Path to claude binary
     
     # MCP Server settings
     mcp_enabled: bool = True               # Enable MCP server

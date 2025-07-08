@@ -42,8 +42,8 @@ fi
 if ! command -v claude &> /dev/null; then
     echo "⚠️  Claude CLI not found in PATH"
     echo "   Please install from https://claude.ai/code"
-    echo "   Or set CLAUDE_BIN environment variable to the claude binary path"
-    echo "   Example: export CLAUDE_BIN=/path/to/claude"
+    echo "   Or set KSI_CLAUDE_BIN environment variable to the claude binary path"
+    echo "   Example: export KSI_CLAUDE_BIN=/path/to/claude"
 else
     echo "✓ Claude CLI is installed"
 fi
@@ -65,9 +65,9 @@ echo "For multi-Claude conversations:"
 echo "  python3 interfaces/orchestrate.py 'Topic' --mode debate"
 echo "  python3 interfaces/monitor_tui.py       # In another terminal"
 echo ""
-echo "⚠️  IMPORTANT: If claude CLI is not in your PATH, set CLAUDE_BIN:"
-echo "  export CLAUDE_BIN=/path/to/your/claude/binary"
-echo "  Example: export CLAUDE_BIN=/Users/\$USER/.claude/local/claude"
+echo "⚠️  IMPORTANT: If claude CLI is not in your PATH, set KSI_CLAUDE_BIN:"
+echo "  export KSI_CLAUDE_BIN=/path/to/your/claude/binary"
+echo "  Example: export KSI_CLAUDE_BIN=/Users/\$USER/.claude/local/claude"
 echo ""
 echo "Note: Make sure to activate the virtual environment first:"
 echo "  source .venv/bin/activate"
