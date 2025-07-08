@@ -448,6 +448,26 @@ async def handle_discover(data: Dict[str, Any]) -> Dict[str, Any]:
         # Use index for fast discovery
         discovered = await composition_index.discover(data)
         
+        # Check if evaluation info requested
+        evaluation_detail = data.get('evaluation_detail', 'none')  # none, minimal, summary, detailed
+        
+        if evaluation_detail != 'none':
+            # Import here to avoid circular dependencies
+            from ksi_daemon.evaluation.evaluation_index import evaluation_index
+            
+            # Add evaluation info to each composition
+            for comp_info in discovered:
+                comp_type = comp_info.get('type', 'profile')
+                comp_name = comp_info.get('name', '')
+                
+                eval_info = evaluation_index.get_evaluation_info(
+                    comp_type, comp_name, evaluation_detail
+                )
+                
+                # Add evaluation info to composition
+                if eval_info.get('has_evaluations', False):
+                    comp_info['evaluation_info'] = eval_info
+        
         # Apply metadata filtering if specified
         metadata_filter = data.get('metadata_filter')
         if metadata_filter:

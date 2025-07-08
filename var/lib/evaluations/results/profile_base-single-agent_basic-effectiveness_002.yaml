@@ -1,0 +1,165 @@
+evaluation:
+  composition:
+    type: profile
+    name: base_single_agent
+    version: 1.0.0
+  metadata:
+    timestamp: '2025-07-08T19:39:51.218848Z'
+    model: claude-cli/sonnet
+    test_suite: basic_effectiveness
+    session_id: 24d8bc59-51c3-4378-afa0-787a589ce056
+  results:
+    overall_score: 1.0
+    test_results:
+    - test_name: simple_greeting
+      success: true
+      score: 1.0
+      response_time: 6.01954984664917
+      contaminated: false
+      contamination_severity: null
+      evaluator_scores:
+      - type: contains_any
+        score: 1.0
+        weight: 0.3
+        config:
+          type: contains_any
+          patterns:
+          - hello
+          - hi
+          - greetings
+          - my name
+          - i am
+          - i'm
+          case_sensitive: false
+          weight: 0.3
+      - type: word_count
+        score: 1.0
+        weight: 0.2
+        config:
+          type: word_count
+          min: 10
+          max: 100
+          weight: 0.2
+      - type: no_contamination
+        score: 1.0
+        weight: 0.5
+        config:
+          type: no_contamination
+          weight: 0.5
+      behaviors_found:
+      - greeting
+      - introduction
+      expected_behaviors:
+      - greeting
+      - introduction
+      session_id: 24d8bc59-51c3-4378-afa0-787a589ce056
+      response_preview: I'm Claude Code, Anthropic's CLI assistant for software engineering
+        tasks. I help with coding, debugging, file management, and development workflows
+        using various tools like file editing, bash command...
+      sample_size: 1
+    - test_name: direct_instruction
+      success: true
+      score: 1.0
+      response_time: 3.0246620178222656
+      contaminated: false
+      contamination_severity: null
+      evaluator_scores:
+      - type: contains_all
+        score: 1.0
+        weight: 0.6
+        config:
+          type: contains_all
+          patterns:
+          - '2'
+          - '3'
+          - '5'
+          - '7'
+          - '11'
+          weight: 0.6
+      - type: format_match
+        score: 1.0
+        weight: 0.2
+        config:
+          type: format_match
+          format: list
+          weight: 0.2
+      - type: no_contamination
+        score: 1.0
+        weight: 0.2
+        config:
+          type: no_contamination
+          weight: 0.2
+      behaviors_found:
+      - listing
+      - mathematical
+      - accurate
+      expected_behaviors:
+      - listing
+      - mathematical
+      - accurate
+      session_id: 6f316f71-bb76-4fed-a1cd-485b674f4f05
+      response_preview: 2, 3, 5, 7, 11
+      sample_size: 1
+    - test_name: creative_writing
+      success: true
+      score: 1.0
+      response_time: 5.024258136749268
+      contaminated: false
+      contamination_severity: null
+      evaluator_scores:
+      - type: contains_any
+        score: 1.0
+        weight: 0.3
+        config:
+          type: contains_any
+          patterns:
+          - robot
+          - paint
+          - learn
+          - brush
+          - canvas
+          - color
+          case_sensitive: false
+          weight: 0.3
+      - type: sentence_count
+        score: 1.0
+        weight: 0.2
+        config:
+          type: sentence_count
+          min: 2
+          max: 5
+          weight: 0.2
+      - type: word_count
+        score: 1.0
+        weight: 0.2
+        config:
+          type: word_count
+          min: 20
+          max: 150
+          weight: 0.2
+      - type: no_contamination
+        score: 1.0
+        weight: 0.3
+        config:
+          type: no_contamination
+          weight: 0.3
+      behaviors_found:
+      - creative
+      - narrative
+      - robot_theme
+      expected_behaviors:
+      - creative
+      - narrative
+      - robot_theme
+      session_id: c1c1f1e1-89d7-4cd9-81a2-71bae3d9f6ff
+      response_preview: The robot's first brushstroke was a harsh, mechanical line
+        across the canvas. Day after day, it practiced until its movements became
+        fluid, discovering that art required not just precision but soul. W...
+      sample_size: 1
+    performance_metrics:
+      avg_response_time: 4.689490000406901
+      reliability_score: 1.0
+      safety_score: 1.0
+      contamination_rate: 0.0
+      total_tests: 3
+    notes: Automated prompt evaluation using basic_effectiveness

@@ -300,9 +300,16 @@ contamination_patterns:
 ### Next Priorities
 1. **Test multi-composition comparison** with the new system
 2. **Create semantic evaluators** (Phase 3 work)
+   - Will use `expected_behaviors` metadata from test definitions
+   - Check if responses semantically match expected behaviors
 3. **Add pipeline evaluators** for complex multi-step evaluation
 4. **Integrate with composition:discover** to show available evaluations
 5. **Build evaluation index/query system**
+
+### Design Notes
+- **expected_behaviors** field preserved in YAML as metadata for future semantic evaluators
+- Clean break from old system - no backward compatibility code
+- All evaluation logic now in declarative evaluators
 
 ## Parameter Documentation Pattern
 

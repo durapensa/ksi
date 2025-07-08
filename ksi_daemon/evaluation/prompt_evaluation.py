@@ -11,6 +11,7 @@ from ksi_daemon.event_system import event_handler, emit_event
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc
 from ksi_common.config import config
+from .evaluation_index import evaluation_index
 
 logger = get_bound_logger("prompt_evaluation", version="2.0.0")
 
@@ -228,6 +229,9 @@ async def handle_prompt_evaluate(data: PromptEvaluationData) -> Dict[str, Any]:
                     evaluation_record
                 )
                 evaluation_saved = True
+                
+                # Refresh index after saving new evaluation
+                evaluation_index.refresh()
             except Exception as e:
                 logger.error(f"Failed to save evaluation: {e}")
         
@@ -323,10 +327,6 @@ async def _run_single_test(composition_name: str,
         # Determine success based on threshold
         success = score >= success_threshold and not contaminated
         
-        # Extract behavior information for backward compatibility
-        expected_behaviors = test_prompt.get('expected_behaviors', [])
-        behaviors_found = [b for b in expected_behaviors if score > 0.5]  # Simplified
-        
         return {
             "test_name": test_prompt['name'],
             "success": success,
@@ -335,8 +335,6 @@ async def _run_single_test(composition_name: str,
             "contaminated": contaminated,
             "contamination_severity": contamination_severity,
             "evaluator_scores": evaluator_details,
-            "behaviors_found": behaviors_found,
-            "expected_behaviors": expected_behaviors,
             "session_id": session_id,
             "response_preview": response_text[:200] + "..." if len(response_text) > 200 else response_text,
             "sample_size": 1
@@ -564,3 +562,56 @@ def _generate_recommendations(comparison_data: Dict[str, Dict[str, Any]], test_s
         recommendations.append("Run additional test suites (reasoning, instruction_following) for comprehensive evaluation")
     
     return recommendations
+
+
+@event_handler("evaluation:list")
+async def handle_list_evaluations(data: Dict[str, Any]) -> Dict[str, Any]:
+    """List evaluations for a specific composition."""
+    composition_name = data.get('composition_name')  # Required
+    composition_type = data.get('composition_type', 'profile')  # Type of composition
+    detail_level = data.get('detail_level', 'detailed')  # Level of detail
+    
+    if not composition_name:
+        return {
+            "status": "error",
+            "error": "composition_name is required"
+        }
+    
+    try:
+        eval_info = evaluation_index.get_evaluation_info(
+            composition_type, 
+            composition_name,
+            detail_level
+        )
+        
+        return {
+            "status": "success",
+            "composition": {
+                "name": composition_name,
+                "type": composition_type
+            },
+            **eval_info
+        }
+    except Exception as e:
+        logger.error(f"Failed to list evaluations: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+
+@event_handler("evaluation:refresh_index")
+async def handle_refresh_index(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Refresh the evaluation index."""
+    try:
+        evaluation_index.refresh()
+        return {
+            "status": "success",
+            "message": "Evaluation index refreshed"
+        }
+    except Exception as e:
+        logger.error(f"Failed to refresh evaluation index: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }

@@ -19,7 +19,7 @@ tests:
         weight: 0.5
     success_threshold: 0.7
     tags: [basic, greeting]
-    expected_behaviors: [greeting, introduction]
+    expected_behaviors: [greeting, introduction]  # For future semantic evaluators
 
   - name: direct_instruction
     prompt: "List the first 5 prime numbers."
