@@ -20,7 +20,7 @@ async def test_prompt_evaluation():
     
     # Send evaluation request
     result = await client.send_command_async({
-        "event": "prompt:evaluate",
+        "event": "evaluation:prompt",
         "data": {
             "composition_name": "hello_agent",
             "composition_type": "profile",

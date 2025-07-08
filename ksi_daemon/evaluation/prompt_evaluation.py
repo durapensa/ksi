@@ -18,7 +18,7 @@ logger = get_bound_logger("prompt_evaluation", version="1.0.0")
 
 
 class PromptEvaluationData(TypedDict):
-    """Type-safe data for prompt:evaluate."""
+    """Type-safe data for evaluation:prompt."""
     composition_name: str
     composition_type: NotRequired[str]
     test_suite: NotRequired[str]
@@ -88,7 +88,7 @@ async def handle_startup(data: Dict[str, Any]) -> Dict[str, Any]:
     return {"status": "prompt_evaluation_ready"}
 
 
-@event_handler("prompt:evaluate")
+@event_handler("evaluation:prompt")
 async def handle_prompt_evaluate(data: PromptEvaluationData) -> Dict[str, Any]:
     """
     Run prompt evaluation tests for a composition.
@@ -311,7 +311,7 @@ async def _run_single_test(composition_name: str,
         }
 
 
-@event_handler("prompt:list_suites")
+@event_handler("evaluation:list_suites")
 async def handle_list_suites(data: Dict[str, Any]) -> Dict[str, Any]:
     """List available test suites."""
     return {

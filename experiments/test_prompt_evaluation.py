@@ -13,7 +13,7 @@ def test_prompt_evaluation(send_event_and_wait):
     
     # Test with a simple profile first
     result = send_event_and_wait({
-        "event": "prompt:evaluate",
+        "event": "evaluation:prompt",
         "data": {
             "composition_name": "hello_agent",
             "composition_type": "profile",
@@ -77,7 +77,7 @@ def test_custom_prompts(send_event_and_wait):
     ]
     
     result = send_event_and_wait({
-        "event": "prompt:evaluate",
+        "event": "evaluation:prompt",
         "data": {
             "composition_name": "claude_agent_default",
             "test_prompts": custom_prompts,
