@@ -13,6 +13,7 @@ from typing import Dict, Any, Optional
 from ksi_daemon.event_system import emit_event
 from ksi_common.logging import get_bound_logger
 from ksi_common.config import config
+from ksi_common.completion_format import parse_completion_result_event
 
 logger = get_bound_logger("evaluation.completion_utils")
 
@@ -45,39 +46,8 @@ async def wait_for_completion(request_id: str) -> Dict[str, Any]:
         lambda data: data.get("request_id") == request_id
     )
     
-    # Got completion result - check status
-    session_id = result.get("session_id")
-    status = result.get("status", "completed")
-    
-    if status == "error":
-        return {
-            "status": "error",
-            "error": result.get("error", "Unknown error"),
-            "request_id": request_id
-        }
-    elif status == "timeout":
-        return {
-            "status": "timeout",
-            "error": result.get("error", "Completion timed out"),
-            "request_id": request_id
-        }
-    elif session_id:
-        # Read the response file
-        response_text = await read_completion_response(session_id)
-        return {
-            "status": "completed",
-            "session_id": session_id,
-            "response": response_text,
-            "request_id": request_id,
-            "provider": result.get("provider"),
-            "model": result.get("model")
-        }
-    else:
-        return {
-            "status": "error",
-            "error": "Completed but no session_id",
-            "request_id": request_id
-        }
+    # Parse completion result using shared utility
+    return parse_completion_result_event(result)
 
 
 async def read_completion_response(session_id: str) -> str:

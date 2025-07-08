@@ -372,8 +372,9 @@ class EventRouter:
                 if not future.done():
                     future.set_exception(e)
         
-        # Register temporary handler
-        self.register_handler(event_name, waiter)
+        # Register temporary handler (wrap in EventHandler)
+        handler = EventHandler(waiter, event_name, EventPriority.NORMAL)
+        self.register_handler(event_name, handler)
         
         try:
             # Wait for the event - trust it will arrive
@@ -382,7 +383,7 @@ class EventRouter:
         finally:
             # Clean up temporary handler
             if event_name in self._handlers:
-                self._handlers[event_name] = [h for h in self._handlers[event_name] if h != waiter]
+                self._handlers[event_name] = [h for h in self._handlers[event_name] if h != handler]
         
     def _matches_pattern(self, event: str, pattern: str) -> bool:
         """Check if event matches pattern (supports * wildcard)."""

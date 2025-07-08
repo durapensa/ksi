@@ -58,9 +58,28 @@ def create_standardized_response(provider: str, raw_response: Dict[str, Any],
 
 
 # Helper functions to extract data from standardized response
+def _normalize_response(response: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Normalize input to standardized response format.
+    
+    Handles both:
+    - Standardized format: {"ksi": {...}, "response": {...}}
+    - Completion:result event format: {"result": {"ksi": {...}, "response": {...}}}
+    
+    Returns:
+        Standardized response format
+    """
+    # Handle completion:result event format
+    if "result" in response and isinstance(response["result"], dict) and "ksi" in response["result"]:
+        return response["result"]
+    # Already in standardized format
+    return response
+
+
 def get_provider(response: Dict[str, Any]) -> str:
-    """Get the provider name from standardized response."""
-    return response["ksi"]["provider"]
+    """Get the provider name from standardized response or completion:result event."""
+    normalized = _normalize_response(response)
+    return normalized["ksi"]["provider"]
 
 
 def get_raw_response(response: Dict[str, Any]) -> Dict[str, Any]:
@@ -261,12 +280,77 @@ def parse_completion_response(data: Dict[str, Any]) -> Dict[str, Any]:
     return data
 
 
+def parse_completion_result_event(event_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Parse a completion:result event into a useful summary.
+    
+    Uses existing utility functions to extract information from the event's
+    standardized response portion.
+    
+    Args:
+        event_data: completion:result event data
+        
+    Returns:
+        Dict with status, session_id, response, request_id, etc.
+    """
+    # Check for direct error in event
+    if "error" in event_data:
+        return {
+            "status": "error",
+            "error": event_data.get("error", "Unknown error"),
+            "request_id": event_data.get("request_id")
+        }
+    
+    # Extract standardized response from event
+    standardized_response = event_data.get("result", {})
+    if not standardized_response:
+        return {
+            "status": "error",
+            "error": "No completion result data",
+            "request_id": event_data.get("request_id")
+        }
+    
+    # Use existing utility functions to parse the standardized response
+    try:
+        session_id = get_response_session_id(standardized_response)
+        response_text = get_response_text(standardized_response)
+        usage = get_response_usage(standardized_response)
+        cost = get_response_cost(standardized_response)
+        model = get_response_model(standardized_response)
+        provider = get_provider(standardized_response)
+        
+        if session_id:
+            return {
+                "status": "completed",
+                "session_id": session_id,
+                "response": response_text,
+                "request_id": event_data.get("request_id"),
+                "provider": provider,
+                "model": model,
+                "usage": usage,
+                "cost": cost
+            }
+        else:
+            return {
+                "status": "error",
+                "error": "Completed but no session_id",
+                "request_id": event_data.get("request_id")
+            }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": f"Failed to parse completion result: {e}",
+            "request_id": event_data.get("request_id")
+        }
+
+
 # Export key functions for easier imports
 __all__ = [
     # Main functions
     "create_standardized_response",
     "create_completion_response",
     "parse_completion_response",
+    "parse_completion_result_event",
     
     # Helper functions for standardized responses
     "get_provider",

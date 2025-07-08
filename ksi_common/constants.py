@@ -61,7 +61,7 @@ DEFAULT_AGENT_PROFILE = "ksi-developer"
 DEFAULT_MODEL = "claude-sonnet-4-20250514"
 
 # Claude CLI configuration
-DEFAULT_CLAUDE_BIN = None  # Set via CLAUDE_BIN environment variable
+DEFAULT_CLAUDE_BIN = None  # Set via KSI_CLAUDE_BIN or CLAUDE_BIN environment variable
 
 # Protocol version
 PROTOCOL_VERSION = "1.0"
