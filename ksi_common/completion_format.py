@@ -282,13 +282,14 @@ def parse_completion_response(data: Dict[str, Any]) -> Dict[str, Any]:
 
 def parse_completion_result_event(event_data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Parse a completion:result event into a useful summary.
+    Parse a completion:result event or standardized response into a useful summary.
     
-    Uses existing utility functions to extract information from the event's
-    standardized response portion.
+    Handles both formats:
+    - Full event format: {"request_id": "...", "result": {...}}
+    - Direct standardized response: {"ksi": {...}, "response": {...}}
     
     Args:
-        event_data: completion:result event data
+        event_data: completion:result event data OR standardized response
         
     Returns:
         Dict with status, session_id, response, request_id, etc.
@@ -301,14 +302,22 @@ def parse_completion_result_event(event_data: Dict[str, Any]) -> Dict[str, Any]:
             "request_id": event_data.get("request_id")
         }
     
-    # Extract standardized response from event
-    standardized_response = event_data.get("result", {})
-    if not standardized_response:
-        return {
-            "status": "error",
-            "error": "No completion result data",
-            "request_id": event_data.get("request_id")
-        }
+    # Auto-detect format: if it has "ksi" key, it's a direct standardized response
+    if "ksi" in event_data:
+        # Direct standardized response format
+        standardized_response = event_data
+        request_id = event_data.get("ksi", {}).get("request_id")
+    else:
+        # Full event format - extract standardized response from event
+        standardized_response = event_data.get("result", {})
+        request_id = event_data.get("request_id")
+        
+        if not standardized_response:
+            return {
+                "status": "error",
+                "error": "No completion result data",
+                "request_id": request_id
+            }
     
     # Use existing utility functions to parse the standardized response
     try:

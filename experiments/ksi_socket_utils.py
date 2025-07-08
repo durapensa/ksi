@@ -10,8 +10,15 @@ import json
 import socket
 import asyncio
 import time
+import sys
 from typing import Dict, Any, List, Optional, AsyncGenerator, Callable
 from pathlib import Path
+
+# Add project root to Python path for imports
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
+from ksi_common.completion_format import parse_completion_result_event
 
 
 class KSISocketClient:
@@ -402,19 +409,16 @@ async def wait_for_completion(request_id: str,
             event_data = event.get("data", {})
             if (event_data.get("request_id") == request_id and 
                 "result" in event_data):
-                # Found the actual result!
-                result = event_data["result"]
-                # Extract the response text
-                response = result.get("response", {})
-                return {
-                    "request_id": request_id,
-                    "response": response.get("result", ""),
-                    "session_id": response.get("session_id"),
-                    "model": result.get("ksi", {}).get("provider", "unknown"),
-                    "usage": response.get("usage", {}),
-                    "duration_ms": result.get("ksi", {}).get("duration_ms", 0),
-                    "status": "completed"
-                }
+                # Found the actual result! Use shared utility for parsing
+                parsed_result = parse_completion_result_event(event_data)
+                
+                # Add backward compatibility fields that the old format had
+                if parsed_result["status"] == "completed":
+                    parsed_result["usage"] = parsed_result.get("usage", {})
+                    parsed_result["duration_ms"] = parsed_result.get("duration_ms", 0)
+                    parsed_result["model"] = parsed_result.get("provider", "unknown")
+                
+                return parsed_result
         
         # Still waiting
         await asyncio.sleep(poll_interval)

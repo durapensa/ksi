@@ -15,6 +15,7 @@ from ksi_common.logging import get_bound_logger
 from ksi_daemon.event_system import event_handler, get_router
 from ksi_common.config import config
 from ksi_common import timestamp_utc
+from ksi_common.completion_format import parse_completion_result_event
 from ksi_daemon.injection.injection_types import (
     InjectionRequest,
     InjectionMode,
@@ -266,12 +267,17 @@ async def handle_injection_process_result(data: Dict[str, Any]) -> Optional[Dict
     result_data = data.get('result', {})
     injection_metadata = data.get('injection_metadata', {})
     
-    completion_text = result_data.get('result') or result_data.get('completion_text', '')
+    # Use shared utility to parse completion result consistently
+    # Function auto-detects format and handles both event and direct response formats
+    parsed_result = parse_completion_result_event(result_data)
     
-    # Check for error responses
-    if result_data.get('status') == 'error':
-        logger.warning(f"Completion error for {request_id}, skipping injection")
+    # Check for error responses using standardized parsing
+    if parsed_result["status"] == "error":
+        logger.warning(f"Completion error for {request_id}: {parsed_result.get('error', 'Unknown error')}, skipping injection")
         return {"status": "skipped", "reason": "completion_error"}
+    
+    # Extract completion text from parsed result
+    completion_text = parsed_result.get("response", "")
     
     if not injection_metadata:
         logger.error(f"No injection metadata provided for {request_id}")
