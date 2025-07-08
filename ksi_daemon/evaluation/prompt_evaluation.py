@@ -159,7 +159,8 @@ async def handle_prompt_evaluate(data: PromptEvaluationData) -> Dict[str, Any]:
         }
         
         # Send to composition evaluation system
-        eval_response = await emit_event("composition:evaluate", evaluation_data)
+        eval_responses = await emit_event("composition:evaluate", evaluation_data)
+        eval_response = eval_responses[0] if eval_responses else {}
         
         # Return combined result
         return {
@@ -197,7 +198,7 @@ async def _run_single_test(composition_name: str,
     
     try:
         # Send completion request
-        completion_response = await emit_event("completion:async", {
+        completion_responses = await emit_event("completion:async", {
             "prompt": test_prompt['prompt'],
             "model": model,
             "agent_config": {
@@ -208,6 +209,8 @@ async def _run_single_test(composition_name: str,
                 "tags": test_prompt.get('tags', [])
             }
         })
+        
+        completion_response = completion_responses[0] if completion_responses else {}
         
         # Wait for completion
         if 'request_id' in completion_response:

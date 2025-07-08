@@ -164,6 +164,9 @@ class EventDaemonCore:
         # MCP modules
         import ksi_daemon.mcp.mcp_service
         
+        # Evaluation modules
+        import ksi_daemon.evaluation.prompt_evaluation
+        
         logger.info("All modules imported and auto-registered")
     
     async def handle_event(self, event_name: str, data: dict, context: dict) -> Any:

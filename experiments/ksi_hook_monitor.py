@@ -31,8 +31,17 @@ from datetime import datetime
 from pathlib import Path
 
 class KSIHookMonitor:
-    def __init__(self, socket_path="var/run/daemon.sock"):
-        self.socket_path = socket_path
+    def __init__(self, socket_path=None):
+        # Find socket path - hooks may run from different cwd
+        if socket_path is None:
+            # Try to find the socket relative to this script
+            script_dir = Path(__file__).parent.parent  # ksi project root
+            socket_path = script_dir / "var/run/daemon.sock"
+            if not socket_path.exists():
+                # Fallback to relative path (if running from project root)
+                socket_path = "var/run/daemon.sock"
+        
+        self.socket_path = str(socket_path)
         self.timestamp_file = Path("/tmp/ksi_hook_last_timestamp.txt")
         self.last_timestamp = self.load_last_timestamp()
         
@@ -56,6 +65,7 @@ class KSIHookMonitor:
         """Query recent KSI events since last check."""
         try:
             sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock.settimeout(2.0)  # Don't hang if daemon is not responding
             sock.connect(self.socket_path)
             
             # Query events since last timestamp using built-in filtering
@@ -86,7 +96,18 @@ class KSIHookMonitor:
             result = json.loads(response)
             return result.get("data", {}).get("events", [])
             
+        except socket.error as e:
+            # Socket connection failed - daemon might not be running
+            debug_log = os.environ.get("KSI_HOOK_DEBUG", "").lower() == "true"
+            if debug_log:
+                with open("/tmp/ksi_hook_debug.log", "a") as f:
+                    f.write(f"Socket error: {e} (path: {self.socket_path})\n")
+            return []
         except Exception as e:
+            debug_log = os.environ.get("KSI_HOOK_DEBUG", "").lower() == "true"
+            if debug_log:
+                with open("/tmp/ksi_hook_debug.log", "a") as f:
+                    f.write(f"Error getting events: {e}\n")
             return []
     
     def format_event_summary(self, events):
@@ -156,12 +177,61 @@ class KSIHookMonitor:
             return f"Error checking agents: {e}"
 
 def main():
-    """Hook entry point."""
-    # Read hook input
+    """Hook entry point.
+    
+    CLAUDE CODE HOOK FORMAT (as of 2025-01):
+    The hook receives JSON via stdin with the following structure:
+    {
+        "tool_name": "Bash",           # Tool that was used
+        "session_id": "...",           # Claude Code session ID
+        "tool_input": {...},           # Input parameters to the tool
+        "tool_response": {...},        # Response from the tool
+        "context": {...}               # Additional context
+    }
+    
+    TROUBLESHOOTING:
+    If hook is not working:
+    1. Check that hook is in .claude/settings.local.json (project-specific)
+    2. Verify Python path: use "python3" explicitly to ensure Python 3
+    3. Test manually: echo '{"tool_name": "Bash"}' | python3 /path/to/hook.py
+    4. Check permissions: Hook file must be readable
+    5. Exit code must be 0 for success
+    6. Working directory: Hooks run from Claude Code's cwd, not project root
+    7. Environment: Hooks don't inherit shell environment (no venv)
+    
+    KNOWN ISSUES (2025-01):
+    - Settings changes require Claude Code restart to take effect
+    - If hook stops working, check if Python path changed (python vs python3)
+    - Hook may fail silently if socket path is incorrect (we handle this now)
+    
+    MANUAL TESTING:
+    KSI_HOOK_DEBUG=true python3 /path/to/ksi_hook_monitor.py
+    Then check /tmp/ksi_hook_debug.log for diagnostics
+    
+    IMPORTANT: Hooks execute silently unless they print to stdout.
+    Output is shown in Claude Code's response AFTER the tool output.
+    """
+    # Add debug logging for troubleshooting
+    debug_log = os.environ.get("KSI_HOOK_DEBUG", "").lower() == "true"
+    if debug_log:
+        with open("/tmp/ksi_hook_debug.log", "a") as f:
+            f.write(f"\n{datetime.now().isoformat()} - Hook started\n")
+    
+    # Read hook input - be defensive about format
+    hook_data = {}
     try:
-        hook_data = json.load(sys.stdin)
-    except:
-        hook_data = {}
+        stdin_input = sys.stdin.read()
+        if stdin_input:
+            hook_data = json.loads(stdin_input)
+            if debug_log:
+                with open("/tmp/ksi_hook_debug.log", "a") as f:
+                    f.write(f"Received data: {json.dumps(hook_data, indent=2)}\n")
+    except Exception as e:
+        if debug_log:
+            with open("/tmp/ksi_hook_debug.log", "a") as f:
+                f.write(f"Error reading stdin: {e}\n")
+        # Don't crash - just continue with empty data
+        pass
     
     # Extract context (based on actual hook format)
     tool_name = hook_data.get("tool_name", "unknown")
@@ -171,6 +241,14 @@ def main():
     # Skip for certain tools to avoid noise
     skip_tools = ["TodoRead", "TodoWrite", "Read"]
     if tool_name in skip_tools:
+        if debug_log:
+            with open("/tmp/ksi_hook_debug.log", "a") as f:
+                f.write(f"Skipping tool: {tool_name}\n")
+        sys.exit(0)
+    
+    # FAILSAFE: Always show something for unknown tool to verify hook is working
+    if tool_name == "unknown" or not hook_data:
+        print("[KSI Hook] No tool data received - hook is running but may have format issue")
         sys.exit(0)
     
     # Smart filtering for Bash commands - only monitor KSI-related activity
@@ -194,6 +272,9 @@ def main():
         ]
         
         if not any(indicator in command for indicator in ksi_indicators):
+            # For debugging: set KSI_HOOK_SHOW_ALL=true to see all commands
+            if os.environ.get("KSI_HOOK_SHOW_ALL", "").lower() == "true":
+                print(f"[KSI Hook] Non-KSI command: {command[:50]}...")
             sys.exit(0)  # Skip non-KSI bash commands
     
     # TODO: Future enhancement - Context-aware triggering
@@ -249,4 +330,9 @@ def main():
     sys.exit(0)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        # FAILSAFE: Always exit cleanly and show error
+        print(f"[KSI Hook Error] {e}")
+        sys.exit(0)
