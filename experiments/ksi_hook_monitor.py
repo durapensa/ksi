@@ -10,16 +10,57 @@ Features:
 - Timestamp tracking: Only shows truly new events
 - Token efficient: Minimal output to save context
 
-Configuration:
-- Registered in .claude/settings.local.json
-- Triggers on: Bash|Write|Edit|MultiEdit
-- Filters out: non-KSI commands, internal events, recursion
+=== CLAUDE CODE HOOK LEARNINGS (2025-01) ===
 
-Future enhancements could include:
-- Context-aware monitoring based on current work
-- Configurable verbosity levels
-- Pattern-based event filtering
-- Custom event formatters
+1. HOOK DATA FORMAT:
+   Hooks receive JSON via stdin with this structure:
+   {
+     "session_id": "uuid",           # Claude Code session
+     "transcript_path": "/path/to/transcript.jsonl",
+     "hook_event_name": "PostToolUse",  # Event type
+     "tool_name": "Bash",            # Tool that was used
+     "tool_input": {...},            # Input to the tool
+     "tool_response": {...}          # Response from tool
+   }
+
+2. PYTHON PATH ISSUES:
+   - "python" may not work - use "python3" or absolute path
+   - Best practice: Use absolute path like /opt/homebrew/bin/python3
+   - Settings changes require Claude Code restart
+
+3. OUTPUT FORMAT:
+   - Hooks output plain text to stdout (NOT JSON)
+   - Output appears after tool results in Claude Code
+   - Empty output = silent execution (common pitfall)
+
+4. DEBUGGING TECHNIQUES:
+   - Log to /tmp files for persistent debugging
+   - Always exit cleanly (sys.exit(0)) even on errors
+   - Test manually: echo '{json}' | python3 hook.py
+   - Set KSI_HOOK_DEBUG=true for debug logging
+
+5. COMMON FAILURES:
+   - Silent failures if Python path wrong
+   - No output if hook crashes (use try/except)
+   - Settings typos (check .claude/settings.local.json)
+   - Working directory issues (use absolute paths)
+
+6. SECURITY BEHAVIOR (2025-01):
+   - If hook file is modified during Claude Code session, hook is DISABLED
+   - This is a security feature to prevent malicious hook modifications
+   - Must restart Claude Code after modifying hook file
+   - Hook will remain disabled until restart even if file is reverted
+
+7. CONFIGURATION EXAMPLE (.claude/settings.local.json):
+   "hooks": {
+     "PostToolUse": [{
+       "matcher": "Bash|Write|Edit|MultiEdit",
+       "hooks": [{
+         "type": "command",
+         "command": "/opt/homebrew/bin/python3 /Users/dp/projects/ksi/experiments/ksi_hook_monitor.py"
+       }]
+     }]
+   }
 """
 
 import sys
@@ -96,18 +137,8 @@ class KSIHookMonitor:
             result = json.loads(response)
             return result.get("data", {}).get("events", [])
             
-        except socket.error as e:
-            # Socket connection failed - daemon might not be running
-            debug_log = os.environ.get("KSI_HOOK_DEBUG", "").lower() == "true"
-            if debug_log:
-                with open("/tmp/ksi_hook_debug.log", "a") as f:
-                    f.write(f"Socket error: {e} (path: {self.socket_path})\n")
-            return []
-        except Exception as e:
-            debug_log = os.environ.get("KSI_HOOK_DEBUG", "").lower() == "true"
-            if debug_log:
-                with open("/tmp/ksi_hook_debug.log", "a") as f:
-                    f.write(f"Error getting events: {e}\n")
+        except Exception:
+            # Silent fail - daemon might not be running
             return []
     
     def format_event_summary(self, events):
@@ -177,47 +208,14 @@ class KSIHookMonitor:
             return f"Error checking agents: {e}"
 
 def main():
-    """Hook entry point.
-    
-    CLAUDE CODE HOOK FORMAT (as of 2025-01):
-    The hook receives JSON via stdin with the following structure:
-    {
-        "tool_name": "Bash",           # Tool that was used
-        "session_id": "...",           # Claude Code session ID
-        "tool_input": {...},           # Input parameters to the tool
-        "tool_response": {...},        # Response from the tool
-        "context": {...}               # Additional context
-    }
-    
-    TROUBLESHOOTING:
-    If hook is not working:
-    1. Check that hook is in .claude/settings.local.json (project-specific)
-    2. Verify Python path: use "python3" explicitly to ensure Python 3
-    3. Test manually: echo '{"tool_name": "Bash"}' | python3 /path/to/hook.py
-    4. Check permissions: Hook file must be readable
-    5. Exit code must be 0 for success
-    6. Working directory: Hooks run from Claude Code's cwd, not project root
-    7. Environment: Hooks don't inherit shell environment (no venv)
-    
-    KNOWN ISSUES (2025-01):
-    - Settings changes require Claude Code restart to take effect
-    - If hook stops working, check if Python path changed (python vs python3)
-    - Hook may fail silently if socket path is incorrect (we handle this now)
-    
-    MANUAL TESTING:
-    KSI_HOOK_DEBUG=true python3 /path/to/ksi_hook_monitor.py
-    Then check /tmp/ksi_hook_debug.log for diagnostics
-    
-    IMPORTANT: Hooks execute silently unless they print to stdout.
-    Output is shown in Claude Code's response AFTER the tool output.
-    """
-    # Add debug logging for troubleshooting
+    """Hook entry point - receives tool execution data from Claude Code."""
+    # Optional debug logging (set KSI_HOOK_DEBUG=true to enable)
     debug_log = os.environ.get("KSI_HOOK_DEBUG", "").lower() == "true"
     if debug_log:
         with open("/tmp/ksi_hook_debug.log", "a") as f:
             f.write(f"\n{datetime.now().isoformat()} - Hook started\n")
     
-    # Read hook input - be defensive about format
+    # Read hook input from stdin
     hook_data = {}
     try:
         stdin_input = sys.stdin.read()
@@ -226,12 +224,9 @@ def main():
             if debug_log:
                 with open("/tmp/ksi_hook_debug.log", "a") as f:
                     f.write(f"Received data: {json.dumps(hook_data, indent=2)}\n")
-    except Exception as e:
-        if debug_log:
-            with open("/tmp/ksi_hook_debug.log", "a") as f:
-                f.write(f"Error reading stdin: {e}\n")
-        # Don't crash - just continue with empty data
-        pass
+    except Exception:
+        # Silent fail - hooks shouldn't crash Claude Code
+        sys.exit(0)
     
     # Extract context (based on actual hook format)
     tool_name = hook_data.get("tool_name", "unknown")
@@ -246,9 +241,8 @@ def main():
                 f.write(f"Skipping tool: {tool_name}\n")
         sys.exit(0)
     
-    # FAILSAFE: Always show something for unknown tool to verify hook is working
+    # Skip if no data received
     if tool_name == "unknown" or not hook_data:
-        print("[KSI Hook] No tool data received - hook is running but may have format issue")
         sys.exit(0)
     
     # Smart filtering for Bash commands - only monitor KSI-related activity
@@ -272,18 +266,9 @@ def main():
         ]
         
         if not any(indicator in command for indicator in ksi_indicators):
-            # For debugging: set KSI_HOOK_SHOW_ALL=true to see all commands
-            if os.environ.get("KSI_HOOK_SHOW_ALL", "").lower() == "true":
-                print(f"[KSI Hook] Non-KSI command: {command[:50]}...")
             sys.exit(0)  # Skip non-KSI bash commands
     
-    # TODO: Future enhancement - Context-aware triggering
-    # We could track what the user is working on and adjust monitoring:
-    # - If recent commands involve agents → focus on agent events
-    # - If working with state/entities → focus on state events
-    # - If debugging → show more detailed output
-    # - If idle → show only critical events
-    # This would require maintaining session context across hook invocations
+    # Future enhancement: Context-aware monitoring based on recent work
     
     # Initialize monitor
     monitor = KSIHookMonitor()
