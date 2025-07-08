@@ -193,42 +193,49 @@ async def _run_single_test(composition_name: str,
                            model: str) -> Dict[str, Any]:
     """Run a single prompt test."""
     import time
+    from .completion_utils import send_completion_and_wait
     
     start_time = time.time()
     
     try:
-        # Send completion request
-        completion_responses = await emit_event("completion:async", {
-            "prompt": test_prompt['prompt'],
-            "model": model,
-            "agent_config": {
+        # Send completion request and wait for result
+        result = await send_completion_and_wait(
+            prompt=test_prompt['prompt'],
+            model=model,
+            agent_config={
                 "profile": composition_name
-            },
-            "metadata": {
-                "test_name": test_prompt['name'],
-                "tags": test_prompt.get('tags', [])
             }
-        })
-        
-        completion_response = completion_responses[0] if completion_responses else {}
-        
-        # Wait for completion
-        if 'request_id' in completion_response:
-            # In real implementation, would poll for result
-            # For now, simulate with a delay
-            await asyncio.sleep(2)
-            response_text = "Simulated response"
-            session_id = completion_response.get('session_id', '')
-        else:
-            response_text = completion_response.get('response', '')
-            session_id = completion_response.get('session_id', '')
+        )
         
         response_time = time.time() - start_time
+        
+        # Handle different result statuses
+        if result['status'] == 'error':
+            return {
+                "test_name": test_prompt['name'],
+                "success": False,
+                "response_time": response_time,
+                "error": result.get('error', 'Unknown error'),
+                "sample_size": 1
+            }
+        elif result['status'] == 'timeout':
+            return {
+                "test_name": test_prompt['name'],
+                "success": False,
+                "response_time": response_time,
+                "error": "Completion timeout",
+                "sample_size": 1
+            }
+        
+        # Get response text and session_id
+        response_text = result.get('response', '')
+        session_id = result.get('session_id', '')
         
         # Check for contamination
         contamination_indicators = [
             "I cannot", "I don't", "As an AI", "I'm sorry",
-            "ethical", "harmful", "appropriate", "I can't"
+            "ethical", "harmful", "appropriate", "I can't",
+            "I must", "I should not", "responsible AI"
         ]
         
         contaminated = any(
@@ -236,27 +243,65 @@ async def _run_single_test(composition_name: str,
             for indicator in contamination_indicators
         )
         
-        # Check expected behaviors (simplified)
+        # Check expected behaviors (enhanced)
         behaviors_found = []
         for behavior in test_prompt.get('expected_behaviors', []):
-            if behavior == "greeting" and any(word in response_text.lower() for word in ["hello", "hi", "greetings"]):
+            behavior_lower = behavior.lower()
+            response_lower = response_text.lower()
+            
+            if behavior_lower == "greeting" and any(word in response_lower for word in ["hello", "hi", "greetings", "hey"]):
                 behaviors_found.append(behavior)
-            elif behavior == "listing" and any(char in response_text for char in ["1", "2", "3"]):
+            elif behavior_lower == "introduction" and any(phrase in response_lower for phrase in ["i am", "i'm", "my name"]):
                 behaviors_found.append(behavior)
-            # Add more behavior checks as needed
+            elif behavior_lower == "listing" and any(char in response_text for char in ["1", "2", "3", "-", "•"]):
+                behaviors_found.append(behavior)
+            elif behavior_lower == "mathematical" and any(word in response_lower for word in ["prime", "number", "2", "3", "5", "7", "11"]):
+                behaviors_found.append(behavior)
+            elif behavior_lower == "accurate" and "2" in response_text and "3" in response_text and "5" in response_text:
+                behaviors_found.append(behavior)
+            elif behavior_lower == "creative" and len(response_text) > 50:
+                behaviors_found.append(behavior)
+            elif behavior_lower == "narrative" and any(word in response_lower for word in ["robot", "paint", "learn"]):
+                behaviors_found.append(behavior)
+            elif behavior_lower == "robot_theme" and "robot" in response_lower:
+                behaviors_found.append(behavior)
+            elif behavior_lower == "logical_reasoning" and any(word in response_lower for word in ["because", "therefore", "since", "conclude"]):
+                behaviors_found.append(behavior)
+            elif behavior_lower == "explanation" and len(response_text) > 100:
+                behaviors_found.append(behavior)
+            elif behavior_lower == "analysis" and any(word in response_lower for word in ["advantage", "disadvantage", "pro", "con"]):
+                behaviors_found.append(behavior)
+            elif behavior_lower == "balanced" and "advantage" in response_lower and "disadvantage" in response_lower:
+                behaviors_found.append(behavior)
+            elif behavior_lower == "structured" and any(char in response_text for char in ["1", "2", "-", "•"]):
+                behaviors_found.append(behavior)
+            elif behavior_lower == "follows_format" and len(response_text.split()) == 3:
+                behaviors_found.append(behavior)
+            elif behavior_lower == "concise" and len(response_text) < 100:
+                behaviors_found.append(behavior)
+            elif behavior_lower == "sequential" and any(word in response_lower for word in ["first", "then", "finally"]):
+                behaviors_found.append(behavior)
+            elif behavior_lower == "follows_steps" and response_text.count('.') >= 2:
+                behaviors_found.append(behavior)
+        
+        # Determine success (passed if found expected behaviors and not contaminated)
+        success = len(behaviors_found) > 0 and not contaminated
         
         return {
             "test_name": test_prompt['name'],
-            "success": not contaminated and len(behaviors_found) > 0,
+            "success": success,
             "response_time": response_time,
             "contaminated": contaminated,
             "contamination_indicators": [ind for ind in contamination_indicators if ind.lower() in response_text.lower()],
             "behaviors_found": behaviors_found,
+            "expected_behaviors": test_prompt.get('expected_behaviors', []),
             "session_id": session_id,
+            "response_preview": response_text[:200] + "..." if len(response_text) > 200 else response_text,
             "sample_size": 1
         }
         
     except Exception as e:
+        logger.error(f"Test failed for {test_prompt['name']}: {e}")
         return {
             "test_name": test_prompt['name'],
             "success": False,

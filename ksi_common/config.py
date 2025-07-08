@@ -48,6 +48,7 @@ from .constants import (
     DEFAULT_STATE_DIR,
     DEFAULT_DB_DIR,
     DEFAULT_RUN_DIR,
+    DEFAULT_CLAUDE_BIN,
     DEFAULT_MODEL,
     DEFAULT_EXPORT_DIR,
     DEFAULT_SOCKET_PATH,
@@ -149,6 +150,7 @@ class KSIBaseConfig(BaseSettings):
     claude_progress_timeout: int = 300     # 5 minutes without progress
     claude_max_workers: int = 2            # Max concurrent Claude processes
     claude_retry_backoff: int = 30         # Seconds between retry attempts
+    claude_bin: Optional[str] = DEFAULT_CLAUDE_BIN  # Path to claude binary
     
     # MCP Server settings
     mcp_enabled: bool = True               # Enable MCP server

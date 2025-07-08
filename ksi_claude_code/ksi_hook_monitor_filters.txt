@@ -1,0 +1,135 @@
+# KSI Hook Monitor - Filters and Documentation
+# This file contains patterns that trigger the KSI hook monitor
+# One pattern per line, comments start with #
+
+# =============================================================================
+# HOOK TRIGGER PATTERNS
+# =============================================================================
+
+# Direct socket commands
+nc -U var/run/daemon.sock
+
+# Daemon control
+./daemon_control.py
+daemon_control.py
+
+# Agent operations
+agent:spawn
+agent:
+
+# State operations
+state:
+entity:
+
+# Other KSI events
+completion:
+event:
+
+# KSI scripts/mentions
+ksi_
+KSI
+
+# KSI paths and tools
+/ksi/
+ksi-
+
+# Manual trigger for testing
+ksi_check
+
+# =============================================================================
+# CLAUDE CODE HOOK DOCUMENTATION (2025-01)
+# =============================================================================
+
+# OVERVIEW:
+# KSI Hook Monitor integrates with Claude Code via hooks to show NEW KSI events
+# since last hook invocation. Uses smart filtering and silent events to prevent
+# recursive event generation.
+
+# FEATURES:
+# - Smart filtering: Only triggers on KSI-related Bash commands
+# - Summary mode: Shows concise event counts by default  
+# - Detailed mode: Activates for errors or significant events
+# - Timestamp tracking: Only shows truly new events
+# - Token efficient: Minimal output to save context
+# - Silent events: Uses _silent flag to prevent recursive event generation
+
+# 1. HOOK DATA FORMAT:
+#    Hooks receive JSON via stdin with this structure:
+#    {
+#      "session_id": "uuid",           # Claude Code session
+#      "transcript_path": "/path/to/transcript.jsonl",
+#      "hook_event_name": "PostToolUse",  # Event type
+#      "tool_name": "Bash",            # Tool that was used
+#      "tool_input": {...},            # Input to the tool
+#      "tool_response": {...}          # Response from tool
+#    }
+
+# 2. PYTHON PATH ISSUES:
+#    - "python" may not work - use "python3" or absolute path
+#    - Best practice: Use absolute path like /opt/homebrew/bin/python3
+#    - Settings changes require Claude Code restart
+
+# 3. OUTPUT FORMAT:
+#    - Hooks output plain text to stdout (NOT JSON)
+#    - Output appears after tool results in Claude Code
+#    - Empty output = silent execution (common pitfall)
+
+# 4. DEBUGGING TECHNIQUES:
+#    - Log to /tmp files for persistent debugging
+#    - Always exit cleanly (sys.exit(0)) even on errors
+#    - Test manually: echo '{"tool_name": "Bash", "tool_input": {"command": "ksi_check"}}' | python3 ksi_hook_monitor.py
+#    - Set KSI_HOOK_DEBUG=true for debug logging
+
+# 5. COMMON FAILURES:
+#    - Silent failures if Python path wrong
+#    - No output if hook crashes (use try/except)
+#    - Settings typos (check .claude/settings.local.json)
+#    - Working directory issues (use absolute paths)
+
+# 6. SECURITY BEHAVIOR (2025-01):
+#    - If hook file is modified during Claude Code session, hook is DISABLED
+#    - This is a security feature to prevent malicious hook modifications
+#    - Hook will remain disabled until restart even if file is reverted
+#    - CRITICAL: Changes to hook source file require BOTH steps:
+#      1. Restart Claude Code
+#      2. Manually enter /hooks menu to examine the hook
+#    - Hook remains disabled until manual verification is completed
+#    - Commands like "ksi_check" will not trigger hook output until both steps done
+#    - This two-step process prevents automatic activation of malicious modifications
+#    - VERIFIED: Hook successfully re-enabled after manual /hooks menu access
+
+# 7. CONFIGURATION EXAMPLE (.claude/settings.local.json):
+#    "hooks": {
+#      "PostToolUse": [{
+#        "matcher": "Bash|Write|Edit|MultiEdit",
+#        "hooks": [{
+#          "type": "command",
+#          "command": "/opt/homebrew/bin/python3 /Users/dp/projects/ksi/ksi_claude_code/ksi_hook_monitor.py"
+#        }]
+#      }]
+#    }
+
+# 8. TESTING:
+#    - Use "ksi_check" command to manually trigger hook
+#    - Hook should show format: [KSI: X events] or [KSI: X events, Y agents]
+#    - Manual test: echo '{"tool_name": "Bash", "tool_input": {"command": "ksi_check"}}' | python3 ksi_hook_monitor.py
+
+# 9. ARCHITECTURE:
+#    - External filters (this file) prevent Claude Code security issues
+#    - Hook uses silent events (_silent: true) to prevent recursive generation
+#    - Moved to ksi_claude_code/ for production use (no longer experimental)
+#    - Fallback filters in code if this file is missing
+
+# 10. TROUBLESHOOTING:
+#     - No output after restart: Check if hook was triggered (try ksi_check)
+#     - "File not found" errors: Verify path in .claude/settings.local.json
+#     - Hook disabled: Restart Claude Code AND manually enter /hooks menu
+#     - Missing events: Check /tmp/ksi_hook_last_timestamp.txt for timing issues
+#     - Recursive events: Verify _silent flag is working in socket queries
+#     - Hook security test: Run "ksi_check" - should fail before /hooks menu, work after
+
+# IMPORTANT NOTES:
+# - This filters file can be modified without triggering security features
+# - Changes to ksi_hook_monitor.py require restart + manual hook menu access
+# - The hook is designed to be lightweight and token-efficient
+# - All KSI socket queries from hook use {"_silent": true} to prevent event loops

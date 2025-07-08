@@ -204,6 +204,10 @@ class EventRouter:
         if data is None:
             data = {}
             
+        # Extract and remove _silent flag if present
+        # Silent events are processed normally but not logged
+        silent = data.pop('_silent', False)
+            
         # Create context if not provided
         if context is None:
             context = {
@@ -214,8 +218,8 @@ class EventRouter:
             context["event"] = event
             context["router"] = self
         
-        # Log event to reference-based event log
-        if hasattr(self, 'reference_event_log') and self.reference_event_log:
+        # Log event to reference-based event log (only if not silent)
+        if not silent and hasattr(self, 'reference_event_log') and self.reference_event_log:
             # Extract metadata for logging
             originator_id = context.get("originator_id") or context.get("agent_id")
             construct_id = context.get("construct_id") or data.get("construct_id")
@@ -323,6 +327,62 @@ class EventRouter:
         """Emit event and return first non-None result."""
         results = await self.emit(event, data, context)
         return results[0] if results else None
+        
+    async def wait_for_event(self, event_name: str, 
+                           filter_fn: Optional[Callable[[Dict[str, Any]], bool]] = None) -> Dict[str, Any]:
+        """
+        Wait for a specific event matching filter criteria.
+        
+        This enables request/response patterns in the event system without polling.
+        The method registers a temporary handler that resolves when a matching event occurs.
+        
+        This method trusts the event system - it will wait indefinitely for the event.
+        If timeouts are needed, they should be handled by the emitting service (e.g.,
+        completion service should emit completion:result with status="timeout").
+        
+        Args:
+            event_name: Name of the event to wait for (e.g., "completion:result")
+            filter_fn: Optional filter function that receives event data and returns True for match
+            
+        Returns:
+            Event data when matched
+            
+        Example:
+            # Wait for specific completion
+            result = await router.wait_for_event(
+                "completion:result",
+                lambda data: data.get("request_id") == my_request_id
+            )
+            
+        Note: This is Pattern 2 (Request-Response) for event systems.
+        Pattern 1 (Subscriptions) could be added in future for persistent event monitoring:
+        - subscribe(event, handler, filter) - for ongoing event reactions
+        - unsubscribe(subscription_id) - to stop monitoring
+        """
+        future = asyncio.Future()
+        
+        async def waiter(data: Dict[str, Any], context: Dict[str, Any]) -> None:
+            """Temporary handler that resolves the future when matching event occurs."""
+            try:
+                if filter_fn is None or filter_fn(data):
+                    if not future.done():
+                        future.set_result(data)
+            except Exception as e:
+                logger.error(f"Error in wait_for_event filter: {e}")
+                if not future.done():
+                    future.set_exception(e)
+        
+        # Register temporary handler
+        self.register_handler(event_name, waiter)
+        
+        try:
+            # Wait for the event - trust it will arrive
+            result = await future
+            return result
+        finally:
+            # Clean up temporary handler
+            if event_name in self._handlers:
+                self._handlers[event_name] = [h for h in self._handlers[event_name] if h != waiter]
         
     def _matches_pattern(self, event: str, pattern: str) -> bool:
         """Check if event matches pattern (supports * wildcard)."""

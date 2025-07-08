@@ -45,7 +45,8 @@ from ksi_common.logging import get_bound_logger
 
 # Configuration
 logger = get_bound_logger("claude_cli_provider", version="3.0.0")
-CLAUDE_BIN = Path(os.getenv("CLAUDE_BIN", "claude")).expanduser()
+# Log the claude binary path for debugging
+logger.info(f"Claude CLI provider initialized with claude_bin={config.claude_bin}")
 # No default model - completion service must provide one
 
 # Replicate model name detection constants
@@ -74,7 +75,7 @@ def build_cmd(
 ) -> List[str]:
     """Compose the argv list for the Claude CLI."""
     cmd = [
-        str(CLAUDE_BIN),
+        str(config.claude_bin) if config.claude_bin else "claude",
         "-p",
         "--output-format",
         output_format,
@@ -116,7 +117,8 @@ def map_subprocess_error_to_litellm(e: Exception, model: str) -> Exception:
     if isinstance(e, subprocess.TimeoutExpired):
         return Timeout(
             message=f"Claude CLI timed out after {e.timeout}s",
-            model=model
+            model=model,
+            llm_provider="claude-cli"
         )
     
     elif isinstance(e, subprocess.CalledProcessError):
@@ -124,25 +126,29 @@ def map_subprocess_error_to_litellm(e: Exception, model: str) -> Exception:
         if e.returncode in [-9, -15]:  # SIGKILL, SIGTERM
             return ServiceUnavailableError(
                 message=f"Claude CLI terminated with signal {e.returncode}",
-                model=model
+                model=model,
+                llm_provider="claude-cli"
             )
         elif e.returncode == 1:  # General error - could be bad prompt
             stderr = e.stderr if hasattr(e, 'stderr') else ""
             return BadRequestError(
                 message=f"Claude CLI error: {stderr or 'Invalid request'}",
-                model=model
+                model=model,
+                llm_provider="claude-cli"
             )
         else:
             return APIError(
                 message=f"Claude CLI failed with code {e.returncode}",
                 model=model,
-                status_code=500
+                status_code=500,
+                llm_provider="claude-cli"
             )
     
     elif isinstance(e, FileNotFoundError):
         return APIConnectionError(
-            message=f"Claude CLI not found at {CLAUDE_BIN}",
-            model=model
+            message=f"Claude CLI not found at {config.claude_bin or 'claude'}",
+            model=model,
+            llm_provider="claude-cli"
         )
     
     elif isinstance(e, ClaudeCLIError):
@@ -150,20 +156,23 @@ def map_subprocess_error_to_litellm(e: Exception, model: str) -> Exception:
         if e.status_code == 400:
             return BadRequestError(
                 message=e.message,
-                model=model
+                model=model,
+                llm_provider="claude-cli"
             )
         else:
             return APIError(
                 message=e.message,
                 model=model,
-                status_code=e.status_code
+                status_code=e.status_code,
+                llm_provider="claude-cli"
             )
     
     # Default to generic API error
     return APIError(
         message=f"Claude CLI error: {str(e)}",
         model=model,
-        status_code=500
+        status_code=500,
+        llm_provider="claude-cli"
     )
 
 
@@ -193,7 +202,7 @@ class ClaudeCLIProvider(CustomLLM):
         
         logger.info(
             "Claude CLI provider initialized",
-            claude_bin=str(CLAUDE_BIN),
+            claude_bin=str(config.claude_bin) if config.claude_bin else "claude",
             timeout_attempts=config.claude_timeout_attempts,
             progress_timeout=config.claude_progress_timeout
         )
@@ -373,7 +382,8 @@ class ClaudeCLIProvider(CustomLLM):
                     from litellm.exceptions import Timeout
                     raise Timeout(
                         message=f"Claude CLI timed out after {timeout}s",
-                        model=model_name
+                        model=model_name,
+                        llm_provider="claude-cli"
                     )
                 
                 # Success - process the result
@@ -582,8 +592,9 @@ class ClaudeCLIProvider(CustomLLM):
         # KSI always uses --output-format json, so we expect valid JSON
         
         # Create LiteLLM response with raw JSON
+        # Use the full model name with provider prefix for LiteLLM
         response = litellm.completion(  # type: ignore
-            model=model_name,
+            model=f"claude-cli/{model_name}",
             mock_response=raw_response,  # Pass raw JSON string
             messages=[{"role": "user", "content": prompt}],
         )
@@ -625,7 +636,8 @@ class ClaudeCLIProvider(CustomLLM):
         if not model_name:
             raise BadRequestError(
                 message="No model specified. Completion service must provide a model.",
-                model="unknown"
+                model="unknown",
+                llm_provider="claude-cli"
             )
         
         # Pass the model name directly to claude CLI - no processing needed

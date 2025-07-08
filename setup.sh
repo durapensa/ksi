@@ -42,8 +42,8 @@ fi
 if ! command -v claude &> /dev/null; then
     echo "⚠️  Claude CLI not found in PATH"
     echo "   Please install from https://claude.ai/code"
-    echo "   Note: If claude is installed via npm/nvm, it may not be in the PATH"
-    echo "   The daemon will still work if claude is accessible when running"
+    echo "   Or set CLAUDE_BIN environment variable to the claude binary path"
+    echo "   Example: export CLAUDE_BIN=/path/to/claude"
 else
     echo "✓ Claude CLI is installed"
 fi
@@ -58,11 +58,16 @@ echo "✓ Made scripts executable"
 
 echo ""
 echo "Setup complete! You can now run:"
-echo "  python3 chat.py              # Start chatting with Claude"
+echo "  ./daemon_control.py start    # Start the KSI daemon"
+echo "  ./interfaces/chat.py         # Start chatting with Claude"
 echo ""
 echo "For multi-Claude conversations:"
 echo "  python3 interfaces/orchestrate.py 'Topic' --mode debate"
 echo "  python3 interfaces/monitor_tui.py       # In another terminal"
+echo ""
+echo "⚠️  IMPORTANT: If claude CLI is not in your PATH, set CLAUDE_BIN:"
+echo "  export CLAUDE_BIN=/path/to/your/claude/binary"
+echo "  Example: export CLAUDE_BIN=/Users/\$USER/.claude/local/claude"
 echo ""
 echo "Note: Make sure to activate the virtual environment first:"
 echo "  source .venv/bin/activate"
