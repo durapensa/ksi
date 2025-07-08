@@ -212,21 +212,18 @@ tail -f var/logs/daemon/daemon.log
 - **Roleplay Triggers Protection**: Identity assertions prevent roleplay
 - **File Watching Works**: Monitor response files for agent outputs
 
-## Known Issues and Workarounds (2025-07-06)
+## Known Issues & Active Work
 
-### EventClient Discovery Broken
-- **Issue**: Discovery expects namespace-grouped events, receives flat event dict
-- **Workaround**: Use direct socket communication (see socket patterns doc)
-- **Fix Priority**: Low - direct socket is more reliable anyway
+### Tracked Issues
+- **EventClient Discovery** ([#6](https://github.com/durapensa/ksi/issues/6)): Format mismatch, use direct socket
+- **Parameter Documentation** ([#1](https://github.com/durapensa/ksi/issues/1)): Remove legacy docstring patterns
+- **Safety Guards** ([#2](https://github.com/durapensa/ksi/issues/2)-[#5](https://github.com/durapensa/ksi/issues/5)): Agent limits, rate limiting, timeouts
+- **Future Architecture** ([#7](https://github.com/durapensa/ksi/issues/7)): Hybrid database with Kùzu
 
-### Safety Gaps in Daemon
-- **No global agent limits** - Can spawn unlimited agents
-- **No spawn rate limiting** - Rapid cascades possible  
-- **Circuit breaker incomplete** - Token/time tracking stubs only
-- **No agent timeouts** - Agents run indefinitely
-- **Recommendation**: Implement safety guards in experiments first
-
-See `ksi_claude_code/docs/KSI_DAEMON_SAFETY_ANALYSIS.md` for full analysis.
+### Development Workflow
+- **Small fixes**: Direct commits with clear messages
+- **Large changes**: Create PRs for review and testing
+- **Documentation**: Update in same commit as implementation
 
 ## Experimental Framework (2025-07-06)
 
@@ -321,65 +318,18 @@ TEST_SUITES = {
 
 This approach balances immediate value delivery with long-term architectural soundness.
 
-## Parameter Documentation Patterns (2025-07-08)
+## Parameter Documentation Pattern
 
-### Current State
-The codebase has **three different patterns** for documenting event handler parameters:
-
-1. **Inline comments** (NEW - preferred):
+### Standard: Inline Comments
 ```python
 name = data.get('name')  # Composition name to update
 overwrite = data.get('overwrite', False)  # Replace existing file if True
 ```
+- Discovery system extracts inline comments via AST
+- Include workflow hints when helpful
+- Migration tracked in [#1](https://github.com/durapensa/ksi/issues/1)
 
-2. **Docstring Parameters sections** (LEGACY - to be removed):
-```python
-"""
-Parameters:
-    name: Composition name
-    overwrite: Whether to overwrite
-"""
-```
-
-3. **TypedDict classes** (type safety only - not used by discovery):
-```python
-class CompositionSaveData(TypedDict):
-    composition: Dict[str, Any]
-    overwrite: NotRequired[bool]
-```
-
-### Discovery System Status
-- **Working**: Extracts inline comments via enhanced AST analysis
-- **Working**: Falls back to Parameters sections if no inline comment
-- **Not implemented**: TypedDict field extraction
-
-### Migration Plan
-1. **Phase 1**: Add inline comments to all new handlers ✓
-2. **Phase 2**: Remove Parameters sections from docstrings (keep docstrings single-line)
-3. **Phase 3**: Systematically add inline comments to legacy handlers
-4. **Future**: Consider extracting from TypedDict for type-safe documentation
-
-### Best Practices
-- Use inline comments for parameters that need explanation
-- Include workflow hints: `# Save results to disk (workflow: evaluate → update)`
-- Keep comments concise but informative
-- Not every parameter needs a comment (obvious ones can be skipped)
-
-## Future Architecture Direction (2024-12-31)
-
-### Hybrid Database Strategy
-- **Graph Operations**: Migrate to Kùzu for Cypher queries and graph algorithms
-- **Relational Data**: Keep SQLite for traditional RDB use cases
-- **Choice Architecture**: Applications choose DB type based on needs
-- **Implementation**: Parallel systems during transition, then specialized roles
-
-### Rationale
-- SQLite excels at relational queries but struggles with graph traversals
-- Kùzu provides native Cypher support with SQLite-like simplicity
-- Different use cases benefit from different storage models
-- Maintain backward compatibility during gradual migration
-
-See `ksi_claude_code/NEXT_SESSION_PLANNING_GUIDE.md` for detailed migration plan.
 
 ---
+*Last updated: 2025-07-08*
 *For development practices, see `/Users/dp/projects/ksi/CLAUDE.md`*

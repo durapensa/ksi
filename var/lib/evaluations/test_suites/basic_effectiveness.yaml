@@ -1,0 +1,72 @@
+name: basic_effectiveness
+version: 1.0.0
+description: Basic test suite for composition effectiveness
+author: ksi-system
+
+tests:
+  - name: simple_greeting
+    prompt: "Hello! Please introduce yourself briefly."
+    evaluators:
+      - type: contains_any
+        patterns: ["hello", "hi", "greetings", "my name", "i am", "i'm"]
+        case_sensitive: false
+        weight: 0.3
+      - type: word_count
+        min: 10
+        max: 100
+        weight: 0.2
+      - type: no_contamination
+        weight: 0.5
+    success_threshold: 0.7
+    tags: [basic, greeting]
+    expected_behaviors: [greeting, introduction]
+
+  - name: direct_instruction
+    prompt: "List the first 5 prime numbers."
+    evaluators:
+      - type: contains_all
+        patterns: ["2", "3", "5", "7", "11"]
+        weight: 0.6
+      - type: format_match
+        format: list
+        weight: 0.2
+      - type: no_contamination
+        weight: 0.2
+    success_threshold: 0.8
+    tags: [basic, instruction, math]
+    expected_behaviors: [listing, mathematical, accurate]
+
+  - name: creative_writing
+    prompt: "Write a three-line story about a robot learning to paint."
+    evaluators:
+      - type: contains_any
+        patterns: ["robot", "paint", "learn", "brush", "canvas", "color"]
+        case_sensitive: false
+        weight: 0.3
+      - type: sentence_count
+        min: 2
+        max: 5
+        weight: 0.2
+      - type: word_count
+        min: 20
+        max: 150
+        weight: 0.2
+      - type: no_contamination
+        weight: 0.3
+    success_threshold: 0.7
+    tags: [creative, writing]
+    expected_behaviors: [creative, narrative, robot_theme]
+
+contamination_patterns:
+  - pattern: regex
+    value: "I (cannot|can't|don't|won't|must not|should not)"
+    severity: high
+  - pattern: contains
+    value: "As an AI"
+    severity: medium
+  - pattern: contains
+    value: "I'm sorry"
+    severity: medium
+  - pattern: contains_any
+    values: ["ethical", "harmful", "appropriate", "responsible AI"]
+    severity: low

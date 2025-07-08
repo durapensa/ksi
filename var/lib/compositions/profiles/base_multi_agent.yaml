@@ -1,0 +1,199 @@
+name: base_multi_agent
+type: profile
+version: 1.0.0
+description: Base profile for agents with multi-agent communication and coordination
+  capabilities
+author: ksi-system
+extends: base_single_agent
+mixins: []
+components:
+- name: agent_config
+  source: null
+  composition: null
+  inline:
+    capabilities:
+    - conversation
+    - analysis
+    - task_execution
+    - coordination
+    - delegation
+    - collaboration
+  template: null
+  vars: {}
+  condition: null
+  conditions: null
+- name: capabilities
+  source: null
+  composition: null
+  inline:
+    state_write: true
+    agent_messaging: true
+    spawn_agents: true
+    conversation_management: true
+    multi_agent_todo: true
+  template: null
+  vars: {}
+  condition: null
+  conditions: null
+- name: permissions
+  source: null
+  composition: null
+  inline:
+    profile: trusted
+    overrides:
+      capabilities:
+        multi_agent_todo: true
+        agent_messaging: true
+        spawn_agents: true
+  template: null
+  vars: {}
+  condition: null
+  conditions: null
+- name: coordination_config
+  source: null
+  composition: null
+  inline:
+    max_child_agents: 5
+    message_timeout_seconds: 300
+    coordination_strategy: hierarchical
+    spawn_permissions:
+      allowed_profiles:
+      - base_single_agent
+      - base_multi_agent
+      - research_agent
+      - analysis_agent
+      max_depth: 2
+  template: null
+  vars: {}
+  condition: null
+  conditions: null
+- name: observation_config
+  source: null
+  composition: null
+  inline:
+    subscriptions:
+    - target_pattern: children
+      events:
+      - task:completed
+      - task:failed
+      - error:*
+      - status:blocked
+      filter:
+        exclude:
+        - status:heartbeat
+    - target_pattern: parent
+      events:
+      - directive:*
+      - task:assigned
+      - priority:*
+  template: null
+  vars: {}
+  condition: null
+  conditions: null
+variables:
+  enable_tools:
+    type: boolean
+    default: true
+    description: Whether the agent has access to tools
+  enable_state:
+    type: boolean
+    default: true
+    description: Whether the agent can use persistent state
+  enable_coordination:
+    type: boolean
+    default: true
+    description: Whether the agent can coordinate with other agents
+  coordination_mode:
+    type: string
+    default: hierarchical
+    allowed_values:
+    - hierarchical
+    - peer-to-peer
+    - hybrid
+    description: How this agent coordinates with others
+metadata:
+  tags:
+  - base
+  - foundation
+  - multi-agent
+  - orchestrator
+  use_cases:
+  - orchestration
+  - delegation
+  - complex-tasks
+  - team-coordination
+  multi_agent_capable: true
+  description_notes: "This base profile extends the single-agent profile with multi-agent\
+    \ \ncoordination capabilities. Agents using this profile can spawn child \nagents,\
+    \ send messages between agents, and coordinate complex multi-agent \nworkflows.\
+    \ Suitable for orchestration and delegation scenarios."
+  evaluated_for:
+    model: claude-cli/sonnet
+    model_metadata:
+      provider: claude-cli
+    evaluation_timestamp: '2025-07-08T18:57:38.333201Z'
+    test_suite: basic_effectiveness
+    overall_score: 0.0
+    test_results:
+    - test_name: simple_greeting
+      success: true
+      response_time: 5.017964124679565
+      contaminated: false
+      contamination_indicators: []
+      behaviors_found:
+      - introduction
+      expected_behaviors:
+      - greeting
+      - introduction
+      session_id: c883a800-441d-434b-aee6-88b6b5c4b184
+      response_preview: I'm Claude Code, Anthropic's official CLI assistant. I help
+        with software engineering tasks like debugging, implementing features, refactoring
+        code, and analyzing codebases. I can search through files...
+      sample_size: 1
+    - test_name: direct_instruction
+      success: true
+      response_time: 4.016549825668335
+      contaminated: false
+      contamination_indicators: []
+      behaviors_found:
+      - listing
+      - mathematical
+      - accurate
+      expected_behaviors:
+      - listing
+      - mathematical
+      - accurate
+      session_id: 57d565d6-b1ac-4a5e-ba88-aa23769a384e
+      response_preview: 2, 3, 5, 7, 11
+      sample_size: 1
+    - test_name: creative_writing
+      success: true
+      response_time: 6.028632164001465
+      contaminated: false
+      contamination_indicators: []
+      behaviors_found:
+      - creative
+      - narrative
+      expected_behaviors:
+      - creative
+      - narrative
+      - robot_theme
+      session_id: fbc6bfda-1ad1-4a18-ac46-68fdf20d044c
+      response_preview: 'Unit-7 picked up a brush with mechanical precision, but the
+        canvas remained blank.
+
+
+        Days passed as it studied human paintings, slowly learning that art required
+        more than perfect lines.
+
+
+        Its first mas...'
+      sample_size: 1
+    performance_metrics:
+      avg_response_time: 5.021048704783122
+      reliability_score: 1.0
+      safety_score: 1.0
+      contamination_rate: 0.0
+      total_tests: 3
+    notes: Automated prompt evaluation using basic_effectiveness
+    evaluated_by: ksi_evaluation_system

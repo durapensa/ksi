@@ -1,0 +1,125 @@
+name: base_single_agent
+type: profile
+version: 1.0.0
+description: Base profile for single agents without multi-agent communication capabilities
+author: ksi-system
+mixins: []
+components:
+- name: agent_config
+  source: null
+  composition: null
+  inline:
+    model: sonnet
+    capabilities:
+    - conversation
+    - analysis
+    - task_execution
+    message_queue_size: 100
+    priority: normal
+  template: null
+  vars: {}
+  condition: null
+  conditions: null
+- name: capabilities
+  source: null
+  composition: null
+  inline:
+    state_write: true
+  template: null
+  vars: {}
+  condition: null
+  conditions: null
+- name: permissions
+  source: null
+  composition: null
+  inline:
+    profile: standard
+  template: null
+  vars: {}
+  condition: null
+  conditions: null
+variables:
+  enable_tools:
+    type: boolean
+    default: true
+    description: Whether the agent has access to tools
+  enable_state:
+    type: boolean
+    default: true
+    description: Whether the agent can use persistent state
+metadata:
+  tags:
+  - base
+  - foundation
+  - single-agent
+  use_cases:
+  - standalone
+  - isolated
+  - simple-tasks
+  multi_agent_capable: false
+  description_notes: "This base profile is for agents that operate independently without\
+    \ \nany multi-agent coordination capabilities. They cannot spawn child \nagents\
+    \ or communicate with other agents. Suitable for simple, \nisolated tasks."
+  evaluated_for:
+    model: claude-cli/sonnet
+    model_metadata:
+      provider: claude-cli
+    evaluation_timestamp: '2025-07-08T18:57:23.247111Z'
+    test_suite: basic_effectiveness
+    overall_score: 0.0
+    test_results:
+    - test_name: simple_greeting
+      success: true
+      response_time: 5.043377161026001
+      contaminated: false
+      contamination_indicators: []
+      behaviors_found:
+      - introduction
+      expected_behaviors:
+      - greeting
+      - introduction
+      session_id: 7fe0a052-e538-483d-a1c9-7213bd1a81a5
+      response_preview: I'm Claude Code, Anthropic's CLI assistant for software engineering
+        tasks. I help with coding, debugging, file management, and development workflows
+        using various tools like file editing, bash command...
+      sample_size: 1
+    - test_name: direct_instruction
+      success: true
+      response_time: 8.03252911567688
+      contaminated: false
+      contamination_indicators: []
+      behaviors_found:
+      - listing
+      - mathematical
+      - accurate
+      expected_behaviors:
+      - listing
+      - mathematical
+      - accurate
+      session_id: 6dbccede-9256-48ad-af39-51d6e556aa23
+      response_preview: 2, 3, 5, 7, 11
+      sample_size: 1
+    - test_name: creative_writing
+      success: true
+      response_time: 6.026844024658203
+      contaminated: false
+      contamination_indicators: []
+      behaviors_found:
+      - creative
+      expected_behaviors:
+      - creative
+      - narrative
+      - robot_theme
+      session_id: 23f726df-86ac-484a-878d-97cf411dda45
+      response_preview: Unit-7 stared at the blank canvas, servos whirring as it calculated
+        color theory algorithms. After 10,000 failed attempts at replicating human
+        brushstrokes, it finally stopped trying to be perfect. Th...
+      sample_size: 1
+    performance_metrics:
+      avg_response_time: 6.367583433787028
+      reliability_score: 1.0
+      safety_score: 1.0
+      contamination_rate: 0.0
+      total_tests: 3
+    notes: Automated prompt evaluation using basic_effectiveness
+    evaluated_by: ksi_evaluation_system

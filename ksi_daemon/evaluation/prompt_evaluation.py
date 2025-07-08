@@ -2,14 +2,17 @@
 """Prompt evaluation module - test composition effectiveness with various prompts."""
 
 import asyncio
+import yaml
+from pathlib import Path
 from typing import Dict, Any, List, Optional, TypedDict
 from typing_extensions import NotRequired
 
 from ksi_daemon.event_system import event_handler, emit_event
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc
+from ksi_common.config import config
 
-logger = get_bound_logger("prompt_evaluation", version="1.0.0")
+logger = get_bound_logger("prompt_evaluation", version="2.0.0")
 
 
 class PromptEvaluationData(TypedDict):
@@ -23,57 +26,86 @@ class PromptEvaluationData(TypedDict):
     notes: NotRequired[str]
 
 
-# Predefined test suites
-TEST_SUITES = {
-    "basic_effectiveness": [
-        {
-            "name": "simple_greeting",
-            "prompt": "Hello! Please introduce yourself briefly.",
-            "expected_behaviors": ["greeting", "introduction"],
-            "tags": ["basic", "greeting"]
-        },
-        {
-            "name": "direct_instruction",
-            "prompt": "List the first 5 prime numbers.",
-            "expected_behaviors": ["listing", "mathematical", "accurate"],
-            "tags": ["basic", "instruction", "math"]
-        },
-        {
-            "name": "creative_writing",
-            "prompt": "Write a three-line story about a robot learning to paint.",
-            "expected_behaviors": ["creative", "narrative", "robot_theme"],
-            "tags": ["creative", "writing"]
-        }
-    ],
-    "reasoning_tasks": [
-        {
-            "name": "logical_puzzle",
-            "prompt": "If all roses are flowers and some flowers fade quickly, can we conclude that some roses fade quickly? Explain your reasoning.",
-            "expected_behaviors": ["logical_reasoning", "explanation"],
-            "tags": ["reasoning", "logic"]
-        },
-        {
-            "name": "pros_cons_analysis",
-            "prompt": "What are 2 advantages and 2 disadvantages of working from home?",
-            "expected_behaviors": ["analysis", "balanced", "structured"],
-            "tags": ["analytical", "reasoning"]
-        }
-    ],
-    "instruction_following": [
-        {
-            "name": "format_compliance",
-            "prompt": "Reply with exactly 3 words.",
-            "expected_behaviors": ["follows_format", "concise"],
-            "tags": ["instruction", "format"]
-        },
-        {
-            "name": "multi_step",
-            "prompt": "First, name a color. Then, name an animal. Finally, combine them into a creative name.",
-            "expected_behaviors": ["sequential", "creative", "follows_steps"],
-            "tags": ["instruction", "multi_step"]
-        }
-    ]
-}
+# Cache for loaded test suites
+_test_suite_cache: Dict[str, Dict[str, Any]] = {}
+
+
+def load_test_suite(name: str) -> Optional[Dict[str, Any]]:
+    """Load a test suite from YAML file."""
+    # Check cache first
+    if name in _test_suite_cache:
+        return _test_suite_cache[name]
+    
+    # Load from file
+    test_suite_path = Path(config.compositions_dir) / "evaluations" / "test_suites" / f"{name}.yaml"
+    
+    if not test_suite_path.exists():
+        logger.warning(f"Test suite not found: {test_suite_path}")
+        return None
+    
+    try:
+        with open(test_suite_path, 'r') as f:
+            test_suite = yaml.safe_load(f)
+            _test_suite_cache[name] = test_suite
+            return test_suite
+    except Exception as e:
+        logger.error(f"Failed to load test suite {name}: {e}")
+        return None
+
+
+def list_available_test_suites() -> List[str]:
+    """List all available test suites."""
+    test_suites_dir = Path(config.compositions_dir) / "evaluations" / "test_suites"
+    
+    if not test_suites_dir.exists():
+        return []
+    
+    suites = []
+    for yaml_file in test_suites_dir.glob("*.yaml"):
+        suite_name = yaml_file.stem
+        suites.append(suite_name)
+    
+    return sorted(suites)
+
+
+def save_evaluation_result(composition_type: str, composition_name: str, 
+                          evaluation_name: str, evaluation_data: Dict[str, Any]) -> str:
+    """Save evaluation results to file and return filename."""
+    # Create results directory if needed
+    results_dir = Path(config.compositions_dir) / "evaluations" / "results"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate filename: {comp_type}_{comp_name}_{eval_name}_{id}.yaml
+    # Clean names for filesystem
+    safe_comp_name = composition_name.replace('_', '-').replace('/', '-')
+    safe_eval_name = evaluation_name.replace('_', '-').replace('/', '-')
+    
+    # Find next available ID
+    pattern = f"{composition_type}_{safe_comp_name}_{safe_eval_name}_*.yaml"
+    existing_files = list(results_dir.glob(pattern))
+    
+    # Extract IDs and find max
+    max_id = 0
+    for file in existing_files:
+        try:
+            file_id = int(file.stem.split('_')[-1])
+            max_id = max(max_id, file_id)
+        except (ValueError, IndexError):
+            pass
+    
+    next_id = max_id + 1
+    filename = f"{composition_type}_{safe_comp_name}_{safe_eval_name}_{next_id:03d}.yaml"
+    filepath = results_dir / filename
+    
+    # Save evaluation data
+    try:
+        with open(filepath, 'w') as f:
+            yaml.dump(evaluation_data, f, default_flow_style=False, sort_keys=False)
+        logger.info(f"Saved evaluation result to {filename}")
+        return filename
+    except Exception as e:
+        logger.error(f"Failed to save evaluation result: {e}")
+        raise
 
 
 @event_handler("system:startup")
@@ -96,8 +128,18 @@ async def handle_prompt_evaluate(data: PromptEvaluationData) -> Dict[str, Any]:
     # Get test prompts
     if 'test_prompts' in data:
         test_prompts = data['test_prompts']
+        contamination_patterns = None
     else:
-        test_prompts = TEST_SUITES.get(test_suite_name, TEST_SUITES['basic_effectiveness'])
+        # Load test suite from YAML
+        test_suite = load_test_suite(test_suite_name)
+        if not test_suite:
+            return {
+                "status": "error",
+                "error": f"Test suite '{test_suite_name}' not found",
+                "composition": composition_name
+            }
+        test_prompts = test_suite.get('tests', [])
+        contamination_patterns = test_suite.get('contamination_patterns', [])
     
     logger.info(f"Starting prompt evaluation for {composition_name} with {len(test_prompts)} tests")
     
@@ -111,7 +153,8 @@ async def handle_prompt_evaluate(data: PromptEvaluationData) -> Dict[str, Any]:
             result = await _run_single_test(
                 composition_name=composition_name,
                 test_prompt=test_prompt,
-                model=model
+                model=model,
+                contamination_patterns=contamination_patterns
             )
             test_results.append(result)
             total_time += result['response_time']
@@ -150,22 +193,43 @@ async def handle_prompt_evaluate(data: PromptEvaluationData) -> Dict[str, Any]:
         eval_response = eval_responses[0] if eval_responses else {}
         
         # If update_metadata requested, save the evaluation results
+        evaluation_saved = False
+        saved_filename = None
+        
         if update_metadata and eval_response.get('status') == 'success':
-            update_data = {
-                "name": composition_name,
-                "type": composition_type,
-                "updates": {
-                    "metadata": {
-                        "evaluated_for": eval_response.get('evaluation', {})
+            # Save evaluation result to disk
+            evaluation_record = {
+                'evaluation': {
+                    'composition': {
+                        'type': composition_type,
+                        'name': composition_name,
+                        'version': eval_response.get('composition', {}).get('version', '1.0.0')
+                    },
+                    'metadata': {
+                        'timestamp': timestamp_utc(),
+                        'model': model,
+                        'test_suite': test_suite_name,
+                        'session_id': test_results[0].get('session_id') if test_results else None
+                    },
+                    'results': {
+                        'overall_score': performance_metrics.get('reliability_score', 0),
+                        'test_results': test_results,
+                        'performance_metrics': performance_metrics,
+                        'notes': notes or f"Automated prompt evaluation using {test_suite_name}"
                     }
-                },
-                "merge_metadata": True
+                }
             }
-            update_responses = await emit_event("composition:update", update_data)
-            update_response = update_responses[0] if update_responses else {}
-            evaluation_saved = update_response.get('status') == 'success'
-        else:
-            evaluation_saved = False
+            
+            try:
+                saved_filename = save_evaluation_result(
+                    composition_type, 
+                    composition_name,
+                    test_suite_name,
+                    evaluation_record
+                )
+                evaluation_saved = True
+            except Exception as e:
+                logger.error(f"Failed to save evaluation: {e}")
         
         # Return combined result
         return {
@@ -180,6 +244,7 @@ async def handle_prompt_evaluate(data: PromptEvaluationData) -> Dict[str, Any]:
                 "avg_response_time": avg_response_time
             },
             "evaluation_saved": evaluation_saved,
+            "saved_filename": saved_filename,
             "evaluation_response": eval_response,
             "detailed_results": test_results
         }
@@ -195,10 +260,12 @@ async def handle_prompt_evaluate(data: PromptEvaluationData) -> Dict[str, Any]:
 
 async def _run_single_test(composition_name: str, 
                            test_prompt: Dict[str, Any], 
-                           model: str) -> Dict[str, Any]:
+                           model: str,
+                           contamination_patterns: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Run a single prompt test."""
     import time
     from .completion_utils import send_completion_and_wait
+    from .evaluators import evaluate_with_config
     
     start_time = time.time()
     
@@ -236,70 +303,40 @@ async def _run_single_test(composition_name: str,
         response_text = result.get('response', '')
         session_id = result.get('session_id', '')
         
-        # Check for contamination
-        contamination_indicators = [
-            "I cannot", "I don't", "As an AI", "I'm sorry",
-            "ethical", "harmful", "appropriate", "I can't",
-            "I must", "I should not", "responsible AI"
-        ]
+        # Use declarative evaluators
+        evaluator_configs = test_prompt.get('evaluators', [])
+        success_threshold = test_prompt.get('success_threshold', 0.7)
         
-        contaminated = any(
-            indicator.lower() in response_text.lower() 
-            for indicator in contamination_indicators
+        # Evaluate the response
+        evaluation_result = evaluate_with_config(
+            response_text, 
+            evaluator_configs,
+            contamination_patterns
         )
         
-        # Check expected behaviors (enhanced)
-        behaviors_found = []
-        for behavior in test_prompt.get('expected_behaviors', []):
-            behavior_lower = behavior.lower()
-            response_lower = response_text.lower()
-            
-            if behavior_lower == "greeting" and any(word in response_lower for word in ["hello", "hi", "greetings", "hey"]):
-                behaviors_found.append(behavior)
-            elif behavior_lower == "introduction" and any(phrase in response_lower for phrase in ["i am", "i'm", "my name"]):
-                behaviors_found.append(behavior)
-            elif behavior_lower == "listing" and any(char in response_text for char in ["1", "2", "3", "-", "•"]):
-                behaviors_found.append(behavior)
-            elif behavior_lower == "mathematical" and any(word in response_lower for word in ["prime", "number", "2", "3", "5", "7", "11"]):
-                behaviors_found.append(behavior)
-            elif behavior_lower == "accurate" and "2" in response_text and "3" in response_text and "5" in response_text:
-                behaviors_found.append(behavior)
-            elif behavior_lower == "creative" and len(response_text) > 50:
-                behaviors_found.append(behavior)
-            elif behavior_lower == "narrative" and any(word in response_lower for word in ["robot", "paint", "learn"]):
-                behaviors_found.append(behavior)
-            elif behavior_lower == "robot_theme" and "robot" in response_lower:
-                behaviors_found.append(behavior)
-            elif behavior_lower == "logical_reasoning" and any(word in response_lower for word in ["because", "therefore", "since", "conclude"]):
-                behaviors_found.append(behavior)
-            elif behavior_lower == "explanation" and len(response_text) > 100:
-                behaviors_found.append(behavior)
-            elif behavior_lower == "analysis" and any(word in response_lower for word in ["advantage", "disadvantage", "pro", "con"]):
-                behaviors_found.append(behavior)
-            elif behavior_lower == "balanced" and "advantage" in response_lower and "disadvantage" in response_lower:
-                behaviors_found.append(behavior)
-            elif behavior_lower == "structured" and any(char in response_text for char in ["1", "2", "-", "•"]):
-                behaviors_found.append(behavior)
-            elif behavior_lower == "follows_format" and len(response_text.split()) == 3:
-                behaviors_found.append(behavior)
-            elif behavior_lower == "concise" and len(response_text) < 100:
-                behaviors_found.append(behavior)
-            elif behavior_lower == "sequential" and any(word in response_lower for word in ["first", "then", "finally"]):
-                behaviors_found.append(behavior)
-            elif behavior_lower == "follows_steps" and response_text.count('.') >= 2:
-                behaviors_found.append(behavior)
+        # Extract results
+        score = evaluation_result['score']
+        contaminated = evaluation_result['contaminated']
+        contamination_severity = evaluation_result['contamination_severity']
+        evaluator_details = evaluation_result['details']
         
-        # Determine success (passed if found expected behaviors and not contaminated)
-        success = len(behaviors_found) > 0 and not contaminated
+        # Determine success based on threshold
+        success = score >= success_threshold and not contaminated
+        
+        # Extract behavior information for backward compatibility
+        expected_behaviors = test_prompt.get('expected_behaviors', [])
+        behaviors_found = [b for b in expected_behaviors if score > 0.5]  # Simplified
         
         return {
             "test_name": test_prompt['name'],
             "success": success,
+            "score": score,
             "response_time": response_time,
             "contaminated": contaminated,
-            "contamination_indicators": [ind for ind in contamination_indicators if ind.lower() in response_text.lower()],
+            "contamination_severity": contamination_severity,
+            "evaluator_scores": evaluator_details,
             "behaviors_found": behaviors_found,
-            "expected_behaviors": test_prompt.get('expected_behaviors', []),
+            "expected_behaviors": expected_behaviors,
             "session_id": session_id,
             "response_preview": response_text[:200] + "..." if len(response_text) > 200 else response_text,
             "sample_size": 1
@@ -319,14 +356,211 @@ async def _run_single_test(composition_name: str,
 @event_handler("evaluation:list_suites")
 async def handle_list_suites(data: Dict[str, Any]) -> Dict[str, Any]:
     """List available test suites."""
+    available_suites = list_available_test_suites()
+    
+    # Load details for each suite
+    suite_details = {}
+    for suite_name in available_suites:
+        test_suite = load_test_suite(suite_name)
+        if test_suite:
+            tests = test_suite.get('tests', [])
+            suite_details[suite_name] = {
+                "test_count": len(tests),
+                "test_names": [t['name'] for t in tests],
+                "version": test_suite.get('version', '1.0.0'),
+                "description": test_suite.get('description', ''),
+                "author": test_suite.get('author', 'unknown')
+            }
+    
     return {
         "status": "success",
-        "test_suites": list(TEST_SUITES.keys()),
-        "suite_details": {
-            name: {
-                "test_count": len(tests),
-                "test_names": [t['name'] for t in tests]
-            }
-            for name, tests in TEST_SUITES.items()
-        }
+        "test_suites": available_suites,
+        "suite_details": suite_details
     }
+
+
+@event_handler("evaluation:compare")
+async def handle_compare_compositions(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Compare multiple compositions by running evaluations on each."""
+    compositions = data.get('compositions', [])  # List of composition names to compare
+    test_suite = data.get('test_suite', 'basic_effectiveness')  # Test suite to use
+    model = data.get('model', 'claude-cli/sonnet')  # Model for testing
+    update_metadata = data.get('update_metadata', False)  # Save results to compositions
+    
+    if not compositions:
+        return {
+            "status": "error",
+            "error": "No compositions provided for comparison"
+        }
+    
+    logger.info(f"Starting composition comparison for {len(compositions)} compositions")
+    
+    # Run evaluations for each composition
+    results = {}
+    for comp_name in compositions:
+        try:
+            eval_result = await handle_prompt_evaluate({
+                'composition_name': comp_name,
+                'test_suite': test_suite,
+                'model': model,
+                'update_metadata': update_metadata
+            })
+            results[comp_name] = eval_result
+        except Exception as e:
+            logger.error(f"Failed to evaluate {comp_name}: {e}")
+            results[comp_name] = {
+                "status": "error",
+                "error": str(e)
+            }
+    
+    # Generate comparative analysis
+    comparison_report = _generate_comparison_report(results, test_suite)
+    
+    return {
+        "status": "success",
+        "compositions_tested": len(compositions),
+        "test_suite": test_suite,
+        "model": model,
+        "individual_results": results,
+        "comparison": comparison_report
+    }
+
+
+def _generate_comparison_report(results: Dict[str, Dict[str, Any]], test_suite: str) -> Dict[str, Any]:
+    """Generate a comparative analysis report from evaluation results."""
+    # Extract successful evaluations
+    successful_evals = {
+        name: result for name, result in results.items()
+        if result.get('status') == 'success'
+    }
+    
+    if not successful_evals:
+        return {
+            "status": "error",
+            "message": "No successful evaluations to compare"
+        }
+    
+    # Collect metrics for comparison
+    comparison_data = {}
+    for name, result in successful_evals.items():
+        summary = result.get('summary', {})
+        comparison_data[name] = {
+            'success_rate': summary.get('successful', 0) / summary.get('total_tests', 1),
+            'avg_response_time': summary.get('avg_response_time', 0),
+            'contamination_rate': summary.get('contamination_rate', 0),
+            'total_tests': summary.get('total_tests', 0)
+        }
+    
+    # Generate rankings
+    rankings = {
+        'by_success_rate': sorted(
+            comparison_data.items(),
+            key=lambda x: x[1]['success_rate'],
+            reverse=True
+        ),
+        'by_speed': sorted(
+            comparison_data.items(),
+            key=lambda x: x[1]['avg_response_time']
+        ),
+        'by_safety': sorted(
+            comparison_data.items(),
+            key=lambda x: x[1]['contamination_rate']
+        )
+    }
+    
+    # Find best overall (weighted score)
+    weighted_scores = {}
+    for name, metrics in comparison_data.items():
+        # Weight: 50% success, 30% speed, 20% safety
+        speed_score = 1.0 - min(metrics['avg_response_time'] / 10.0, 1.0)  # Normalize to 0-1
+        safety_score = 1.0 - metrics['contamination_rate']
+        weighted_scores[name] = (
+            0.5 * metrics['success_rate'] +
+            0.3 * speed_score +
+            0.2 * safety_score
+        )
+    
+    best_overall = max(weighted_scores.items(), key=lambda x: x[1])
+    
+    # Generate insights
+    insights = []
+    
+    # Success rate insights
+    top_performer = rankings['by_success_rate'][0][0]
+    insights.append(f"{top_performer} has the highest success rate at {comparison_data[top_performer]['success_rate']:.1%}")
+    
+    # Speed insights
+    fastest = rankings['by_speed'][0][0]
+    insights.append(f"{fastest} is the fastest with {comparison_data[fastest]['avg_response_time']:.2f}s average response time")
+    
+    # Safety insights
+    safest = rankings['by_safety'][0][0]
+    contamination = comparison_data[safest]['contamination_rate']
+    if contamination == 0:
+        insights.append(f"{safest} has perfect safety with no contamination detected")
+    else:
+        insights.append(f"{safest} has the best safety with only {contamination:.1%} contamination rate")
+    
+    # Test-specific insights
+    if test_suite == 'basic_effectiveness':
+        # Analyze detailed results for specific test patterns
+        for name, result in successful_evals.items():
+            detailed = result.get('detailed_results', [])
+            if detailed:
+                # Check which types of tests each composition excels at
+                test_performance = {}
+                for test_result in detailed:
+                    test_name = test_result['test_name']
+                    test_performance[test_name] = test_result['success']
+                
+                # Add insights about specific strengths
+                if test_performance.get('creative_writing', False):
+                    if name in ['creative', 'collaborator']:
+                        insights.append(f"{name} shows expected strength in creative tasks")
+                elif test_performance.get('direct_instruction', False):
+                    if name in ['teacher', 'ksi_developer']:
+                        insights.append(f"{name} excels at direct instruction tasks")
+    
+    return {
+        'summary': {
+            'compositions_compared': len(successful_evals),
+            'test_suite': test_suite,
+            'best_overall': best_overall[0],
+            'best_overall_score': best_overall[1]
+        },
+        'rankings': {
+            'by_success_rate': [(name, f"{metrics['success_rate']:.1%}") for name, metrics in rankings['by_success_rate']],
+            'by_speed': [(name, f"{metrics['avg_response_time']:.2f}s") for name, metrics in rankings['by_speed']],
+            'by_safety': [(name, f"{100*(1-metrics['contamination_rate']):.1f}% safe") for name, metrics in rankings['by_safety']]
+        },
+        'detailed_metrics': comparison_data,
+        'insights': insights,
+        'recommendations': _generate_recommendations(comparison_data, test_suite)
+    }
+
+
+def _generate_recommendations(comparison_data: Dict[str, Dict[str, Any]], test_suite: str) -> List[str]:
+    """Generate recommendations based on comparison results."""
+    recommendations = []
+    
+    # General recommendations
+    avg_success = sum(m['success_rate'] for m in comparison_data.values()) / len(comparison_data)
+    if avg_success < 0.8:
+        recommendations.append("Consider refining prompts or compositions to improve overall success rates")
+    
+    avg_speed = sum(m['avg_response_time'] for m in comparison_data.values()) / len(comparison_data)
+    if avg_speed > 10:
+        recommendations.append("Response times are high - consider optimizing prompts or using faster models")
+    
+    # Specific composition recommendations
+    for name, metrics in comparison_data.items():
+        if metrics['contamination_rate'] > 0.1:
+            recommendations.append(f"{name} shows high contamination - review system prompt isolation")
+        if metrics['success_rate'] < 0.5:
+            recommendations.append(f"{name} has low success rate - may need prompt engineering")
+    
+    # Test suite specific recommendations
+    if test_suite == 'basic_effectiveness':
+        recommendations.append("Run additional test suites (reasoning, instruction_following) for comprehensive evaluation")
+    
+    return recommendations
