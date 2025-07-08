@@ -86,12 +86,12 @@ async def handle_startup(data: Dict[str, Any]) -> Dict[str, Any]:
 @event_handler("evaluation:prompt")
 async def handle_prompt_evaluate(data: PromptEvaluationData) -> Dict[str, Any]:
     """Run prompt evaluation tests for a composition."""
-    composition_name = data['composition_name']
-    composition_type = data.get('composition_type', 'profile')
-    test_suite_name = data.get('test_suite', 'basic_effectiveness')
-    model = data.get('model', 'claude-cli/sonnet')
-    update_metadata = data.get('update_metadata', False)
-    notes = data.get('notes', '')
+    composition_name = data['composition_name']  # Composition/profile to test
+    composition_type = data.get('composition_type', 'profile')  # Type of composition
+    test_suite_name = data.get('test_suite', 'basic_effectiveness')  # Which test suite to run
+    model = data.get('model', 'claude-cli/sonnet')  # Model for testing
+    update_metadata = data.get('update_metadata', False)  # Save results to disk (workflow: evaluate → update)
+    notes = data.get('notes', '')  # Optional notes about this evaluation run
     
     # Get test prompts
     if 'test_prompts' in data:
@@ -132,13 +132,12 @@ async def handle_prompt_evaluate(data: PromptEvaluationData) -> Dict[str, Any]:
             "total_tests": len(test_results)
         }
         
-        # Format for composition:evaluate
+        # Format for composition:evaluate (in-memory evaluation)
         evaluation_data = {
             "name": composition_name,
             "type": composition_type,
             "test_suite": test_suite_name,
             "model": model,
-            "update_metadata": update_metadata,
             "test_options": {
                 "test_results": test_results,
                 "performance_metrics": performance_metrics,
@@ -146,9 +145,27 @@ async def handle_prompt_evaluate(data: PromptEvaluationData) -> Dict[str, Any]:
             }
         }
         
-        # Send to composition evaluation system
+        # Get formatted evaluation record (does not save to disk)
         eval_responses = await emit_event("composition:evaluate", evaluation_data)
         eval_response = eval_responses[0] if eval_responses else {}
+        
+        # If update_metadata requested, save the evaluation results
+        if update_metadata and eval_response.get('status') == 'success':
+            update_data = {
+                "name": composition_name,
+                "type": composition_type,
+                "updates": {
+                    "metadata": {
+                        "evaluated_for": eval_response.get('evaluation', {})
+                    }
+                },
+                "merge_metadata": True
+            }
+            update_responses = await emit_event("composition:update", update_data)
+            update_response = update_responses[0] if update_responses else {}
+            evaluation_saved = update_response.get('status') == 'success'
+        else:
+            evaluation_saved = False
         
         # Return combined result
         return {
@@ -162,7 +179,7 @@ async def handle_prompt_evaluate(data: PromptEvaluationData) -> Dict[str, Any]:
                 "contamination_rate": contamination_rate,
                 "avg_response_time": avg_response_time
             },
-            "evaluation_saved": update_metadata,
+            "evaluation_saved": evaluation_saved,
             "evaluation_response": eval_response,
             "detailed_results": test_results
         }

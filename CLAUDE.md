@@ -225,6 +225,11 @@ Claude Code has a hook that monitors KSI activity and provides real-time feedbac
 ## Quick Reference
 ```bash
 source .venv/bin/activate          # Always first
+
+# If using Claude CLI for agent completions:
+KSI_CLAUDE_BIN=~/.claude/local/claude ./daemon_control.py start
+
+# Standard start (without Claude CLI):
 ./daemon_control.py start          # Start daemon
 ./daemon_control.py status         # Check status
 ./daemon_control.py stop           # Stop daemon

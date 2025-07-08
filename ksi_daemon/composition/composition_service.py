@@ -65,7 +65,6 @@ class CompositionEvaluateData(TypedDict):
     type: NotRequired[str]
     test_suite: str
     model: NotRequired[str]
-    update_metadata: NotRequired[bool]
     test_options: NotRequired[Dict[str, Any]]
 
 class CompositionListData(TypedDict):
@@ -190,7 +189,7 @@ async def handle_compose_prompt(data: Dict[str, Any]) -> Dict[str, Any]:
 
 @event_handler("composition:validate")
 async def handle_validate(data: CompositionValidateData) -> Dict[str, Any]:
-    """Validate a composition."""
+    """Validate a composition structure and syntax (like a linter)."""
     name = data.get('name')
     comp_type = data.get('type')
     
@@ -241,28 +240,12 @@ async def handle_validate(data: CompositionValidateData) -> Dict[str, Any]:
 
 @event_handler("composition:evaluate")
 async def handle_evaluate(data: CompositionEvaluateData) -> Dict[str, Any]:
-    """Evaluate a composition's effectiveness with test results.
-    
-    This handler records test results for a composition. Full integration
-    with automated prompt testing framework is future work.
-    
-    Expected data:
-        name: Composition name
-        type: Optional composition type
-        test_suite: Name of test suite used
-        model: Model used for testing (default from config)
-        update_metadata: Whether to save results to composition (default: False)
-        test_options: Dict containing test results:
-            - test_results: List of test result dicts
-            - performance_metrics: Performance metrics dict
-            - notes: Optional notes about the evaluation
-    """
-    name = data['name']
-    comp_type = data.get('type')
-    test_suite = data['test_suite']
-    model = data.get('model', config.completion_default_model)
-    update_metadata = data.get('update_metadata', False)
-    test_options = data.get('test_options', {})
+    """Process evaluation results for a composition (in-memory only)."""
+    name = data['name']  # Composition to evaluate
+    comp_type = data.get('type')  # Composition type
+    test_suite = data['test_suite']  # Test suite that was run
+    model = data.get('model', config.completion_default_model)  # Model used for testing
+    test_options = data.get('test_options', {})  # Test results and metrics
     
     try:
         # Load the composition
@@ -286,40 +269,7 @@ async def handle_evaluate(data: CompositionEvaluateData) -> Dict[str, Any]:
             notes=notes
         )
         
-        # Update composition metadata if requested
-        if update_metadata:
-            # Get current evaluated_for list or create new one
-            evaluated_for = composition.metadata.get('evaluated_for', [])
-            
-            # Merge new evaluation record
-            evaluated_for = merge_evaluation_record(evaluated_for, evaluation_record)
-            
-            # Update composition metadata
-            composition.metadata['evaluated_for'] = evaluated_for
-            
-            # Save updated composition
-            comp_path = COMPOSITIONS_BASE / composition.type / f"{composition.name}.yaml"
-            import yaml
-            with open(comp_path, 'w') as f:
-                comp_dict = {
-                    'name': composition.name,
-                    'type': composition.type,
-                    'version': composition.version,
-                    'description': composition.description,
-                    'author': composition.author,
-                    'extends': composition.extends,
-                    'mixins': composition.mixins,
-                    'components': [vars(c) for c in composition.components],
-                    'variables': composition.variables,
-                    'metadata': composition.metadata
-                }
-                # Remove None values
-                comp_dict = {k: v for k, v in comp_dict.items() if v is not None}
-                yaml.dump(comp_dict, f, default_flow_style=False, sort_keys=False)
-            
-            logger.info(f"Updated composition {name} with evaluation metadata")
-        
-        # Return evaluation results
+        # Return evaluation results (without saving)
         return {
             'status': 'success',
             'composition': {
@@ -328,11 +278,163 @@ async def handle_evaluate(data: CompositionEvaluateData) -> Dict[str, Any]:
                 'version': composition.version
             },
             'evaluation': evaluation_record,
-            'metadata_updated': update_metadata
+            'metadata': composition.metadata
         }
         
     except Exception as e:
         logger.error(f"Error evaluating composition: {e}")
+        return {
+            'status': 'error',
+            'error': str(e)
+        }
+
+
+async def _save_composition_to_disk(composition: Composition, overwrite: bool = False) -> Dict[str, Any]:
+    """Internal helper to save composition to disk."""
+    try:
+        # Determine file path
+        type_dir = config.get_composition_type_dir(composition.type)
+        comp_path = type_dir / f"{composition.name}.yaml"
+        
+        # Check if file exists
+        if comp_path.exists() and not overwrite:
+            return {
+                'status': 'error',
+                'error': f'Composition {composition.name} already exists. Set overwrite=true to replace.'
+            }
+        
+        # Ensure directory exists
+        type_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save composition
+        import yaml
+        with open(comp_path, 'w') as f:
+            comp_dict = {
+                'name': composition.name,
+                'type': composition.type,
+                'version': composition.version,
+                'description': composition.description,
+                'author': composition.author,
+                'extends': composition.extends,
+                'mixins': composition.mixins,
+                'components': [vars(c) for c in composition.components],
+                'variables': composition.variables,
+                'metadata': composition.metadata
+            }
+            # Remove None values
+            comp_dict = {k: v for k, v in comp_dict.items() if v is not None}
+            yaml.dump(comp_dict, f, default_flow_style=False, sort_keys=False)
+        
+        # Update index
+        await composition_index.index_file(comp_path)
+        
+        logger.info(f"Saved composition {composition.name} to {comp_path}")
+        
+        return {
+            'status': 'success',
+            'path': str(comp_path)
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to save composition: {e}")
+        return {
+            'status': 'error',
+            'error': str(e)
+        }
+
+
+@event_handler("composition:save")
+async def handle_save_composition(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Save a composition to disk."""
+    try:
+        comp_data = data.get('composition')  # Complete composition object or dict
+        if not comp_data:
+            return {'status': 'error', 'error': 'No composition data provided'}
+            
+        overwrite = data.get('overwrite', False)  # Replace existing file if True
+        
+        # Create Composition object if needed
+        if isinstance(comp_data, dict):
+            composition = Composition.from_yaml(comp_data)
+        else:
+            composition = comp_data
+            
+        # Use helper to save
+        save_result = await _save_composition_to_disk(composition, overwrite)
+        
+        if save_result['status'] == 'success':
+            return {
+                'status': 'success',
+                'name': composition.name,
+                'type': composition.type,
+                'path': save_result['path'],
+                'message': f'Composition saved to {save_result["path"]}'
+            }
+        else:
+            return save_result
+        
+    except Exception as e:
+        logger.error(f"Failed to save composition: {e}")
+        return {
+            'status': 'error',
+            'error': str(e)
+        }
+
+
+@event_handler("composition:update")
+async def handle_update_composition(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Update an existing composition's properties or metadata."""
+    try:
+        name = data.get('name')  # Composition name to update
+        if not name:
+            return {'status': 'error', 'error': 'Composition name required'}
+            
+        comp_type = data.get('type', 'profile')  # Composition type
+        updates = data.get('updates', {})  # Properties to update (metadata, version, etc)
+        merge_metadata = data.get('merge_metadata', True)  # Merge vs replace metadata
+        
+        # Load existing composition
+        composition = await load_composition(name, comp_type)
+        
+        # Apply updates
+        if 'description' in updates:
+            composition.description = updates['description']
+        if 'version' in updates:
+            composition.version = updates['version']
+        if 'components' in updates:
+            composition.components = [
+                CompositionComponent(**comp) if isinstance(comp, dict) else comp
+                for comp in updates['components']
+            ]
+        if 'variables' in updates:
+            composition.variables = updates['variables']
+            
+        # Handle metadata updates
+        if 'metadata' in updates:
+            if merge_metadata:
+                # Merge with existing metadata
+                composition.metadata.update(updates['metadata'])
+            else:
+                # Replace metadata
+                composition.metadata = updates['metadata']
+        
+        # Save updated composition
+        save_result = await _save_composition_to_disk(composition, overwrite=True)
+        
+        if save_result['status'] != 'success':
+            return save_result
+            
+        return {
+            'status': 'success',
+            'name': composition.name,
+            'type': composition.type,
+            'version': composition.version,
+            'updates_applied': list(updates.keys()),
+            'message': f'Updated composition {name}'
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to update composition: {e}")
         return {
             'status': 'error',
             'error': str(e)
@@ -568,16 +670,16 @@ async def handle_select_composition(data: Dict[str, Any]) -> Dict[str, Any]:
 
 @event_handler("composition:create")
 async def handle_create_composition(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Create a dynamic composition at runtime."""
+    """Create a dynamic composition in memory (not saved to disk)."""
     try:
-        name = data.get('name')
+        name = data.get('name')  # Optional composition name (auto-generated if not provided)
         if not name:
             # Generate unique name
             import uuid
             name = f"dynamic_{uuid.uuid4().hex[:8]}"
         
-        comp_type = data.get('type', 'profile')
-        base_composition = data.get('extends', 'base_agent')
+        comp_type = data.get('type', 'profile')  # Composition type (profile, orchestration, etc)
+        base_composition = data.get('extends', 'base_agent')  # Base composition to extend
         
         # Build composition structure
         composition = {

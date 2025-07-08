@@ -371,9 +371,10 @@ def analyze_handler(func: Callable, event_name: str) -> Dict[str, Any]:
     """
     try:
         source = inspect.getsource(func)
+        source_lines = source.splitlines()
         tree = ast.parse(source)
 
-        analyzer = HandlerAnalyzer()
+        analyzer = HandlerAnalyzer(source_lines)
         analyzer.visit(tree)
 
         # Merge parameters from different sources
@@ -381,11 +382,13 @@ def analyze_handler(func: Callable, event_name: str) -> Dict[str, Any]:
 
         # From data.get() calls
         for name, info in analyzer.data_gets.items():
+            # Use inline comment if available, otherwise generic description
+            description = info.get("comment") or f"{name} parameter"
             parameters[name] = {
                 "type": "Any",
                 "required": info["required"],
                 "default": info["default"],
-                "description": f"{name} parameter",
+                "description": description,
             }
 
         # From data["key"] access
@@ -412,10 +415,11 @@ def analyze_handler(func: Callable, event_name: str) -> Dict[str, Any]:
 class HandlerAnalyzer(ast.NodeVisitor):
     """AST visitor to extract parameters and event triggers."""
 
-    def __init__(self):
+    def __init__(self, source_lines=None):
         self.data_gets = {}  # data.get() calls
         self.data_subscripts = set()  # data["key"] access
         self.triggers = []  # Events emitted
+        self.source_lines = source_lines or []
 
     def visit_Call(self, node):
         # Check for data.get() calls
@@ -435,7 +439,14 @@ class HandlerAnalyzer(ast.NodeVisitor):
                     if isinstance(node.args[1], ast.Constant):
                         default = node.args[1].value
 
-                self.data_gets[key] = {"required": required, "default": default}
+                # Extract inline comment if present
+                comment = self._extract_inline_comment(node.lineno)
+                
+                self.data_gets[key] = {
+                    "required": required, 
+                    "default": default,
+                    "comment": comment
+                }
 
         # Check for event emissions
         elif self._is_emit_call(node):
@@ -465,6 +476,24 @@ class HandlerAnalyzer(ast.NodeVisitor):
         """Extract event name from emit call."""
         if node.args and isinstance(node.args[0], ast.Constant):
             return node.args[0].value
+        return None
+    
+    def _extract_inline_comment(self, lineno):
+        """Extract inline comment from source line."""
+        if not self.source_lines or lineno < 1 or lineno > len(self.source_lines):
+            return None
+            
+        # AST line numbers are 1-based, list is 0-based
+        line = self.source_lines[lineno - 1]
+        
+        # Look for inline comment
+        comment_idx = line.find('#')
+        if comment_idx > 0:  # Must not be at start of line
+            comment = line[comment_idx + 1:].strip()
+            # Filter out obvious non-documentation comments
+            if comment and not comment.startswith(('TODO', 'FIXME', 'NOTE:', 'noqa')):
+                return comment
+        
         return None
 
 

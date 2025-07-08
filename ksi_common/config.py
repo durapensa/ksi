@@ -36,7 +36,7 @@ Example:
 
 from pydantic_settings import BaseSettings
 from pathlib import Path
-from typing import Optional, Literal, List
+from typing import Optional, Literal, List, Dict
 # Note: Removed stdlib logging import - using pure structlog
 
 from .paths import KSIPaths
@@ -110,6 +110,20 @@ class KSIBaseConfig(BaseSettings):
     fragments_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/compositions/fragments"
     schemas_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/schemas"
     capabilities_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/capabilities"
+    
+    # Composition type to directory mapping
+    COMPOSITION_TYPE_DIRS: Dict[str, str] = {
+        "profile": "profiles",
+        "orchestration": "orchestrations",
+        "fragment": "fragments",
+        "experiment": "experiments",
+        "system": "system"
+    }
+    
+    def get_composition_type_dir(self, composition_type: str) -> Path:
+        """Get the directory path for a specific composition type."""
+        dir_name = self.COMPOSITION_TYPE_DIRS.get(composition_type, composition_type)
+        return self.compositions_dir / dir_name
     
     # Permission and sandbox paths
     permissions_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/permissions"
