@@ -5,19 +5,33 @@ KSI Daemon Control Script
 Python-based daemon control using ksi_common configuration system.
 Eliminates hardcoded paths and provides proper environment variable support.
 
-Usage: python3 daemon_control.py {start|stop|restart|status|health|dev}
+Usage: ./daemon_control.py {start|stop|restart|status|health|dev}
 """
 
+import os
+import sys
+from pathlib import Path
+
+# Ensure we're running in the virtual environment
+venv_dir = Path(__file__).parent / ".venv"
+if venv_dir.exists() and hasattr(sys, 'real_prefix') is False and hasattr(sys, 'base_prefix') and sys.base_prefix == sys.prefix:
+    # We're not in a venv, re-execute with venv python
+    venv_python = venv_dir / "bin" / "python3"
+    if venv_python.exists():
+        os.execv(str(venv_python), [str(venv_python)] + sys.argv)
+    else:
+        print(f"Error: Virtual environment python not found at {venv_python}")
+        print("Please run: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt")
+        sys.exit(1)
+
+# Now we can safely import everything
 import argparse
 import asyncio
 import json
-import os
 import signal
 import socket
 import subprocess
-import sys
 import time
-from pathlib import Path
 from typing import Optional, Dict, Any, Set
 
 # Configure logging BEFORE importing ksi modules
