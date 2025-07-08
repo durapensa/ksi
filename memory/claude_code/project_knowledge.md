@@ -245,6 +245,82 @@ See `ksi_claude_code/docs/KSI_DAEMON_SAFETY_ANALYSIS.md` for full analysis.
 
 See `ksi_claude_code/docs/PROMPT_EXPERIMENTS_GUIDE.md` for usage.
 
+## Current Evaluation System Status (2025-07-08)
+
+### Working Implementation
+- **✅ Event-Driven Completion**: Uses `wait_for_event()` instead of polling, eliminates event cascades
+- **✅ Shared Utilities**: `parse_completion_result_event()` in `ksi_common/completion_format.py`
+- **✅ Production Integration**: Refactored injection_router.py and evaluation code
+- **✅ 100% Test Success**: All basic_effectiveness tests pass consistently
+- **✅ Consistent Configuration**: KSI_CLAUDE_BIN environment variable working
+
+### Current Hardcoded Structure
+```python
+# In ksi_daemon/evaluation/prompt_evaluation.py
+TEST_SUITES = {
+    "basic_effectiveness": {
+        "tests": [
+            {
+                "name": "simple_greeting",
+                "prompt": "Hello! Please introduce yourself briefly.",
+                "expected_behaviors": ["greeting", "introduction"]
+            },
+            {
+                "name": "direct_instruction", 
+                "prompt": "List the first 5 prime numbers.",
+                "expected_behaviors": ["listing", "mathematical", "accurate"]
+            },
+            {
+                "name": "creative_writing",
+                "prompt": "Write a three-line story about a robot learning to paint.",
+                "expected_behaviors": ["creative", "narrative", "robot_theme"]
+            }
+        ]
+    }
+}
+```
+
+### Path Forward: Incremental Enhancement
+**Phase 1: Expand Current System (Next Steps)**
+1. Test multiple compositions (`base_multi_agent`, specialized profiles)
+2. Integrate evaluation results with `composition:discover` and `composition:suggest`
+3. Generate comparative reports between compositions
+4. Add more test suites (reasoning, creative, technical)
+
+**Phase 2: Incremental YAML Migration**
+1. Move test suites to YAML files (keeping current simple structure)
+2. Add more sophisticated evaluator types gradually
+3. Implement external evaluator support
+4. Build proper file organization in `var/lib/evaluations/`
+
+**Phase 3: Full Declarative System**
+1. Implement comprehensive evaluator system from `docs/DECLARATIVE_PROMPT_EVALUATION.md`
+2. Add semantic evaluators, DSL support, external frameworks
+3. Build visual test builder and marketplace features
+4. Complete integration with composition metadata
+
+### Design Philosophy
+- **Working System First**: Leverage proven 100% success rate
+- **Incremental Value**: Each phase delivers immediate user benefit
+- **Real Usage Feedback**: Let actual use cases drive feature priorities
+- **Avoid Over-Engineering**: Build complexity only when justified by real needs
+
+### Current Capabilities
+- **Models**: claude-cli/sonnet (others require configuration)
+- **Compositions**: Tested with base_single_agent, ready for multi-agent
+- **Evaluators**: Pattern matching, contamination detection, behavior analysis
+- **Integration**: Full event system integration, shared parsing utilities
+- **Performance**: ~5s average response time, reliable completion flow
+
+### Next Session Priorities
+1. **Update TodoWrite** to reflect current evaluation success
+2. **Multi-Composition Testing** with existing hardcoded system
+3. **Composition Recommendation System** based on evaluation scores
+4. **First YAML Migration** for test suites (simple structure)
+5. **Integration with Discovery** to show evaluation summaries
+
+This approach balances immediate value delivery with long-term architectural soundness.
+
 ## Future Architecture Direction (2024-12-31)
 
 ### Hybrid Database Strategy

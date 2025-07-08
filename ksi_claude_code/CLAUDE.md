@@ -13,6 +13,18 @@ These tools provide high-level Python abstractions over KSI's event-based Unix s
 - Manage agent profiles and capabilities
 - Export and analyze conversations
 
+## KSI Hook Monitor
+
+This directory also contains the KSI hook monitor that integrates with Claude Code:
+
+- **ksi_hook_monitor.py** - Monitors KSI activity and shows real-time event notifications
+- **ksi_hook_monitor_filters.txt** - Patterns that trigger the hook and full documentation
+- **Output**: Shows `[KSI]` or `[KSI: X events]` after KSI-related commands
+- **Testing**: Run `echo ksi_check` to verify the hook is active
+- **No output?** Hook is disabled - restart Claude Code and enable via `/hooks` menu
+
+For details, see the main project CLAUDE.md or read ksi_hook_monitor_filters.txt.
+
 ## Key Principles
 
 1. **Session ID Flow**: Every KSI response contains a NEW session_id - always use it for the next call
@@ -24,18 +36,20 @@ These tools provide high-level Python abstractions over KSI's event-based Unix s
 
 ```
 ksi_claude_code/
-├── CLAUDE.md              # This file - primary context
-├── __init__.py           # Package exports
-├── ksi_base_tool.py      # Base class for all tools
-├── agent_spawn_tool.py   # Agent lifecycle management
-├── observation_tools.py  # Event monitoring
-├── graph_state_tools.py  # Graph database operations
-├── state_management_tools.py  # Legacy state operations
-├── composition_tools.py  # Agent profile management
-├── conversation_tools.py # Conversation management
-├── docs/                # Archived documentation
-├── experiments/         # Experimental code
-└── archive/            # Deprecated code
+├── CLAUDE.md                    # This file - primary context
+├── __init__.py                  # Package exports
+├── ksi_base_tool.py            # Base class for all tools
+├── agent_spawn_tool.py         # Agent lifecycle management
+├── observation_tools.py        # Event monitoring
+├── graph_state_tools.py        # Graph database operations
+├── state_management_tools.py   # Legacy state operations
+├── composition_tools.py        # Agent profile management
+├── conversation_tools.py       # Conversation management
+├── ksi_hook_monitor.py         # Claude Code hook for KSI monitoring
+├── ksi_hook_monitor_filters.txt # Hook patterns and documentation
+├── docs/                       # Archived documentation
+├── experiments/                # Experimental code
+└── archive/                    # Deprecated code
 ```
 
 ## Code Conventions

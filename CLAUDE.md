@@ -203,6 +203,25 @@ Essential development practices for Claude Code when working with KSI.
 - **Graceful stop**: Ctrl+C stops both watcher and daemon
 - **Future**: Will add checkpoint/restore for state preservation
 
+## KSI Hook Monitor
+Claude Code has a hook that monitors KSI activity and provides real-time feedback:
+
+- **Output format**: `[KSI]` or `[KSI: X events]` or `[KSI: X events, Y agents]`
+- **Test the hook**: Run `echo ksi_check` to verify hook is working
+- **When you DON'T see [KSI]**: Hook is either disabled or not working
+- **Hook only triggers on KSI commands**: Regular bash commands show no output
+- **Examples**:
+  ```bash
+  echo ksi_check                     # Shows: [KSI] or [KSI: X events]
+  ./daemon_control.py status         # Shows: [KSI]
+  ls                                 # Shows: nothing (not KSI-related)
+  ```
+- **Troubleshooting**: If no [KSI] output after KSI commands:
+  1. Restart Claude Code
+  2. Go to `/hooks` menu and enable ksi_hook_monitor.py
+  3. Test with `echo ksi_check`
+- **Details**: See `ksi_claude_code/ksi_hook_monitor_filters.txt`
+
 ## Quick Reference
 ```bash
 source .venv/bin/activate          # Always first

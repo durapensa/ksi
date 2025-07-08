@@ -85,18 +85,17 @@ ksi_check
 #    - No output if hook crashes (use try/except)
 #    - Settings typos (check .claude/settings.local.json)
 #    - Working directory issues (use absolute paths)
+#    - Output buffering: Use python3 -u flag to force unbuffered output
 
 # 6. SECURITY BEHAVIOR (2025-01):
-#    - If hook file is modified during Claude Code session, hook is DISABLED
-#    - This is a security feature to prevent malicious hook modifications
-#    - Hook will remain disabled until restart even if file is reverted
-#    - CRITICAL: Changes to hook source file require BOTH steps:
+#    - If hook file is modified during Claude Code session, hook is temporarily disabled
+#    - This is a security feature to ensure you can review hook changes
+#    - To re-enable after modifying the hook:
 #      1. Restart Claude Code
-#      2. Manually enter /hooks menu to examine the hook
-#    - Hook remains disabled until manual verification is completed
-#    - Commands like "ksi_check" will not trigger hook output until both steps done
-#    - This two-step process prevents automatic activation of malicious modifications
-#    - VERIFIED: Hook successfully re-enabled after manual /hooks menu access
+#      2. Enter /hooks menu to review and re-enable
+#    - The hook won't run until both steps are completed
+#    - This prevents unexpected behavior from hook modifications
+#    - Note: Modifying this filters file does NOT trigger the security check
 
 # 7. CONFIGURATION EXAMPLE (.claude/settings.local.json):
 #    "hooks": {

@@ -261,13 +261,16 @@ def main():
     
     # Summary mode - ultra concise
     if not has_errors and not has_significant and len(new_events) <= 3:
-        if new_events or agent_count > 0:
-            summary_parts = []
-            if new_events:
-                summary_parts.append(f"{len(new_events)} events")
-            if agent_count > 0:
-                summary_parts.append(f"{agent_count} agents")
+        summary_parts = []
+        if new_events:
+            summary_parts.append(f"{len(new_events)} events")
+        if agent_count > 0:
+            summary_parts.append(f"{agent_count} agents")
+        # Always print something - even if just [KSI] to show hook is working
+        if summary_parts:
             print(f"\n[KSI: {', '.join(summary_parts)}]")
+        else:
+            print("\n[KSI]")  # Minimal output to confirm hook is active
     else:
         # Detailed mode for errors or significant events
         if new_events or agent_status != "No active agents.":
@@ -277,6 +280,8 @@ def main():
             if agent_status != "No active agents.":
                 output += f"\n{agent_status}"
             print(output)
+        else:
+            print("\n[KSI]")  # Even in detailed mode, always show something
     
     # Success exit
     sys.exit(0)
