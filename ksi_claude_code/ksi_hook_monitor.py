@@ -24,7 +24,14 @@ class KSIHookMonitor:
             socket_path = script_dir / "var/run/daemon.sock"
             if not socket_path.exists():
                 # Fallback to relative path (if running from project root)
-                socket_path = "var/run/daemon.sock"
+                socket_path = Path.cwd() / "var/run/daemon.sock"
+                if not socket_path.exists():
+                    # Try harder - look for var directory
+                    for parent in Path.cwd().parents:
+                        potential = parent / "var/run/daemon.sock"
+                        if potential.exists():
+                            socket_path = potential
+                            break
         
         self.socket_path = str(socket_path)
         self.timestamp_file = Path("/tmp/ksi_hook_last_timestamp.txt")
@@ -154,7 +161,11 @@ class KSIHookMonitor:
 
 def main():
     """Hook entry point - receives tool execution data from Claude Code."""
-    # Optional debug logging (set KSI_HOOK_DEBUG=true to enable)
+    # Always write basic debug info to help diagnose issues
+    with open("/tmp/ksi_hook_diagnostic.log", "a") as f:
+        f.write(f"\n{datetime.now().isoformat()} - Hook triggered\n")
+    
+    # Optional verbose debug logging (set KSI_HOOK_DEBUG=true to enable)
     debug_log = os.environ.get("KSI_HOOK_DEBUG", "").lower() == "true"
     if debug_log:
         with open("/tmp/ksi_hook_debug.log", "a") as f:
@@ -188,7 +199,16 @@ def main():
     
     # Skip if no data received
     if tool_name == "unknown" or not hook_data:
+        with open("/tmp/ksi_hook_diagnostic.log", "a") as f:
+            f.write(f"  No data received, exiting\n")
         sys.exit(0)
+    
+    # Write tool info to diagnostic log
+    with open("/tmp/ksi_hook_diagnostic.log", "a") as f:
+        f.write(f"  Tool: {tool_name}\n")
+        if tool_name == "Bash":
+            command = hook_data.get("tool_input", {}).get("command", "")
+            f.write(f"  Command: {command[:100]}\n")
     
     # Smart filtering for Bash commands - only monitor KSI-related activity
     if tool_name == "Bash":
@@ -233,17 +253,47 @@ def main():
         ksi_indicators = load_ksi_indicators()
         
         if not any(indicator in command for indicator in ksi_indicators):
+            with open("/tmp/ksi_hook_diagnostic.log", "a") as f:
+                f.write(f"  Not KSI-related, exiting\n")
             sys.exit(0)  # Skip non-KSI bash commands
+        else:
+            with open("/tmp/ksi_hook_diagnostic.log", "a") as f:
+                f.write(f"  KSI-related command detected!\n")
     
     # Future enhancement: Context-aware monitoring based on recent work
     
     # Initialize monitor
     monitor = KSIHookMonitor()
     
+    if debug_log:
+        with open("/tmp/ksi_hook_debug.log", "a") as f:
+            f.write(f"Monitor initialized\n")
+            f.write(f"Socket path: {monitor.socket_path}\n")
+            f.write(f"Socket exists: {Path(monitor.socket_path).exists()}\n")
+            f.write(f"CWD: {os.getcwd()}\n")
+    
     # Get KSI status
-    events = monitor.get_recent_events("*", limit=20)  # Get more events to find new ones
-    event_summary, new_events = monitor.format_event_summary(events)
-    agent_status = monitor.check_active_agents()
+    with open("/tmp/ksi_hook_diagnostic.log", "a") as f:
+        f.write(f"  Getting KSI status...\n")
+    
+    try:
+        events = monitor.get_recent_events("*", limit=20)  # Get more events to find new ones
+        with open("/tmp/ksi_hook_diagnostic.log", "a") as f:
+            f.write(f"  Got {len(events) if events else 0} events\n")
+        
+        event_summary, new_events = monitor.format_event_summary(events)
+        with open("/tmp/ksi_hook_diagnostic.log", "a") as f:
+            f.write(f"  Formatted events, {len(new_events) if new_events else 0} new\n")
+        
+        agent_status = monitor.check_active_agents()
+        with open("/tmp/ksi_hook_diagnostic.log", "a") as f:
+            f.write(f"  Agent status: {agent_status[:50]}...\n")
+    except Exception as e:
+        with open("/tmp/ksi_hook_diagnostic.log", "a") as f:
+            f.write(f"  ERROR getting KSI status: {e}\n")
+        # Exit with minimal output if can't connect
+        print("\n[KSI - offline]", flush=True)
+        sys.exit(0)
     
     # Update timestamp if we showed new events
     if new_events:
@@ -266,25 +316,28 @@ def main():
             summary_parts.append(f"{len(new_events)} events")
         if agent_count > 0:
             summary_parts.append(f"{agent_count} agents")
-        # Always print something - even if just [KSI] to show hook is working
+        # Always show something - even if just [KSI] to show hook is working
         if summary_parts:
-            print(f"\n[KSI: {', '.join(summary_parts)}]")
+            message = f"[KSI: {', '.join(summary_parts)}]"
         else:
-            print("\n[KSI]")  # Minimal output to confirm hook is active
+            message = "[KSI]"  # Minimal output to confirm hook is active
     else:
         # Detailed mode for errors or significant events
         if new_events or agent_status != "No active agents.":
-            output = f"\n[KSI: {len(new_events)} new] "
+            message = f"[KSI: {len(new_events)} new]"
             if new_events:
-                output += event_summary
+                message += f" {event_summary}"
             if agent_status != "No active agents.":
-                output += f"\n{agent_status}"
-            print(output)
+                message += f" {agent_status}"
         else:
-            print("\n[KSI]")  # Even in detailed mode, always show something
+            message = "[KSI]"  # Even in detailed mode, always show something
     
-    # Success exit
-    sys.exit(0)
+    # stderr + exit code 2 (only method that feeds back to Claude per docs)
+    with open("/tmp/ksi_hook_diagnostic.log", "a") as f:
+        f.write(f"  Stderr feedback output: {message}\n")
+    
+    print(message, file=sys.stderr, flush=True)
+    sys.exit(2)  # Required for Claude Code to feed stderr back to Claude
 
 if __name__ == "__main__":
     try:
