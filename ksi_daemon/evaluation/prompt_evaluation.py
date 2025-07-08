@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""
-Prompt Evaluation Module - Integrates prompt testing with composition evaluation.
-
-This module enables running prompt effectiveness tests through the event system
-and storing results as composition evaluation metadata.
-"""
+"""Prompt evaluation module - test composition effectiveness with various prompts."""
 
 import asyncio
 from typing import Dict, Any, List, Optional, TypedDict
@@ -90,14 +85,7 @@ async def handle_startup(data: Dict[str, Any]) -> Dict[str, Any]:
 
 @event_handler("evaluation:prompt")
 async def handle_prompt_evaluate(data: PromptEvaluationData) -> Dict[str, Any]:
-    """
-    Run prompt evaluation tests for a composition.
-    
-    This handler:
-    1. Runs a series of prompt tests against a composition
-    2. Collects metrics on response quality and contamination
-    3. Optionally saves results to composition metadata
-    """
+    """Run prompt evaluation tests for a composition."""
     composition_name = data['composition_name']
     composition_type = data.get('composition_type', 'profile')
     test_suite_name = data.get('test_suite', 'basic_effectiveness')
