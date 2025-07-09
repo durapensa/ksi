@@ -47,7 +47,7 @@ async def run_improvement_cycle(data: Dict[str, Any]) -> Dict[str, Any]:
     
     # Step 1: Bootstrap judge variations
     logger.info("Step 1: Bootstrapping judge variations")
-    bootstrap_result = await emit_event('evaluation:bootstrap_judges', {
+    bootstrap_result = await emit_event('evaluation:bootstrap_judges_v2', {
         'test_suite': test_suite,
         'num_variations': num_variations,
         'output_dir': str(output_dir / cycle_id / 'bootstrap')
