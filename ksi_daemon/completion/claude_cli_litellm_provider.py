@@ -311,8 +311,9 @@ class ClaudeCLIProvider(CustomLLM):
         request_id = kwargs.get("request_id", str(uuid.uuid4()))
         
         # Extract KSI parameters from extra_body
-        extra_body = kwargs.get("extra_body", {})
-        logger.debug(f"Provider received extra_body: {extra_body}")
+        # LiteLLM passes extra_body in optional_params for custom providers
+        optional_params = kwargs.get("optional_params", {})
+        extra_body = optional_params.get("extra_body", {})
         ksi_params = extra_body.get("ksi", {})
         sandbox_dir = ksi_params.get("sandbox_dir")
         ksi_permissions = ksi_params.get("permissions", {})

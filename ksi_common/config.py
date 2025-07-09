@@ -136,6 +136,11 @@ class KSIBaseConfig(BaseSettings):
     permissions_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/permissions"
     sandbox_dir: Path = Path(DEFAULT_VAR_DIR) / "sandbox"
     
+    # Sandbox configuration
+    sandbox_enabled: bool = True                   # Enable sandboxing for completions
+    sandbox_temp_ttl: int = 3600                  # Temporary sandbox lifetime (1 hour)
+    sandbox_default_mode: Literal["ISOLATED", "SHARED", "NESTED"] = "ISOLATED"
+    
     # Network settings
     socket_timeout: float = DEFAULT_SOCKET_TIMEOUT
     

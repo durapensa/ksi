@@ -101,6 +101,7 @@ class SandboxManager:
         self.sandbox_root = sandbox_root or config.sandbox_dir
         self.shared_root = self.sandbox_root / "shared"
         self.agents_root = self.sandbox_root / "agents"
+        self.temp_root = self.sandbox_root / "temp"
         self.sandboxes: Dict[str, Sandbox] = {}
         self._ensure_directories()
     
@@ -109,6 +110,7 @@ class SandboxManager:
         self.sandbox_root.mkdir(parents=True, exist_ok=True)
         self.shared_root.mkdir(exist_ok=True)
         self.agents_root.mkdir(exist_ok=True)
+        self.temp_root.mkdir(exist_ok=True)
         
         # Create shared resources directory
         shared_resources = self.sandbox_root / "_shared"
@@ -128,6 +130,10 @@ class SandboxManager:
             if not originator_sandbox:
                 raise ValueError(f"Originator agent {config.originator_agent_id} not found")
             sandbox_path = originator_sandbox.path / "nested" / agent_id
+        elif agent_id.startswith("temp/"):
+            # Temporary sandbox
+            temp_id = agent_id.removeprefix("temp/")
+            sandbox_path = self.temp_root / temp_id
         else:
             # Isolated sandbox
             sandbox_path = self.agents_root / agent_id

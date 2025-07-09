@@ -20,6 +20,8 @@ os.environ['LITELLM_LOCAL_MODEL_COST_MAP'] = 'true'
 from ksi_daemon.completion import claude_cli_litellm_provider
 from ksi_daemon.completion import gemini_cli_litellm_provider
 from ksi_daemon.event_system import event_handler, get_router
+from ksi_common.config import config
+from ksi_common.sandbox_manager import SandboxManager, SandboxConfig, SandboxMode
 import litellm
 
 # Suppress LiteLLM's console logging to maintain JSON format
@@ -37,6 +39,7 @@ COMPLETION_TIMEOUT = 900.0  # 15 minutes - reasonable for Claude
 
 # Module state
 active_completions = {}
+sandbox_manager = None  # Initialized on first use
 
 
 async def handle_litellm_completion(data: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
@@ -58,6 +61,7 @@ async def handle_litellm_completion(data: Dict[str, Any]) -> Tuple[str, Dict[str
     
     session_id = data.get("session_id")
     request_id = data.get("request_id", str(uuid.uuid4()))
+    agent_id = data.get("agent_id")
     
     logger.info(f"Starting LiteLLM completion: model={model}, session_id={session_id}")
     
@@ -65,6 +69,47 @@ async def handle_litellm_completion(data: Dict[str, Any]) -> Tuple[str, Dict[str
         # Convert prompt to messages if needed
         if "prompt" in data and "messages" not in data:
             data["messages"] = [{"role": "user", "content": data.pop("prompt")}]
+        
+        # Handle sandbox directory for CLI providers
+        if model.startswith(("claude-cli/", "gemini-cli/")):
+            extra_body = data.get("extra_body", {})
+            ksi_params = extra_body.get("ksi", {})
+            
+            # Only handle sandbox if not already specified
+            if "sandbox_dir" not in ksi_params and getattr(config, "sandbox_enabled", True):
+                # Create temporary sandbox for non-agent requests
+                global sandbox_manager
+                if not sandbox_manager:
+                    sandbox_manager = SandboxManager(config.sandbox_dir)
+                
+                sandbox_config = SandboxConfig(
+                    mode=SandboxMode.ISOLATED
+                    # Temporary sandboxes are isolated with no sharing
+                )
+                
+                # Create sandbox in temp directory
+                sandbox_id = f"temp/{request_id}"
+                sandbox = sandbox_manager.create_sandbox(sandbox_id, sandbox_config)
+                sandbox_dir = str(sandbox.path.absolute())
+                
+                logger.info(f"Created temporary sandbox", request_id=request_id, sandbox_dir=sandbox_dir)
+                
+                # Schedule mock cleanup
+                async def mock_cleanup():
+                    await asyncio.sleep(getattr(config, "sandbox_temp_ttl", 3600))
+                    logger.info(f"[MOCK] Would clean up temporary sandbox", 
+                               request_id=request_id, sandbox_dir=sandbox_dir)
+                    # In production: sandbox_manager.remove_sandbox(sandbox_id)
+                
+                asyncio.create_task(mock_cleanup())
+                
+                # Add sandbox_dir to extra_body
+                if "extra_body" not in data:
+                    data["extra_body"] = {}
+                if "ksi" not in data["extra_body"]:
+                    data["extra_body"]["ksi"] = {}
+                data["extra_body"]["ksi"]["sandbox_dir"] = sandbox_dir
+                logger.debug(f"Added sandbox_dir to extra_body", sandbox_dir=sandbox_dir)
         
         # Call litellm asynchronously
         response = await litellm.acompletion(**data)
