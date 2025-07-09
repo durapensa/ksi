@@ -204,6 +204,22 @@ class EventRouter:
         if data is None:
             data = {}
             
+        # Auto-silence discovery events
+        SILENT_EVENT_PATTERNS = [
+            "system:discover",
+            "system:help",
+            "module:list*",
+            "module:inspect",
+            "module:events"
+        ]
+        
+        # Check if event matches silent patterns
+        import fnmatch
+        for pattern in SILENT_EVENT_PATTERNS:
+            if fnmatch.fnmatch(event, pattern):
+                data['_silent'] = True
+                break
+            
         # Extract and remove _silent flag if present
         # Silent events are processed normally but not logged
         silent = data.pop('_silent', False)

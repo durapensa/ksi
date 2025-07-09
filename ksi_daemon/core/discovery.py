@@ -43,6 +43,7 @@ async def handle_discover(data: Dict[str, Any]) -> Dict[str, Any]:
         detail (bool): Include parameters and triggers (default: False)
         namespace (str): Filter by namespace (optional)
         event (str): Get details for specific event (optional)
+        module (str): Filter by module name (optional)
         format_style (str): Output format - verbose, compact, ultra_compact, mcp (default: verbose)
 
     Returns:
@@ -51,6 +52,7 @@ async def handle_discover(data: Dict[str, Any]) -> Dict[str, Any]:
     include_detail = data.get("detail", False)
     namespace_filter = data.get("namespace")
     event_filter = data.get("event")
+    module_filter = data.get("module")
     format_style = data.get("format_style", FORMAT_VERBOSE)
 
     from ksi_daemon.event_system import get_router
@@ -78,7 +80,7 @@ async def handle_discover(data: Dict[str, Any]) -> Dict[str, Any]:
         all_events[event_name] = handler_info
 
     # Apply filters
-    filtered_events = filter_events(all_events, namespace=namespace_filter, pattern=event_filter)
+    filtered_events = filter_events(all_events, namespace=namespace_filter, module=module_filter, pattern=event_filter)
 
     # Format events based on style
     formatted_events = {}
