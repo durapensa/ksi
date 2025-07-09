@@ -166,6 +166,7 @@ class EventDaemonCore:
         
         # Evaluation modules
         import ksi_daemon.evaluation.prompt_evaluation
+        import ksi_daemon.evaluation.tournament_bootstrap_integration
         
         logger.info("All modules imported and auto-registered")
     
