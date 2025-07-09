@@ -5,11 +5,12 @@ import asyncio
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
-import yaml
 from pathlib import Path
 
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
+from ksi_common.timestamps import utc_now, timestamp_utc, filename_timestamp
+from ksi_common.file_utils import save_yaml_file, load_yaml_file, ensure_directory
 from ksi_daemon.event_system import event_handler
 from .completion_utils import send_completion_and_wait
 from .evaluators import create_evaluator
@@ -35,7 +36,7 @@ class IterationResult:
     response: str
     response_time: float
     evaluator_scores: List[Dict[str, Any]]
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
 
 
 @dataclass
@@ -55,9 +56,9 @@ class PromptIterationEngine:
     
     def __init__(self):
         self.iterations_dir = config.evaluations_dir / "prompt_iterations"
-        self.iterations_dir.mkdir(exist_ok=True)
+        self.iterations_dir = ensure_directory(self.iterations_dir)
         self.results_dir = config.evaluations_dir / "iteration_results"
-        self.results_dir.mkdir(exist_ok=True)
+        self.results_dir = ensure_directory(self.results_dir)
         
     async def run_iteration_test(
         self,
@@ -230,13 +231,13 @@ class PromptIterationEngine:
         analysis: Dict[str, Any]
     ):
         """Save iteration results to file."""
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        timestamp = filename_timestamp()
         filename = f"{test_name}_iteration_{timestamp}.yaml"
         filepath = self.results_dir / filename
         
         data = {
             "test_name": test_name,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": timestamp_utc(),
             "results": [
                 {
                     "version": r.version,
@@ -251,8 +252,7 @@ class PromptIterationEngine:
             "analysis": analysis
         }
         
-        with open(filepath, 'w') as f:
-            yaml.dump(data, f, default_flow_style=False)
+        save_yaml_file(filepath, data)
         
         logger.info(f"Saved iteration results to {filename}")
 
@@ -282,8 +282,7 @@ async def handle_iterate_prompt(data: Dict[str, Any]) -> Dict[str, Any]:
     if not test_path.exists():
         return {"status": "error", "error": f"Test file not found: {test_path}"}
     
-    with open(test_path) as f:
-        test_data = yaml.safe_load(f)
+    test_data = load_yaml_file(test_path)
     
     # Parse into test configuration
     variations = []
@@ -337,8 +336,7 @@ async def handle_prompt_patterns(data: Dict[str, Any]) -> Dict[str, Any]:
     }
     
     for result_file in results_dir.glob("*_iteration_*.yaml"):
-        with open(result_file) as f:
-            result_data = yaml.safe_load(f)
+        result_data = load_yaml_file(result_file)
         
         if test_name and result_data['test_name'] != test_name:
             continue

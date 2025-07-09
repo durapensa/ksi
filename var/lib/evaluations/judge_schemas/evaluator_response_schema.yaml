@@ -1,0 +1,22 @@
+type: object
+required:
+- action
+- result
+properties:
+  action:
+    const: evaluation_complete
+  result:
+    type: object
+    required:
+    - overall_score
+    - criteria_scores
+    - reasoning
+    properties:
+      overall_score:
+        type: number
+        minimum: 0
+        maximum: 1
+      criteria_scores:
+        type: object
+      reasoning:
+        type: string

@@ -3,11 +3,11 @@
 
 from pathlib import Path
 from typing import Dict, Any, List, Optional
-import yaml
 from collections import defaultdict
 
 from ksi_common.logging import get_bound_logger
 from ksi_common.config import config
+from ksi_common.file_utils import load_yaml_file
 
 logger = get_bound_logger("evaluation_index")
 
@@ -55,8 +55,7 @@ class EvaluationIndex:
                 
                 # Extract minimal metadata without loading full YAML
                 # For now, we'll load just the metadata section
-                with open(yaml_file, 'r') as f:
-                    data = yaml.safe_load(f)
+                data = load_yaml_file(yaml_file)
                     
                 if 'evaluation' not in data:
                     continue

@@ -1,0 +1,61 @@
+name: analyst_pattern_recognition
+type: prompt
+version: 1.0.0
+description: Analyst technique for identifying failure patterns
+author: bootstrap_system
+category: specialized/evaluation/judges
+
+parameters:
+  base_prompt:
+    type: string
+    default: "analyst_base"
+    description: Base prompt to extend
+
+content: |
+  {{base_prompt}}
+  
+  TECHNIQUE: Failure Pattern Recognition
+  
+  Look for patterns in failures:
+  - Common failure modes
+  - Systematic issues vs one-offs
+  - Category of failure (format, content, logic)
+  - Similar failures you've seen
+  - Predictable failure conditions
+  
+  Pattern Analysis Framework:
+  
+  FAILURE CATEGORIZATION:
+  - Format failures: Structure, syntax, organization issues
+  - Content failures: Missing info, inaccuracy, incompleteness
+  - Logic failures: Reasoning errors, contradictions
+  - Instruction failures: Misunderstood or ignored requirements
+  - Context failures: Missing implied requirements
+  
+  PATTERN IDENTIFICATION:
+  - Is this a recurring type of failure?
+  - What class of errors does this belong to?
+  - Are there similar failure modes in other contexts?
+  - Is this predictable given the prompt structure?
+  
+  SYSTEMATIC VS ISOLATED:
+  - Would this failure happen consistently?
+  - Is it specific to this instance or generalizable?
+  - What conditions trigger this failure pattern?
+  
+  FAILURE SIGNATURES:
+  - What are the telltale signs of this failure type?
+  - How can this pattern be detected early?
+  - What are the warning indicators?
+  
+  PREVENTION STRATEGIES:
+  - How can prompts be structured to avoid this pattern?
+  - What safeguards would prevent this failure?
+  - What explicit instructions would help?
+
+metadata:
+  tags: [evaluation, judge, pattern_recognition, technique]
+  extends: analyst_base
+  technique: pattern_recognition
+  tested: false
+  parent_prompt: analyst_base

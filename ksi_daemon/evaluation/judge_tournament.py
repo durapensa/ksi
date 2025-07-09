@@ -3,7 +3,7 @@
 
 from typing import Dict, Any, List, Tuple, Optional, Set
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 import asyncio
 import json
 import yaml
@@ -11,6 +11,10 @@ from enum import Enum
 
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
+from ksi_common.timestamps import utc_now, timestamp_utc, filename_timestamp
+from ksi_common.file_utils import save_yaml_file
+from ksi_common.event_utils import build_error_response, build_success_response
+from ksi_common.validation_utils import validate_dict_structure
 from ksi_daemon.event_system import event_handler, emit_event
 # State operations will use events instead of direct state manager
 
@@ -33,7 +37,7 @@ class TournamentParticipant:
     agent_id: str
     role: str
     technique: str
-    registration_time: datetime = field(default_factory=datetime.utcnow)
+    registration_time: datetime = field(default_factory=utc_now)
     evaluations_given: int = 0
     evaluations_received: int = 0
     aggregate_score: float = 0.0
@@ -62,7 +66,7 @@ class JudgeTournament:
         self.participants: Dict[str, TournamentParticipant] = {}
         self.matches: Dict[str, TournamentMatch] = {}
         # State operations will use events
-        self.start_time = datetime.utcnow()
+        self.start_time = utc_now()
         self.config = self._load_tournament_config()
         
     def _load_tournament_config(self) -> Dict[str, Any]:
@@ -119,7 +123,7 @@ class JudgeTournament:
                 'tournament_id': self.tournament_id,
                 'roles_accepted': ['evaluator', 'analyst', 'rewriter'],
                 'registration_deadline': (
-                    datetime.utcnow() + timedelta(seconds=duration_seconds)
+                    utc_now() + timedelta(seconds=duration_seconds)
                 ).isoformat(),
                 'instructions': 'Reply with tournament:register to participate'
             }
@@ -270,7 +274,7 @@ class JudgeTournament:
     async def _run_match(self, match: TournamentMatch) -> Dict[str, Any]:
         """Run a single tournament match."""
         match.status = "in_progress"
-        match.started_at = datetime.utcnow()
+        match.started_at = utc_now()
         
         try:
             # Send evaluation request to evaluator
@@ -294,7 +298,7 @@ class JudgeTournament:
             
             match.result = result
             match.status = "complete"
-            match.completed_at = datetime.utcnow()
+            match.completed_at = utc_now()
             
             # Update participant stats
             self.participants[match.evaluator_id].evaluations_given += 1
@@ -420,7 +424,7 @@ class JudgeTournament:
         # Build results
         results = {
             'tournament_id': self.tournament_id,
-            'duration_seconds': (datetime.utcnow() - self.start_time).total_seconds(),
+            'duration_seconds': (utc_now() - self.start_time).total_seconds(),
             'participant_count': len(self.participants),
             'match_count': len(self.matches),
             'rankings': [
@@ -445,8 +449,7 @@ class JudgeTournament:
         
         # Save results
         results_file = config.evaluations_dir / f"tournament_{self.tournament_id}_results.yaml"
-        with open(results_file, 'w') as f:
-            yaml.dump(results, f)
+        save_yaml_file(results_file, results)
         
         # Notify all participants
         for participant in self.participants.values():
@@ -494,7 +497,7 @@ async def handle_tournament_create(data: Dict[str, Any]) -> Dict[str, Any]:
         config: Tournament configuration overrides
         auto_start: Whether to automatically start registration
     """
-    tournament_id = data.get('tournament_id', f"tournament_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}")
+    tournament_id = data.get('tournament_id', f"tournament_{filename_timestamp()}")
     config_overrides = data.get('config', {})
     auto_start = data.get('auto_start', True)
     
@@ -566,5 +569,4 @@ async def handle_tournament_phase(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-# Ensure datetime is imported
-from datetime import datetime, timedelta
+# timedelta already imported above

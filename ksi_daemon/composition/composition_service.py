@@ -745,10 +745,11 @@ async def handle_create_composition(data: Dict[str, Any]) -> Dict[str, Any]:
         })
         
         # Save to state manager as dynamic composition
-        if state_manager:
-            dynamic_cache_key = f"dynamic_composition:{name}"
-            state_manager.set_shared_state(dynamic_cache_key, composition)
-            logger.info(f"Created dynamic composition: {name}")
+        # TODO: Update to use new relational state API
+        # if state_manager:
+        #     dynamic_cache_key = f"dynamic_composition:{name}"
+        #     state_manager.set_shared_state(dynamic_cache_key, composition)
+        logger.info(f"Created dynamic composition: {name}")
         
         return {
             'status': 'success',

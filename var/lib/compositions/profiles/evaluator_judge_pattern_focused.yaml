@@ -1,0 +1,29 @@
+name: evaluator_judge_pattern_focused
+type: profile
+version: 1.0.0
+description: evaluator judge with pattern_focused technique
+author: bootstrap_system
+extends: evaluator_judge
+mixins: []
+components:
+- name: system_prompt
+  source: prompts/specialized/evaluation/judges/evaluator_pattern_focused.yaml
+  composition: null
+  inline: null
+  template: null
+  vars:
+    base_prompt: evaluator_base
+  condition: null
+  conditions: null
+variables: {}
+metadata:
+  bootstrap_variation: true
+  technique: pattern_focused
+  technique_config:
+    name: pattern_focused
+    description: Focuses on pattern matching and format compliance
+    prompt_reference: specialized/evaluation/judges/evaluator_pattern_focused
+  created: '2025-07-09T15:21:33.091975Z'
+  dynamic: true
+  created_at: '2025-07-09T15:21:33.092079Z'
+  parent_agent: null

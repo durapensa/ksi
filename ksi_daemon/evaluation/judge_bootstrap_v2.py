@@ -15,6 +15,9 @@ from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import utc_now, timestamp_utc, filename_timestamp
 from ksi_common.file_utils import save_yaml_file, load_yaml_file, ensure_directory
+from ksi_common.event_utils import is_success_response, get_response_error, build_error_response, build_success_response
+from ksi_common.validation_utils import Validator, validate_dict_structure
+from ksi_common.prompt_library import prompt_library
 from ksi_daemon.event_system import event_handler, emit_event, emit_event_first
 from ksi_client import EventClient
 
@@ -95,19 +98,43 @@ class JudgeBootstrapV2:
         # Create variation name
         variation_name = f"{role}_judge_{technique}"
         
-        # Build dynamic composition with prompt variation
+        # Check if the technique prompt exists in the library
+        technique_prompt_name = f"{role}_{technique}"
+        existing_prompt = prompt_library.load_prompt(technique_prompt_name, category="specialized/evaluation/judges")
+        
+        if not existing_prompt:
+            # Log warning - prompt should have been pre-created in the library
+            logger.warning(f"Prompt '{technique_prompt_name}' not found in library. Using base prompt only.")
+            # Fall back to just using the base prompt
+            technique_prompt_name = f"{role}_base"
+        
+        # Build dynamic composition with prompt reference
         dynamic_composition = {
             'name': variation_name,
             'type': 'profile',
+            'version': '1.0.0',
             'extends': base_profile,
             'description': f"{role} judge with {technique} technique",
             'author': 'bootstrap_system',
+            'components': [
+                {
+                    'name': 'system_prompt',
+                    'source': f'prompts/specialized/evaluation/judges/{technique_prompt_name}.yaml',
+                    'vars': {
+                        'base_prompt': f'{role}_base'
+                    }
+                }
+            ],
             'metadata': {
                 'bootstrap_variation': True,
                 'technique': technique,
+                'technique_config': {
+                    'name': technique,
+                    'description': technique_config['description'],
+                    'prompt_reference': f'specialized/evaluation/judges/{technique_prompt_name}'
+                },
                 'created': timestamp_utc()
-            },
-            'prompt': base_composition.get('prompt', '') + '\n\n' + technique_config['prompt_suffix']
+            }
         }
         
         # Copy other important fields from base
@@ -118,8 +145,19 @@ class JudgeBootstrapV2:
         # Create the dynamic composition
         result = await emit_event_first('composition:create', dynamic_composition)
         
-        if result.get('status') != 'success':
-            raise RuntimeError(f"Failed to create composition: {result}")
+        if not is_success_response(result):
+            error = get_response_error(result) or 'Unknown error'
+            raise RuntimeError(f"Failed to create composition: {error}")
+        
+        # Save the composition to disk so it can be found later
+        save_result = await emit_event_first('composition:save', {
+            'composition': dynamic_composition,
+            'overwrite': True
+        })
+        
+        if not is_success_response(save_result):
+            error = get_response_error(save_result) or 'Unknown error'
+            logger.warning(f"Failed to save composition {variation_name}: {error}")
         
         # Create variation record
         variation = JudgeVariation(
@@ -143,7 +181,7 @@ class JudgeBootstrapV2:
             'type': 'profile'
         })
             
-        if result.get('status') == 'success':
+        if is_success_response(result):
             return result.get('composition')
         return None
     
@@ -157,8 +195,9 @@ class JudgeBootstrapV2:
             'name': f"{variation.role}_bootstrap_{variation.technique}"
         })
         
-        if result.get('status') != 'success':
-            raise RuntimeError(f"Failed to spawn agent: {result}")
+        if not is_success_response(result):
+            error = get_response_error(result) or 'Unknown error'
+            raise RuntimeError(f"Failed to spawn agent: {error}")
         
         agent_id = result['agent_id']
         variation.agent_id = agent_id
@@ -407,89 +446,40 @@ class JudgeBootstrapV2:
         return results
 
 
-# Define judge variation techniques
+# Define judge variation techniques (prompts are now in the prompt library)
 JUDGE_TECHNIQUES = {
     'evaluator': [
         {
             'name': 'detailed_rubric',
-            'description': 'Emphasizes detailed scoring rubrics',
-            'prompt_suffix': """
-When evaluating responses, always:
-1. Break down evaluation into specific criteria
-2. Assign individual scores to each criterion
-3. Provide detailed reasoning for each score
-4. Calculate weighted overall score
-5. Include specific examples from the response"""
+            'description': 'Emphasizes detailed scoring rubrics'
         },
         {
             'name': 'pattern_focused',
-            'description': 'Focuses on pattern matching and format compliance',
-            'prompt_suffix': """
-Pay special attention to:
-- Exact format compliance with specifications
-- Pattern matching accuracy
-- Structural consistency
-- Missing or extra elements
-Be precise about what patterns were expected vs found."""
+            'description': 'Focuses on pattern matching and format compliance'
         },
         {
             'name': 'holistic_quality',
-            'description': 'Evaluates overall quality and effectiveness',
-            'prompt_suffix': """
-Consider the response holistically:
-- Does it achieve the intended purpose?
-- Is it clear and well-structured?
-- Would a user find it helpful?
-- What is the overall quality level?
-Balance specific criteria with general effectiveness."""
+            'description': 'Evaluates overall quality and effectiveness'
         }
     ],
     'analyst': [
         {
             'name': 'root_cause_focus',
-            'description': 'Deep root cause analysis',
-            'prompt_suffix': """
-When analyzing failures:
-1. Identify the immediate symptom
-2. Trace back to root causes
-3. Consider multiple contributing factors
-4. Distinguish correlation from causation
-5. Provide evidence for your analysis"""
+            'description': 'Deep root cause analysis'
         },
         {
             'name': 'pattern_recognition',
-            'description': 'Identifies failure patterns',
-            'prompt_suffix': """
-Look for patterns in failures:
-- Common failure modes
-- Systematic issues vs one-offs
-- Category of failure (format, content, logic)
-- Similar failures you've seen
-- Predictable failure conditions"""
+            'description': 'Identifies failure patterns'
         }
     ],
     'rewriter': [
         {
             'name': 'incremental_improvement',
-            'description': 'Makes minimal necessary changes',
-            'prompt_suffix': """
-When rewriting prompts:
-- Make the smallest change that fixes the issue
-- Preserve as much of the original as possible
-- Focus on the specific problem identified
-- Don't over-engineer the solution
-- Maintain clarity and simplicity"""
+            'description': 'Makes minimal necessary changes'
         },
         {
             'name': 'comprehensive_restructure',
-            'description': 'Willing to completely restructure',
-            'prompt_suffix': """
-When improving prompts:
-- Consider complete restructuring if beneficial
-- Use proven prompt engineering techniques
-- Add examples, structure, and clarity
-- Optimize for model understanding
-- Create robust, foolproof instructions"""
+            'description': 'Willing to completely restructure'
         }
     ]
 }
@@ -506,6 +496,15 @@ async def handle_bootstrap_judges_v2(data: Dict[str, Any]) -> Dict[str, Any]:
         run_tournament: Whether to run cross-evaluation tournament
         save_selected: Whether to save selected judges to disk
     """
+    # Validate input
+    validation_error = validate_dict_structure(
+        data,
+        required_fields=[],
+        optional_fields=['roles', 'techniques_per_role', 'run_tournament', 'save_selected']
+    )
+    if validation_error:
+        return build_error_response(validation_error)
+    
     roles = data.get('roles', ['evaluator', 'analyst', 'rewriter'])
     techniques_per_role = data.get('techniques_per_role', 3)
     run_tournament = data.get('run_tournament', True)
@@ -537,7 +536,7 @@ async def handle_bootstrap_judges_v2(data: Dict[str, Any]) -> Dict[str, Any]:
     ground_truth_file = bootstrap.bootstrap_dir / "ground_truth_cases.yaml"
     if ground_truth_file.exists():
         ground_truth_data = load_yaml_file(ground_truth_file)
-            ground_truth_cases = ground_truth_data.get('cases', [])
+        ground_truth_cases = ground_truth_data.get('cases', [])
     else:
         ground_truth_cases = []
         logger.warning("No ground truth cases found")

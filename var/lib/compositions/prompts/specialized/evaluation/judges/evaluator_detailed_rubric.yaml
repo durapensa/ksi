@@ -1,0 +1,41 @@
+name: evaluator_detailed_rubric
+type: prompt
+version: 1.0.0
+description: Evaluator technique emphasizing detailed scoring rubrics
+author: bootstrap_system
+category: specialized/evaluation/judges
+
+parameters:
+  base_prompt:
+    type: string
+    default: "evaluator_base"
+    description: Base prompt to extend
+
+content: |
+  {{base_prompt}}
+  
+  TECHNIQUE: Detailed Rubric Evaluation
+  
+  When evaluating responses, always:
+  1. Break down evaluation into specific criteria
+  2. Assign individual scores to each criterion
+  3. Provide detailed reasoning for each score
+  4. Calculate weighted overall score
+  5. Include specific examples from the response
+  
+  For each criterion, use this rubric:
+  - 1.0: Perfect/Complete adherence
+  - 0.8-0.9: Minor issues or slight deviations
+  - 0.6-0.7: Moderate fulfillment with notable gaps
+  - 0.4-0.5: Partial fulfillment with significant issues
+  - 0.2-0.3: Minimal fulfillment
+  - 0.0-0.1: Failed to meet criterion
+  
+  Always justify scores with specific evidence from the response.
+
+metadata:
+  tags: [evaluation, judge, detailed_rubric, technique]
+  extends: evaluator_base
+  technique: detailed_rubric
+  tested: false
+  parent_prompt: evaluator_base

@@ -6,11 +6,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 import asyncio
 import json
-import yaml
 from pathlib import Path
 
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
+from ksi_common.timestamps import utc_now, timestamp_utc, filename_timestamp
+from ksi_common.file_utils import save_yaml_file, load_yaml_file, ensure_directory
 from ksi_daemon.event_system import event_handler
 from ksi_daemon.agent.agent_service import spawn_agent
 from .prompt_iteration import PromptIterationEngine
@@ -28,7 +29,7 @@ class ImprovementCycle:
     iteration: int = 0
     improvements: List[Dict[str, Any]] = field(default_factory=list)
     total_cost: float = 0.0
-    start_time: datetime = field(default_factory=datetime.utcnow)
+    start_time: datetime = field(default_factory=utc_now)
     status: str = "active"  # active, converged, halted, completed
 
 
@@ -57,7 +58,7 @@ class AutonomousImprovementSystem:
         human_breakpoints: List[str] = None
     ) -> str:
         """Start an autonomous improvement cycle."""
-        cycle_id = f"{test_name}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+        cycle_id = f"{test_name}_{filename_timestamp()}"
         
         # Initialize cycle
         cycle = ImprovementCycle(
@@ -181,7 +182,7 @@ class AutonomousImprovementSystem:
                 'prompt': improved_prompt,
                 'score': current_score,
                 'analysis': analysis,
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': timestamp_utc()
             })
             cycle.current_prompt = improved_prompt
             
@@ -337,12 +338,11 @@ Run the evaluation and return scores."""
                 'improvements': cycle.improvements,
                 'total_cost': cycle.total_cost
             },
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': timestamp_utc()
         }
         
         review_path = config.evaluations_dir / f"human_review_{cycle.cycle_id}.yaml"
-        with open(review_path, 'w') as f:
-            yaml.dump(review_data, f)
+        save_yaml_file(review_path, review_data)
     
     async def _request_human_approval(self, cycle: ImprovementCycle, new_prompt: str):
         """Request human approval for prompt change."""
@@ -353,18 +353,17 @@ Run the evaluation and return scores."""
         """Save complete cycle results."""
         results_path = config.evaluations_dir / f"autonomous_cycle_{cycle.cycle_id}.yaml"
         
-        with open(results_path, 'w') as f:
-            yaml.dump({
-                'cycle_id': cycle.cycle_id,
-                'test_name': cycle.test_name,
-                'status': cycle.status,
-                'iterations': cycle.iteration,
-                'original_prompt': cycle.original_prompt,
-                'final_prompt': cycle.current_prompt,
-                'improvements': cycle.improvements,
-                'total_cost': cycle.total_cost,
-                'duration': (datetime.utcnow() - cycle.start_time).total_seconds()
-            }, f)
+        save_yaml_file(results_path, {
+            'cycle_id': cycle.cycle_id,
+            'test_name': cycle.test_name,
+            'status': cycle.status,
+            'iterations': cycle.iteration,
+            'original_prompt': cycle.original_prompt,
+            'final_prompt': cycle.current_prompt,
+            'improvements': cycle.improvements,
+            'total_cost': cycle.total_cost,
+            'duration': (utc_now() - cycle.start_time).total_seconds()
+        })
 
 
 @event_handler("evaluation:autonomous_improve")

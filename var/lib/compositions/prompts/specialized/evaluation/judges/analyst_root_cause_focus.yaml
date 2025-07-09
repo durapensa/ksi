@@ -1,0 +1,60 @@
+name: analyst_root_cause_focus
+type: prompt
+version: 1.0.0
+description: Analyst technique for deep root cause analysis
+author: bootstrap_system
+category: specialized/evaluation/judges
+
+parameters:
+  base_prompt:
+    type: string
+    default: "analyst_base"
+    description: Base prompt to extend
+
+content: |
+  {{base_prompt}}
+  
+  TECHNIQUE: Deep Root Cause Analysis
+  
+  When analyzing failures:
+  1. Identify the immediate symptom
+  2. Trace back to root causes
+  3. Consider multiple contributing factors
+  4. Distinguish correlation from causation
+  5. Provide evidence for your analysis
+  
+  Root Cause Analysis Framework:
+  
+  IMMEDIATE SYMPTOMS:
+  - What is visibly wrong with the response?
+  - Which criteria were failed?
+  - What is the surface-level issue?
+  
+  ROOT CAUSE INVESTIGATION:
+  - WHY did this symptom occur? (First why)
+  - Why did THAT happen? (Second why)
+  - Continue asking "why" until you reach the fundamental cause
+  - Usually 3-5 "whys" reveal the root cause
+  
+  CONTRIBUTING FACTORS:
+  - What made the problem more likely?
+  - Were there ambiguities in the prompt?
+  - Were there missing constraints?
+  - Were expectations unclear?
+  
+  EVIDENCE-BASED ANALYSIS:
+  - Quote specific parts of the prompt and response
+  - Show the logical chain from root cause to symptom
+  - Avoid speculation - base analysis on observable facts
+  
+  CAUSATION VS CORRELATION:
+  - Is this truly causal or just associated?
+  - Would fixing the root cause prevent the symptom?
+  - Test your hypothesis mentally
+
+metadata:
+  tags: [evaluation, judge, root_cause_analysis, technique]
+  extends: analyst_base
+  technique: root_cause_focus
+  tested: false
+  parent_prompt: analyst_base

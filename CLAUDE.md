@@ -108,6 +108,36 @@ For prompt testing and composition evaluation:
 - **Test suites**: Located in `var/lib/evaluations/test_suites/`
 - **Results**: Stored in `var/lib/evaluations/results/`
 
+## Prompt Library System
+
+### Organization
+- **Prompts location**: `var/lib/compositions/prompts/` - managed prompt library
+- **Categories**: `agent_tasks/`, `evaluation/`, `system/` for different prompt types
+- **Storage format**: YAML files with structured metadata
+- **Index management**: Use `composition:rebuild_index` after changes
+
+### Common Operations
+```bash
+# Rebuild composition index after changes
+echo '{"event": "composition:rebuild_index", "data": {}}' | nc -U var/run/daemon.sock
+
+# Create new prompt composition
+echo '{"event": "composition:create", "data": {"name": "my-prompt", "category": "agent_tasks", "content": "..."}}' | nc -U var/run/daemon.sock
+
+# Judge bootstrap protocol (for autonomous evaluation)
+python ksi_claude_code/scripts/judge_bootstrap_v2.py --test-suite evaluation/judges --num-variations 5
+```
+
+## Common Utilities (ksi_common)
+
+Essential utilities available throughout the codebase:
+- **file_utils.py**: File operations, atomic writes, safe path handling
+- **cache_utils.py**: Simple memory caching with TTL support
+- **event_utils.py**: Event formatting and validation helpers
+- **json_utils.py**: Safe JSON operations with error handling
+- **logging_utils.py**: Structured logging configuration
+- **time_utils.py**: Timestamp formatting and parsing
+
 ## KSI Hook Monitor
 Claude Code has a hook that monitors KSI activity and provides real-time feedback:
 

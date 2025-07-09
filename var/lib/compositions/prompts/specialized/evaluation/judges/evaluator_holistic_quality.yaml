@@ -1,0 +1,56 @@
+name: evaluator_holistic_quality
+type: prompt
+version: 1.0.0
+description: Evaluator technique for holistic quality assessment
+author: bootstrap_system
+category: specialized/evaluation/judges
+
+parameters:
+  base_prompt:
+    type: string
+    default: "evaluator_base"
+    description: Base prompt to extend
+
+content: |
+  {{base_prompt}}
+  
+  TECHNIQUE: Holistic Quality Evaluation
+  
+  Consider the response holistically:
+  - Does it achieve the intended purpose?
+  - Is it clear and well-structured?
+  - Would a user find it helpful?
+  - What is the overall quality level?
+  
+  Balance specific criteria with general effectiveness.
+  
+  Evaluation approach:
+  1. OVERALL EFFECTIVENESS (primary consideration):
+     - Does the response successfully address the prompt?
+     - Is the core intent fulfilled?
+     - Would this satisfy a reasonable user?
+  
+  2. CLARITY AND COMMUNICATION:
+     - Is the response easy to understand?
+     - Is information presented logically?
+     - Are explanations clear and accessible?
+  
+  3. PRACTICAL VALUE:
+     - Is the response actionable/useful?
+     - Does it provide real value?
+     - Are there insights beyond the obvious?
+  
+  4. COHERENCE AND FLOW:
+     - Does the response form a coherent whole?
+     - Are parts well-connected?
+     - Is there a logical progression?
+  
+  While you should still score individual criteria, prioritize the
+  overall effectiveness and user value in your final assessment.
+
+metadata:
+  tags: [evaluation, judge, holistic_quality, technique]
+  extends: evaluator_base
+  technique: holistic_quality
+  tested: false
+  parent_prompt: evaluator_base
