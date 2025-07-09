@@ -250,6 +250,7 @@ See `ksi_claude_code/docs/PROMPT_EXPERIMENTS_GUIDE.md` for usage.
 - **Clean separation**: `config.evaluations_dir` separate from `config.compositions_dir`
 - **File-based results**: Pattern `{type}_{name}_{eval}_{id}.yaml` in `var/lib/evaluations/results/`
 - **Weighted scoring**: Each evaluator has configurable weight, success threshold per test
+- **Format options for evaluation:compare**: summary (default), rankings, detailed - reduces output from 1500+ to ~20 lines
 
 ### Architecture
 ```

@@ -384,6 +384,7 @@ async def handle_compare_compositions(data: Dict[str, Any]) -> Dict[str, Any]:
     test_suite = data.get('test_suite', 'basic_effectiveness')  # Test suite to use
     model = data.get('model', 'claude-cli/sonnet')  # Model for testing
     update_metadata = data.get('update_metadata', False)  # Save results to compositions
+    format_type = data.get('format', 'summary')  # Output format: 'summary' (default), 'rankings', 'detailed' - summary shows key insights, rankings shows sorted results, detailed includes all data
     
     if not compositions:
         return {
@@ -414,14 +415,20 @@ async def handle_compare_compositions(data: Dict[str, Any]) -> Dict[str, Any]:
     # Generate comparative analysis
     comparison_report = _generate_comparison_report(results, test_suite)
     
-    return {
-        "status": "success",
-        "compositions_tested": len(compositions),
-        "test_suite": test_suite,
-        "model": model,
-        "individual_results": results,
-        "comparison": comparison_report
-    }
+    # Return format based on requested type
+    if format_type == 'summary':
+        return _format_summary_response(results, comparison_report, test_suite, model)
+    elif format_type == 'rankings':
+        return _format_rankings_response(results, comparison_report, test_suite, model)
+    else:  # 'detailed' or fallback
+        return {
+            "status": "success",
+            "compositions_tested": len(compositions),
+            "test_suite": test_suite,
+            "model": model,
+            "individual_results": results,
+            "comparison": comparison_report
+        }
 
 
 def _generate_comparison_report(results: Dict[str, Dict[str, Any]], test_suite: str) -> Dict[str, Any]:
@@ -562,6 +569,102 @@ def _generate_recommendations(comparison_data: Dict[str, Dict[str, Any]], test_s
         recommendations.append("Run additional test suites (reasoning, instruction_following) for comprehensive evaluation")
     
     return recommendations
+
+
+def _format_summary_response(results: Dict[str, Dict[str, Any]], comparison: Dict[str, Any], 
+                           test_suite: str, model: str) -> Dict[str, Any]:
+    """Format a concise summary response for evaluation comparison."""
+    # Extract key metrics
+    successful_count = sum(1 for r in results.values() if r.get('status') == 'success')
+    failed_count = len(results) - successful_count
+    
+    # Build ranking list with scores and times
+    rankings = []
+    # Use the rankings from comparison report, which has the correct structure
+    for i, (name, score) in enumerate(comparison.get('rankings', {}).get('by_success_rate', []), 1):
+        # Find the avg response time for this composition
+        detailed_metrics = comparison.get('detailed_metrics', {}).get(name, {})
+        avg_time = detailed_metrics.get('avg_response_time', 0)
+        rankings.append({
+            'rank': i,
+            'name': name,
+            'score': score,
+            'avg_time': f"{avg_time:.1f}s"
+        })
+    
+    # Create summary response
+    summary = {
+        "status": "success",
+        "format": "summary",
+        "summary": {
+            "test_suite": test_suite,
+            "model": model,
+            "compositions_tested": len(results),
+            "successful_evaluations": successful_count,
+            "failed_evaluations": failed_count,
+            "ranking": rankings[:5],  # Top 5 only
+            "key_insights": comparison.get('insights', [])[:3],  # Top 3 insights
+            "best_overall": comparison['summary'].get('best_overall'),
+            "recommendation": comparison.get('recommendations', ["No specific recommendations"])[0]
+        }
+    }
+    
+    # Add warning if any evaluations failed
+    if failed_count > 0:
+        summary["summary"]["warning"] = f"{failed_count} composition(s) failed evaluation"
+    
+    return summary
+
+
+def _format_rankings_response(results: Dict[str, Dict[str, Any]], comparison: Dict[str, Any],
+                            test_suite: str, model: str) -> Dict[str, Any]:
+    """Format a rankings-focused response for evaluation comparison."""
+    # Build detailed rankings with all metrics
+    detailed_rankings = {}
+    
+    # Success rate ranking
+    detailed_rankings['by_success_rate'] = []
+    for name, score in comparison['rankings'].get('by_success_rate', []):
+        metrics = comparison['detailed_metrics'].get(name, {})
+        detailed_rankings['by_success_rate'].append({
+            'composition': name,
+            'success_rate': score,
+            'tests_passed': f"{int(metrics.get('success_rate', 0) * metrics.get('total_tests', 0))}/{metrics.get('total_tests', 0)}"
+        })
+    
+    # Speed ranking
+    detailed_rankings['by_speed'] = []
+    for name, time in comparison['rankings'].get('by_speed', []):
+        metrics = comparison['detailed_metrics'].get(name, {})
+        detailed_rankings['by_speed'].append({
+            'composition': name,
+            'avg_response_time': time,
+            'speed_rank': len(detailed_rankings['by_speed']) + 1
+        })
+    
+    # Safety ranking
+    detailed_rankings['by_safety'] = []
+    for name, safety in comparison['rankings'].get('by_safety', []):
+        metrics = comparison['detailed_metrics'].get(name, {})
+        detailed_rankings['by_safety'].append({
+            'composition': name,
+            'safety_score': safety,
+            'contamination_rate': f"{metrics.get('contamination_rate', 0):.1%}"
+        })
+    
+    return {
+        "status": "success",
+        "format": "rankings",
+        "test_suite": test_suite,
+        "model": model,
+        "compositions_tested": len(results),
+        "rankings": detailed_rankings,
+        "best_overall": {
+            "composition": comparison['summary'].get('best_overall'),
+            "weighted_score": f"{comparison['summary'].get('best_overall_score', 0):.2f}"
+        },
+        "insights": comparison.get('insights', [])
+    }
 
 
 @event_handler("evaluation:list")

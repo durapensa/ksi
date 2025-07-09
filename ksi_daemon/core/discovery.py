@@ -40,7 +40,7 @@ async def handle_discover(data: Dict[str, Any]) -> Dict[str, Any]:
     Universal discovery endpoint - everything you need to understand KSI.
 
     Parameters:
-        detail (bool): Include parameters and triggers (default: True)
+        detail (bool): Include parameters and triggers (default: False)
         namespace (str): Filter by namespace (optional)
         event (str): Get details for specific event (optional)
         format_style (str): Output format - verbose, compact, ultra_compact, mcp (default: verbose)
@@ -48,7 +48,7 @@ async def handle_discover(data: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Dictionary with events, their parameters, and what they trigger
     """
-    include_detail = data.get("detail", True)
+    include_detail = data.get("detail", False)
     namespace_filter = data.get("namespace")
     event_filter = data.get("event")
     format_style = data.get("format_style", FORMAT_VERBOSE)
@@ -158,7 +158,7 @@ async def handle_module_list_events(data: Dict[str, Any]) -> Dict[str, Any]:
 
     Parameters:
         module_name (str): The full module name (e.g., "ksi_daemon.core.discovery")
-        detail (bool): Include event details like parameters and triggers (default: True)
+        detail (bool): Include event details like parameters and triggers (default: False)
         format_style (str): Output format - verbose, compact, ultra_compact (default: verbose)
 
     Returns:
@@ -168,7 +168,7 @@ async def handle_module_list_events(data: Dict[str, Any]) -> Dict[str, Any]:
     if not module_name:
         return {"error": "module_name parameter required"}
 
-    include_detail = data.get("detail", True)
+    include_detail = data.get("detail", False)
     format_style = data.get("format_style", FORMAT_VERBOSE)
 
     from ksi_daemon.event_system import get_router

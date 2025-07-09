@@ -35,7 +35,9 @@ class KSIHookMonitor:
         
         self.socket_path = str(socket_path)
         self.timestamp_file = Path("/tmp/ksi_hook_last_timestamp.txt")
+        self.mode_file = Path("/tmp/ksi_hook_mode.txt")
         self.last_timestamp = self.load_last_timestamp()
+        self.verbosity_mode = self.load_verbosity_mode()
         
     def load_last_timestamp(self):
         """Load the timestamp of the last event we showed."""
@@ -46,6 +48,22 @@ class KSIHookMonitor:
             pass
         return time.time() - 300  # Default to 5 minutes ago
         
+    def load_verbosity_mode(self):
+        """Load the current verbosity mode."""
+        try:
+            if self.mode_file.exists():
+                return self.mode_file.read_text().strip()
+        except:
+            pass
+        return "summary"  # Default mode
+    
+    def save_verbosity_mode(self, mode):
+        """Save the verbosity mode for next run."""
+        try:
+            self.mode_file.write_text(mode)
+        except:
+            pass
+    
     def save_last_timestamp(self, timestamp):
         """Save the timestamp for next run."""
         try:
@@ -93,34 +111,134 @@ class KSIHookMonitor:
             # Silent fail - daemon might not be running
             return []
     
+    def _group_repetitive_events(self, events):
+        """Group similar events together (not just consecutive)."""
+        if not events:
+            return []
+        
+        # Events to group when repetitive
+        groupable_patterns = [
+            "completion:progress",
+            "completion:async", 
+            "completion:result",
+            "permission:check",
+            "capability:check"
+        ]
+        
+        # First pass: separate groupable and non-groupable events
+        event_groups = {}
+        ordered_events = []
+        
+        for event in events:
+            event_name = event.get("event_name", "unknown")
+            is_groupable = any(pattern in event_name for pattern in groupable_patterns)
+            
+            if is_groupable:
+                if event_name not in event_groups:
+                    event_groups[event_name] = {
+                        "type": event_name,
+                        "count": 0,
+                        "first_event": None,
+                        "first_timestamp": event.get("timestamp", 0),
+                        "last_timestamp": event.get("timestamp", 0)
+                    }
+                
+                group = event_groups[event_name]
+                group["count"] += 1
+                if not group["first_event"]:
+                    group["first_event"] = event
+                group["last_timestamp"] = event.get("timestamp", 0)
+            else:
+                # Non-groupable event - keep in order
+                ordered_events.append({"type": "single", "event": event, "timestamp": event.get("timestamp", 0)})
+        
+        # Second pass: merge grouped events with singles, maintaining some chronological order
+        # Add groups at the position of their last occurrence
+        for event_name, group in event_groups.items():
+            if group["count"] > 2:  # Only group if more than 2 occurrences
+                ordered_events.append({
+                    "type": "group",
+                    "group": group,
+                    "timestamp": group["last_timestamp"]
+                })
+            else:
+                # Too few to group - add as singles
+                for event in events:
+                    if event.get("event_name") == event_name:
+                        ordered_events.append({"type": "single", "event": event, "timestamp": event.get("timestamp", 0)})
+        
+        # Sort by timestamp to maintain chronological order
+        ordered_events.sort(key=lambda x: x["timestamp"])
+        
+        # Convert to final format
+        final_groups = []
+        for item in ordered_events:
+            if item["type"] == "single":
+                final_groups.append({"type": "single", "event": item["event"]})
+            else:
+                final_groups.append(item["group"])
+        
+        return final_groups
+    
     def format_event_summary(self, events):
         """Format events for display."""
         # Events are already filtered by the server using 'since' parameter
         if not events:
             return "No new KSI events since last check.", []
         
+        # Group repetitive events
+        event_groups = self._group_repetitive_events(events)
+        
         # Concise event summary
         lines = []
-        for event in events[:5]:  # Limit to 5 for token efficiency
-            event_name = event.get("event_name", "unknown")
-            timestamp = event.get("timestamp", 0)
+        for group in event_groups[:8]:  # Limit output for token efficiency
+            if group["type"] == "single":
+                # Single event formatting
+                event = group["event"]
+                event_name = event.get("event_name", "unknown")
+                timestamp = event.get("timestamp", 0)
+            else:
+                # Grouped events
+                event = group["first_event"]
+                event_name = group["type"]
+                timestamp = group["last_timestamp"]
+                count = group["count"]
             
             # Ultra-concise format
             time_str = datetime.fromtimestamp(timestamp).strftime("%H:%M:%S") if timestamp else "?"
             
-            # Special cases with key info only
-            if event_name == "completion:result":
-                session = event.get("data", {}).get("session_id", "?")[:8]
-                lines.append(f"{time_str} completion:{session}")
-            elif event_name == "agent:spawn:success":
-                agent_id = event.get("data", {}).get("agent_id", "?")
-                lines.append(f"{time_str} spawn:{agent_id}")
-            elif "error" in event_name:
-                lines.append(f"{time_str} ERROR:{event_name}")
+            # Handle grouped events
+            if group["type"] != "single" and group["count"] > 1:
+                # Show grouped events concisely
+                if "completion:" in event_name:
+                    lines.append(f"{time_str} completion:* (×{count})")
+                else:
+                    lines.append(f"{time_str} {event_name} (×{count})")
             else:
-                # Skip verbose internal events
-                if event_name not in ["hook_event_name:PostToolUse", "permission:check", "capability:check", "sandbox:create", "mcp:config:create"]:
-                    lines.append(f"{time_str} {event_name}")
+                # Special cases with key info only
+                if event_name == "completion:result":
+                    session = event.get("data", {}).get("session_id", "?")[:8]
+                    # Check if completion was successful
+                    data = event.get("data", {})
+                    if data.get("result", {}).get("response", {}).get("is_error", False):
+                        lines.append(f"{time_str} ✗ completion:{session}")
+                    else:
+                        lines.append(f"{time_str} ✓ completion:{session}")
+                elif event_name == "agent:spawn:success":
+                    agent_id = event.get("data", {}).get("agent_id", "?")
+                    lines.append(f"{time_str} ✓ spawn:{agent_id}")
+                elif event_name == "agent:spawn:failed":
+                    lines.append(f"{time_str} ✗ agent:spawn failed")
+                elif "error" in event_name:
+                    lines.append(f"{time_str} ✗ ERROR:{event_name}")
+                elif event_name == "evaluation:prompt":
+                    lines.append(f"{time_str} ✓ evaluation:prompt")
+                elif event_name == "composition:evaluate":
+                    lines.append(f"{time_str} ✓ composition:evaluate")
+                else:
+                    # Skip verbose internal events
+                    if event_name not in ["hook_event_name:PostToolUse", "permission:check", "capability:check", "sandbox:create", "mcp:config:create"]:
+                        lines.append(f"{time_str} {event_name}")
         
         return "\n".join(lines), events
     
@@ -217,6 +335,28 @@ def main():
         # Skip if checking hook logs (avoid recursion)
         if "ksi_hook" in command or "hook_diagnostic.log" in command:
             sys.exit(0)
+        
+        # Check for verbosity control commands
+        if command.strip() in ["echo ksi_verbose", "echo ksi_summary", "echo ksi_errors", "echo ksi_silent", "echo ksi_status"]:
+            monitor = KSIHookMonitor()
+            
+            if command.strip() == "echo ksi_verbose":
+                monitor.save_verbosity_mode("verbose")
+                print("[KSI] Mode: verbose", file=sys.stderr, flush=True)
+            elif command.strip() == "echo ksi_summary":
+                monitor.save_verbosity_mode("summary")
+                print("[KSI] Mode: summary", file=sys.stderr, flush=True)
+            elif command.strip() == "echo ksi_errors":
+                monitor.save_verbosity_mode("errors")
+                print("[KSI] Mode: errors only", file=sys.stderr, flush=True)
+            elif command.strip() == "echo ksi_silent":
+                monitor.save_verbosity_mode("silent")
+                print("[KSI] Mode: silent", file=sys.stderr, flush=True)
+            elif command.strip() == "echo ksi_status":
+                mode = monitor.verbosity_mode
+                print(f"[KSI] Current mode: {mode}", file=sys.stderr, flush=True)
+            
+            sys.exit(2)  # Exit with stderr feedback
             
         # Load KSI indicators from external file
         def load_ksi_indicators():
@@ -301,36 +441,61 @@ def main():
         newest_timestamp = max(e.get("timestamp", 0) for e in new_events)
         monitor.save_last_timestamp(newest_timestamp)
     
-    # Summary mode by default (for token efficiency)
-    # Determine if we need detailed output
+    # Check verbosity mode
+    mode = monitor.verbosity_mode
+    
+    # Silent mode - no output
+    if mode == "silent":
+        sys.exit(0)
+    
+    # Determine if we have errors or significant events
     has_errors = any("error" in e.get("event_name", "").lower() for e in new_events)
     has_significant = any(e.get("event_name", "") in ["agent:spawn:success", "completion:result"] for e in new_events)
     
     # Check for active agents
     agent_count = len(agent_status.split(": ")[1].split(", ")) if "Agents[" in agent_status else 0
     
-    # Summary mode - ultra concise
-    if not has_errors and not has_significant and len(new_events) <= 3:
+    # Errors mode - only show errors
+    if mode == "errors":
+        if has_errors:
+            error_events = [e for e in new_events if "error" in e.get("event_name", "").lower()]
+            message = f"[KSI: {len(error_events)} errors]"
+            for event in error_events[:3]:
+                event_name = event.get("event_name", "unknown")
+                timestamp = event.get("timestamp", 0)
+                time_str = datetime.fromtimestamp(timestamp).strftime("%H:%M:%S") if timestamp else "?"
+                message += f" {time_str} {event_name}"
+        else:
+            sys.exit(0)  # No errors, no output in errors mode
+    
+    # Verbose mode - show everything
+    elif mode == "verbose":
+        message = f"[KSI: {len(new_events)} new]"
+        if new_events:
+            message += f" {event_summary}"
+        if agent_status != "No active agents.":
+            message += f" {agent_status}"
+        if not new_events and agent_status == "No active agents.":
+            message = "[KSI]"  # Still show something even if nothing happening
+    
+    # Summary mode (default) - concise
+    else:
         summary_parts = []
         if new_events:
             summary_parts.append(f"{len(new_events)} events")
         if agent_count > 0:
             summary_parts.append(f"{agent_count} agents")
+        
+        # Show errors even in summary mode with indicator
+        if has_errors:
+            error_count = len([e for e in new_events if "error" in e.get("event_name", "").lower()])
+            summary_parts.insert(0, f"✗ {error_count} errors")
+        
         # Always show something - even if just [KSI] to show hook is working
         if summary_parts:
             message = f"[KSI: {', '.join(summary_parts)}]"
         else:
             message = "[KSI]"  # Minimal output to confirm hook is active
-    else:
-        # Detailed mode for errors or significant events
-        if new_events or agent_status != "No active agents.":
-            message = f"[KSI: {len(new_events)} new]"
-            if new_events:
-                message += f" {event_summary}"
-            if agent_status != "No active agents.":
-                message += f" {agent_status}"
-        else:
-            message = "[KSI]"  # Even in detailed mode, always show something
     
     # stderr + exit code 2 (only method that feeds back to Claude per docs)
     with open("/tmp/ksi_hook_diagnostic.log", "a") as f:
