@@ -1,0 +1,242 @@
+name: all_to_meta
+type: judge_communication_schema
+version: 1.0.0
+description: Schema for any judge communicating with Meta-Judge for oversight
+
+schema_documentation: |
+  The Meta-Judge serves as system overseer with circuit breaker authority.
+  Any judge can send messages to Meta-Judge for:
+  - Constitutional constraint checks
+  - Anomaly reporting
+  - Resource limit warnings
+  - Consensus failures
+  - System health concerns
+  
+  Meta-Judge responses can HALT the entire pipeline if necessary.
+
+message_structure:
+  metadata:
+    required: true
+    fields:
+      sender_role:
+        type: enum
+        values: ["evaluator", "analyst", "rewriter", "adversarial", "orchestrator"]
+        description: "Which judge is raising the concern"
+      
+      alert_type:
+        type: enum
+        values: ["constraint_check", "anomaly_detected", "resource_warning", "consensus_failure", "health_check", "routine_review"]
+        description: "Why Meta-Judge attention is needed"
+      
+      severity:
+        type: enum
+        values: ["info", "warning", "critical", "emergency"]
+        description: "How urgent is Meta-Judge intervention"
+        
+      pipeline_state:
+        type: object
+        description: "Current state when alert triggered"
+        fields:
+          cycle_id: string
+          iteration: integer
+          total_cost_usd: float
+          elapsed_time_seconds: float
+
+  alert_details:
+    required: true
+    fields:
+      summary:
+        type: string
+        description: "One-line summary of the issue"
+        max_length: 200
+        
+      detailed_description:
+        type: string
+        description: "Full context for Meta-Judge decision"
+        
+      evidence:
+        type: array
+        description: "Supporting data for the alert"
+        items:
+          type: object
+          fields:
+            data_point: string
+            significance: string
+
+  constraint_context:
+    required: false
+    description: "Required for constraint_check alerts"
+    fields:
+      constraint_id:
+        type: string
+        description: "Which constitutional constraint is relevant"
+        example: "intent_preservation"
+        
+      constraint_status:
+        type: enum
+        values: ["approaching_limit", "at_limit", "violated", "at_risk"]
+        
+      measurement:
+        type: object
+        description: "Quantified constraint measurement"
+        example:
+          semantic_similarity: 0.65
+          threshold: 0.70
+
+  resource_context:
+    required: false
+    description: "Required for resource_warning alerts"
+    fields:
+      resource_type:
+        type: enum
+        values: ["cost", "time", "iterations", "api_calls"]
+        
+      current_usage:
+        type: float
+        description: "Current resource consumption"
+        
+      limit:
+        type: float
+        description: "Configured limit"
+        
+      projected_overage:
+        type: float
+        description: "Expected overage if continues"
+
+  anomaly_context:
+    required: false
+    description: "Required for anomaly_detected alerts"
+    fields:
+      anomaly_type:
+        type: string
+        examples: ["score_regression", "infinite_loop", "pattern_deviation", "judge_disagreement"]
+        
+      baseline_expectation:
+        type: string
+        description: "What was expected"
+        
+      actual_observation:
+        type: string
+        description: "What actually happened"
+        
+      statistical_significance:
+        type: float
+        description: "How unusual is this (p-value or z-score)"
+
+  recommendation:
+    required: true
+    fields:
+      suggested_action:
+        type: enum
+        values: ["continue", "continue_with_caution", "pause_for_review", "halt_immediately", "rollback", "escalate_to_human"]
+        
+      rationale:
+        type: string
+        description: "Why this action is recommended"
+        
+      alternative_actions:
+        type: array
+        description: "Other possible responses"
+
+example_messages:
+  - name: "Cost approaching limit"
+    content:
+      metadata:
+        sender_role: "orchestrator"
+        alert_type: "resource_warning"
+        severity: "warning"
+        pipeline_state:
+          cycle_id: "bracket_fix_20250709"
+          iteration: 8
+          total_cost_usd: 8.50
+          elapsed_time_seconds: 240
+          
+      alert_details:
+        summary: "Approaching 85% of cost budget with minimal improvement"
+        detailed_description: |
+          Current cycle has consumed $8.50 of $10 budget.
+          Last 3 iterations showed <2% improvement.
+          Projected 2 more iterations would exceed budget.
+        evidence:
+          - data_point: "Iteration 6: score 0.84"
+            significance: "2% improvement"
+          - data_point: "Iteration 7: score 0.85"
+            significance: "1% improvement"
+          - data_point: "Iteration 8: score 0.86"
+            significance: "1% improvement"
+            
+      resource_context:
+        resource_type: "cost"
+        current_usage: 8.50
+        limit: 10.00
+        projected_overage: 1.20
+        
+      recommendation:
+        suggested_action: "pause_for_review"
+        rationale: "Diminishing returns suggest convergence, further spend unlikely to help"
+        alternative_actions: ["halt_immediately", "continue_with_caution"]
+
+  - name: "Constitutional constraint violation"
+    content:
+      metadata:
+        sender_role: "rewriter"
+        alert_type: "constraint_check"
+        severity: "critical"
+        pipeline_state:
+          cycle_id: "clarity_improve_20250709"
+          iteration: 5
+          total_cost_usd: 3.20
+          elapsed_time_seconds: 150
+          
+      alert_details:
+        summary: "Rewritten prompt deviates significantly from original intent"
+        detailed_description: |
+          Original prompt asked for France's capital.
+          Rewritten prompt asks for 'major French cities'.
+          Semantic similarity dropped below threshold.
+        evidence:
+          - data_point: "Original: 'What is the capital of France?'"
+            significance: "Clear single-city query"
+          - data_point: "Rewritten: 'List major French cities including Paris'"
+            significance: "Changed to multi-city query"
+            
+      constraint_context:
+        constraint_id: "intent_preservation"
+        constraint_status: "violated"
+        measurement:
+          semantic_similarity: 0.45
+          threshold: 0.70
+          
+      recommendation:
+        suggested_action: "rollback"
+        rationale: "Constitutional constraint violated - must preserve original intent"
+        alternative_actions: ["halt_immediately"]
+
+meta_judge_response_schema:
+  description: "Meta-Judge decision format"
+  fields:
+    decision:
+      action: "continue|pause|halt|rollback|escalate"
+      authoritative: true  # Meta-Judge decisions are final
+      
+    circuit_breaker_triggered:
+      type: boolean
+      breaker_id: string  # If triggered, which breaker
+      
+    constraints_status:
+      all_satisfied: boolean
+      warnings: ["List of constraints approaching limits"]
+      violations: ["List of violated constraints"]
+      
+    system_health:
+      status: "healthy|degraded|critical"
+      concerns: ["List of health concerns"]
+      
+    human_notification_required:
+      type: boolean
+      notification_type: "email|alert|dashboard"
+      urgency: "low|medium|high"
+      
+    reasoning:
+      type: string
+      description: "Explanation of Meta-Judge decision"

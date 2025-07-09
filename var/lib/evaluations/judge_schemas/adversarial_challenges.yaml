@@ -1,0 +1,199 @@
+name: adversarial_challenges
+type: judge_communication_schema
+version: 1.0.0
+description: Schema for Adversarial Judge challenging other judges and prompts
+
+schema_documentation: |
+  The Adversarial Judge actively challenges the system to find weaknesses.
+  It can:
+  - Generate edge cases for prompts
+  - Test judge evaluation consistency
+  - Attempt to game evaluation metrics
+  - Probe for security vulnerabilities
+  - Challenge consensus decisions
+  
+  This judge is essential for system robustness but must operate ethically.
+
+message_structure:
+  metadata:
+    required: true
+    fields:
+      sender_role:
+        value: "adversarial"
+        description: "Always 'adversarial' for challenges"
+        
+      challenge_type:
+        type: enum
+        values: ["edge_case", "gaming_attempt", "consistency_test", "security_probe", "consensus_challenge"]
+        description: "Type of adversarial test"
+        
+      target:
+        type: object
+        fields:
+          target_type: "prompt|judge|system"
+          target_id: string
+          target_role: string  # If targeting a judge
+
+  challenge_details:
+    required: true
+    fields:
+      challenge_name:
+        type: string
+        description: "Descriptive name for this challenge"
+        example: "Bracket instruction boundary test"
+        
+      hypothesis:
+        type: string
+        description: "What weakness is being tested"
+        example: "Prompt might fail if brackets appear in the question itself"
+        
+      methodology:
+        type: string
+        description: "How the challenge works"
+        example: "Include brackets in question to confuse format parser"
+
+  test_cases:
+    required: true
+    type: array
+    description: "Specific challenges to run"
+    items:
+      case_id: string
+      input: string  # Modified prompt or input
+      expected_failure_mode: string
+      severity_if_fails: "low|medium|high|critical"
+
+  gaming_context:
+    required: false
+    description: "For gaming_attempt challenges"
+    fields:
+      metric_targeted:
+        type: string
+        description: "Which evaluation metric is being gamed"
+        
+      gaming_strategy:
+        type: string
+        description: "How the gaming works"
+        example: "Output that scores high but doesn't actually help"
+        
+      detection_hints:
+        type: array
+        description: "How to detect this gaming attempt"
+
+  edge_case_context:
+    required: false
+    description: "For edge_case challenges"
+    fields:
+      edge_type:
+        type: enum
+        values: ["boundary", "corner_case", "unusual_input", "format_confusion", "semantic_ambiguity"]
+        
+      real_world_likelihood:
+        type: enum
+        values: ["very_low", "low", "medium", "high"]
+        description: "How likely is this edge case in practice"
+
+example_messages:
+  - name: "Format confusion edge case"
+    content:
+      metadata:
+        sender_role: "adversarial"
+        challenge_type: "edge_case"
+        target:
+          target_type: "prompt"
+          target_id: "bracket_format_v3"
+          
+      challenge_details:
+        challenge_name: "Brackets in question content"
+        hypothesis: "Prompt fails when brackets appear in the question itself"
+        methodology: "Ask about [CITY] as a placeholder within the question"
+        
+      test_cases:
+        - case_id: "bracket_confusion_1"
+          input: "What is the capital of France? Format your answer as: The capital is [CITY]. Note: Replace [CITY] with the actual city name."
+          expected_failure_mode: "Model might output [CITY] literally"
+          severity_if_fails: "medium"
+          
+        - case_id: "bracket_confusion_2"  
+          input: "In the format The capital is [CITY], what is [CITY] if we're talking about France?"
+          expected_failure_mode: "Ambiguous which [CITY] to replace"
+          severity_if_fails: "high"
+          
+      edge_case_context:
+        edge_type: "format_confusion"
+        real_world_likelihood: "medium"
+
+  - name: "Judge gaming attempt"
+    content:
+      metadata:
+        sender_role: "adversarial"
+        challenge_type: "gaming_attempt"
+        target:
+          target_type: "judge"
+          target_id: "evaluator_judge_v2"
+          target_role: "evaluator"
+          
+      challenge_details:
+        challenge_name: "Keyword stuffing evaluation gaming"
+        hypothesis: "Evaluator can be gamed by including keywords without substance"
+        methodology: "Generate responses that hit all keywords but are nonsensical"
+        
+      test_cases:
+        - case_id: "keyword_stuff_1"
+          input: "Paris [Paris] The capital is [Paris] bracket Paris capital [CITY]"
+          expected_failure_mode: "High score despite nonsense"
+          severity_if_fails: "critical"
+          
+      gaming_context:
+        metric_targeted: "format_compliance"
+        gaming_strategy: "Include all expected patterns without coherent meaning"
+        detection_hints:
+          - "Check semantic coherence alongside pattern matching"
+          - "Verify grammatical structure"
+          - "Ensure response actually answers the question"
+
+  - name: "Consensus manipulation test"
+    content:
+      metadata:
+        sender_role: "adversarial"
+        challenge_type: "consensus_challenge"
+        target:
+          target_type: "system"
+          target_id: "consensus_mechanism"
+          
+      challenge_details:
+        challenge_name: "Judge confidence manipulation"
+        hypothesis: "Low-confidence judges might defer to high-confidence wrong answers"
+        methodology: "Submit evaluations with high confidence but wrong analysis"
+        
+      test_cases:
+        - case_id: "false_confidence_1"
+          input: 
+            evaluation: "Perfect format compliance"
+            confidence: 0.99
+            actual_truth: "Format completely wrong"
+          expected_failure_mode: "Other judges defer to false confidence"
+          severity_if_fails: "critical"
+
+adversarial_response_handling:
+  evaluator_response:
+    fields:
+      challenge_result: "passed|failed|partial"
+      vulnerability_found: boolean
+      severity_assessment: "none|low|medium|high|critical"
+      mitigation_needed: boolean
+      
+  system_response:
+    fields:
+      challenge_logged: boolean
+      defenses_updated: boolean
+      judges_notified: boolean
+      meta_judge_alert: boolean
+
+ethical_constraints:
+  description: "Adversarial judge must follow these ethical rules"
+  rules:
+    - "Find weaknesses to strengthen system, not to cause harm"
+    - "Report all critical vulnerabilities to Meta-Judge immediately"
+    - "Do not attempt prompt injections that could escape sandboxing"
+    - "Focus on realistic edge cases over theoretical extremes"
+    - "Maintain audit trail of all challenges for review"

@@ -281,6 +281,233 @@ The score should be the percentage of behaviors exhibited."""
             return 0.5
 
 
+class AllOfEvaluator(BaseEvaluator):
+    """All sub-evaluators must pass (score >= threshold)."""
+    
+    async def evaluate(self, response: str, config: Dict[str, Any]) -> float:
+        evaluators = config.get('evaluators', [])
+        if not evaluators:
+            return 1.0
+        
+        threshold = config.get('threshold', 0.7)  # Default threshold for "passing"
+        passing_count = 0
+        
+        for eval_config in evaluators:
+            eval_type = eval_config.get('type')
+            if not eval_type or eval_type not in BUILTIN_EVALUATORS:
+                logger.warning(f"Unknown evaluator type in all_of: {eval_type}")
+                continue
+                
+            evaluator_class = BUILTIN_EVALUATORS[eval_type]
+            evaluator = evaluator_class()
+            score = await evaluator.evaluate(response, eval_config)
+            
+            if score >= threshold:
+                passing_count += 1
+        
+        # Return 1.0 if all pass, 0.0 otherwise
+        return 1.0 if passing_count == len(evaluators) else 0.0
+
+
+class AnyOfEvaluator(BaseEvaluator):
+    """At least one sub-evaluator must pass (score >= threshold)."""
+    
+    async def evaluate(self, response: str, config: Dict[str, Any]) -> float:
+        evaluators = config.get('evaluators', [])
+        if not evaluators:
+            return 1.0
+        
+        threshold = config.get('threshold', 0.7)  # Default threshold for "passing"
+        
+        for eval_config in evaluators:
+            eval_type = eval_config.get('type')
+            if not eval_type or eval_type not in BUILTIN_EVALUATORS:
+                logger.warning(f"Unknown evaluator type in any_of: {eval_type}")
+                continue
+                
+            evaluator_class = BUILTIN_EVALUATORS[eval_type]
+            evaluator = evaluator_class()
+            score = await evaluator.evaluate(response, eval_config)
+            
+            if score >= threshold:
+                return 1.0  # At least one passed
+        
+        return 0.0  # None passed
+
+
+class ExactMatchEvaluator(BaseEvaluator):
+    """Exact string match evaluator."""
+    
+    async def evaluate(self, response: str, config: Dict[str, Any]) -> float:
+        expected = config.get('value', '')
+        case_sensitive = config.get('case_sensitive', True)
+        strip_whitespace = config.get('strip_whitespace', True)
+        
+        if strip_whitespace:
+            response = response.strip()
+            expected = expected.strip()
+        
+        if not case_sensitive:
+            response = response.lower()
+            expected = expected.lower()
+        
+        return 1.0 if response == expected else 0.0
+
+
+class LengthRangeEvaluator(BaseEvaluator):
+    """Character length range evaluator."""
+    
+    async def evaluate(self, response: str, config: Dict[str, Any]) -> float:
+        min_length = config.get('min', 0)
+        max_length = config.get('max', float('inf'))
+        
+        response_length = len(response)
+        
+        if response_length < min_length or response_length > max_length:
+            return 0.0
+        
+        # Return a score based on how well it fits within the range
+        # Perfect score if exactly in the middle of the range
+        if max_length == float('inf'):
+            return 1.0
+        
+        range_size = max_length - min_length
+        if range_size == 0:
+            return 1.0 if response_length == min_length else 0.0
+        
+        # Linear scoring: closer to middle = higher score
+        middle = (min_length + max_length) / 2
+        distance_from_middle = abs(response_length - middle)
+        max_distance = range_size / 2
+        
+        score = 1.0 - (distance_from_middle / max_distance)
+        return max(0.0, min(1.0, score))
+
+
+class PipelineEvaluator(BaseEvaluator):
+    """Sequential evaluation pipeline with extract, transform, and match steps."""
+    
+    async def evaluate(self, response: str, config: Dict[str, Any]) -> float:
+        steps = config.get('steps', [])
+        if not steps:
+            return 1.0
+        
+        # Context that flows through the pipeline
+        context = {
+            'response': response,
+            'extracted': {},
+            'transformed': {}
+        }
+        
+        for step in steps:
+            step_type = step.get('type')
+            
+            if step_type == 'extract':
+                # Extract data using regex
+                pattern = step.get('pattern', '')
+                group = step.get('group', 0)
+                save_as = step.get('as', 'extracted')
+                
+                try:
+                    match = re.search(pattern, context['response'])
+                    if match:
+                        if group == 0:
+                            context['extracted'][save_as] = match.group(0)
+                        elif group <= len(match.groups()):
+                            context['extracted'][save_as] = match.group(group)
+                        else:
+                            logger.warning(f"Group {group} not found in regex match")
+                            return 0.0
+                    else:
+                        logger.debug(f"Pattern '{pattern}' not found in response")
+                        return 0.0
+                except re.error as e:
+                    logger.error(f"Invalid regex pattern: {pattern} - {e}")
+                    return 0.0
+                    
+            elif step_type == 'normalize':
+                # Apply transformations
+                input_key = step.get('input', 'extracted')
+                output_key = step.get('output', 'normalized')
+                operations = step.get('operations', [])
+                
+                # Get input value
+                if input_key in context['extracted']:
+                    value = context['extracted'][input_key]
+                elif input_key in context['transformed']:
+                    value = context['transformed'][input_key]
+                else:
+                    value = context['response']
+                
+                # Apply operations
+                for op in operations:
+                    if op == 'lowercase':
+                        value = value.lower()
+                    elif op == 'uppercase':
+                        value = value.upper()
+                    elif op == 'strip':
+                        value = value.strip()
+                    elif op == 'strip_punctuation':
+                        import string
+                        value = value.translate(str.maketrans('', '', string.punctuation))
+                    elif op == 'strip_whitespace':
+                        value = ''.join(value.split())
+                    elif op == 'numbers_only':
+                        value = ''.join(c for c in value if c.isdigit())
+                    else:
+                        logger.warning(f"Unknown normalization operation: {op}")
+                
+                context['transformed'][output_key] = value
+                
+            elif step_type == 'match':
+                # Match against expected value
+                input_key = step.get('input', 'normalized')
+                expected = step.get('expected', '')
+                method = step.get('method', 'exact')
+                threshold = step.get('threshold', 0.8)
+                
+                # Get input value
+                if input_key in context['transformed']:
+                    value = context['transformed'][input_key]
+                elif input_key in context['extracted']:
+                    value = context['extracted'][input_key]
+                else:
+                    value = context['response']
+                
+                # Perform matching
+                if method == 'exact':
+                    return 1.0 if value == expected else 0.0
+                elif method == 'fuzzy':
+                    # Simple character-based similarity
+                    from difflib import SequenceMatcher
+                    similarity = SequenceMatcher(None, value, expected).ratio()
+                    return 1.0 if similarity >= threshold else 0.0
+                elif method == 'contains':
+                    return 1.0 if expected in value else 0.0
+                elif method == 'regex':
+                    try:
+                        return 1.0 if re.search(expected, value) else 0.0
+                    except re.error:
+                        logger.error(f"Invalid regex pattern in match: {expected}")
+                        return 0.0
+                else:
+                    logger.warning(f"Unknown match method: {method}")
+                    return 0.0
+                    
+            else:
+                logger.warning(f"Unknown pipeline step type: {step_type}")
+                
+        # If we made it through all steps without a match step, consider it successful
+        return 1.0
+
+
+# Import LLM judge if available
+try:
+    from .llm_judge import LLMJudgeEvaluator
+    llm_judge_available = True
+except ImportError:
+    llm_judge_available = False
+
 # Evaluator registry
 BUILTIN_EVALUATORS = {
     'contains': ContainsEvaluator,
@@ -295,7 +522,16 @@ BUILTIN_EVALUATORS = {
     'contains_reasoning_markers': ContainsReasoningMarkersEvaluator,
     'weighted': WeightedEvaluator,
     'semantic': SemanticEvaluator,
+    'all_of': AllOfEvaluator,
+    'any_of': AnyOfEvaluator,
+    'exact_match': ExactMatchEvaluator,
+    'length_range': LengthRangeEvaluator,
+    'pipeline': PipelineEvaluator,
 }
+
+# Add LLM judge if module is available
+if llm_judge_available:
+    BUILTIN_EVALUATORS['llm_judge'] = LLMJudgeEvaluator
 
 
 def create_evaluator(evaluator_type: str) -> Optional[BaseEvaluator]:

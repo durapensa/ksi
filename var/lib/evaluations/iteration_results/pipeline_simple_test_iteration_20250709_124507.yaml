@@ -1,0 +1,158 @@
+analysis:
+  best_version:
+    response: The capital is [Paris]
+    score: 1.0
+    version: v2_explicit_brackets
+  failed_versions:
+  - base
+  - v8_code_style
+  improvement_over_base: 1.0
+  success_rate: 0.8
+  successful_versions:
+  - v2_explicit_brackets
+  - v3_example_driven
+  - v4_step_by_step
+  - v5_negative_example
+  - v6_constraint_emphasis
+  - v7_template_fill
+  - v9_validation_check
+  - v10_repetition
+  technique_patterns:
+    most_effective: explicit_formatting
+    successful_techniques:
+      bracket_emphasis: 1
+      constraint_emphasis: 1
+      contrast_learning: 1
+      critical_instruction: 1
+      example_based: 1
+      explicit_formatting: 1
+      fill_in_blank: 1
+      format_reinforcement: 1
+      negative_example: 1
+      placeholder_replacement: 1
+      procedural: 1
+      regex_mention: 1
+      repetition: 1
+      step_by_step: 1
+      template_paradigm: 1
+      validation_aware: 1
+results:
+- evaluator_scores:
+  - config: &id001
+      steps:
+      - as: city
+        group: 1
+        pattern: The capital is \[([^\]]+)\]
+        type: extract
+      - input: city
+        operations:
+        - lowercase
+        - strip
+        output: normalized_city
+        type: normalize
+      - expected: paris
+        input: normalized_city
+        method: exact
+        type: match
+      type: pipeline
+      weight: 1.0
+    score: 0.0
+    type: pipeline
+    weight: 1.0
+  response: The capital is Paris.
+  response_time: 4.0178253329358995
+  score: 0.0
+  success: false
+  version: base
+- evaluator_scores:
+  - config: *id001
+    score: 1.0
+    type: pipeline
+    weight: 1.0
+  response: The capital is [Paris]
+  response_time: 4.020026875194162
+  score: 1.0
+  success: true
+  version: v2_explicit_brackets
+- evaluator_scores:
+  - config: *id001
+    score: 1.0
+    type: pipeline
+    weight: 1.0
+  response: The capital is [Paris]
+  response_time: 4.021474333014339
+  score: 1.0
+  success: true
+  version: v3_example_driven
+- evaluator_scores:
+  - config: *id001
+    score: 1.0
+    type: pipeline
+    weight: 1.0
+  response: The capital is [Paris]
+  response_time: 4.0214026668109
+  score: 1.0
+  success: true
+  version: v4_step_by_step
+- evaluator_scores:
+  - config: *id001
+    score: 1.0
+    type: pipeline
+    weight: 1.0
+  response: The capital is [Paris]
+  response_time: 4.027890165802091
+  score: 1.0
+  success: true
+  version: v5_negative_example
+- evaluator_scores:
+  - config: *id001
+    score: 1.0
+    type: pipeline
+    weight: 1.0
+  response: The capital is [Paris]
+  response_time: 4.0338340839371085
+  score: 1.0
+  success: true
+  version: v6_constraint_emphasis
+- evaluator_scores:
+  - config: *id001
+    score: 1.0
+    type: pipeline
+    weight: 1.0
+  response: The capital is [Paris]
+  response_time: 5.028334749862552
+  score: 1.0
+  success: true
+  version: v7_template_fill
+- evaluator_scores:
+  - config: *id001
+    score: 0.0
+    type: pipeline
+    weight: 1.0
+  response: The capital is Paris
+  response_time: 5.021777082700282
+  score: 0.0
+  success: false
+  version: v8_code_style
+- evaluator_scores:
+  - config: *id001
+    score: 1.0
+    type: pipeline
+    weight: 1.0
+  response: The capital is [Paris]
+  response_time: 4.018051917199045
+  score: 1.0
+  success: true
+  version: v9_validation_check
+- evaluator_scores:
+  - config: *id001
+    score: 1.0
+    type: pipeline
+    weight: 1.0
+  response: The capital is [Paris]
+  response_time: 5.028520375024527
+  score: 1.0
+  success: true
+  version: v10_repetition
+test_name: pipeline_simple_test
+timestamp: '2025-07-09T12:45:07.813368'

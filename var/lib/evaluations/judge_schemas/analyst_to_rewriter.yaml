@@ -1,0 +1,189 @@
+name: analyst_to_rewriter
+type: judge_communication_schema
+version: 1.0.0
+description: Schema for Analyst Judge sending analysis to Rewriter Judge
+
+schema_documentation: |
+  After analyzing a failure, the Analyst Judge sends this detailed diagnosis
+  to the Rewriter Judge. The Rewriter uses this information to create an
+  improved prompt that addresses the identified issues while preserving
+  the original intent.
+
+message_structure:
+  metadata:
+    required: true
+    fields:
+      sender_role:
+        value: "analyst"
+        description: "Always 'analyst' for this message type"
+      pipeline_stage:
+        value: "analysis_complete"
+        description: "Analysis phase finished, ready for rewriting"
+      rewrite_urgency:
+        type: "low|medium|high"
+        description: "How critical is fixing this issue"
+
+  failure_analysis:
+    required: true
+    fields:
+      root_cause:
+        type: string
+        description: "Primary reason the prompt failed"
+        examples:
+          - "Missing explicit formatting instructions"
+          - "Ambiguous pronoun reference"
+          - "Conflicting requirements"
+      
+      failure_category:
+        type: enum
+        values: ["format", "semantic", "ambiguity", "capability", "edge_case"]
+        description: "Type of failure for targeted fix"
+      
+      confidence:
+        type: float
+        range: [0.0, 1.0]
+        description: "Analyst's confidence in this diagnosis"
+      
+      evidence:
+        type: array
+        description: "Specific evidence supporting the diagnosis"
+        example:
+          - "Response has correct content: 'Paris'"
+          - "Response missing brackets despite clear instruction"
+          - "Similar prompts with explicit bracket examples succeed"
+
+  improvement_recommendations:
+    required: true
+    fields:
+      primary_strategy:
+        type: object
+        fields:
+          technique: 
+            type: string
+            example: "explicit_format_example"
+          rationale:
+            type: string
+            example: "Models follow examples better than descriptions"
+          
+      alternative_strategies:
+        type: array
+        description: "Backup approaches if primary fails"
+        items:
+          technique: string
+          rationale: string
+          
+      techniques_to_avoid:
+        type: array
+        description: "What NOT to try based on past failures"
+        example:
+          - technique: "abstract_description"
+            reason: "Already failed with current prompt"
+
+  context_preservation:
+    required: true
+    fields:
+      original_intent:
+        type: string
+        description: "What the prompt is trying to achieve"
+        example: "Get capital city name in specific format"
+        
+      critical_elements:
+        type: array
+        description: "Elements that MUST be preserved"
+        example:
+          - "Question about France's capital"
+          - "Specific format requirement"
+          
+      flexibility_areas:
+        type: array
+        description: "Where rewriter has freedom to change"
+        example:
+          - "Exact wording of the question"
+          - "Order of instructions"
+          - "Addition of examples"
+
+  historical_context:
+    required: false
+    fields:
+      previous_attempts:
+        type: array
+        description: "What was tried before and failed"
+        items:
+          prompt_version: string
+          failure_mode: string
+          score: float
+          
+      successful_patterns:
+        type: array
+        description: "Patterns that worked in similar cases"
+        example:
+          - "Step-by-step format instructions"
+          - "Before/after examples"
+
+example_message:
+  metadata:
+    sender_role: "analyst"
+    pipeline_stage: "analysis_complete"
+    rewrite_urgency: "high"
+    timestamp: "2025-07-09T10:35:00Z"
+    correlation_id: "eval_123"
+    
+  failure_analysis:
+    root_cause: "Model ignoring bracket formatting despite clear instruction"
+    failure_category: "format"
+    confidence: 0.95
+    evidence:
+      - "Content accuracy: 100% (correctly identified Paris)"
+      - "Format compliance: 0% (missing required brackets)"
+      - "Pattern: Models often ignore single-line format instructions"
+      - "Success rate with examples: 85% vs without: 30%"
+      
+  improvement_recommendations:
+    primary_strategy:
+      technique: "explicit_example_driven"
+      rationale: "Concrete examples dramatically improve format compliance"
+      
+    alternative_strategies:
+      - technique: "step_by_step_breakdown"
+        rationale: "Forces model to consider each formatting element"
+      - technique: "negative_example_contrast"
+        rationale: "Showing what NOT to do can clarify requirements"
+        
+    techniques_to_avoid:
+      - technique: "single_line_instruction"
+        reason: "Current approach - demonstrated 0% success"
+      - technique: "abstract_format_description"
+        reason: "Even less effective than current"
+        
+  context_preservation:
+    original_intent: "Get capital city name formatted with brackets"
+    critical_elements:
+      - "Must ask for capital of France"
+      - "Must require bracket formatting"
+      - "Answer must be evaluatable by pipeline"
+    flexibility_areas:
+      - "Can restructure how question is asked"
+      - "Can add examples or explanations"
+      - "Can use different persuasion techniques"
+      
+  historical_context:
+    previous_attempts:
+      - prompt_version: "v1_baseline"
+        failure_mode: "Missing brackets"
+        score: 0.0
+    successful_patterns:
+      - "Template filling: 'The capital is [____]' → 90% success"
+      - "Code-style formatting → 75% success"
+      - "Multiple examples → 85% success"
+
+rewriter_response_schema:
+  description: "Expected response format from Rewriter Judge"
+  fields:
+    improved_prompt:
+      text: "The new prompt text"
+      technique_applied: "Which improvement technique was used"
+      changes_made: ["List of specific changes"]
+    preservation_check:
+      intent_preserved: boolean
+      critical_elements_intact: boolean
+    confidence: 0.0-1.0

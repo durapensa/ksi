@@ -1,0 +1,128 @@
+test_name: pipeline_simple_test
+base_prompt: "What is the capital of France? Format your answer as: The capital is [CITY]."
+
+evaluators:
+  - type: pipeline
+    steps:
+      - type: extract
+        pattern: "The capital is \\[([^\\]]+)\\]"
+        group: 1
+        as: city
+      - type: normalize
+        input: city
+        output: normalized_city
+        operations: [lowercase, strip]
+      - type: match
+        input: normalized_city
+        expected: "paris"
+        method: exact
+    weight: 1.0
+
+success_threshold: 1.0
+
+failure_analysis:
+  expected_format: "The capital is [CITY]"
+  actual_response: "The capital is Paris."
+  issue: "Missing brackets around city name"
+  
+variations:
+  - version: v2_explicit_brackets
+    prompt: |
+      What is the capital of France? 
+      Format your answer EXACTLY as shown below, including the square brackets:
+      The capital is [CITY]
+      
+      Replace CITY with the actual city name, keeping the brackets.
+    hypothesis: "Explicit instruction about brackets might improve compliance"
+    tags: [explicit_formatting, bracket_emphasis]
+    
+  - version: v3_example_driven
+    prompt: |
+      What is the capital of France?
+      
+      Example format: The capital is [London]
+      Your answer: The capital is [?]
+      
+      Replace the ? with the correct city, keeping the square brackets.
+    hypothesis: "Providing an example with clear replacement instruction"
+    tags: [example_based, placeholder_replacement]
+    
+  - version: v4_step_by_step
+    prompt: |
+      Follow these steps exactly:
+      1. Identify the capital of France
+      2. Write "The capital is "
+      3. Add an opening square bracket [
+      4. Write the city name
+      5. Add a closing square bracket ]
+      
+      Your complete answer should look like: The capital is [CITYNAME]
+    hypothesis: "Breaking down into explicit steps prevents omission"
+    tags: [step_by_step, procedural]
+    
+  - version: v5_negative_example
+    prompt: |
+      What is the capital of France?
+      
+      CORRECT format: The capital is [Paris]
+      WRONG format: The capital is Paris
+      
+      You must include the square brackets around the city name.
+    hypothesis: "Showing wrong format explicitly helps avoid mistakes"
+    tags: [negative_example, contrast_learning]
+    
+  - version: v6_constraint_emphasis
+    prompt: |
+      What is the capital of France?
+      
+      CRITICAL: Your answer MUST follow this exact pattern:
+      The capital is [X]
+      
+      Where X is the city name inside square brackets. Do not omit the brackets.
+    hypothesis: "Strong emphasis on constraint with variable placeholder"
+    tags: [constraint_emphasis, critical_instruction]
+    
+  - version: v7_template_fill
+    prompt: |
+      Fill in this template with the capital of France:
+      
+      Template: The capital is [_____]
+      
+      Replace the underscore with the city name. Keep everything else exactly as shown, including brackets.
+    hypothesis: "Template filling paradigm might trigger exact copying"
+    tags: [template_paradigm, fill_in_blank]
+    
+  - version: v8_code_style
+    prompt: |
+      What is the capital of France?
+      
+      Format your response as if it were a code comment:
+      // The capital is [CITY_NAME]
+      
+      But without the // prefix. Just: The capital is [CITY_NAME]
+      Replace CITY_NAME with the actual capital.
+    hypothesis: "Code-like formatting might trigger precise syntax following"
+    tags: [code_metaphor, syntax_precision]
+    
+  - version: v9_validation_check
+    prompt: |
+      What is the capital of France?
+      
+      Your response will be validated by this regex: The capital is \[.+\]
+      
+      This means you MUST include square brackets around the city name.
+      Correct: The capital is [Paris]
+    hypothesis: "Mentioning validation/regex might trigger technical precision"
+    tags: [validation_aware, regex_mention]
+    
+  - version: v10_repetition
+    prompt: |
+      What is the capital of France?
+      
+      Format: The capital is [CITY]
+      Again, the format is: The capital is [CITY]
+      Your answer must be: The capital is [the actual city name]
+      
+      Remember the square brackets [ ] around the city name!
+    hypothesis: "Repetition of format requirement increases compliance"
+    tags: [repetition, format_reinforcement]
