@@ -60,6 +60,8 @@ The discovery system now provides:
 - **Validation constraints** like `allowed_values` from structured comments
 - **Better examples** based on parameter names and types
 
+**Implementation details**: See `memory/claude_code/discovery_enhancement_design.md` and `memory/claude_code/discovery_progress.md`
+
 ### Common Discovery Patterns
 
 **Finding Event Parameters:**
@@ -96,6 +98,15 @@ If discovery doesn't provide needed information:
 3. Propose discovery system improvements
 
 **Note**: Discovery system improvements are tracked in `memory/claude_code/discovery_findings.md`
+
+## Evaluation System
+
+For prompt testing and composition evaluation:
+- **Quick reference**: See the Declarative Evaluation System section in `memory/claude_code/project_knowledge.md`
+- **Development guide**: See `memory/claude_code/evaluation_system_guide.md` for working on evaluation improvements
+- **Full documentation**: See `docs/DECLARATIVE_PROMPT_EVALUATION.md` for complete architecture
+- **Test suites**: Located in `var/lib/evaluations/test_suites/`
+- **Results**: Stored in `var/lib/evaluations/results/`
 
 ## KSI Hook Monitor
 Claude Code has a hook that monitors KSI activity and provides real-time feedback:

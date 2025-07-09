@@ -1,5 +1,7 @@
 # Declarative Prompt Evaluation for KSI
 
+**Note**: For quick reference and current implementation status, see the evaluation section in [`memory/claude_code/project_knowledge.md`](../memory/claude_code/project_knowledge.md).
+
 ## Overview
 
 This document outlines KSI's approach to declarative prompt evaluation, enabling systematic testing of agent compositions with various models while maintaining simplicity and extensibility.

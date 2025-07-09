@@ -312,6 +312,9 @@ contamination_patterns:
 - Clean break from old system - no backward compatibility code
 - All evaluation logic now in declarative evaluators
 
+**Full documentation**: See [`docs/DECLARATIVE_PROMPT_EVALUATION.md`](../../docs/DECLARATIVE_PROMPT_EVALUATION.md) for complete architecture
+**Development guide**: See [`memory/claude_code/evaluation_system_guide.md`](evaluation_system_guide.md) for implementation details
+
 ## Parameter Documentation Pattern
 
 ### Standard: Inline Comments
@@ -339,6 +342,10 @@ The discovery system now provides richer parameter information:
 - Resolves type annotations to readable strings: `List[Dict[str, Any]]`
 - Parses structured patterns in comments for validation rules
 - Separate module analysis prevents parameter mixing between handlers
+
+**Design documentation**: See [`memory/claude_code/discovery_enhancement_design.md`](discovery_enhancement_design.md)
+**Implementation progress**: See [`memory/claude_code/discovery_progress.md`](discovery_progress.md)
+**Issue tracking**: See [`memory/claude_code/discovery_findings.md`](discovery_findings.md)
 
 ### Best Practices for Module Authors
 1. Use TypedDict for handler parameters: `async def handle_event(data: MyTypedDict)`
