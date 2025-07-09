@@ -13,7 +13,6 @@ from datetime import timedelta
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import utc_now
 from ksi_common.file_utils import save_yaml_file, load_yaml_file
-from ksi_common.validation_utils import validate_data
 from ksi_daemon.event_system import event_handler, emit_event
 from ksi_common.config import config
 
