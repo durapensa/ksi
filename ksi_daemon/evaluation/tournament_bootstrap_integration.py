@@ -12,7 +12,7 @@ from datetime import timedelta
 
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import utc_now
-from ksi_common.file_utils import write_yaml, read_yaml
+from ksi_common.file_utils import save_yaml_file, load_yaml_file
 from ksi_common.validation_utils import validate_data
 from ksi_daemon.event_system import event_handler, emit_event
 from ksi_common.config import config
@@ -142,7 +142,7 @@ async def run_improvement_cycle(data: Dict[str, Any]) -> Dict[str, Any]:
     results_file = config.evaluations_dir / f"tournament_{tournament_id}_results.yaml"
     
     if results_file.exists():
-        results = read_yaml(results_file)
+        results = load_yaml_file(results_file)
         rankings = results.get('rankings', [])
         
         # Select top performers per role
@@ -170,7 +170,7 @@ async def run_improvement_cycle(data: Dict[str, Any]) -> Dict[str, Any]:
         }
         
         output_file = output_dir / cycle_id / 'cycle_results.yaml'
-        write_yaml(output_file, cycle_results)
+        save_yaml_file(output_file, cycle_results)
         
         logger.info(f"Improvement cycle complete. Winners saved to {output_file}")
         
@@ -229,7 +229,7 @@ async def _deploy_judge_to_evaluation(
     }
     
     deployment_file = config.evaluations_dir / 'deployed_judges' / f"{role}_active.yaml"
-    write_yaml(deployment_file, deployment_record)
+    save_yaml_file(deployment_file, deployment_record)
 
 
 @event_handler("evaluation:list_improvement_cycles")
@@ -243,7 +243,7 @@ async def list_improvement_cycles(data: Dict[str, Any]) -> Dict[str, Any]:
             if cycle_dir.is_dir() and cycle_dir.name.startswith('cycle_'):
                 results_file = cycle_dir / 'cycle_results.yaml'
                 if results_file.exists():
-                    results = read_yaml(results_file)
+                    results = load_yaml_file(results_file)
                     cycles.append({
                         'cycle_id': results['cycle_id'],
                         'timestamp': results['timestamp'],
