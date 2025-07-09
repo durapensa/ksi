@@ -1,0 +1,21 @@
+{
+  "event": "tournament:create",
+  "data": {
+    "tournament_id": "judge_championship_final_001",
+    "config": {
+      "participants": [
+        "agent_fa30bd22",
+        "agent_e0a57fec",
+        "agent_8cf257db",
+        "agent_3b3a6a20",
+        "agent_8b773f18",
+        "agent_d50f52c0"
+      ],
+      "rounds": 1,
+      "match_timeout": 300,
+      "test_case_limit": 3,
+      "parallel_matches": 3
+    },
+    "auto_start": true
+  }
+}

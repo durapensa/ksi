@@ -20,6 +20,9 @@ from ksi_daemon.event_system import event_handler, emit_event
 
 logger = get_bound_logger("judge_tournament")
 
+# Global tournament registry
+_active_tournaments: Dict[str, 'JudgeTournament'] = {}
+
 
 class TournamentPhase(Enum):
     """Tournament phases."""
@@ -510,6 +513,9 @@ async def handle_tournament_create(data: Dict[str, Any]) -> Dict[str, Any]:
     # Initialize
     await tournament.initialize()
     
+    # Store tournament in global registry
+    _active_tournaments[tournament_id] = tournament
+    
     # Start registration if requested
     if auto_start:
         asyncio.create_task(tournament.open_registration())
@@ -539,8 +545,19 @@ async def handle_tournament_register(data: Dict[str, Any]) -> Dict[str, Any]:
     if not tournament_id or not agent_id:
         return {"status": "error", "error": "tournament_id and agent_id required"}
     
-    # In real implementation, would look up tournament instance
-    # For now, return success
+    # Look up tournament instance
+    tournament = _active_tournaments.get(tournament_id)
+    if not tournament:
+        return {"status": "error", "error": f"Tournament {tournament_id} not found"}
+    
+    # Register the agent
+    registration_data = {
+        'role': data.get('role', 'judge'),
+        'technique': data.get('technique', 'unknown')
+    }
+    
+    await tournament.register_participant(agent_id, registration_data)
+    
     return {
         "status": "success",
         "message": f"Agent {agent_id} registered for tournament {tournament_id}"
@@ -562,11 +579,30 @@ async def handle_tournament_phase(data: Dict[str, Any]) -> Dict[str, Any]:
     if not tournament_id or not phase:
         return {"status": "error", "error": "tournament_id and phase required"}
     
-    # In real implementation, would look up tournament and start phase
-    return {
-        "status": "success",
-        "message": f"Started {phase} phase for tournament {tournament_id}"
-    }
+    # Look up tournament instance
+    tournament = _active_tournaments.get(tournament_id)
+    if not tournament:
+        return {"status": "error", "error": f"Tournament {tournament_id} not found"}
+    
+    # Start the appropriate phase
+    try:
+        if phase == "registration":
+            await tournament.open_registration()
+        elif phase == "round_robin":
+            asyncio.create_task(tournament.run_round_robin())
+        elif phase == "consensus":
+            asyncio.create_task(tournament.run_consensus_phase())
+        elif phase == "finalize":
+            asyncio.create_task(tournament.finalize_tournament())
+        else:
+            return {"status": "error", "error": f"Unknown phase: {phase}"}
+        
+        return {
+            "status": "success",
+            "message": f"Started {phase} phase for tournament {tournament_id}"
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
 
 
 # timedelta already imported above

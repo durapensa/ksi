@@ -428,12 +428,29 @@ var/lib/compositions/prompts/
    - `logging_utils`: Structured logging
    - `time_utils`: Timestamp handling
 
+4. **Session tracking critical fix**:
+   - Never create session IDs - only claude-cli creates them
+   - Each completion:async request returns NEW session_id
+   - Created session_manager_v2.py to respect this principle
+   - Fixed MCP path handling to use absolute paths
+
+### Tournament Results (2025-07-09)
+Successfully ran first complete judge tournament:
+- **Participants**: 6 judges (from fixed list, not bootstrap)
+- **Matches**: 30 complete (each judge evaluated the other 5)
+- **Duration**: ~12 minutes total
+- **Results**: All judges scored 0.85 (simulated scoring)
+- **Next Step**: Implement real evaluation logic in tournament
+
 ### Integration Status
 - ✅ Judge variations can be created dynamically
 - ✅ Tournament system can orchestrate multi-agent evaluation
 - ✅ Communication protocols defined and documented
 - ✅ Prompt library infrastructure complete
 - ✅ Bootstrap protocol functional with real results
+- ✅ Session tracking fixed for agent completions
+- ✅ Tournament handlers implemented and working
+- 🔄 Real evaluation logic in tournaments pending
 - 🔄 Ground truth test cases being expanded
 - ⏳ Full autonomous loop integration pending
 
