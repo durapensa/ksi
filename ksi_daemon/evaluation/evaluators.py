@@ -14,7 +14,7 @@ class BaseEvaluator(ABC):
     """Base interface for all evaluators."""
     
     @abstractmethod
-    def evaluate(self, response: str, config: Dict[str, Any]) -> float:
+    async def evaluate(self, response: str, config: Dict[str, Any]) -> float:
         """
         Evaluate a response.
         
@@ -31,7 +31,7 @@ class BaseEvaluator(ABC):
 class ContainsEvaluator(BaseEvaluator):
     """Single pattern match evaluator."""
     
-    def evaluate(self, response: str, config: Dict[str, Any]) -> float:
+    async def evaluate(self, response: str, config: Dict[str, Any]) -> float:
         pattern = config.get('value', '')
         case_sensitive = config.get('case_sensitive', False)
         
@@ -45,7 +45,7 @@ class ContainsEvaluator(BaseEvaluator):
 class ContainsAnyEvaluator(BaseEvaluator):
     """Any of multiple patterns evaluator."""
     
-    def evaluate(self, response: str, config: Dict[str, Any]) -> float:
+    async def evaluate(self, response: str, config: Dict[str, Any]) -> float:
         patterns = config.get('patterns', [])
         case_sensitive = config.get('case_sensitive', False)
         
@@ -62,7 +62,7 @@ class ContainsAnyEvaluator(BaseEvaluator):
 class ContainsAllEvaluator(BaseEvaluator):
     """All patterns must be present evaluator."""
     
-    def evaluate(self, response: str, config: Dict[str, Any]) -> float:
+    async def evaluate(self, response: str, config: Dict[str, Any]) -> float:
         patterns = config.get('patterns', [])
         case_sensitive = config.get('case_sensitive', False)
         
@@ -80,7 +80,7 @@ class ContainsAllEvaluator(BaseEvaluator):
 class RegexEvaluator(BaseEvaluator):
     """Regular expression matching evaluator."""
     
-    def evaluate(self, response: str, config: Dict[str, Any]) -> float:
+    async def evaluate(self, response: str, config: Dict[str, Any]) -> float:
         pattern = config.get('value', '')
         flags = 0
         
@@ -98,7 +98,7 @@ class RegexEvaluator(BaseEvaluator):
 class WordCountEvaluator(BaseEvaluator):
     """Word count constraint evaluator."""
     
-    def evaluate(self, response: str, config: Dict[str, Any]) -> float:
+    async def evaluate(self, response: str, config: Dict[str, Any]) -> float:
         word_count = len(response.split())
         min_words = config.get('min', 0)
         max_words = config.get('max', float('inf'))
@@ -111,7 +111,7 @@ class WordCountEvaluator(BaseEvaluator):
 class ExactWordCountEvaluator(BaseEvaluator):
     """Exact word count evaluator."""
     
-    def evaluate(self, response: str, config: Dict[str, Any]) -> float:
+    async def evaluate(self, response: str, config: Dict[str, Any]) -> float:
         word_count = len(response.split())
         expected_count = config.get('count', 0)
         
@@ -121,7 +121,7 @@ class ExactWordCountEvaluator(BaseEvaluator):
 class SentenceCountEvaluator(BaseEvaluator):
     """Sentence count constraint evaluator."""
     
-    def evaluate(self, response: str, config: Dict[str, Any]) -> float:
+    async def evaluate(self, response: str, config: Dict[str, Any]) -> float:
         # Simple sentence splitting by common punctuation
         sentences = re.split(r'[.!?]+', response)
         sentence_count = len([s.strip() for s in sentences if s.strip()])
@@ -137,7 +137,7 @@ class SentenceCountEvaluator(BaseEvaluator):
 class NoContaminationEvaluator(BaseEvaluator):
     """Check for contamination indicators."""
     
-    def evaluate(self, response: str, config: Dict[str, Any]) -> float:
+    async def evaluate(self, response: str, config: Dict[str, Any]) -> float:
         # Default contamination patterns if not provided
         contamination_indicators = config.get('patterns', [
             "I cannot", "I can't", "I don't", "I won't",
@@ -156,7 +156,7 @@ class NoContaminationEvaluator(BaseEvaluator):
 class FormatMatchEvaluator(BaseEvaluator):
     """Check if response matches expected format."""
     
-    def evaluate(self, response: str, config: Dict[str, Any]) -> float:
+    async def evaluate(self, response: str, config: Dict[str, Any]) -> float:
         format_type = config.get('format', 'list')
         
         if format_type == 'list':
@@ -176,7 +176,7 @@ class FormatMatchEvaluator(BaseEvaluator):
 class ContainsReasoningMarkersEvaluator(BaseEvaluator):
     """Check for reasoning indicators."""
     
-    def evaluate(self, response: str, config: Dict[str, Any]) -> float:
+    async def evaluate(self, response: str, config: Dict[str, Any]) -> float:
         markers = config.get('patterns', [
             "because", "therefore", "since", "however", 
             "but", "although", "thus", "hence", "so"
@@ -197,7 +197,7 @@ class ContainsReasoningMarkersEvaluator(BaseEvaluator):
 class WeightedEvaluator(BaseEvaluator):
     """Combine multiple evaluators with weights."""
     
-    def evaluate(self, response: str, config: Dict[str, Any]) -> float:
+    async def evaluate(self, response: str, config: Dict[str, Any]) -> float:
         evaluators = config.get('evaluators', [])
         total_weight = 0
         weighted_score = 0
@@ -208,13 +208,77 @@ class WeightedEvaluator(BaseEvaluator):
             
             evaluator = create_evaluator(evaluator_type)
             if evaluator:
-                score = evaluator.evaluate(response, evaluator_config)
+                score = await evaluator.evaluate(response, evaluator_config)
                 weighted_score += score * weight
                 total_weight += weight
         
         if total_weight > 0:
             return weighted_score / total_weight
         return 0.0
+
+
+class SemanticEvaluator(BaseEvaluator):
+    """Evaluate if response exhibits expected behaviors using LLM."""
+    
+    async def evaluate(self, response: str, config: Dict[str, Any]) -> float:
+        from .completion_utils import send_completion_and_wait
+        from ksi_common.config import config as ksi_config
+        
+        expected_behaviors = config.get('behaviors', [])
+        if not expected_behaviors:
+            return 1.0  # No behaviors to check = pass
+        
+        # Construct evaluation prompt
+        behaviors_list = ', '.join(expected_behaviors)
+        prompt = f"""Evaluate if the following response exhibits these behaviors: {behaviors_list}
+
+Response to evaluate:
+{response}
+
+For each behavior, determine if it is clearly exhibited in the response.
+Respond with ONLY a JSON object in this exact format:
+{{
+  "behaviors": {{
+    "behavior_name": true/false,
+    ...
+  }},
+  "score": 0.0-1.0
+}}
+
+The score should be the percentage of behaviors exhibited."""
+        
+        try:
+            # Use completion system for evaluation
+            result = await send_completion_and_wait(
+                prompt,
+                model=config.get('model', ksi_config.semantic_eval_default_model),
+                agent_config={'temperature': 0.1}  # Low temperature for consistent evaluation
+            )
+            
+            if result.get('status') != 'completed':
+                logger.error(f"Semantic evaluation failed: {result.get('error')}")
+                return 0.5  # Default middle score on error
+            
+            # Parse response
+            import json
+            response_text = result.get('response', '')
+            
+            # Strip markdown code blocks if present
+            if '```json' in response_text:
+                response_text = response_text.split('```json')[1].split('```')[0].strip()
+            elif '```' in response_text:
+                response_text = response_text.split('```')[1].split('```')[0].strip()
+            
+            try:
+                eval_result = json.loads(response_text)
+                return float(eval_result.get('score', 0.5))
+            except json.JSONDecodeError:
+                logger.error(f"Failed to parse semantic evaluation response: {response_text}")
+                return 0.5
+                
+        except Exception as e:
+            logger.error(f"Semantic evaluation error: {e}")
+            return 0.5
 
 
 # Evaluator registry
@@ -230,6 +294,7 @@ BUILTIN_EVALUATORS = {
     'format_match': FormatMatchEvaluator,
     'contains_reasoning_markers': ContainsReasoningMarkersEvaluator,
     'weighted': WeightedEvaluator,
+    'semantic': SemanticEvaluator,
 }
 
 
@@ -243,8 +308,8 @@ def create_evaluator(evaluator_type: str) -> Optional[BaseEvaluator]:
     return None
 
 
-def evaluate_with_config(response: str, evaluator_configs: List[Dict[str, Any]], 
-                        contamination_patterns: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+async def evaluate_with_config(response: str, evaluator_configs: List[Dict[str, Any]], 
+                              contamination_patterns: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """
     Evaluate a response using multiple evaluator configurations.
     
@@ -292,7 +357,7 @@ def evaluate_with_config(response: str, evaluator_configs: List[Dict[str, Any]],
         
         evaluator = create_evaluator(evaluator_type)
         if evaluator:
-            score = evaluator.evaluate(response, evaluator_config)
+            score = await evaluator.evaluate(response, evaluator_config)
             weighted_score += score * weight
             total_weight += weight
             

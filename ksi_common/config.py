@@ -19,6 +19,11 @@ Environment Variables:
     KSI_EVENT_REFERENCE_THRESHOLD - Size threshold for payload references in bytes (default: 5120)
     KSI_EVENT_DAILY_FILE_NAME - Daily event log filename (default: events.jsonl)
     
+    Model Configuration:
+    KSI_COMPLETION_DEFAULT_MODEL - Default model for completions (default: claude-cli/claude-sonnet-4-20250514)
+    KSI_SUMMARY_DEFAULT_MODEL - Default model for summaries (default: claude-cli/claude-sonnet-4-20250514)
+    KSI_SEMANTIC_EVAL_DEFAULT_MODEL - Default model for semantic evaluation (default: claude-cli/claude-sonnet-4-20250514)
+    
     TUI Configuration:
     KSI_TUI_DEFAULT_MODEL - Default model for TUI apps (default: claude-cli/sonnet)
     KSI_TUI_CHAT_CLIENT_ID - Client ID for chat app (default: ksi-chat)
@@ -157,8 +162,10 @@ class KSIBaseConfig(BaseSettings):
     completion_timeout_min: int = 60       # 1 minute minimum
     completion_timeout_max: int = 1800     # 30 minutes maximum
     
-    # Completion model default
+    # Model defaults for different purposes
     completion_default_model: str = f"claude-cli/{DEFAULT_MODEL}"
+    summary_default_model: str = f"claude-cli/{DEFAULT_MODEL}"
+    semantic_eval_default_model: str = f"claude-cli/{DEFAULT_MODEL}"
     
     # Claude CLI progressive timeouts (in seconds)
     claude_timeout_attempts: List[int] = [300, 900, 1800]  # 5min, 15min, 30min

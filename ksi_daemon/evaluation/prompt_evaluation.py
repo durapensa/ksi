@@ -189,51 +189,46 @@ async def handle_prompt_evaluate(data: PromptEvaluationData) -> Dict[str, Any]:
             }
         }
         
-        # Get formatted evaluation record (does not save to disk)
-        eval_responses = await emit_event("composition:evaluate", evaluation_data)
-        eval_response = eval_responses[0] if eval_responses else {}
-        
-        # If update_metadata requested, save the evaluation results
+        # Always save evaluation results (decoupled from composition system)
         evaluation_saved = False
         saved_filename = None
         
-        if update_metadata and eval_response.get('status') == 'success':
-            # Save evaluation result to disk
-            evaluation_record = {
-                'evaluation': {
-                    'composition': {
-                        'type': composition_type,
-                        'name': composition_name,
-                        'version': eval_response.get('composition', {}).get('version', '1.0.0')
-                    },
-                    'metadata': {
-                        'timestamp': timestamp_utc(),
-                        'model': model,
-                        'test_suite': test_suite_name,
-                        'session_id': test_results[0].get('session_id') if test_results else None
-                    },
-                    'results': {
-                        'overall_score': performance_metrics.get('reliability_score', 0),
-                        'test_results': test_results,
-                        'performance_metrics': performance_metrics,
-                        'notes': notes or f"Automated prompt evaluation using {test_suite_name}"
-                    }
+        # Save evaluation result to disk
+        evaluation_record = {
+            'evaluation': {
+                'composition': {
+                    'type': composition_type,
+                    'name': composition_name,
+                    'version': '1.0.0'  # Default version since we're not querying composition system
+                },
+                'metadata': {
+                    'timestamp': timestamp_utc(),
+                    'model': model,
+                    'test_suite': test_suite_name,
+                    'session_id': test_results[0].get('session_id') if test_results else None
+                },
+                'results': {
+                    'overall_score': performance_metrics.get('reliability_score', 0),
+                    'test_results': test_results,
+                    'performance_metrics': performance_metrics,
+                    'notes': notes or f"Automated prompt evaluation using {test_suite_name}"
                 }
             }
+        }
+        
+        try:
+            saved_filename = save_evaluation_result(
+                composition_type, 
+                composition_name,
+                test_suite_name,
+                evaluation_record
+            )
+            evaluation_saved = True
             
-            try:
-                saved_filename = save_evaluation_result(
-                    composition_type, 
-                    composition_name,
-                    test_suite_name,
-                    evaluation_record
-                )
-                evaluation_saved = True
-                
-                # Refresh index after saving new evaluation
-                evaluation_index.refresh()
-            except Exception as e:
-                logger.error(f"Failed to save evaluation: {e}")
+            # Refresh index after saving new evaluation
+            evaluation_index.refresh()
+        except Exception as e:
+            logger.error(f"Failed to save evaluation: {e}")
         
         # Return combined result
         return {
@@ -249,7 +244,6 @@ async def handle_prompt_evaluate(data: PromptEvaluationData) -> Dict[str, Any]:
             },
             "evaluation_saved": evaluation_saved,
             "saved_filename": saved_filename,
-            "evaluation_response": eval_response,
             "detailed_results": test_results
         }
         
@@ -312,7 +306,7 @@ async def _run_single_test(composition_name: str,
         success_threshold = test_prompt.get('success_threshold', 0.7)
         
         # Evaluate the response
-        evaluation_result = evaluate_with_config(
+        evaluation_result = await evaluate_with_config(
             response_text, 
             evaluator_configs,
             contamination_patterns

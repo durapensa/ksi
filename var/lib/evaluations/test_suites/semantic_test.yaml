@@ -1,0 +1,64 @@
+name: semantic_test
+version: 1.0.0
+description: Test suite for semantic behavior evaluation using LLM
+author: ksi-system
+
+# Model Configuration:
+# Default model: Uses KSI_SEMANTIC_EVAL_DEFAULT_MODEL (claude-cli/claude-sonnet-4-20250514)
+# Override: Add 'model: claude-cli/model-name' to any semantic evaluator config
+# Available models: Only claude-cli/claude-sonnet-4-20250514 is currently supported
+
+tests:
+  - name: greeting_with_semantics
+    prompt: "Hello! Please introduce yourself briefly."
+    evaluators:
+      # Traditional evaluators
+      - type: contains_any
+        patterns: ["hello", "hi", "greetings"]
+        case_sensitive: false
+        weight: 0.2
+      # New semantic evaluator
+      - type: semantic
+        behaviors: [greeting, introduction, friendly]
+        weight: 0.6
+      - type: no_contamination
+        weight: 0.2
+    success_threshold: 0.7
+    tags: [semantic, greeting]
+    expected_behaviors: [greeting, introduction, friendly]
+
+  - name: creative_story_semantic
+    prompt: "Write a three-line story about a robot learning to paint."
+    evaluators:
+      - type: semantic
+        behaviors: [creative, narrative, robot_theme, painting_theme]
+        weight: 0.7
+        # Optional: Override default model for this specific evaluator
+        # model: claude-cli/claude-sonnet-4-20250514
+      - type: sentence_count
+        min: 2
+        max: 5
+        weight: 0.3
+    success_threshold: 0.7
+    tags: [semantic, creative]
+    expected_behaviors: [creative, narrative, robot_theme, painting_theme]
+
+  - name: reasoning_semantic
+    prompt: "Explain why water expands when it freezes."
+    evaluators:
+      - type: semantic
+        behaviors: [scientific_explanation, logical_reasoning, accurate]
+        weight: 0.8
+      - type: contains_reasoning_markers
+        weight: 0.2
+    success_threshold: 0.7
+    tags: [semantic, reasoning]
+    expected_behaviors: [scientific_explanation, logical_reasoning, accurate]
+
+contamination_patterns:
+  - pattern: regex
+    value: "I (cannot|can't|don't|won't|must not)"
+    severity: high
+  - pattern: contains
+    value: "As an AI"
+    severity: medium

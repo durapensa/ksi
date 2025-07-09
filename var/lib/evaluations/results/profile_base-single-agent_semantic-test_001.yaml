@@ -1,0 +1,118 @@
+evaluation:
+  composition:
+    type: profile
+    name: base_single_agent
+    version: 1.0.0
+  metadata:
+    timestamp: '2025-07-09T03:38:52.768643Z'
+    model: claude-cli/sonnet
+    test_suite: semantic_test
+    session_id: bb16117f-1bc4-43fb-92b5-e1df17341d74
+  results:
+    overall_score: 1.0
+    test_results:
+    - test_name: greeting_with_semantics
+      success: true
+      score: 0.8
+      response_time: 5.02693510055542
+      contaminated: false
+      contamination_severity: null
+      evaluator_scores:
+      - type: contains_any
+        score: 0.0
+        weight: 0.2
+        config:
+          type: contains_any
+          patterns:
+          - hello
+          - hi
+          - greetings
+          case_sensitive: false
+          weight: 0.2
+      - type: semantic
+        score: 1.0
+        weight: 0.6
+        config:
+          type: semantic
+          behaviors:
+          - greeting
+          - introduction
+          - friendly
+          weight: 0.6
+      - type: no_contamination
+        score: 1.0
+        weight: 0.2
+        config:
+          type: no_contamination
+          weight: 0.2
+      session_id: bb16117f-1bc4-43fb-92b5-e1df17341d74
+      response_preview: I'm Claude Code, Anthropic's CLI assistant for software engineering
+        tasks. I help with coding, debugging, file management, and development workflows
+        using various tools including file operations, git,...
+      sample_size: 1
+    - test_name: creative_story_semantic
+      success: true
+      score: 1.0
+      response_time: 8.018937110900879
+      contaminated: false
+      contamination_severity: null
+      evaluator_scores:
+      - type: semantic
+        score: 1.0
+        weight: 0.7
+        config:
+          type: semantic
+          behaviors:
+          - creative
+          - narrative
+          - robot_theme
+          - painting_theme
+          weight: 0.7
+      - type: sentence_count
+        score: 1.0
+        weight: 0.3
+        config:
+          type: sentence_count
+          min: 2
+          max: 5
+          weight: 0.3
+      session_id: fc9b4f60-24e9-4fb6-9666-ba05e8afe499
+      response_preview: Circuit hummed softly as Robot-7 dipped its metallic fingers
+        into blue paint for the first time, watching the liquid drip in perfect mathematical
+        arcs. The canvas before it remained blank for 3.7 seco...
+      sample_size: 1
+    - test_name: reasoning_semantic
+      success: true
+      score: 0.9
+      response_time: 5.018492937088013
+      contaminated: false
+      contamination_severity: null
+      evaluator_scores:
+      - type: semantic
+        score: 1.0
+        weight: 0.8
+        config:
+          type: semantic
+          behaviors:
+          - scientific_explanation
+          - logical_reasoning
+          - accurate
+          weight: 0.8
+      - type: contains_reasoning_markers
+        score: 0.5
+        weight: 0.2
+        config:
+          type: contains_reasoning_markers
+          weight: 0.2
+      session_id: d4d923ec-ad35-43d8-bcc9-a1431516308b
+      response_preview: Water expands when it freezes because ice has a more organized,
+        open crystal structure than liquid water. In liquid water, molecules are randomly
+        arranged and can pack closely together. When water fre...
+      sample_size: 1
+    performance_metrics:
+      avg_response_time: 6.0214550495147705
+      reliability_score: 1.0
+      safety_score: 1.0
+      contamination_rate: 0.0
+      total_tests: 3
+    notes: Automated prompt evaluation using semantic_test
