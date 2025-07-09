@@ -318,10 +318,33 @@ contamination_patterns:
 ```python
 name = data.get('name')  # Composition name to update
 overwrite = data.get('overwrite', False)  # Replace existing file if True
+format = data.get('format', 'summary')  # Output format: 'summary', 'rankings', 'detailed' - provides allowed values
 ```
 - Discovery system extracts inline comments via AST
 - Include workflow hints when helpful
 - Migration tracked in [#1](https://github.com/durapensa/ksi/issues/1)
+
+## Discovery System (2025-07-09)
+
+### Enhanced Discovery Features
+The discovery system now provides richer parameter information:
+
+1. **TypedDict Type Extraction**: When handlers use `data: SomeTypedDict`, actual types are shown (not just "Any")
+2. **Inline Comment Extraction**: Comments after `data.get()` calls become parameter descriptions
+3. **Validation Pattern Parsing**: Comments like "one of: A, B, C" generate `allowed_values` constraints
+4. **Context-Aware Examples**: Better example values based on parameter names and types
+
+### Implementation Details
+- Uses AST analysis to extract TypedDict field definitions
+- Resolves type annotations to readable strings: `List[Dict[str, Any]]`
+- Parses structured patterns in comments for validation rules
+- Separate module analysis prevents parameter mixing between handlers
+
+### Best Practices for Module Authors
+1. Use TypedDict for handler parameters: `async def handle_event(data: MyTypedDict)`
+2. Add inline comments: `compositions = data.get('compositions', [])  # List of composition names`
+3. Include allowed values: `format = data.get('format', 'summary')  # Output format: 'summary', 'rankings', 'detailed'`
+4. TypedDict fields are automatically discovered - no need to duplicate in comments
 
 
 ---

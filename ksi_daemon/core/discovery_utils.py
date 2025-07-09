@@ -8,7 +8,8 @@ Supports multiple output formats for different consumers (CLI, MCP, API docs, et
 
 import ast
 import inspect
-from typing import Any, Callable, Dict, Optional, Set
+import re
+from typing import Any, Callable, Dict, Optional, Set, Tuple
 
 from ksi_common.logging import get_bound_logger
 
@@ -315,12 +316,24 @@ def generate_example_value(param_name: str, param_type: str, description: str) -
             return "ksi_daemon.core.example"
         elif "event" in param_name.lower():
             return "system:example"
+        elif "composition" in param_name.lower():
+            return "base_single_agent"
         return f"example_{param_name}"
+    
+    elif "compositions" in param_name.lower():
+        # List of composition names
+        return ["base_single_agent", "conversationalist"]
 
     elif "path" in param_name.lower():
         return f"/path/to/{param_name}"
 
-    # Type-based examples
+    # Type-based examples with better List handling
+    elif "list[str]" in param_type_lower:
+        if "composition" in param_name.lower():
+            return ["base_single_agent", "conversationalist"]
+        return ["example1", "example2"]
+    elif "list" in param_type_lower:
+        return []
     elif "str" in param_type_lower:
         return f"example_{param_name}"
     elif "int" in param_type_lower:
@@ -331,8 +344,6 @@ def generate_example_value(param_name: str, param_type: str, description: str) -
         return True
     elif "dict" in param_type_lower:
         return {}
-    elif "list" in param_type_lower:
-        return []
     else:
         return f"<{param_type}>"
 
@@ -370,31 +381,85 @@ def analyze_handler(func: Callable, event_name: str) -> Dict[str, Any]:
     - triggers: List of events this handler emits
     """
     try:
+        # Get the full file content and the function's position in it
+        source_file = inspect.getsourcefile(func)
+        file_lines = None
+        func_start_line = 0
+        
+        if source_file:
+            try:
+                with open(source_file, 'r') as f:
+                    file_lines = f.readlines()
+                # Get the actual line number where the function starts
+                func_start_line = inspect.getsourcelines(func)[1] - 1  # Convert to 0-based
+            except Exception as e:
+                logger.debug(f"Could not read source file: {e}")
+        
+        # Parse the function source
         source = inspect.getsource(func)
         source_lines = source.splitlines()
         tree = ast.parse(source)
+        
+        # Get the module tree to find TypedDict definitions
+        module = inspect.getmodule(func)
+        module_source = inspect.getsource(module) if module else None
+        module_tree = ast.parse(module_source) if module_source else None
 
-        analyzer = HandlerAnalyzer(source_lines)
+        # Use file lines if available, otherwise fall back to function source
+        analyzer = HandlerAnalyzer(
+            file_lines if file_lines else source_lines, 
+            module_tree, 
+            func_start_line
+        )
         analyzer.visit(tree)
+        
+        # Also analyze module for TypedDict definitions  
+        if module_tree:
+            # Create a separate analyzer for module-level analysis to avoid confusion
+            module_analyzer = HandlerAnalyzer(file_lines if file_lines else [], module_tree, 0)
+            module_analyzer.visit(module_tree)
+            # Merge TypedDict definitions
+            analyzer.typed_dicts.update(module_analyzer.typed_dicts)
 
         # Merge parameters from different sources
         parameters = {}
+        
+        # Check if handler uses TypedDict parameter
+        typed_dict_params = analyzer.get_typed_dict_params(func)
 
         # From data.get() calls
         for name, info in analyzer.data_gets.items():
             # Use inline comment if available, otherwise generic description
             description = info.get("comment") or f"{name} parameter"
+            
+            # Parse validation patterns from comment
+            validation_info = parse_validation_patterns(description) if info.get("comment") else {}
+            
+            # Get type from TypedDict if available
+            param_type = typed_dict_params.get(name, {}).get("type", "Any")
+            
             parameters[name] = {
-                "type": "Any",
+                "type": param_type,
                 "required": info["required"],
                 "default": info["default"],
                 "description": description,
             }
+            parameters[name].update(validation_info)
 
         # From data["key"] access
         for name in analyzer.data_subscripts:
             if name not in parameters:
-                parameters[name] = {"type": "Any", "required": True, "description": f"{name} parameter"}
+                param_type = typed_dict_params.get(name, {}).get("type", "Any")
+                parameters[name] = {
+                    "type": param_type, 
+                    "required": True, 
+                    "description": f"{name} parameter"
+                }
+        
+        # Add TypedDict fields not found in code
+        for name, field_info in typed_dict_params.items():
+            if name not in parameters:
+                parameters[name] = field_info
 
         # Try to enhance with docstring info
         doc_params = parse_docstring_params(func)
@@ -415,14 +480,19 @@ def analyze_handler(func: Callable, event_name: str) -> Dict[str, Any]:
 class HandlerAnalyzer(ast.NodeVisitor):
     """AST visitor to extract parameters and event triggers."""
 
-    def __init__(self, source_lines=None):
+    def __init__(self, source_lines=None, module_tree=None, source_line_offset=0):
         self.data_gets = {}  # data.get() calls
         self.data_subscripts = set()  # data["key"] access
         self.triggers = []  # Events emitted
         self.source_lines = source_lines or []
+        self.typed_dicts = {}  # TypedDict definitions
+        self.type_annotations = {}  # Parameter type hints
+        self.module_tree = module_tree
+        self.source_line_offset = source_line_offset  # Offset to real file line numbers
 
     def visit_Call(self, node):
-        # Check for data.get() calls
+        # Only process data.get() calls if we're analyzing a function, not the module
+        # This prevents duplicate analysis when we scan the module for TypedDicts
         if (
             isinstance(node.func, ast.Attribute)
             and node.func.attr == "get"
@@ -442,11 +512,14 @@ class HandlerAnalyzer(ast.NodeVisitor):
                 # Extract inline comment if present
                 comment = self._extract_inline_comment(node.lineno)
                 
-                self.data_gets[key] = {
-                    "required": required, 
-                    "default": default,
-                    "comment": comment
-                }
+                # Only update if we don't already have this parameter
+                # This preserves the first (correct) extraction
+                if key not in self.data_gets:
+                    self.data_gets[key] = {
+                        "required": required, 
+                        "default": default,
+                        "comment": comment
+                    }
 
         # Check for event emissions
         elif self._is_emit_call(node):
@@ -480,11 +553,17 @@ class HandlerAnalyzer(ast.NodeVisitor):
     
     def _extract_inline_comment(self, lineno):
         """Extract inline comment from source line."""
-        if not self.source_lines or lineno < 1 or lineno > len(self.source_lines):
+        if not self.source_lines:
             return None
             
-        # AST line numbers are 1-based, list is 0-based
-        line = self.source_lines[lineno - 1]
+        # AST line numbers are relative to the parsed source (1-based)
+        # We need to add the function's starting line offset if we have file lines
+        actual_line_idx = self.source_line_offset + lineno - 1
+        
+        if actual_line_idx >= len(self.source_lines):
+            return None
+            
+        line = self.source_lines[actual_line_idx]
         
         # Look for inline comment
         comment_idx = line.find('#')
@@ -495,6 +574,168 @@ class HandlerAnalyzer(ast.NodeVisitor):
                 return comment
         
         return None
+    
+    def visit_ClassDef(self, node):
+        """Extract TypedDict definitions."""
+        # Check if this is a TypedDict
+        for base in node.bases:
+            if isinstance(base, ast.Name) and base.id == 'TypedDict':
+                self.typed_dicts[node.name] = self._extract_typed_dict_fields(node)
+                break
+        self.generic_visit(node)
+    
+    def visit_AnnAssign(self, node):
+        """Extract type annotations from assignments."""
+        if isinstance(node.target, ast.Name):
+            self.type_annotations[node.target.id] = self._resolve_annotation(node.annotation)
+        self.generic_visit(node)
+    
+    def _extract_typed_dict_fields(self, class_node):
+        """Extract fields from TypedDict class definition."""
+        fields = {}
+        
+        # Check if total=False is specified
+        total = True
+        for keyword in class_node.keywords:
+            if keyword.arg == 'total' and isinstance(keyword.value, ast.Constant):
+                total = keyword.value.value
+        
+        # Extract fields from class body
+        for item in class_node.body:
+            if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
+                field_name = item.target.id
+                field_type = self._resolve_annotation(item.annotation)
+                
+                # Check if NotRequired
+                required = total
+                if isinstance(item.annotation, ast.Subscript):
+                    if isinstance(item.annotation.value, ast.Name) and item.annotation.value.id == 'NotRequired':
+                        required = False
+                        # Extract inner type
+                        if hasattr(item.annotation, 'slice'):
+                            field_type = self._resolve_annotation(item.annotation.slice)
+                
+                fields[field_name] = {
+                    'type': field_type,
+                    'required': required
+                }
+        
+        return fields
+    
+    def _resolve_annotation(self, annotation):
+        """Convert AST annotation to readable type string."""
+        if isinstance(annotation, ast.Name):
+            return annotation.id
+        elif isinstance(annotation, ast.Constant):
+            return str(annotation.value)
+        elif isinstance(annotation, ast.Subscript):
+            base = self._resolve_annotation(annotation.value)
+            if isinstance(annotation.slice, ast.Name):
+                return f"{base}[{annotation.slice.id}]"
+            elif isinstance(annotation.slice, ast.Tuple):
+                elements = [self._resolve_annotation(elt) for elt in annotation.slice.elts]
+                return f"{base}[{', '.join(elements)}]"
+            else:
+                return f"{base}[{self._resolve_annotation(annotation.slice)}]"
+        elif isinstance(annotation, ast.Attribute):
+            return f"{self._resolve_annotation(annotation.value)}.{annotation.attr}"
+        elif isinstance(annotation, (ast.List, ast.Tuple)):
+            elements = [self._resolve_annotation(elt) for elt in annotation.elts]
+            return f"[{', '.join(elements)}]"
+        else:
+            return "Any"
+    
+    def get_typed_dict_params(self, func):
+        """Get TypedDict parameters for a function."""
+        # Look for 'data' parameter with TypedDict annotation
+        try:
+            sig = inspect.signature(func)
+            for param_name, param in sig.parameters.items():
+                if param_name == 'data' and param.annotation != inspect.Parameter.empty:
+                    # Get annotation name
+                    ann_name = None
+                    if hasattr(param.annotation, '__name__'):
+                        ann_name = param.annotation.__name__
+                    elif isinstance(param.annotation, str):
+                        ann_name = param.annotation
+                    
+                    # Look up in our typed_dicts
+                    if ann_name and ann_name in self.typed_dicts:
+                        # Convert to parameter format
+                        params = {}
+                        for field_name, field_info in self.typed_dicts[ann_name].items():
+                            params[field_name] = {
+                                'type': field_info['type'],
+                                'required': field_info['required'],
+                                'description': f"{field_name} parameter"
+                            }
+                        return params
+        except Exception as e:
+            logger.debug(f"Failed to get TypedDict params: {e}")
+        
+        return {}
+
+
+def parse_validation_patterns(comment: str) -> Dict[str, Any]:
+    """Extract structured validation info from comments."""
+    patterns = {
+        r'one of:\s*(.+)': lambda m: {'allowed_values': parse_list_values(m.group(1))},
+        r'format:\s*(.+)': lambda m: {'allowed_values': parse_list_values(m.group(1))},
+        r'must be valid\s+(\w+)': lambda m: {'validation': f"valid {m.group(1)}"},
+        r'choices?:\s*(.+)': lambda m: {'allowed_values': parse_list_values(m.group(1))},
+        r'options?:\s*(.+)': lambda m: {'allowed_values': parse_list_values(m.group(1))},
+        r'\(([^)]+)\)\s*$': lambda m: process_parenthetical_options(m.group(1)),
+    }
+    
+    result = {}
+    for pattern, extractor in patterns.items():
+        match = re.search(pattern, comment, re.IGNORECASE)
+        if match:
+            extracted = extractor(match)
+            if extracted:
+                result.update(extracted)
+    return result
+
+
+def parse_list_values(text: str) -> list:
+    """Parse comma-separated values from text, handling quoted strings."""
+    # Handle quoted values like 'value1', 'value2' or "value1", "value2"
+    values = []
+    
+    # First try to extract quoted values
+    quoted_pattern = r'["\']([^"\']*)["\']'
+    quoted_matches = re.findall(quoted_pattern, text)
+    if quoted_matches:
+        return quoted_matches
+    
+    # Fall back to comma-separated values
+    parts = text.split(',')
+    for part in parts:
+        cleaned = part.strip().strip('"').strip("'")
+        if cleaned:
+            values.append(cleaned)
+    
+    return values if values else None
+
+
+def process_parenthetical_options(text: str) -> Dict[str, Any]:
+    """Process options in parentheses like (default: value) or (one of: a, b, c)."""
+    if ':' in text:
+        key, value = text.split(':', 1)
+        key = key.strip().lower()
+        value = value.strip()
+        
+        if key in ['one of', 'choices', 'options']:
+            return {'allowed_values': parse_list_values(value)}
+        elif key == 'default':
+            # Try to parse as literal
+            try:
+                import ast
+                return {'default': ast.literal_eval(value)}
+            except:
+                return {'default': value}
+    
+    return {}
 
 
 def parse_docstring_params(func: Callable) -> Dict[str, Dict[str, Any]]:

@@ -1,162 +1,154 @@
-# KSI Discovery System Findings Log
+# KSI Discovery System Analysis
 
-This log tracks issues, insights, and improvements for the KSI discovery system.
+## Overview
+The KSI discovery system is implemented in `ksi_daemon/core/discovery.py` and `discovery_utils.py`. It provides automatic parameter extraction and documentation for event handlers using AST analysis.
 
-## 2025-07-08: Initial Discovery System Analysis
+## Core Implementation
 
-### Finding 1: Discovery System Underutilization
-**Issue**: Failed to use discovery system for finding `evaluation:prompt` parameters
-**Root Cause**: 
-- Default `system:discover` output with `detail=True` is overwhelming (~3000+ lines)
-- Abandoned discovery in favor of grepping source code
-- This defeats the entire purpose of the discovery system
+### Parameter Extraction
+The discovery system uses AST analysis in `HandlerAnalyzer` class to extract parameters from event handlers by looking for:
+1. `data.get('param_name', default)` calls - extracts parameter name, default value, and required status
+2. `data['param_name']` subscript access - marks as required parameter
+3. Inline comments after data.get() calls - used as parameter descriptions
+4. Docstring parsing for additional parameter documentation
 
-**Solution Path**:
-1. Change default to `detail=False` for more manageable output
-2. Use namespace filtering as primary discovery pattern
-3. Add progressive discovery workflow to documentation
+### Current Capabilities
+- Automatic parameter discovery from code
+- Multiple output formats (verbose, compact, ultra_compact, mcp, json_schema)
+- Inline comment extraction for parameter descriptions
+- Docstring parsing for parameter documentation
+- Event trigger detection
+- Usage example generation
 
-**Action Items**:
-- [ ] Update discovery.py to default `detail=False`
-- [ ] Add discovery helpers for common patterns
-- [ ] Document discovery-first workflow in CLAUDE.md
+## Module Documentation Quality Analysis
 
-### Finding 2: Missing Discovery Workflow Documentation
-**Issue**: CLAUDE.md lacks discovery usage examples
-**Impact**: Developers bypass discovery and grep source directly
+### Well-Documented Modules
 
-**Solution Path**:
-1. Add "Discovery-First Development" section to CLAUDE.md
-2. Include common discovery patterns and examples
-3. Create discovery cheat sheet
+#### 1. Evaluation Module (`ksi_daemon/evaluation/prompt_evaluation.py`)
+**Good Practices:**
+- Uses TypedDict for type-safe parameter definitions
+- Extensive inline comments on data.get() calls
+- Clear parameter descriptions in comments
+- Example: `model = data.get('model', 'claude-cli/sonnet')  # Model for testing`
 
-### Finding 3: Parameter Discovery Inefficiency
-**Issue**: No direct way to get just parameter names/types for an event
-**Current Workaround**: Use `system:help` but it's still verbose
-
-**Solution Path**:
-1. Add `discover:parameters` event for focused parameter discovery
-2. Add `discover:examples` for usage patterns
-3. Consider format_style options for different use cases
-
-### Finding 4: Discovery Output Format
-**Issue**: Current formats (verbose, compact, ultra_compact, mcp) don't address common needs
-**Missing Formats**:
-- Parameter-only view
-- Example-focused view
-- Quick reference view
-
-## Proposed Discovery Helpers
-
-### 1. `discover:parameters`
+**Discovery Output Quality:**
 ```json
-{
-  "event": "discover:parameters",
-  "data": {
-    "event": "evaluation:prompt",
-    "format": "table"  // or "json", "yaml"
+"parameters": {
+  "model": {
+    "type": "Any",
+    "required": false,
+    "default": "claude-cli/sonnet",
+    "description": "Model for testing"
   }
 }
 ```
-Returns just parameter names, types, and required status.
 
-### 2. `discover:examples`
+#### 2. Composition Module (`ksi_daemon/composition/composition_service.py`)
+**Good Practices:**
+- TypedDict definitions for each event handler
+- Inline comments for complex parameters
+- Clear docstrings for handlers
+- Example: `test_options = data.get('test_options', {})  # Test results and metrics`
+
+### Poorly-Documented Modules
+
+#### 1. Agent Service (`ksi_daemon/agent/agent_service.py`)
+**Issues:**
+- Has TypedDict definitions but handler doesn't use them as type hints
+- No inline comments on data.get() calls
+- Generic parameter descriptions in discovery output
+- Example: `agent_id = data.get("agent_id") or f"agent_{uuid.uuid4().hex[:8]}"`
+
+**Discovery Output Quality:**
 ```json
-{
-  "event": "discover:examples", 
-  "data": {
-    "event": "evaluation:prompt"
+"parameters": {
+  "agent_id": {
+    "type": "Any",
+    "required": true,
+    "description": "agent_id parameter"  // Generic description
   }
 }
 ```
-Returns working examples of event usage.
 
-### 3. `discover:namespace`
-```json
-{
-  "event": "discover:namespace",
-  "data": {
-    "namespace": "evaluation",
-    "depth": "summary"  // or "full", "names_only"
-  }
-}
-```
-Focused namespace discovery with depth control.
+## Key Differences Between Well vs Poorly Documented Modules
 
-## Implementation Priority
+### 1. Type Annotations
+- **Good**: `async def handle_prompt_evaluate(data: PromptEvaluationData) -> Dict[str, Any]:`
+- **Poor**: `async def handle_spawn_agent(data: Dict[str, Any]) -> Dict[str, Any]:`
 
-1. ~~**Immediate**: Change `detail=False` default in discovery.py~~ ✅ DONE (2025-07-08)
-2. **Next**: Add discovery helpers (parameters, examples, namespace)
-3. **Future**: Create comprehensive discovery guide
-4. **Ongoing**: Capture discovery patterns as they emerge
+### 2. Inline Comments
+- **Good**: `model = data.get('model', 'claude-cli/sonnet')  # Model for testing`
+- **Poor**: `agent_id = data.get("agent_id") or f"agent_{uuid.uuid4().hex[:8]}"`
 
-## Completed Improvements (2025-07-08)
+### 3. Parameter Documentation in Docstrings
+- **Good**: Docstrings with Parameters sections
+- **Poor**: Brief docstrings without parameter details
 
-### 1. Documentation Updates
-- **Added Discovery-First Development section to CLAUDE.md**
-  - Basic discovery workflow with examples
-  - Common discovery patterns
-  - Best practices for using discovery before reading source
-  - When discovery fails guidelines
+## Discovery Enhancement Opportunities
 
-### 2. Evaluation:Compare Format Options
-- **Implemented format parameter**: summary (default), rankings, detailed
-- **Summary format**: Concise overview with top 5 rankings, key insights, best overall
-- **Rankings format**: Detailed rankings by success rate, speed, and safety
-- **Inline documentation**: Added descriptive comment for format parameter
+### 1. TypedDict Integration
+The discovery system could be enhanced to:
+- Extract parameter information from TypedDict definitions when handlers use them as type hints
+- Get parameter types, descriptions from TypedDict docstrings
+- Mark required vs NotRequired fields correctly
 
-### 3. KSI Hook Monitor Enhancements
-- **Command-based verbosity control**:
-  - `echo ksi_verbose` - Show all events with details
-  - `echo ksi_summary` - Default concise mode
-  - `echo ksi_errors` - Only show errors
-  - `echo ksi_silent` - Temporarily disable
-  - `echo ksi_status` - Check current mode
-- **Status indicators**: ✓ for success, ✗ for failures/errors
-- **Smart filtering**: Groups repetitive events (e.g., `completion:* (×6)`)
+### 2. Enhanced Comment Parsing
+- Look for comments on lines above data.get() calls
+- Parse parameter descriptions from block comments
+- Extract validation rules from comments
 
-### 4. Key Learnings
-- Discovery system works well when used properly
-- Default verbosity is still a major barrier to adoption
-- Format options significantly improve usability
-- Command-based control better than env vars (no restart required)
+### 3. Type Information
+Currently all parameters show as "type": "Any". The system could:
+- Extract types from TypedDict definitions
+- Infer types from default values
+- Parse type hints from docstrings
 
-### Finding 5: Discovery Success Story
-**Context**: After documenting discovery-first workflow, successfully used it
-**Command**: `echo '{"event": "system:help", "data": {"event": "evaluation:prompt"}}' | nc -U var/run/daemon.sock | jq '.data.parameters'`
-**Result**: Found correct parameter name `composition_name` in seconds vs. minutes of grepping
+### 4. Validation Information
+Discovery could extract:
+- Allowed values from inline comments or docstrings
+- Value constraints (min/max, regex patterns)
+- Mutually exclusive parameters
 
-**Key Insight**: When documented and used properly, discovery system works excellently
+### 5. Examples Enhancement
+- Generate better examples based on parameter types
+- Include multiple examples for complex events
+- Show examples with different parameter combinations
 
-### Finding 6: Output Verbosity Issues Continue
-**Issue**: `evaluation:compare` output is extremely verbose (1500+ lines)
-**Impact**: 
-- Difficult to find the actual comparison insights
-- No clear summary section in output
-- Performance implications of large JSON responses
+## Specific Module Patterns
 
-**Solution Path**:
-1. Add summary-first output structure
-2. Consider paginated or progressive disclosure patterns
-3. Add format options like "summary_only", "full_details"
+### Conversation Service
+- Uses TypedDict but not as handler type hints
+- Good inline comments: `sort_by = data.get('sort_by', 'last_timestamp')  # or 'first_timestamp', 'message_count'`
+- Shows allowed values in comments
 
-### Finding 7: Evaluation System Observations
-**Success**: Multi-composition comparison works correctly
-**Issue**: Results not being persisted to disk by default
-**Observation**: `evaluation:prompt` has `update_metadata` param but unclear saving behavior
+### Config Service
+- Comprehensive TypedDict definitions
+- Less inline documentation
+- Could benefit from type hint usage
 
-**Action Items**:
-- [ ] Clarify when evaluations are saved vs. in-memory only
-- [ ] Add explicit save options to evaluation events
-- [ ] Document evaluation persistence patterns
+### MCP Service
+- Minimal parameter usage
+- Simple event handlers
+- Good example of focused functionality
 
-## Notes for Future Discovery Guide
+## Recommendations for Module Authors
 
-- Include visual diagrams of discovery flow
-- Add troubleshooting section for common discovery failures
-- Create quick reference card for discovery commands
-- Document discovery performance implications
-- Add discovery best practices from real usage
+1. **Always use TypedDict as type hints** for event handlers
+2. **Add inline comments** after every data.get() call
+3. **Include Parameters section** in handler docstrings
+4. **Document allowed values** in comments or docstrings
+5. **Provide validation rules** where applicable
 
----
-*Last updated: 2025-07-08*
+## Technical Debt
+
+1. Discovery system doesn't use TypedDict information even when available
+2. Type extraction is limited to "Any" for all parameters
+3. No validation rule extraction
+4. Limited example generation logic
+
+## Next Steps
+
+1. Enhance discovery to read TypedDict definitions
+2. Improve type inference from defaults and context
+3. Add validation rule extraction
+4. Generate richer examples based on parameter metadata

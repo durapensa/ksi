@@ -45,12 +45,20 @@ Essential development practices for Claude Code when working with KSI.
 # 1. Find events in a namespace (start with detail=false)
 echo '{"event": "system:discover", "data": {"namespace": "evaluation", "detail": false}}' | nc -U var/run/daemon.sock | jq
 
-# 2. Get detailed help for a specific event
+# 2. Get detailed help for a specific event (now with rich parameter info!)
 echo '{"event": "system:help", "data": {"event": "evaluation:prompt"}}' | nc -U var/run/daemon.sock | jq
 
 # 3. List events from a specific module
 echo '{"event": "module:list_events", "data": {"module_name": "ksi_daemon.evaluation.prompt_evaluation", "detail": true}}' | nc -U var/run/daemon.sock | jq
 ```
+
+### Enhanced Discovery Features (2025-07-09)
+
+The discovery system now provides:
+- **Actual parameter types** from TypedDict definitions (not just "Any")
+- **Parameter descriptions** from inline comments
+- **Validation constraints** like `allowed_values` from structured comments
+- **Better examples** based on parameter names and types
 
 ### Common Discovery Patterns
 

@@ -137,27 +137,47 @@ KSI follows a microkernel architecture where the core daemon is minimal and all 
 - **Graceful Shutdown**: Critical operations complete before daemon exit
 - **Process Monitoring**: Automatic detection and recovery of failed agent processes
 
-## Module Development
+## Module Development & API Discovery
 
-Create custom modules to extend KSI:
+KSI features a self-documenting discovery system. To explore available APIs and learn how to write modules:
 
-```python
-from ksi_daemon.event_system import event_handler
+```bash
+# Discover all available events and their parameters
+echo '{"event": "system:discover", "data": {"detail": true}}' | nc -U var/run/daemon.sock | jq
 
-@event_handler("my:custom:event")
-async def handle_custom_event(data):
-    # Your logic here
-    return {"status": "processed"}
+# Get detailed help for any event
+echo '{"event": "system:help", "data": {"event": "agent:spawn"}}' | nc -U var/run/daemon.sock | jq
 
-# Module is auto-registered on import
+# Discover events by namespace
+echo '{"event": "system:discover", "data": {"namespace": "completion", "detail": true}}' | nc -U var/run/daemon.sock | jq
 ```
 
-See the module development documentation for details.
+### Writing Discoverable Modules
+
+```python
+from typing import TypedDict
+from ksi_daemon.event_system import event_handler
+
+class MyEventData(TypedDict):
+    """Parameters are auto-discovered from TypedDict."""
+    action: str
+    target: str
+
+@event_handler("my:custom:event")
+async def handle_custom_event(data: MyEventData):
+    """This docstring becomes the event summary."""
+    action = data['action']  # Required parameter
+    target = data.get('target', 'default')  # Optional with default
+    return {"status": "processed"}
+```
+
+The discovery system automatically extracts parameter types, descriptions, and validation rules from your code.
 
 ## Documentation
 
-- [API Reference](docs/API_REFERENCE.md) - Complete REST-style API documentation
+- **API Reference**: Use `system:discover` and `system:help` - the API is self-documenting!
 - [Architecture Analysis](docs/ksi_architecture_analysis.md) - Deep technical dive
+- [Claude Code Integration](ksi_claude_code/docs/CLAUDE_CODE_KSI_MANUAL.md) - Using KSI with Claude
 - [Memory Knowledge](memory/claude_code/project_knowledge.md) - Technical reference
 
 ## Contributing
