@@ -590,27 +590,26 @@ async def handle_get(data: CompositionGetData) -> Dict[str, Any]:
         return {'error': str(e)}
 
 
-@event_handler("composition:reload")
-async def handle_reload(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Reload composition index."""
-    try:
-        indexed_count = composition_index.rebuild()
-        
-        return {
-            'status': 'success',
-            'indexed': indexed_count,
-            'message': f'Reloaded {indexed_count} compositions'
-        }
-    except Exception as e:
-        logger.error(f"Failed to reload compositions: {e}")
-        return {'error': str(e)}
 
 
 @event_handler("composition:rebuild_index")
+@event_handler("composition:reload")  # Alias for backward compatibility
 async def handle_rebuild_index(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Rebuild the composition index."""
+    """Rebuild the composition index by scanning all composition files.
+    
+    This performs a full rebuild:
+    1. Clears the existing index
+    2. Scans all .yaml files in the compositions directory
+    3. Re-indexes each valid composition file
+    
+    Note: Individual file saves are automatically indexed via composition:save.
+    This is only needed for:
+    - Initial setup or after manual file changes
+    - Recovering from index corruption
+    - Bulk imports of composition files
+    """
     try:
-        indexed_count = composition_index.rebuild()
+        indexed_count = await composition_index.rebuild()
         return {
             'status': 'success',
             'indexed_count': indexed_count,
@@ -629,7 +628,7 @@ async def handle_index_file(data: Dict[str, Any]) -> Dict[str, Any]:
         return {'error': 'file_path required'}
     
     try:
-        success = composition_index.index_file(Path(file_path))
+        success = await composition_index.index_file(Path(file_path))
         return {
             'status': 'success' if success else 'failed',
             'file_path': file_path,
