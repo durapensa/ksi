@@ -75,7 +75,7 @@ class DynamicKSIMCPServer(Server):
                 try:
                     # Get events for this module
                     module_events = await self.client.send_event(
-                        "module:list_events", {"module_name": module, "detail": False}
+                        "system:discover", {"module": module, "detail": False}
                     )
                     if isinstance(module_events, dict) and "events" in module_events:
                         allowed_events.update(module_events["events"].keys())

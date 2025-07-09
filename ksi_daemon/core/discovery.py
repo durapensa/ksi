@@ -90,7 +90,15 @@ async def handle_discover(data: Dict[str, Any]) -> Dict[str, Any]:
         )
 
     # Build response
-    return build_discovery_response(formatted_events, style=format_style)
+    response = build_discovery_response(formatted_events, style=format_style)
+    
+    # If filtering by module, add module description
+    if module_filter:
+        module_info = router.inspect_module(module_filter)
+        if module_info and "docstring" in module_info:
+            response["module_description"] = module_info["docstring"].split("\n")[0].strip()
+    
+    return response
 
 
 @event_handler("system:help")
@@ -153,73 +161,6 @@ async def handle_help(data: Dict[str, Any]) -> Dict[str, Any]:
         return formatted_info
 
 
-@event_handler("module:list_events")
-async def handle_module_list_events(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Get list of events handled by a specific module.
-
-    Parameters:
-        module_name (str): The full module name (e.g., "ksi_daemon.core.discovery")
-        detail (bool): Include event details like parameters and triggers (default: False)
-        format_style (str): Output format - verbose, compact, ultra_compact (default: verbose)
-
-    Returns:
-        Dictionary with module name and its events
-    """
-    module_name = data.get("module_name")
-    if not module_name:
-        return {"error": "module_name parameter required"}
-
-    include_detail = data.get("detail", False)
-    format_style = data.get("format_style", FORMAT_VERBOSE)
-
-    from ksi_daemon.event_system import get_router
-
-    router = get_router()
-
-    # Get module info
-    module_info = router.inspect_module(module_name)
-    if not module_info:
-        return {"error": f"Module not found: {module_name}"}
-
-    # Build event info for each handler in the module
-    events = {}
-    for handler_data in module_info["handlers"]:
-        event_name = handler_data["event"]
-
-        # Get the actual handler object
-        if event_name in router._handlers:
-            handler = router._handlers[event_name][0]
-
-            handler_info = {
-                "module": handler.module,
-                "handler": handler.name,
-                "async": handler.is_async,
-                "summary": extract_summary(handler.func),
-            }
-
-            if include_detail:
-                # Get detailed analysis
-                analysis = analyze_handler(handler.func, event_name)
-                handler_info.update(analysis)
-
-            # Format the event info
-            events[event_name] = format_event_info(
-                event_name,
-                handler_info,
-                style=format_style,
-                include_params=include_detail,
-                include_triggers=include_detail,
-            )
-
-    # Build response
-    response = {"module": module_name, "events": events, "count": len(events)}
-
-    # Add module summary if available
-    if "docstring" in module_info:
-        response["description"] = module_info["docstring"].split("\n")[0].strip()
-
-    return response
 
 
 @event_handler("system:shutdown")

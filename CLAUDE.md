@@ -48,8 +48,8 @@ echo '{"event": "system:discover", "data": {"namespace": "evaluation", "detail":
 # 2. Get detailed help for a specific event (now with rich parameter info!)
 echo '{"event": "system:help", "data": {"event": "evaluation:prompt"}}' | nc -U var/run/daemon.sock | jq
 
-# 3. List events from a specific module
-echo '{"event": "module:list_events", "data": {"module_name": "ksi_daemon.evaluation.prompt_evaluation", "detail": true}}' | nc -U var/run/daemon.sock | jq
+# 3. Filter events by module
+echo '{"event": "system:discover", "data": {"module": "ksi_daemon.evaluation.prompt_evaluation", "detail": true}}' | nc -U var/run/daemon.sock | jq
 ```
 
 ### Enhanced Discovery Features (2025-07-09)

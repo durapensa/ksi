@@ -138,7 +138,6 @@ capabilities:
     events:
       - "dev:checkpoint"
       - "dev:restore"
-      - "module:list_events"  # Discover module events
 
 # Event patterns (for wildcard expansion)
 event_patterns:
