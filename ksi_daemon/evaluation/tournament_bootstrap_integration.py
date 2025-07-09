@@ -48,37 +48,57 @@ async def run_improvement_cycle(data: Dict[str, Any]) -> Dict[str, Any]:
     # Step 1: Bootstrap judge variations
     logger.info("Step 1: Bootstrapping judge variations")
     bootstrap_result = await emit_event('evaluation:bootstrap_judges_v2', {
-        'test_suite': test_suite,
-        'num_variations': num_variations,
-        'output_dir': str(output_dir / cycle_id / 'bootstrap')
+        'roles': ['evaluator', 'analyst', 'rewriter'],  # Bootstrap all judge types
+        'techniques_per_role': num_variations,
+        'run_tournament': False,  # We'll run our own tournament
+        'save_selected': True
     })
     
-    if not bootstrap_result or bootstrap_result[0].get('data', {}).get('status') != 'success':
-        return {"status": "error", "error": "Bootstrap failed"}
+    logger.info(f"Bootstrap result type: {type(bootstrap_result)}, content: {bootstrap_result}")
     
-    bootstrapped_judges = bootstrap_result[0]['data'].get('judges', [])
-    logger.info(f"Bootstrapped {len(bootstrapped_judges)} judge variations")
+    if not bootstrap_result:
+        return {"status": "error", "error": "Bootstrap returned no result"}
+    
+    if isinstance(bootstrap_result, list) and len(bootstrap_result) > 0:
+        # If it's a list, the first element IS the data
+        result_data = bootstrap_result[0]
+    else:
+        result_data = bootstrap_result
+    
+    if result_data.get('status') != 'success':
+        return {"status": "error", "error": f"Bootstrap failed: {result_data}"}
+    
+    selected_judges = result_data.get('selected_judges', {})
+    logger.info(f"Selected {len(selected_judges)} judge types")
     
     # Step 2: Spawn agents for each judge
     logger.info("Step 2: Spawning judge agents")
     agent_mapping = {}
     
-    for judge in bootstrapped_judges:
-        # Spawn agent with appropriate profile
-        spawn_result = await emit_event('agent:spawn', {
-            'profile': judge['profile'],
-            'purpose': f"Tournament judge - {judge['variation_name']}",
-            'metadata': {
-                'cycle_id': cycle_id,
-                'variation': judge['variation_name'],
-                'technique': judge.get('technique', 'unknown')
-            }
-        })
-        
-        if spawn_result and spawn_result[0].get('data', {}).get('status') == 'success':
-            agent_id = spawn_result[0]['data']['agent_id']
-            agent_mapping[agent_id] = judge
-            logger.info(f"Spawned agent {agent_id} for {judge['variation_name']}")
+    # Create multiple agents for each judge type to enable tournament
+    for role, judge_info in selected_judges.items():
+        # Spawn 2 agents per role for better tournament coverage
+        for i in range(2):
+            spawn_result = await emit_event('agent:spawn', {
+                'profile': judge_info['composition'],
+                'purpose': f"Tournament {role} judge #{i+1} - {judge_info['technique']}",
+                'metadata': {
+                    'cycle_id': cycle_id,
+                    'role': role,
+                    'technique': judge_info['technique'],
+                    'base_score': judge_info['score']
+                }
+            })
+            
+            if spawn_result and spawn_result[0].get('data', {}).get('status') == 'success':
+                agent_id = spawn_result[0]['data']['agent_id']
+                agent_mapping[agent_id] = {
+                    'role': role,
+                    'technique': judge_info['technique'],
+                    'composition': judge_info['composition'],
+                    'score': judge_info['score']
+                }
+                logger.info(f"Spawned agent {agent_id} for {role} ({judge_info['technique']})")
     
     # Step 3: Create and run tournament
     logger.info("Step 3: Creating tournament")
@@ -102,8 +122,18 @@ async def run_improvement_cycle(data: Dict[str, Any]) -> Dict[str, Any]:
         'auto_start': False
     })
     
-    if not create_result or create_result[0].get('data', {}).get('status') != 'success':
-        return {"status": "error", "error": "Tournament creation failed"}
+    logger.info(f"Tournament create result: {create_result}")
+    
+    if not create_result:
+        return {"status": "error", "error": "Tournament creation failed - no result"}
+    
+    # Check result format - emit_event returns a list
+    if isinstance(create_result, list) and len(create_result) > 0:
+        tournament_response = create_result[0]
+        if tournament_response.get('status') != 'success':
+            return {"status": "error", "error": f"Tournament creation failed: {tournament_response}"}
+    else:
+        return {"status": "error", "error": f"Unexpected tournament result format: {create_result}"}
     
     # Start registration phase
     await emit_event('tournament:start_phase', {
@@ -112,12 +142,12 @@ async def run_improvement_cycle(data: Dict[str, Any]) -> Dict[str, Any]:
     })
     
     # Register all agents
-    for agent_id, judge in agent_mapping.items():
+    for agent_id, judge_data in agent_mapping.items():
         await emit_event('tournament:register', {
             'tournament_id': tournament_id,
             'agent_id': agent_id,
-            'role': judge['role'],
-            'technique': judge.get('technique', 'unknown')
+            'role': judge_data['role'],
+            'technique': judge_data.get('technique', 'unknown')
         })
     
     # Start round-robin phase

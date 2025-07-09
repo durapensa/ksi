@@ -1,0 +1,29 @@
+name: evaluator_judge_holistic_quality
+type: profile
+version: 1.0.0
+description: evaluator judge with holistic_quality technique
+author: bootstrap_system
+extends: evaluator_judge
+mixins: []
+components:
+- name: system_prompt
+  source: prompts/specialized/evaluation/judges/evaluator_holistic_quality.yaml
+  composition: null
+  inline: null
+  template: null
+  vars:
+    base_prompt: evaluator_base
+  condition: null
+  conditions: null
+variables: {}
+metadata:
+  bootstrap_variation: true
+  technique: holistic_quality
+  technique_config:
+    name: holistic_quality
+    description: Evaluates overall quality and effectiveness
+    prompt_reference: specialized/evaluation/judges/evaluator_holistic_quality
+  created: '2025-07-09T19:27:11.933229Z'
+  dynamic: true
+  created_at: '2025-07-09T19:27:11.933661Z'
+  parent_agent: null

@@ -23,7 +23,7 @@ metadata:
     name: detailed_rubric
     description: Emphasizes detailed scoring rubrics
     prompt_reference: specialized/evaluation/judges/evaluator_detailed_rubric
-  created: '2025-07-09T15:21:33.087153Z'
+  created: '2025-07-09T19:37:28.675604Z'
   dynamic: true
-  created_at: '2025-07-09T15:21:33.087223Z'
+  created_at: '2025-07-09T19:37:28.675662Z'
   parent_agent: null

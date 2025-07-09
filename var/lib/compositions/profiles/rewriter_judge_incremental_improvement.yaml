@@ -23,7 +23,7 @@ metadata:
     name: incremental_improvement
     description: Makes minimal necessary changes
     prompt_reference: specialized/evaluation/judges/rewriter_incremental_improvement
-  created: '2025-07-09T15:21:33.106124Z'
+  created: '2025-07-09T19:37:28.697962Z'
   dynamic: true
-  created_at: '2025-07-09T15:21:33.106171Z'
+  created_at: '2025-07-09T19:37:28.698020Z'
   parent_agent: null

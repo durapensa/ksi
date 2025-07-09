@@ -1,0 +1,52 @@
+bootstrap_run: '2025-07-09T19:28:34.696511Z'
+variations_tested: 6
+selected_judges:
+  evaluator:
+    variation_id: evaluator_detailed_rubric_2025-07-09_15-28-34
+    technique: detailed_rubric
+    composition_name: evaluator_judge_detailed_rubric
+    performance_scores: &id001
+      ground_truth: 0.64
+    agent_id: agent_53105ddb
+  analyst:
+    variation_id: analyst_root_cause_focus_2025-07-09_15-28-34
+    technique: root_cause_focus
+    composition_name: analyst_judge_root_cause_focus
+    performance_scores: &id002
+      ground_truth: 0.72
+    agent_id: agent_47633f36
+  rewriter:
+    variation_id: rewriter_incremental_improvement_2025-07-09_15-28-34
+    technique: incremental_improvement
+    composition_name: rewriter_judge_incremental_improvement
+    performance_scores: &id003
+      ground_truth: 0.6
+    agent_id: agent_c652fe4b
+all_variations:
+- variation_id: evaluator_detailed_rubric_2025-07-09_15-28-34
+  role: evaluator
+  technique: detailed_rubric
+  scores: *id001
+- variation_id: evaluator_pattern_focused_2025-07-09_15-28-34
+  role: evaluator
+  technique: pattern_focused
+  scores:
+    ground_truth: 0.64
+- variation_id: analyst_root_cause_focus_2025-07-09_15-28-34
+  role: analyst
+  technique: root_cause_focus
+  scores: *id002
+- variation_id: analyst_pattern_recognition_2025-07-09_15-28-34
+  role: analyst
+  technique: pattern_recognition
+  scores:
+    ground_truth: 0.72
+- variation_id: rewriter_incremental_improvement_2025-07-09_15-28-34
+  role: rewriter
+  technique: incremental_improvement
+  scores: *id003
+- variation_id: rewriter_comprehensive_restructure_2025-07-09_15-28-34
+  role: rewriter
+  technique: comprehensive_restructure
+  scores:
+    ground_truth: 0.6

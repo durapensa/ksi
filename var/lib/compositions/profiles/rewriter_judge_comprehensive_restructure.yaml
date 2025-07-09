@@ -23,7 +23,7 @@ metadata:
     name: comprehensive_restructure
     description: Willing to completely restructure
     prompt_reference: specialized/evaluation/judges/rewriter_comprehensive_restructure
-  created: '2025-07-09T15:21:33.110537Z'
+  created: '2025-07-09T19:37:28.703459Z'
   dynamic: true
-  created_at: '2025-07-09T15:21:33.110859Z'
+  created_at: '2025-07-09T19:37:28.703510Z'
   parent_agent: null
