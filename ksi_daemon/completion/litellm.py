@@ -16,8 +16,9 @@ from typing import Dict, Any, Optional, Tuple
 # Disable LiteLLM's HTTP request for model pricing on startup
 os.environ['LITELLM_LOCAL_MODEL_COST_MAP'] = 'true'
 
-# Import claude_cli_litellm_provider to ensure provider registration
+# Import CLI providers to ensure registration
 from ksi_daemon.completion import claude_cli_litellm_provider
+from ksi_daemon.completion import gemini_cli_litellm_provider
 from ksi_daemon.event_system import event_handler, get_router
 import litellm
 
@@ -69,12 +70,20 @@ async def handle_litellm_completion(data: Dict[str, Any]) -> Tuple[str, Dict[str
         response = await litellm.acompletion(**data)
         
         # Determine provider
-        provider = "claude-cli" if model.startswith("claude-cli/") else "litellm"
+        if model.startswith("claude-cli/"):
+            provider = "claude-cli"
+        elif model.startswith("gemini-cli/"):
+            provider = "gemini-cli"
+        else:
+            provider = "litellm"
         
         # Extract appropriate response data based on provider
         if provider == "claude-cli" and hasattr(response, '_claude_metadata'):
             # For claude-cli, return the metadata directly - it has everything we need
             raw_response = response._claude_metadata
+        elif provider == "gemini-cli" and hasattr(response, '_gemini_metadata'):
+            # For gemini-cli, return the metadata directly - it has everything we need
+            raw_response = response._gemini_metadata
         else:
             # For other providers, extract only what we need
             raw_response = {

@@ -1,6 +1,7 @@
 """Shared constants and configuration defaults for KSI."""
 
 from pathlib import Path
+import shutil
 
 # Socket configuration
 DEFAULT_SOCKET_PATH = "var/run/daemon.sock"
@@ -62,6 +63,13 @@ DEFAULT_MODEL = "claude-sonnet-4-20250514"
 
 # Claude CLI configuration
 DEFAULT_CLAUDE_BIN = None  # Set via KSI_CLAUDE_BIN environment variable
+
+# Gemini CLI configuration
+# Try to auto-discover gemini from PATH
+try:
+    DEFAULT_GEMINI_BIN = shutil.which("gemini")
+except Exception:
+    DEFAULT_GEMINI_BIN = None  # Fall back to None if discovery fails
 
 # Protocol version
 PROTOCOL_VERSION = "1.0"
