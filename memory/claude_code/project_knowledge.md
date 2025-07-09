@@ -353,7 +353,57 @@ The discovery system now provides richer parameter information:
 3. Include allowed values: `format = data.get('format', 'summary')  # Output format: 'summary', 'rankings', 'detailed'`
 4. TypedDict fields are automatically discovered - no need to duplicate in comments
 
+## Autonomous Judge System (2025-07-09)
+
+### Overview
+Implemented a self-improving evaluation system where AI judges collaborate to improve prompts and their own capabilities.
+
+### Architecture Components
+
+#### 1. **Evaluation System Enhancements**
+- **New Evaluators**: `all_of`, `any_of`, `exact_match`, `length_range`, `pipeline`
+- **LLM Judge**: `llm_judge` evaluator using LLM-as-Judge pattern
+- **Prompt Iteration**: Framework for testing multiple prompt variations
+- **Results**: 80% success rate on bracket formatting problem
+
+#### 2. **Judge Bootstrap Protocol** (`judge_bootstrap_v2.py`)
+- Creates judge variations using `composition:create` 
+- Tests against ground truth cases
+- Runs tournaments for cross-evaluation
+- Selects best performers based on scores
+
+#### 3. **Tournament System** (`judge_tournament.py`)
+- Multi-phase orchestration: registration → round-robin → consensus → results
+- Uses `agent:broadcast_message` for coordination
+- Reputation-weighted scoring
+- Parallel match execution
+
+#### 4. **Communication Schemas**
+- Structured YAML schemas for judge-to-judge communication
+- Self-documenting protocols shown to all judges
+- Type-safe message passing
+
+### Key Discoveries
+1. **KSI capabilities sufficient** - No new features needed:
+   - Dynamic compositions via `composition:create`
+   - Structured messaging via `agent:send_message` with Dict[str, Any]
+   - Multi-agent coordination via broadcast + state system
+
+2. **Prompt improvement results**:
+   - Base prompt: 50% success (missing brackets)
+   - With explicit examples: 100% success
+   - 8/10 technique variations succeeded
+
+### Integration Status
+- ✅ Judge variations can be created dynamically
+- ✅ Tournament system can orchestrate multi-agent evaluation
+- ✅ Communication protocols defined and documented
+- 🔄 Ground truth test cases being created
+- ⏳ Real agent testing pending
+- ⏳ Full autonomous loop integration pending
+
+**Full documentation**: See [`docs/AUTONOMOUS_JUDGE_ARCHITECTURE.md`](../../docs/AUTONOMOUS_JUDGE_ARCHITECTURE.md)
 
 ---
-*Last updated: 2025-07-08*
+*Last updated: 2025-07-09*
 *For development practices, see `/Users/dp/projects/ksi/CLAUDE.md`*
