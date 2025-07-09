@@ -25,7 +25,7 @@ from ksi_common.logging import get_bound_logger
 # Import modular components
 from ksi_daemon.completion.queue_manager import CompletionQueueManager
 from ksi_daemon.completion.provider_manager import ProviderManager
-from ksi_daemon.completion.session_manager import SessionManager
+from ksi_daemon.completion.session_manager_v2 import SessionManager
 from ksi_daemon.completion.token_tracker import TokenTracker
 from ksi_daemon.completion.retry_manager import RetryManager, RetryPolicy, extract_error_type
 from ksi_daemon.completion.litellm import handle_litellm_completion
@@ -344,6 +344,16 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
         
         # Save to session log
         save_completion_response(standardized_response)
+        
+        # CRITICAL: Update session tracking with the NEW session_id from claude-cli
+        if provider == "claude-cli":
+            response_session_id = get_response_session_id(standardized_response)
+            if response_session_id and hasattr(session_manager, 'update_request_session'):
+                session_manager.update_request_session(request_id, response_session_id)
+                logger.debug(
+                    f"Updated request {request_id} with session {response_session_id}",
+                    original_session_id=data.get("session_id")
+                )
         
         # Track token usage
         if provider == "claude-cli" and "response" in standardized_response:

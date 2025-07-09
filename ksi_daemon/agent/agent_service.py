@@ -770,16 +770,20 @@ async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
             
             # Always add KSI parameters via extra_body for LiteLLM
             # This ensures all agent-specific context is passed through
-            completion_data["extra_body"] = {
-                "ksi": {
-                    "agent_id": agent_id,
-                    "sandbox_dir": agent_info.get("sandbox_dir"),
-                    "permissions": permissions,
-                    "allowed_events": agent_config.get("allowed_events", []),  # Add resolved events
-                    "session_id": agent_info.get("session_id"),
-                    "mcp_config_path": agent_info.get("mcp_config_path")
-                }
+            ksi_body = {
+                "agent_id": agent_id,
+                "sandbox_dir": agent_info.get("sandbox_dir"),
+                "permissions": permissions,
+                "allowed_events": agent_config.get("allowed_events", []),  # Add resolved events
+                "session_id": agent_info.get("session_id")
             }
+            
+            # Only include mcp_config_path if it's actually set
+            mcp_path = agent_info.get("mcp_config_path")
+            if mcp_path:
+                ksi_body["mcp_config_path"] = mcp_path
+                
+            completion_data["extra_body"] = {"ksi": ksi_body}
             logger.debug(f"Agent {agent_id} sending completion with MCP config: {agent_info.get('mcp_config_path')}")
             
             await event_emitter("completion:async", completion_data)

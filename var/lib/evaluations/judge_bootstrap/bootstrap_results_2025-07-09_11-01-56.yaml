@@ -1,0 +1,14 @@
+bootstrap_run: '2025-07-09T15:01:56.053365Z'
+variations_tested: 1
+selected_judges:
+  evaluator:
+    variation_id: evaluator_detailed_rubric_2025-07-09_11-01-56
+    technique: detailed_rubric
+    composition_name: evaluator_judge_detailed_rubric
+    performance_scores: &id001 {}
+    agent_id: null
+all_variations:
+- variation_id: evaluator_detailed_rubric_2025-07-09_11-01-56
+  role: evaluator
+  technique: detailed_rubric
+  scores: *id001

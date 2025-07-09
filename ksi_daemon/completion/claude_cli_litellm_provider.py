@@ -91,7 +91,10 @@ def build_cmd(
     if session_id:
         cmd += ["--resume", session_id]
     if mcp_config:
-        cmd += ["--mcp-config", mcp_config]
+        # Convert to absolute path since we may run from different working directories
+        from pathlib import Path
+        mcp_config_abs = str(Path(mcp_config).absolute())
+        cmd += ["--mcp-config", mcp_config_abs]
     cmd.append(prompt)
     return cmd
 

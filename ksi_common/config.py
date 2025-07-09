@@ -187,7 +187,7 @@ class KSIBaseConfig(BaseSettings):
     gemini_bin: Optional[str] = DEFAULT_GEMINI_BIN  # Path to gemini binary
     
     # MCP Server settings
-    mcp_enabled: bool = True               # Enable MCP server
+    mcp_enabled: bool = False              # Enable MCP server (disabled by default)
     mcp_server_port: int = 8080           # MCP server port
     
     # Test timeouts (in seconds)
