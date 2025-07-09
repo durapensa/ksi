@@ -306,3 +306,45 @@ def merge_event_responses(responses: List[Dict[str, Any]]) -> Dict[str, Any]:
                 merged[key].update(value)
     
     return merged
+
+
+def get_nested_value(
+    data: Dict[str, Any],
+    path: str,
+    default: Any = None,
+    separator: str = "."
+) -> Any:
+    """
+    Get value from nested dictionary using dot notation.
+    
+    Args:
+        data: Dictionary to search
+        path: Dot-separated path (e.g., "result.ksi.metadata")
+        default: Default value if path not found
+        separator: Path separator (default ".")
+        
+    Returns:
+        Value at path or default
+        
+    Examples:
+        >>> data = {"result": {"ksi": {"metadata": {"type": "test"}}}}
+        >>> get_nested_value(data, "result.ksi.metadata.type")
+        'test'
+        >>> get_nested_value(data, "result.missing.path", "default")
+        'default'
+    """
+    try:
+        keys = path.split(separator)
+        value = data
+        
+        for key in keys:
+            if isinstance(value, dict):
+                value = value.get(key)
+                if value is None:
+                    return default
+            else:
+                return default
+                
+        return value
+    except (AttributeError, TypeError):
+        return default

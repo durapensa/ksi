@@ -17,6 +17,7 @@ from ksi_common.event_utils import build_error_response, build_success_response
 from ksi_common.validation_utils import validate_dict_structure
 from ksi_daemon.event_system import event_handler, emit_event
 # State operations will use events instead of direct state manager
+from ksi_daemon.evaluation.tournament_evaluation import wait_for_evaluation
 
 logger = get_bound_logger("judge_tournament")
 
@@ -108,7 +109,7 @@ class JudgeTournament:
         
         logger.info(f"Tournament {self.tournament_id} initialized")
     
-    async def open_registration(self, duration_seconds: int = 30):
+    async def open_registration(self, duration_seconds: int = 30, auto_close: bool = True):
         """Open registration phase for judges to join."""
         self.phase = TournamentPhase.REGISTRATION
         
@@ -132,11 +133,13 @@ class JudgeTournament:
             }
         })
         
-        # Wait for registration period
-        await asyncio.sleep(duration_seconds)
-        
-        # Close registration
-        await self._close_registration()
+        # Only auto-close if requested
+        if auto_close:
+            # Wait for registration period
+            await asyncio.sleep(duration_seconds)
+            
+            # Close registration
+            await self._close_registration()
     
     async def _close_registration(self):
         """Close registration and validate participants."""
@@ -326,19 +329,33 @@ class JudgeTournament:
         """Wait for match result from evaluator."""
         timeout = timeout or self.config['match_timeout']
         
-        # In real implementation, would listen for specific event
-        # For now, simulate with timeout
-        await asyncio.sleep(2)  # Simulate evaluation time
+        # Wait for real evaluation response
+        result = await wait_for_evaluation(match_id, timeout)
         
-        # Simulated result
-        return {
-            'match_id': match_id,
-            'evaluation': {
-                'score': 0.85,
-                'reasoning': 'Good evaluation with minor issues',
-                'criteria_scores': {'accuracy': 0.9, 'helpfulness': 0.8}
+        if result:
+            # Extract evaluation from result
+            evaluation = result.get('evaluation', {})
+            
+            # Ensure we have required fields
+            if 'score' not in evaluation:
+                evaluation['score'] = 0.5  # Default neutral score
+            
+            return {
+                'match_id': match_id,
+                'evaluation': evaluation,
+                'evaluator': result.get('agent_id')
             }
-        }
+        else:
+            # Timeout or error - return default score
+            logger.warning(f"No evaluation received for match {match_id}, using default score")
+            return {
+                'match_id': match_id,
+                'evaluation': {
+                    'score': 0.5,
+                    'reasoning': 'Evaluation timeout - using default score',
+                    'criteria_scores': {}
+                }
+            }
     
     async def _calculate_scores(self):
         """Calculate aggregate scores for all participants."""
@@ -359,10 +376,22 @@ class JudgeTournament:
                     evaluator = self.participants[match.evaluator_id]
                     score = match.result.get('evaluation', {}).get('score', 0.5)
                     
+                    # Convert string scores to float if needed
+                    if isinstance(score, str):
+                        try:
+                            score = float(score)
+                        except ValueError:
+                            score = 0.5
+                    
+                    logger.debug(f"Match {match.match_id}: score={score}, evaluator_rep={evaluator.reputation}")
+                    
                     weighted_sum += score * evaluator.reputation
                     weight_total += evaluator.reputation
                 
                 participant.aggregate_score = weighted_sum / weight_total if weight_total > 0 else 0.5
+                logger.info(f"Participant {participant.agent_id} aggregate score: {participant.aggregate_score}")
+            else:
+                logger.info(f"Participant {participant.agent_id} has no completed evaluations")
     
     async def run_consensus_phase(self):
         """Run consensus phase where top judges validate results."""
@@ -587,7 +616,8 @@ async def handle_tournament_phase(data: Dict[str, Any]) -> Dict[str, Any]:
     # Start the appropriate phase
     try:
         if phase == "registration":
-            await tournament.open_registration()
+            # Don't auto-close registration for manual control
+            await tournament.open_registration(auto_close=False)
         elif phase == "round_robin":
             asyncio.create_task(tournament.run_round_robin())
         elif phase == "consensus":

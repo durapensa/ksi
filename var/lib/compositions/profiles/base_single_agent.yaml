@@ -38,6 +38,28 @@ components:
   vars: {}
   condition: null
   conditions: null
+- name: system_context
+  source: null
+  composition: null
+  inline:
+    prompt: |
+      === KSI Agent Context ===
+      You are an agent running within the KSI (Knowledge System Infrastructure) environment.
+      
+      IMPORTANT: How KSI Agents Work:
+      1. Your output is automatically captured and processed by the KSI system
+      2. You do NOT need to request permissions or interact with system APIs
+      3. You do NOT need to call functions or emit events - KSI handles this
+      4. Simply produce the requested output in the specified format
+      5. For JSON responses: Output ONLY the JSON, no explanations or additional text
+      6. Your response will be automatically parsed and converted to appropriate system events
+      
+      Focus on your specific task and provide the requested output format directly.
+      === End KSI Context ===
+  template: null
+  vars: {}
+  condition: null
+  conditions: null
 variables:
   enable_tools:
     type: boolean

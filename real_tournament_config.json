@@ -1,0 +1,21 @@
+{
+  "event": "tournament:create",
+  "data": {
+    "tournament_id": "real_eval_tournament_20250709_142352",
+    "config": {
+      "participants": [
+        "agent_4e159a87",
+        "agent_0fe5d2ae",
+        "agent_e1bd2bd1",
+        "agent_3dc8f4bf",
+        "agent_e3414ac6",
+        "agent_9c56a0c8"
+      ],
+      "rounds": 1,
+      "match_timeout": 60,
+      "test_case_limit": 2,
+      "parallel_matches": 2
+    },
+    "auto_start": false
+  }
+}

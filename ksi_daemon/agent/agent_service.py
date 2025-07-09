@@ -23,6 +23,7 @@ from ksi_daemon.capability_enforcer import get_capability_enforcer
 from ksi_daemon.event_system import event_handler, get_router
 from ksi_daemon.mcp import mcp_config_manager
 from ksi_daemon.agent.metadata import AgentMetadata
+from ksi_daemon.evaluation.tournament_evaluation import process_agent_tournament_message, extract_evaluation_from_response
 
 # Module state
 logger = get_bound_logger("agent_service", version="2.0.0")
@@ -787,6 +788,50 @@ async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
             logger.debug(f"Agent {agent_id} sending completion with MCP config: {agent_info.get('mcp_config_path')}")
             
             await event_emitter("completion:async", completion_data)
+    
+    elif msg_type == "tournament_match":
+        # Handle tournament evaluation request
+        tournament_request = await process_agent_tournament_message(agent_id, message)
+        if tournament_request and event_emitter:
+            # Send completion request for tournament evaluation
+            match_id = tournament_request.get('match_id')
+            prompt = tournament_request.get('prompt')
+            
+            if prompt and match_id:
+                completion_data = {
+                    "messages": [{"role": "user", "content": prompt}],
+                    "agent_id": agent_id,
+                    "originator_id": agent_id,
+                    "session_id": agent_info.get("session_id"),
+                    "model": f"claude-cli/{agent_info.get('config', {}).get('model', 'sonnet')}",
+                    "priority": "normal",
+                    "request_id": f"tournament_{match_id}",
+                    "metadata": {
+                        "type": "tournament_evaluation",
+                        "match_id": match_id
+                    }
+                }
+                
+                # Add KSI parameters
+                ksi_body = {
+                    "agent_id": agent_id,
+                    "sandbox_dir": agent_info.get("sandbox_dir"),
+                    "permissions": {
+                        "allowed_tools": agent_info.get("config", {}).get("allowed_claude_tools", []),
+                        "profile": agent_info.get("permission_profile", "standard")
+                    },
+                    "allowed_events": agent_info.get("config", {}).get("allowed_events", []),
+                    "session_id": agent_info.get("session_id")
+                }
+                
+                completion_data["extra_body"] = {"ksi": ksi_body}
+                logger.info(f"Agent {agent_id} processing tournament match {match_id}")
+                
+                # Send completion request
+                result = await event_emitter("completion:async", completion_data)
+                
+                # Store match_id in agent info for response handling
+                agent_info["pending_tournament_match"] = match_id
     
     elif msg_type == "direct_message":
         # Inter-agent messaging

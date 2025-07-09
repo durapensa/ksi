@@ -192,6 +192,209 @@ pipeline_stages:
     outputs: [continue, halt, escalate]
 ```
 
+## Agent Communication Architecture
+
+### How Agents Message Each Other
+
+In KSI, agents have three primary communication patterns:
+
+#### 1. Direct Messaging (Peer-to-Peer)
+```python
+# Agent A sends to Agent B
+await emit_event('agent:send_message', {
+    'agent_id': 'agent_B_id',
+    'message': {
+        'type': 'direct_message',
+        'from': 'agent_A_id',
+        'content': {...}
+    }
+})
+```
+
+#### 2. Broadcast Messaging (One-to-Many)
+```python
+# Tournament announces to all participants
+await emit_event('agent:broadcast_message', {
+    'message': {
+        'type': 'tournament_announcement',
+        'content': {...}
+    }
+})
+```
+
+#### 3. Orchestrated Communication (Through Coordinator)
+```python
+# Tournament coordinator manages the flow
+# Sends evaluation task to judge → collects response → sends to next judge
+```
+
+### How Agents Trigger Events
+
+Agents cannot directly emit events into the KSI event system. Instead, they:
+
+1. **Through Completion Responses**: Include structured data that the agent service interprets
+2. **Through Message Types**: Special message types that trigger system actions  
+3. **Through State Updates**: Write to shared state that other components monitor
+
+Example flow:
+```
+Judge Agent Response → Agent Service → Interprets structured data → Emits events
+```
+
+### Communication Flow Example
+
+Here's a concrete example of tournament evaluation flow:
+
+```python
+# Step 1: Tournament sends evaluation request
+await emit_event('agent:send_message', {
+    'agent_id': 'judge_evaluator_001',
+    'message': {
+        'type': 'tournament_match',
+        'match_id': 'match_001',
+        'task': 'evaluate_peer',
+        'target': {
+            'agent_id': 'judge_analyst_002',
+            'test_case': {
+                'prompt': 'Analyze why this response failed',
+                'response': '...',
+                'expected': '...'
+            }
+        }
+    }
+})
+
+# Step 2: Judge processes and responds
+# (In the judge's completion response)
+{
+    "evaluation": {
+        "match_id": "match_001",
+        "score": 0.85,
+        "reasoning": "The analyst correctly identified...",
+        "criteria_scores": {
+            "accuracy": 0.9,
+            "completeness": 0.8,
+            "clarity": 0.85
+        }
+    }
+}
+
+# Step 3: Agent service interprets response
+# Emits: evaluation:match_complete event
+
+# Step 4: Tournament aggregates results
+# Updates scores, proceeds to next match
+```
+
+## The Full Autonomous Improvement Loop
+
+### Overview
+
+The autonomous improvement loop is a continuous cycle where judges improve both target prompts and their own capabilities:
+
+```mermaid
+graph TD
+    A[1. Bootstrap Phase] -->|Creates variations| B[2. Judge Pool]
+    B -->|Compete in| C[3. Tournament Phase]
+    C -->|Select best| D[4. Judge Council]
+    D -->|Evaluate| E[5. Target Prompts]
+    E -->|Identify issues| F[6. Analysis Phase]
+    F -->|Generate improvements| G[7. Rewrite Phase]
+    G -->|Create new versions| H[8. Test Phase]
+    H -->|Measure improvement| I[9. Integration]
+    I -->|Update system| A
+```
+
+### Detailed Process
+
+#### Phase 1: Bootstrap Judges
+```python
+# Create multiple judge variations
+for technique in ['detailed_rubric', 'pattern_focused', 'holistic']:
+    await emit_event('evaluation:bootstrap', {
+        'role': 'evaluator',
+        'technique': technique,
+        'ground_truth_tests': [...]
+    })
+```
+
+#### Phase 2: Tournament Selection
+```python
+# Judges evaluate each other
+# Tournament coordinator orchestrates:
+1. Send test case to Judge A
+2. Judge A evaluates Judge B's capability
+3. Collect evaluation
+4. Aggregate scores
+5. Select top performers
+```
+
+#### Phase 3: Prompt Evaluation Council
+```python
+# Selected judges form a council
+# Each judge evaluates target prompts:
+1. Evaluator judges score responses
+2. Analyst judges identify failure patterns
+3. Rewriter judges suggest improvements
+```
+
+#### Phase 4: Improvement Generation
+```python
+# Based on council feedback:
+1. Aggregate evaluation results
+2. Identify consistent issues
+3. Generate improvement hypotheses
+4. Create prompt variations
+```
+
+#### Phase 5: Testing & Integration
+```python
+# Test improvements:
+1. Run A/B tests on variations
+2. Measure performance delta
+3. Select winning variations
+4. Update prompt library
+5. Restart cycle with new baseline
+```
+
+### Key Design Decisions
+
+#### Centralized Orchestration
+- Tournament/Bootstrap controllers manage flow
+- Prevents chaotic agent interactions
+- Ensures consistent evaluation protocols
+
+#### Structured Message Types
+- Each message type has defined schema
+- Agents know how to handle specific types
+- System can validate and route appropriately
+
+#### Asynchronous Processing
+- Agents process independently
+- No blocking waits
+- Timeout handling for resilience
+
+#### State-Based Coordination
+- Shared state tracks progress
+- Agents can query current status
+- Enables recovery from failures
+
+### The Improvement Engine
+
+The full autonomous loop:
+
+1. **Continuously runs** (perhaps daily/weekly)
+2. **Tracks metrics** over time
+3. **Builds a library** of proven improvements
+4. **Learns patterns** of what works
+5. **Adapts strategies** based on results
+
+This creates a self-improving system where:
+- Judges get better at judging
+- Prompts get better at their tasks
+- The system learns what improvements work
+- Knowledge accumulates in the prompt library
+
 ## Phase 3: Judge Reputation System
 
 ### Reputation Metrics
