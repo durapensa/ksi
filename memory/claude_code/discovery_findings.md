@@ -85,7 +85,7 @@ Focused namespace discovery with depth control.
 
 ## Implementation Priority
 
-1. **Immediate**: Change `detail=False` default in discovery.py
+1. ~~**Immediate**: Change `detail=False` default in discovery.py~~ ✅ DONE (2025-07-08)
 2. **Next**: Add discovery helpers (parameters, examples, namespace)
 3. **Future**: Create comprehensive discovery guide
 4. **Ongoing**: Capture discovery patterns as they emerge
@@ -113,7 +113,7 @@ Focused namespace discovery with depth control.
   - `echo ksi_silent` - Temporarily disable
   - `echo ksi_status` - Check current mode
 - **Status indicators**: ✓ for success, ✗ for failures/errors
-- **Smart filtering**: Started implementation (needs refinement)
+- **Smart filtering**: Groups repetitive events (e.g., `completion:* (×6)`)
 
 ### 4. Key Learnings
 - Discovery system works well when used properly
