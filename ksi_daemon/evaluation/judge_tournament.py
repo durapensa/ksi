@@ -12,7 +12,7 @@ from enum import Enum
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 from ksi_daemon.event_system import event_handler, emit_event
-from ksi_daemon.state.state_manager import StateManager
+# State operations will use events instead of direct state manager
 
 logger = get_bound_logger("judge_tournament")
 
@@ -61,7 +61,7 @@ class JudgeTournament:
         self.phase = TournamentPhase.SETUP
         self.participants: Dict[str, TournamentParticipant] = {}
         self.matches: Dict[str, TournamentMatch] = {}
-        self.state_manager = StateManager()
+        # State operations will use events
         self.start_time = datetime.utcnow()
         self.config = self._load_tournament_config()
         
@@ -80,15 +80,15 @@ class JudgeTournament:
     async def initialize(self):
         """Initialize tournament in state system."""
         # Create tournament entity
-        await self.state_manager.create_entity(
-            entity_type='tournament',
-            entity_id=self.tournament_id,
-            properties={
+        await emit_event('state:entity:create', {
+            'entity_type': 'tournament',
+            'entity_id': self.tournament_id,
+            'properties': {
                 'phase': self.phase.value,
                 'start_time': self.start_time.isoformat(),
                 'config': json.dumps(self.config)
             }
-        )
+        })
         
         # Set up observation for participant messages
         await emit_event('observation:subscribe', {
@@ -106,11 +106,11 @@ class JudgeTournament:
         self.phase = TournamentPhase.REGISTRATION
         
         # Update tournament phase
-        await self.state_manager.update_entity(
-            entity_type='tournament',
-            entity_id=self.tournament_id,
-            properties={'phase': self.phase.value}
-        )
+        await emit_event('state:entity:update', {
+            'entity_type': 'tournament',
+            'entity_id': self.tournament_id,
+            'properties': {'phase': self.phase.value}
+        })
         
         # Broadcast registration open to all agents
         await emit_event('agent:broadcast_message', {
@@ -169,17 +169,17 @@ class JudgeTournament:
         self.participants[agent_id] = participant
         
         # Store in state system
-        await self.state_manager.create_relationship(
-            from_type='tournament',
-            from_id=self.tournament_id,
-            to_type='agent',
-            to_id=agent_id,
-            relationship_type='participant',
-            properties={
+        await emit_event('state:relationship:create', {
+            'from_type': 'tournament',
+            'from_id': self.tournament_id,
+            'to_type': 'agent',
+            'to_id': agent_id,
+            'relationship_type': 'participant',
+            'properties': {
                 'role': participant.role,
                 'technique': participant.technique
             }
-        )
+        })
         
         logger.info(f"Registered participant {agent_id} as {participant.role}")
         return {"status": "success", "participant_id": agent_id}

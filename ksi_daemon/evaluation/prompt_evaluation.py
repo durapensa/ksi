@@ -9,8 +9,10 @@ from typing_extensions import NotRequired
 
 from ksi_daemon.event_system import event_handler, emit_event
 from ksi_common.logging import get_bound_logger
-from ksi_common.timestamps import timestamp_utc
+from ksi_common.timestamps import timestamp_utc, filename_timestamp
 from ksi_common.config import config
+from ksi_common.file_utils import load_yaml_file, save_yaml_file, ensure_directory
+from ksi_common.cache_utils import get_memory_cache
 from .evaluation_index import evaluation_index
 
 logger = get_bound_logger("prompt_evaluation", version="2.0.0")
@@ -28,14 +30,15 @@ class PromptEvaluationData(TypedDict):
 
 
 # Cache for loaded test suites
-_test_suite_cache: Dict[str, Dict[str, Any]] = {}
+_test_suite_cache = get_memory_cache("test_suites", ttl_seconds=600)
 
 
 def load_test_suite(name: str) -> Optional[Dict[str, Any]]:
     """Load a test suite from YAML file."""
     # Check cache first
-    if name in _test_suite_cache:
-        return _test_suite_cache[name]
+    cached = _test_suite_cache.get(name)
+    if cached is not None:
+        return cached
     
     # Load from file
     test_suite_path = config.evaluations_dir / "test_suites" / f"{name}.yaml"
@@ -45,10 +48,9 @@ def load_test_suite(name: str) -> Optional[Dict[str, Any]]:
         return None
     
     try:
-        with open(test_suite_path, 'r') as f:
-            test_suite = yaml.safe_load(f)
-            _test_suite_cache[name] = test_suite
-            return test_suite
+        test_suite = load_yaml_file(test_suite_path)
+        _test_suite_cache.set(name, test_suite)
+        return test_suite
     except Exception as e:
         logger.error(f"Failed to load test suite {name}: {e}")
         return None
@@ -73,8 +75,7 @@ def save_evaluation_result(composition_type: str, composition_name: str,
                           evaluation_name: str, evaluation_data: Dict[str, Any]) -> str:
     """Save evaluation results to file and return filename."""
     # Create results directory if needed
-    results_dir = config.evaluations_dir / "results"
-    results_dir.mkdir(parents=True, exist_ok=True)
+    results_dir = ensure_directory(config.evaluations_dir / "results")
     
     # Generate filename: {comp_type}_{comp_name}_{eval_name}_{id}.yaml
     # Clean names for filesystem
@@ -100,8 +101,7 @@ def save_evaluation_result(composition_type: str, composition_name: str,
     
     # Save evaluation data
     try:
-        with open(filepath, 'w') as f:
-            yaml.dump(evaluation_data, f, default_flow_style=False, sort_keys=False)
+        save_yaml_file(filepath, evaluation_data)
         logger.info(f"Saved evaluation result to {filename}")
         return filename
     except Exception as e:

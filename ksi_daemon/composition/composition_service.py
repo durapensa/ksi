@@ -14,6 +14,8 @@ from ksi_daemon.event_system import event_handler, get_router
 from ksi_common.timestamps import timestamp_utc, format_for_logging
 from ksi_common.logging import get_bound_logger
 from ksi_common.config import config
+from ksi_common.file_utils import save_yaml_file, ensure_directory
+from ksi_common.event_utils import extract_single_response
 
 # Import composition modules
 from . import composition_index
@@ -118,8 +120,8 @@ async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
     logger.info("Composition service starting up...")
     
     # Ensure directories exist
-    COMPOSITIONS_BASE.mkdir(parents=True, exist_ok=True)
-    FRAGMENTS_BASE.mkdir(parents=True, exist_ok=True)
+    ensure_directory(COMPOSITIONS_BASE)
+    ensure_directory(FRAGMENTS_BASE)
     
     # Initialize and rebuild composition index
     await composition_index.initialize()
@@ -304,26 +306,26 @@ async def _save_composition_to_disk(composition: Composition, overwrite: bool = 
             }
         
         # Ensure directory exists
-        type_dir.mkdir(parents=True, exist_ok=True)
+        ensure_directory(type_dir)
+        
+        # Build composition dict
+        comp_dict = {
+            'name': composition.name,
+            'type': composition.type,
+            'version': composition.version,
+            'description': composition.description,
+            'author': composition.author,
+            'extends': composition.extends,
+            'mixins': composition.mixins,
+            'components': [vars(c) for c in composition.components],
+            'variables': composition.variables,
+            'metadata': composition.metadata
+        }
+        # Remove None values
+        comp_dict = {k: v for k, v in comp_dict.items() if v is not None}
         
         # Save composition
-        import yaml
-        with open(comp_path, 'w') as f:
-            comp_dict = {
-                'name': composition.name,
-                'type': composition.type,
-                'version': composition.version,
-                'description': composition.description,
-                'author': composition.author,
-                'extends': composition.extends,
-                'mixins': composition.mixins,
-                'components': [vars(c) for c in composition.components],
-                'variables': composition.variables,
-                'metadata': composition.metadata
-            }
-            # Remove None values
-            comp_dict = {k: v for k, v in comp_dict.items() if v is not None}
-            yaml.dump(comp_dict, f, default_flow_style=False, sort_keys=False)
+        save_yaml_file(comp_path, comp_dict)
         
         # Update index
         await composition_index.index_file(comp_path)

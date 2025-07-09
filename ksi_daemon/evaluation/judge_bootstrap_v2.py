@@ -13,7 +13,9 @@ from pathlib import Path
 
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
-from ksi_daemon.event_system import event_handler, emit_event
+from ksi_common.timestamps import utc_now, timestamp_utc, filename_timestamp
+from ksi_common.file_utils import save_yaml_file, load_yaml_file, ensure_directory
+from ksi_daemon.event_system import event_handler, emit_event, emit_event_first
 from ksi_client import EventClient
 
 logger = get_bound_logger("judge_bootstrap_v2")
@@ -38,9 +40,8 @@ class JudgeBootstrapV2:
     
     def __init__(self):
         self.variations: Dict[str, JudgeVariation] = {}
-        self.bootstrap_dir = config.evaluations_dir / "judge_bootstrap"
-        self.bootstrap_dir.mkdir(exist_ok=True)
-        self.schemas_dir = config.evaluations_dir / "judge_schemas"
+        self.bootstrap_dir = ensure_directory(config.evaluations_dir / "judge_bootstrap")
+        self.schemas_dir = ensure_directory(config.evaluations_dir / "judge_schemas")
         
         # Message response schemas for structured communication
         self.response_schemas = self._load_response_schemas()
@@ -72,8 +73,7 @@ class JudgeBootstrapV2:
         # Save schemas to files for reference
         for name, schema in schemas.items():
             schema_file = self.schemas_dir / f"{name}_schema.yaml"
-            with open(schema_file, 'w') as f:
-                yaml.dump(schema, f)
+            save_yaml_file(schema_file, schema)
         
         return schemas
     
@@ -105,7 +105,7 @@ class JudgeBootstrapV2:
             'metadata': {
                 'bootstrap_variation': True,
                 'technique': technique,
-                'created': datetime.utcnow().isoformat()
+                'created': timestamp_utc()
             },
             'prompt': base_composition.get('prompt', '') + '\n\n' + technique_config['prompt_suffix']
         }
@@ -116,14 +116,14 @@ class JudgeBootstrapV2:
                 dynamic_composition[field] = base_composition[field]
         
         # Create the dynamic composition
-        result = await emit_event('composition:create', dynamic_composition)
+        result = await emit_event_first('composition:create', dynamic_composition)
         
         if result.get('status') != 'success':
             raise RuntimeError(f"Failed to create composition: {result}")
         
         # Create variation record
         variation = JudgeVariation(
-            variation_id=f"{role}_{technique}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
+            variation_id=f"{role}_{technique}_{filename_timestamp()}",
             role=role,
             base_profile=base_profile,
             technique=technique,
@@ -138,11 +138,11 @@ class JudgeBootstrapV2:
     
     async def _get_composition(self, name: str) -> Optional[Dict[str, Any]]:
         """Get a composition definition."""
-        result = await emit_event('composition:get', {
+        result = await emit_event_first('composition:get', {
             'name': name,
             'type': 'profile'
         })
-        
+            
         if result.get('status') == 'success':
             return result.get('composition')
         return None
@@ -151,7 +151,7 @@ class JudgeBootstrapV2:
         """Spawn an agent for a judge variation."""
         
         # Spawn agent using the dynamic composition
-        result = await emit_event('agent:spawn', {
+        result = await emit_event_first('agent:spawn', {
             'composition': variation.composition_name,
             'composition_type': 'profile',
             'name': f"{variation.role}_bootstrap_{variation.technique}"
@@ -192,7 +192,7 @@ class JudgeBootstrapV2:
             }
             
             # Send message and await response
-            response = await emit_event('agent:send_message', {
+            response = await emit_event_first('agent:send_message', {
                 'agent_id': variation.agent_id,
                 'message': message
             })
@@ -204,7 +204,7 @@ class JudgeBootstrapV2:
                 'case_id': case['id'],
                 'score': score,
                 'response': response,
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': timestamp_utc()
             })
             
             total_score += score
@@ -279,7 +279,7 @@ class JudgeBootstrapV2:
         """Run a tournament round where evaluators judge targets."""
         
         tournament_results = {
-            'round_id': datetime.utcnow().strftime('%Y%m%d_%H%M%S'),
+            'round_id': filename_timestamp(),
             'evaluations': []
         }
         
@@ -303,7 +303,7 @@ class JudgeBootstrapV2:
                 }
                 
                 # Send to evaluator
-                response = await emit_event('agent:send_message', {
+                response = await emit_event_first('agent:send_message', {
                     'agent_id': evaluator.agent_id,
                     'message': eval_task
                 })
@@ -312,7 +312,7 @@ class JudgeBootstrapV2:
                     'evaluator': evaluator.variation_id,
                     'target': target.variation_id,
                     'response': response,
-                    'timestamp': datetime.utcnow().isoformat()
+                    'timestamp': timestamp_utc()
                 })
         
         return tournament_results
@@ -367,7 +367,7 @@ class JudgeBootstrapV2:
         
         # Save results
         results = {
-            'bootstrap_run': datetime.utcnow().isoformat(),
+            'bootstrap_run': timestamp_utc(),
             'variations_tested': len(self.variations),
             'selected_judges': {},
             'all_variations': []
@@ -384,7 +384,7 @@ class JudgeBootstrapV2:
             }
             
             # Save the composition to disk for future use
-            await emit_event('composition:save', {
+            await emit_event_first('composition:save', {
                 'name': variation.composition_name,
                 'type': 'profile',
                 'overwrite': True
@@ -400,9 +400,8 @@ class JudgeBootstrapV2:
             })
         
         # Save to file
-        results_file = self.bootstrap_dir / f"bootstrap_results_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.yaml"
-        with open(results_file, 'w') as f:
-            yaml.dump(results, f)
+        results_file = self.bootstrap_dir / f"bootstrap_results_{filename_timestamp()}.yaml"
+        save_yaml_file(results_file, results)
         
         logger.info(f"Bootstrap results saved to {results_file}")
         return results
@@ -537,8 +536,7 @@ async def handle_bootstrap_judges_v2(data: Dict[str, Any]) -> Dict[str, Any]:
     # Load ground truth cases
     ground_truth_file = bootstrap.bootstrap_dir / "ground_truth_cases.yaml"
     if ground_truth_file.exists():
-        with open(ground_truth_file) as f:
-            ground_truth_data = yaml.safe_load(f)
+        ground_truth_data = load_yaml_file(ground_truth_file)
             ground_truth_cases = ground_truth_data.get('cases', [])
     else:
         ground_truth_cases = []

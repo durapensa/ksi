@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 
 from ksi_common.logging import get_bound_logger
 from ksi_common.config import config
+from ksi_common.file_utils import load_yaml_file
 from . import composition_index
 
 logger = get_bound_logger("composition_core")
@@ -189,5 +190,5 @@ async def load_composition(name: str, comp_type: Optional[str] = None) -> Compos
         raise FileNotFoundError(f"Composition not found: {name}")
     
     # Load and parse YAML
-    comp_data = yaml.safe_load(composition_path.read_text())
+    comp_data = load_yaml_file(composition_path)
     return Composition.from_yaml(comp_data)
