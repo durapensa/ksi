@@ -102,7 +102,27 @@ All primitives maintain orchestration context with pattern, orchestrator_id, exe
 
 ### Event-Driven DSL
 
-The DSL is interpreted by orchestrators using event:emit. Natural language strategies are mixed with structured operations, allowing orchestrators to adapt implementation based on context.
+The DSL is interpreted by orchestrators using two methods:
+
+1. **Direct Event Emission**: Orchestrators can output JSON events in their responses
+2. **event:emit**: Explicit event emission for complex workflows
+
+#### Agent Event Emission
+
+Orchestrator agents can emit events by including JSON objects in their responses:
+
+```json
+{"event": "composition:get", "data": {"name": "tournament_orchestration_v1"}}
+{"event": "router:register_transformer", "data": {"transformer": {...}}}
+```
+
+The completion service automatically:
+- Extracts JSON objects with an 'event' field
+- Emits them asynchronously in the background
+- Adds metadata (`_agent_id`, `_extracted_from_response`)
+- Continues processing without blocking
+
+This enables orchestrators to coordinate complex workflows without needing tools or special permissions.
 
 ### Dynamic Pattern-Loaded Transformers
 
@@ -288,11 +308,12 @@ transformers:
 ## Getting Started
 
 1. **Create orchestrator agents** using base_orchestrator profile
-2. **Write patterns** with natural language DSL and transformers
-3. **Define transformers** in pattern YAML for vocabulary mapping
-4. **Track decisions** to enable pattern evolution
-5. **Fork successful adaptations** to create new patterns
-6. **Share patterns** with the community
+2. **Agent emits events** by outputting JSON in responses
+3. **Write patterns** with natural language DSL and transformers
+4. **Define transformers** in pattern YAML for vocabulary mapping
+5. **Track decisions** to enable pattern evolution
+6. **Fork successful adaptations** to create new patterns
+7. **Share patterns** with the community
 
 ## Related Documentation
 

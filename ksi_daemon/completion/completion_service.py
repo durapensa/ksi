@@ -19,6 +19,7 @@ from typing import Dict, Any, Optional, List
 
 from ksi_daemon.event_system import event_handler, EventPriority, emit_event, get_router
 from ksi_common import timestamp_utc, create_completion_response, parse_completion_response, get_response_session_id
+from ksi_common.completion_format import get_response_text
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 
@@ -28,6 +29,7 @@ from ksi_daemon.completion.provider_manager import ProviderManager
 from ksi_daemon.completion.session_manager_v2 import SessionManager
 from ksi_daemon.completion.token_tracker import TokenTracker
 from ksi_daemon.completion.retry_manager import RetryManager, RetryPolicy, extract_error_type
+from ksi_common.json_extraction import extract_and_emit_json_events
 from ksi_daemon.completion.litellm import handle_litellm_completion
 
 
@@ -344,6 +346,37 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
         
         # Save to session log
         save_completion_response(standardized_response)
+        
+        # Extract and emit JSON events from response (async)
+        if event_emitter:
+            response_text = get_response_text(standardized_response)
+            if response_text:
+                # Run extraction in background task to avoid blocking
+                async def extract_events():
+                    try:
+                        extracted = await extract_and_emit_json_events(
+                            text=response_text,
+                            event_emitter=event_emitter,
+                            context={
+                                'request_id': request_id,
+                                'session_id': data.get('session_id'),
+                                'model': model,
+                                'provider': provider
+                            },
+                            agent_id=data.get('agent_id')
+                        )
+                        if extracted:
+                            logger.info(f"Extracted {len(extracted)} events from completion response",
+                                      request_id=request_id,
+                                      agent_id=data.get('agent_id'),
+                                      events=[e['event'] for e in extracted if e.get('status') == 'emitted'])
+                    except Exception as e:
+                        logger.error(f"Failed to extract JSON events: {e}",
+                                   request_id=request_id,
+                                   error=str(e))
+                
+                # Create task but don't await it
+                asyncio.create_task(extract_events())
         
         # CRITICAL: Update session tracking with the NEW session_id from claude-cli
         if provider == "claude-cli":

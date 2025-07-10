@@ -602,6 +602,44 @@ async def migrate_v1_to_v2(data: Dict[str, Any]) -> Dict[str, Any]:
 - Same loose coupling but more efficient
 - Better performance with less event processing overhead
 
+## Agent JSON Event Emission (2025-07-10)
+
+### Overview
+Agents can now emit events by including JSON objects in their responses. The completion service automatically extracts and emits these events asynchronously.
+
+### How It Works
+1. **Agent outputs JSON**: Agent includes `{"event": "some:event", "data": {...}}` in response
+2. **Automatic extraction**: Completion service extracts JSON objects with 'event' field
+3. **Async emission**: Events are emitted in background tasks (non-blocking)
+4. **Metadata added**: System adds `_agent_id` and `_extracted_from_response` fields
+
+### Implementation
+- **New utility**: `ksi_common/json_extraction.py` provides extraction functions
+- **Integration point**: `completion_service.py` calls extraction after getting response
+- **Patterns supported**:
+  - JSON in code blocks: ` ```json {...} ``` `
+  - Standalone JSON objects: `{...}`
+  - Multiple events in single response
+
+### Benefits
+- **No tools required**: Agents can orchestrate without tool permissions
+- **Natural workflow**: Agents think and emit events in same response
+- **Non-blocking**: Event extraction doesn't delay completion response
+- **Traceable**: Events are marked with source agent and context
+
+### Example Agent Response
+```
+I'll load the tournament pattern and register its transformers.
+
+{"event": "composition:get", "data": {"name": "tournament_orchestration_v1"}}
+
+Now I'll register the transformers defined in the pattern:
+
+{"event": "router:register_transformer", "data": {"transformer": {"source": "tournament:start", "target": "orchestration:send", "mapping": {"to": "all"}}}}
+```
+
+This enables orchestrator agents to coordinate complex workflows naturally without needing explicit event emission tools.
+
 ---
 *Last updated: 2025-07-10*
 *For development practices, see `/Users/dp/projects/ksi/CLAUDE.md`*

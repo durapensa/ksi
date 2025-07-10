@@ -95,7 +95,7 @@ def build_cmd(
         from pathlib import Path
         mcp_config_abs = str(Path(mcp_config).absolute())
         cmd += ["--mcp-config", mcp_config_abs]
-    cmd.append(prompt)
+    # Don't append prompt as argument when using -p flag - it should come from stdin
     return cmd
 
 
@@ -374,6 +374,7 @@ class ClaudeCLIProvider(CustomLLM):
                     result = await asyncio.wait_for(
                         self._run_claude_async_with_progress(
                             cmd,
+                            prompt,
                             timeout,
                             model_name,
                             sandbox_dir,
@@ -410,7 +411,7 @@ class ClaudeCLIProvider(CustomLLM):
                 # Map all errors to LiteLLM exceptions
                 raise map_subprocess_error_to_litellm(e, model_name)
     
-    async def _run_claude_async_with_progress(self, cmd: List[str], timeout: int, model: str, sandbox_dir: Optional[str] = None, request_id: str = None):
+    async def _run_claude_async_with_progress(self, cmd: List[str], prompt: str, timeout: int, model: str, sandbox_dir: Optional[str] = None, request_id: str = None):
         """Run Claude with asyncio subprocess and progress monitoring"""
         progress_timeout = config.claude_progress_timeout  # 5 minutes default
         
@@ -457,9 +458,10 @@ class ClaudeCLIProvider(CustomLLM):
         
         process = None
         try:
-            # Start async subprocess
+            # Start async subprocess with stdin pipe for prompt
             process = await asyncio.create_subprocess_exec(
                 *cmd,
+                stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(working_dir),
@@ -470,6 +472,17 @@ class ClaudeCLIProvider(CustomLLM):
             if request_id:
                 async with self.process_lock:
                     self.active_processes[request_id] = process
+            
+            # Write prompt to stdin and close it
+            if process.stdin:
+                try:
+                    process.stdin.write(prompt.encode('utf-8'))
+                    await process.stdin.drain()
+                    process.stdin.close()
+                    await process.stdin.wait_closed()
+                except Exception as e:
+                    logger.error(f"Failed to write prompt to stdin: {e}")
+                    # Continue anyway - process might still work
             
             # Start async stream readers
             stdout_task = asyncio.create_task(
