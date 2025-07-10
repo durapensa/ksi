@@ -1,0 +1,387 @@
+name: tournament_orchestration_v1
+type: orchestration
+version: 1.0.0
+description: Complete tournament orchestration using minimal primitives and natural language DSL
+author: orchestrator_pattern_designer
+extends: null
+mixins: []
+components: []
+variables: {}
+
+metadata:
+  tags:
+    - tournament
+    - evaluation
+    - multi-agent
+    - competition
+    - minimal-primitives
+  
+  capabilities_required:
+    - orchestration:spawn
+    - orchestration:send
+    - orchestration:await
+    - orchestration:track
+    - orchestration:query
+    - orchestration:coordinate
+    - orchestration:aggregate
+  
+  use_cases:
+    - Agent capability tournaments
+    - Prompt evaluation competitions
+    - Multi-judge consensus evaluation
+    - Skill ranking and assessment
+    - Automated judge improvement
+  
+  selection_criteria:
+    task_keywords:
+      - tournament
+      - competition
+      - evaluate
+      - judge
+      - ranking
+    min_participants: 3
+    max_participants: 50
+    complexity: high
+  
+  sharing:
+    visibility: public
+    license: MIT
+    purpose: production
+
+# Natural language strategy with embedded DSL
+orchestration_logic:
+  description: |
+    Orchestrates multi-agent tournaments with registration, round-robin matches,
+    consensus validation, and adaptive improvements. Uses minimal orchestration
+    primitives composed for sophisticated tournament management.
+  
+  strategy: |
+    ## PHASE 1: TOURNAMENT SETUP
+    
+    WHEN starting_tournament:
+      # Track tournament configuration
+      TRACK {type: "tournament_config", data: {
+        tournament_id: generate_id(),
+        min_participants: config.min_participants || 3,
+        max_participants: config.max_participants || 20,
+        timeout_multiplier: 1.5,
+        consensus_threshold: 0.6
+      }}
+      
+      # Spawn tournament coordinator if needed
+      IF not has_coordinator:
+        SPAWN {
+          profile: "tournament_coordinator",
+          count: 1,
+          purpose: "Manage tournament logistics",
+          pattern: "tournament_orchestration_v1"
+        } AS coordinator
+    
+    ## PHASE 2: REGISTRATION
+    
+    # Open registration with broadcast
+    SEND {
+      to: "all",  # Or use agent:broadcast directly
+      message: {
+        type: "tournament:registration_open",
+        tournament_id: tournament_id,
+        rules: tournament_rules,
+        registration_deadline: now() + 60
+      }
+    }
+    
+    TRACK {type: "phase_change", data: {
+      phase: "registration",
+      start_time: now()
+    }}
+    
+    # Collect registrations
+    AWAIT {
+      event_pattern: "tournament:register",
+      min_responses: min_participants,
+      max_responses: max_participants,
+      timeout: 60,
+      collect_partial: true
+    } AS registrations
+    
+    # Validate registration count
+    IF registrations.count < min_participants:
+      TRACK {type: "tournament_failed", data: {
+        reason: "insufficient_participants",
+        registered: registrations.count,
+        required: min_participants
+      }}
+      ABORT tournament
+    
+    # Confirm participants
+    FOREACH registration IN registrations.responses:
+      SEND {
+        to: registration.agent_id,
+        message: {
+          type: "tournament:registration_confirmed",
+          participant_number: index,
+          total_participants: registrations.count
+        }
+      }
+      
+      TRACK {type: "participant", data: {
+        agent_id: registration.agent_id,
+        capabilities: registration.data.capabilities,
+        reputation: registration.data.reputation || 1.0
+      }}
+    
+    ## PHASE 3: MATCH GENERATION
+    
+    # Generate round-robin pairings
+    CALCULATE matches = generate_round_robin_pairs(registrations.agent_ids)
+    
+    TRACK {type: "phase_change", data: {
+      phase: "round_robin",
+      total_matches: matches.length,
+      estimated_duration: matches.length * avg_match_time / parallelism
+    }}
+    
+    ## PHASE 4: MATCH EXECUTION
+    
+    # Run matches in parallel batches
+    FOREACH batch IN chunk(matches, parallel_capacity):
+      # Coordinate batch start
+      COORDINATE {
+        type: "checkpoint",
+        agents: batch.participants,
+        options: {name: "batch_ready"}
+      }
+      
+      # Execute matches in parallel
+      FOREACH match IN batch:
+        # Send match assignment to evaluator
+        SEND {
+          to: match.evaluator,
+          message: {
+            type: "evaluate:subject",
+            subject_id: match.subject,
+            test_prompt: current_test_prompt,
+            match_id: match.id
+          }
+        }
+        
+        # Track match start
+        TRACK {type: "match_started", data: {
+          match_id: match.id,
+          evaluator: match.evaluator,
+          subject: match.subject,
+          batch_number: batch_index
+        }}
+      
+      # Wait for batch results
+      AWAIT {
+        from: batch.evaluators,
+        event_pattern: "evaluation:result",
+        min_responses: batch.length * 0.8,  # Allow some failures
+        timeout: avg_match_time * timeout_multiplier,
+        collect_partial: true
+      } AS batch_results
+      
+      # Aggregate batch scores
+      AGGREGATE {
+        data: batch_results.responses,
+        method: "statistical",
+        options: {
+          metric: "mean",
+          group_by: "data.subject_id",
+          extract_field: "data.score",
+          include: ["std_dev", "confidence_interval"]
+        }
+      } AS batch_scores
+      
+      # Track batch completion
+      TRACK {type: "batch_complete", data: {
+        batch_number: batch_index,
+        matches_completed: batch_results.count,
+        avg_score: batch_scores.overall_mean,
+        duration: batch_duration
+      }}
+    
+    ## PHASE 5: CONSENSUS VALIDATION
+    
+    # Query top performers
+    QUERY {
+      query_type: "tracked",
+      filters: {
+        type: "participant",
+        score: {">": percentile(all_scores, 0.75)}
+      }
+    } AS top_performers
+    
+    # Form consensus panel
+    panel_size = min(5, top_performers.length)
+    consensus_panel = top_performers.slice(0, panel_size)
+    
+    TRACK {type: "phase_change", data: {
+      phase: "consensus",
+      panel_size: panel_size,
+      panel_members: consensus_panel.agent_ids
+    }}
+    
+    # Send validation requests
+    SEND {
+      to: consensus_panel.agent_ids,
+      message: {
+        type: "validate:rankings",
+        preliminary_rankings: current_rankings,
+        scoring_methodology: scoring_rules
+      }
+    }
+    
+    # Coordinate consensus discussion
+    COORDINATE {
+      type: "turns",
+      agents: consensus_panel.agent_ids,
+      options: {
+        turn_duration: 30,
+        max_rounds: 3,
+        task: "discuss_rankings"
+      }
+    } AS consensus_discussion
+    
+    # Collect consensus votes
+    AWAIT {
+      from: consensus_panel.agent_ids,
+      event_pattern: "consensus:vote",
+      min_responses: panel_size,
+      timeout: 60
+    } AS consensus_votes
+    
+    # Aggregate consensus
+    AGGREGATE {
+      data: consensus_votes.responses,
+      method: "consensus",
+      options: {
+        weights: consensus_panel.reputations,
+        threshold: consensus_threshold,
+        extract_field: "data.rankings"
+      }
+    } AS final_consensus
+    
+    ## PHASE 6: RESULTS & LEARNING
+    
+    # Calculate final rankings
+    AGGREGATE {
+      data: all_match_results,
+      method: "statistical",
+      options: {
+        metric: "trimmed_mean",
+        trim_percent: 0.1,
+        group_by: "subject_id",
+        weight_by: "evaluator_reputation"
+      }
+    } AS final_scores
+    
+    # Announce results
+    SEND {
+      to: "all",
+      message: {
+        type: "tournament:results",
+        rankings: final_scores.rankings,
+        consensus_validation: final_consensus.confidence,
+        tournament_id: tournament_id
+      }
+    }
+    
+    # Track tournament completion
+    TRACK {type: "tournament_complete", data: {
+      tournament_id: tournament_id,
+      participants: participant_count,
+      matches_played: total_matches,
+      consensus_achieved: final_consensus.confidence > threshold,
+      duration: tournament_duration,
+      top_performers: final_scores.rankings.slice(0, 3)
+    }}
+    
+    ## PHASE 7: ADAPTIVE IMPROVEMENT
+    
+    # Analyze tournament performance
+    QUERY {
+      query_type: "tracked",
+      filters: {
+        type: "adaptation",
+        tournament_id: tournament_id
+      }
+    } AS tournament_adaptations
+    
+    # Learn from experience
+    IF tournament_adaptations.any_successful:
+      TRACK {type: "learning", data: {
+        insight: "Effective adaptations discovered",
+        confidence: 0.85,
+        adaptations: tournament_adaptations.successful,
+        recommendation: "Consider pattern fork with improvements"
+      }}
+      
+      # Consider forking pattern if consistent improvements
+      IF improvement_rate > 0.2 AND runs > 3:
+        CONSIDER composition:fork WITH {
+          name: "tournament_orchestration_v2",
+          modifications: {
+            "orchestration_logic.timeout_multiplier": new_multiplier,
+            "orchestration_logic.parallel_capacity": optimized_capacity
+          }
+        }
+    
+    # Handle edge cases
+    ON any_phase_timeout:
+      TRACK {type: "timeout", data: {
+        phase: current_phase,
+        elapsed: phase_duration,
+        recovery_action: chosen_recovery
+      }}
+      
+      # Adaptive timeout adjustment
+      IF timeout_rate > 0.3:
+        UPDATE timeout_multiplier = timeout_multiplier * 1.2
+        TRACK {type: "adaptation", data: {
+          adjustment: "increased_timeout_multiplier",
+          new_value: timeout_multiplier,
+          reason: "high_timeout_rate"
+        }}
+
+# Performance tracking for evolution
+performance:
+  runs: 0
+  avg_duration: null
+  success_rate: null
+  timeout_adjustments: []
+  consensus_achievement_rate: null
+
+# Learnings section for pattern improvement
+learnings:
+  - insight: "Parallel batch execution reduces tournament time by 70%"
+    confidence: 0.9
+    discovered_by: "tournament_orchestrator"
+  
+  - insight: "Consensus validation improves ranking accuracy"
+    confidence: 0.85
+    discovered_by: "tournament_orchestrator"
+  
+  - insight: "Reputation weighting reduces outlier impact"
+    confidence: 0.8
+    discovered_by: "tournament_orchestrator"
+
+# Helper function definitions (for orchestrator reference)
+helpers:
+  generate_round_robin_pairs:
+    description: "Generate all pairwise matches for round-robin"
+    logic: |
+      For N participants, generate N*(N-1) ordered pairs
+      where each participant evaluates every other participant
+  
+  chunk:
+    description: "Split list into batches of given size"
+    logic: |
+      Divide matches into groups that can run in parallel
+      based on system capacity and agent availability
+  
+  percentile:
+    description: "Calculate percentile threshold"
+    logic: |
+      Find score value where X% of scores fall below it

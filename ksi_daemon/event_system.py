@@ -90,8 +90,10 @@ class EventRouter:
         # Pattern handlers for wildcard matching (e.g., "state:*")
         self._pattern_handlers: List[Tuple[str, EventHandler]] = []
         
-        # Event transformers - source event -> (target event, transformer)
-        self._transformers: Dict[str, Tuple[str, Callable]] = {}
+        # Dynamic transformers loaded from patterns
+        self._transformers: Dict[str, Dict[str, Any]] = {}  # source -> transformer config
+        self._async_transformers: Dict[str, str] = {}  # transform_id -> source event
+        self._transform_contexts: Dict[str, Dict[str, Any]] = {}  # transform_id -> context
         
         # Global middleware
         self._middleware: List[Callable] = []
@@ -148,19 +150,30 @@ class EventRouter:
             
         logger.debug(f"Registered handler {handler.name} for event {event} (priority={handler.priority})")
     
-    def register_transformer(self, source_event: str, target_event: str, transformer: Callable):
-        """Register an event transformer that converts source events to target events.
+    def register_transformer_from_yaml(self, transformer_def: Dict[str, Any]):
+        """Register a transformer from YAML definition.
         
         Args:
-            source_event: The event to transform from
-            target_event: The event to transform to
-            transformer: Async function that transforms data
+            transformer_def: YAML transformer configuration with:
+                - source: source event pattern
+                - target: target event
+                - mapping: field mappings
+                - async: whether it's async (optional)
+                - condition: conditional logic (optional)
+                - response_route: response routing config (optional)
         """
-        if source_event in self._transformers:
-            logger.warning(f"Overwriting existing transformer for {source_event}")
-        
-        self._transformers[source_event] = (target_event, transformer)
-        logger.info(f"Registered transformer: {source_event} -> {target_event}")
+        source = transformer_def.get('source')
+        if not source:
+            raise ValueError("Transformer missing 'source' field")
+            
+        self._transformers[source] = transformer_def
+        logger.info(f"Registered dynamic transformer: {source} -> {transformer_def.get('target')}")
+    
+    def unregister_transformer(self, source: str):
+        """Remove a transformer."""
+        if source in self._transformers:
+            del self._transformers[source]
+            logger.info(f"Unregistered transformer: {source}")
     
     def register_shutdown_handler(self, service_name: str, handler: EventHandler):
         """Register a critical shutdown handler that must complete before daemon exits.
@@ -209,22 +222,59 @@ class EventRouter:
     async def emit(self, event: str, data: Any = None, 
                    context: Optional[Dict[str, Any]] = None) -> List[Any]:
         """Emit an event to all matching handlers."""
-        # Check for event transformer first
+        # Check for dynamic transformer first
         if event in self._transformers:
-            target_event, transformer = self._transformers[event]
-            # Transform the data
-            try:
-                if inspect.iscoroutinefunction(transformer):
-                    transformed_data = await transformer(data)
+            transformer = self._transformers[event]
+            target = transformer.get('target')
+            
+            # Check condition if present
+            if 'condition' in transformer:
+                # Simple condition evaluation (can be enhanced)
+                if not self._evaluate_condition(transformer['condition'], data):
+                    # Condition not met, skip transformation
+                    logger.debug(f"Transformer condition not met for {event}")
                 else:
-                    transformed_data = transformer(data)
-                
-                # Emit the target event with transformed data
-                logger.debug(f"Transforming event {event} -> {target_event}")
-                return await self.emit(target_event, transformed_data, context)
-            except Exception as e:
-                logger.error(f"Error in transformer {event} -> {target_event}: {e}")
-                # Fall through to normal emission on transformer error
+                    # Transform the data
+                    try:
+                        transformed_data = self._apply_mapping(transformer.get('mapping', {}), data)
+                        
+                        # Handle async transformers
+                        if transformer.get('async', False):
+                            # Generate transform_id for async tracking
+                            transform_id = str(uuid.uuid4())
+                            self._async_transformers[transform_id] = event
+                            
+                            # Store context for later injection (if available)
+                            if context:
+                                self._transform_contexts[transform_id] = context
+                            
+                            # Add transform_id to transformed data
+                            transformed_data['transform_id'] = transform_id
+                            
+                            # Emit to target with transform_id
+                            logger.debug(f"Async transforming {event} -> {target} (id: {transform_id})")
+                            result = await self.emit(target, transformed_data, context)
+                            
+                            # Return token response
+                            return [{
+                                "transform_id": transform_id,
+                                "status": "queued",
+                                "target_event": target
+                            }]
+                        else:
+                            # Synchronous transformation
+                            logger.debug(f"Transforming {event} -> {target}")
+                            return await self.emit(target, transformed_data, context)
+                    except Exception as e:
+                        logger.error(f"Dynamic transformer failed for {event}: {e}")
+                        # Fall through to normal handling
+        
+        # Check for async transformer response routing
+        if hasattr(self, '_handle_async_response'):
+            response_result = await self._handle_async_response(event, data)
+            if response_result:
+                # Response was routed, return indicator
+                return [response_result]
         
         # During shutdown, only allow shutdown-related events
         if self._shutdown_in_progress:
@@ -759,33 +809,164 @@ def event_handler(event: str,
     return decorator
 
 
-def event_transformer(source_event: str, target: str):
-    """
-    Event transformer decorator that converts one event to another.
+# Helper methods for dynamic transformers
+
+def _apply_mapping(self, mapping: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
+    """Apply field mapping from transformer definition."""
+    result = {}
     
-    The decorated function receives source event data and returns transformed data
-    that will be emitted as the target event. No duplicate events in the log.
+    for target_field, source_value in mapping.items():
+        if isinstance(source_value, str) and source_value.startswith('{{') and source_value.endswith('}}'):
+            # Template syntax: {{source.field}}
+            template = source_value[2:-2].strip()
+            
+            # Simple dot notation support
+            parts = template.split('.')
+            value = data
+            for part in parts:
+                if isinstance(value, dict) and part in value:
+                    value = value[part]
+                else:
+                    value = None
+                    break
+            
+            # Handle nested target fields
+            if '.' in target_field:
+                # Create nested structure
+                current = result
+                parts = target_field.split('.')
+                for part in parts[:-1]:
+                    if part not in current:
+                        current[part] = {}
+                    current = current[part]
+                current[parts[-1]] = value
+            else:
+                result[target_field] = value
+        else:
+            # Static value
+            result[target_field] = source_value
     
-    Usage: 
-        @event_transformer("orchestration:spawn", target="agent:spawn")
-        async def transform_spawn(data: Dict[str, Any]) -> Dict[str, Any]:
-            # Transform orchestration spawn to agent spawn
-            return transformed_data
-    """
-    def decorator(func: Callable) -> Callable:
-        # Store metadata on function for discovery
-        func._event_transformer = True
-        func._source_event = source_event
-        func._target_event = target
+    return result
+
+def _evaluate_condition(self, condition: str, data: Dict[str, Any]) -> bool:
+    """Evaluate simple condition expressions."""
+    # Very basic implementation - can be enhanced
+    # Supports: field == value, field > value, field < value
+    try:
+        # Extract field and comparison
+        if ' == ' in condition:
+            field, value = condition.split(' == ')
+            field_value = data.get(field.strip())
+            compare_value = value.strip().strip('"').strip("'")
+            return str(field_value) == compare_value
+        elif ' > ' in condition:
+            field, value = condition.split(' > ')
+            field_value = float(data.get(field.strip(), 0))
+            compare_value = float(value.strip())
+            return field_value > compare_value
+        elif ' < ' in condition:
+            field, value = condition.split(' < ')
+            field_value = float(data.get(field.strip(), 0))
+            compare_value = float(value.strip())
+            return field_value < compare_value
+        else:
+            # Unknown condition format
+            return True
+    except Exception as e:
+        logger.warning(f"Failed to evaluate condition '{condition}': {e}")
+        return True
+
+# Bind helper methods to EventRouter class
+EventRouter._apply_mapping = _apply_mapping
+EventRouter._evaluate_condition = _evaluate_condition
+
+async def _handle_async_response(self, event: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Handle responses for async transformers and route them accordingly."""
+    # Check if this is a response for an async transformer
+    transform_id = data.get('transform_id') or data.get('request_id')
+    if not transform_id or transform_id not in self._async_transformers:
+        return None
+    
+    # Get the original source event
+    source_event = self._async_transformers[transform_id]
+    transformer = self._transformers.get(source_event, {})
+    response_route = transformer.get('response_route', {})
+    
+    if not response_route:
+        # No response routing configured
+        del self._async_transformers[transform_id]
+        return None
+    
+    # Check if this event matches the expected response
+    if event == response_route.get('from'):
+        # Apply filter if specified
+        filter_expr = response_route.get('filter')
+        if filter_expr:
+            # Simple filter evaluation (can be enhanced)
+            # Example: "request_id == {{transform_id}}"
+            if '{{transform_id}}' in filter_expr:
+                filter_expr = filter_expr.replace('{{transform_id}}', f'"{transform_id}"')
+            
+            # Very basic eval - should be replaced with safe expression evaluator
+            try:
+                if not eval(filter_expr, {'request_id': data.get('request_id'), 
+                                         'transform_id': transform_id,
+                                         'status': data.get('status')}):
+                    return None
+            except Exception as e:
+                logger.warning(f"Failed to evaluate response filter: {e}")
         
-        # AUTO-REGISTER: Register with global router immediately at import time
-        router = get_router()
-        router.register_transformer(source_event, target, func)
-        
-        logger.debug(f"Auto-registered transformer {func.__name__} for {source_event} -> {target} from {func.__module__}")
-        
-        return func
-    return decorator
+        # Route to target event
+        target_event = response_route.get('to')
+        if target_event:
+            # Remove transform tracking  
+            del self._async_transformers[transform_id]
+            
+            # Option 3: Emit BOTH events
+            
+            # 1. Emit routed event (for pattern handlers)
+            logger.debug(f"Routing async response {event} -> {target_event}")
+            await self.emit(target_event, data)
+            
+            # 2. Emit standard transform:result (for originating agent/orchestrator)
+            transform_result = {
+                "transform_id": transform_id,
+                "source_event": source_event,
+                "target_event": target_event,
+                "result": data,
+                "timestamp": time.time()
+            }
+            await self.emit("transform:result", transform_result)
+            
+            # 3. Optional: Direct injection to originating agent
+            # Check if we have agent context from the original transform
+            if hasattr(self, '_transform_contexts') and transform_id in self._transform_contexts:
+                context = self._transform_contexts[transform_id]
+                agent_id = context.get('agent_id')
+                
+                if agent_id:
+                    # Inject result directly to agent (following existing pattern)
+                    await self.emit("agent:send_message", {
+                        "agent_id": agent_id,
+                        "message": {
+                            "type": "transform:result",
+                            "transform_id": transform_id,
+                            "result": data,
+                            "routed_to": target_event,
+                            "_system_injected": True
+                        }
+                    })
+                    logger.debug(f"Injected transform result to agent {agent_id}")
+                
+                # Clean up context
+                del self._transform_contexts[transform_id]
+            
+            # Return indicator that we handled this
+            return {"routed": True, "to": target_event, "transform_result_emitted": True}
+    
+    return None
+
+EventRouter._handle_async_response = _handle_async_response
 
 
 def service_provider(service_name: str):
@@ -872,6 +1053,65 @@ def get_router() -> EventRouter:
     if _global_router is None:
         _global_router = EventRouter()
     return _global_router
+
+
+# Router management events for dynamic transformers
+@event_handler("router:register_transformer")
+async def handle_register_transformer(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Register a dynamic transformer from pattern.
+    
+    Parameters:
+        transformer: Dict - Transformer definition with source, target, mapping, etc.
+    """
+    transformer = data.get('transformer')
+    if not transformer:
+        return {"error": "Missing transformer definition"}
+    
+    try:
+        router = get_router()
+        router.register_transformer_from_yaml(transformer)
+        return {
+            "status": "registered",
+            "source": transformer.get('source'),
+            "target": transformer.get('target')
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+@event_handler("router:unregister_transformer")
+async def handle_unregister_transformer(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Unregister a dynamic transformer.
+    
+    Parameters:
+        source: str - Source event pattern to unregister
+    """
+    source = data.get('source')
+    if not source:
+        return {"error": "Missing source event"}
+    
+    router = get_router()
+    router.unregister_transformer(source)
+    return {"status": "unregistered", "source": source}
+
+@event_handler("router:list_transformers")
+async def handle_list_transformers(data: Dict[str, Any]) -> Dict[str, Any]:
+    """List all registered transformers."""
+    router = get_router()
+    transformers = []
+    
+    for source, config in router._transformers.items():
+        transformers.append({
+            "source": source,
+            "target": config.get('target'),
+            "async": config.get('async', False),
+            "has_condition": 'condition' in config,
+            "has_response_route": 'response_route' in config
+        })
+    
+    return {
+        "transformers": transformers,
+        "count": len(transformers)
+    }
 
 
 @event_handler("system:error_propagation")

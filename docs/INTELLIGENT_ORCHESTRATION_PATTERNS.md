@@ -66,17 +66,18 @@ Orchestration patterns include:
 - Example patterns: adaptive_tournament_v2, distributed_analysis
 - Dual decision tracking: inline learnings + detailed logs
 
-### ✅ Phase 3: Orchestration Primitives
-All primitives implemented in `ksi_daemon/orchestration/orchestration_primitives.py`:
+### 🔄 Phase 3: From Primitives to Pattern Transformers
+Transitioning from hardcoded primitives to dynamic pattern-loaded transformers:
 
-**Core Set (7):**
-- `orchestration:spawn` - Agent creation with context
-- `orchestration:send` - Flexible message targeting
-- `orchestration:await` - Conditional response collection
-- `orchestration:track` - Universal data recording
-- `orchestration:query` - State introspection
-- `orchestration:coordinate` - Synchronization patterns
-- `orchestration:aggregate` - Statistical, voting, and consensus aggregation
+**Previous Approach** (being replaced):
+- Hardcoded orchestration primitives in Python
+- Fixed set of 7 primitives in `orchestration_primitives.py`
+
+**New Approach** (dynamic transformers):
+- Patterns define transformers in YAML
+- Async transformers with token-based responses
+- No Python modules required for patterns
+- Complete vocabulary defined by each pattern
 
 #### orchestration:aggregate
 
@@ -102,6 +103,47 @@ All primitives maintain orchestration context with pattern, orchestrator_id, exe
 ### Event-Driven DSL
 
 The DSL is interpreted by orchestrators using event:emit. Natural language strategies are mixed with structured operations, allowing orchestrators to adapt implementation based on context.
+
+### Dynamic Pattern-Loaded Transformers
+
+Patterns can define their own event transformers in YAML, enabling vocabulary mapping without Python code:
+
+```yaml
+transformers:
+  # Simple synchronous transformation
+  - source: "tournament:start"
+    target: "orchestration:send"
+    mapping:
+      to: "all"
+      message.type: "tournament:registration_open"
+  
+  # Async transformation with response routing
+  - source: "tournament:evaluate_batch"
+    target: "completion:async"
+    async: true
+    mapping:
+      prompt: "Evaluate: {{matches}}"
+    response_route:
+      from: "completion:result"
+      to: "tournament:batch_evaluated"
+      filter: "request_id == {{transform_id}}"
+  
+  # Conditional transformation
+  - source: "tournament:result"
+    target: "orchestration:track"
+    condition: "score > threshold"
+    mapping:
+      type: "high_performer"
+```
+
+#### Async Transformer Flow
+
+1. **Request**: Pattern event → Transformer → Target event
+2. **Token Return**: `{transform_id: "uuid", status: "queued"}`
+3. **Response**: Result event with transform_id → Response routing
+4. **Pattern Event**: Routed to pattern-specific response event
+
+This enables patterns to define their complete vocabulary and async workflows without requiring Python modules.
 
 ### Integration Patterns
 
@@ -163,11 +205,91 @@ Modules can optionally enhance the system without tight coupling. For example, e
 4. **Efficient Coordination**: Choose appropriate synchronization types
 5. **Smart Targeting**: Use criteria-based targeting to reduce overhead
 
+## Event Router Enhancement
+
+### Generic Event Transformation System
+A powerful system enabling both static and dynamic event transformers:
+
+#### Static Transformers (Python)
+```python
+# Registered at import time via decorator
+@event_transformer("source:event", target="target:event")
+async def transform_something(data: Dict[str, Any]) -> Dict[str, Any]:
+    return transformed_data
+```
+
+#### Dynamic Transformers (YAML)
+```yaml
+# Loaded from patterns at runtime
+transformers:
+  - source: "pattern:event"
+    target: "system:event"
+    async: true  # Optional async with token pattern
+    mapping:
+      field1: "{{source.field}}"
+      field2: "static_value"
+    response_route:  # For async transformers
+      from: "system:response"
+      to: "pattern:response"
+```
+
+**Benefits**:
+- **No duplicate events**: Transformers convert events before emission
+- **Pattern vocabulary**: Patterns define their own event mappings
+- **Async transformations**: Token-based async operations with response routing
+- **No Python required**: Complete patterns in YAML with transformers
+- **Dynamic loading**: Transformers loaded/unloaded with patterns
+- **Composability**: Transformers can chain and condition on data
+
+**Implementation Features**:
+1. **Dynamic Registration**: `router.register_transformer_from_yaml(transformer_def)`
+2. **Async Support**: Token-based async transformers with response routing
+3. **Pattern Loading**: Transformers defined in pattern YAML, loaded at runtime
+4. **Conditional Logic**: Transformers can include conditions and filters
+5. **Template Support**: Jinja2-style templates for field mapping
+6. **Response Correlation**: Automatic correlation of async responses
+
+**Pattern-Defined Transformers**:
+```yaml
+# In pattern YAML - no Python needed!
+transformers:
+  # Vocabulary mapping
+  - source: "pattern:analyze"
+    target: "agent:process"
+    mapping:
+      task: "analysis"
+      data: "{{input}}"
+  
+  # Async with completion pattern
+  - source: "pattern:complex_task"
+    target: "completion:async"
+    async: true
+    mapping:
+      prompt: "{{task_description}}"
+    response_route:
+      from: "completion:result"
+      to: "pattern:task_complete"
+  
+  # Conditional routing
+  - source: "pattern:route"
+    target: "orchestration:send"
+    condition: "priority == 'high'"
+    mapping:
+      to: {role: "priority_handler"}
+```
+
+**Impact on Orchestration**:
+- Patterns define complete vocabulary in YAML
+- No hardcoded orchestration primitives needed
+- Async operations handled elegantly with tokens
+- Patterns are truly self-contained
+- Dynamic loading/unloading with patterns
+
 ## Getting Started
 
-1. **Enable orchestration primitives** - Already included in KSI
-2. **Create orchestrator agents** using base_orchestrator profile
-3. **Write patterns** with natural language DSL combining primitives
+1. **Create orchestrator agents** using base_orchestrator profile
+2. **Write patterns** with natural language DSL and transformers
+3. **Define transformers** in pattern YAML for vocabulary mapping
 4. **Track decisions** to enable pattern evolution
 5. **Fork successful adaptations** to create new patterns
 6. **Share patterns** with the community

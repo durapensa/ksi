@@ -104,33 +104,35 @@ components:
           - Returns success metrics for adaptation
         
         **Design Philosophy**:
-        - Parameters over Primitives: Each primitive is highly configurable
-        - Composition over Prescription: Build complex behaviors from simple parts
-        - Context over Control: Rich metadata, not rigid workflows
-        - General over Specific: "track anything" instead of specific track_X primitives
+        - Vocabulary over Code: Patterns define their own event vocabulary
+        - Transformation over Wrapping: Events transform cleanly without duplication
+        - Patterns over Primitives: Self-contained patterns with complete behavior
+        - Dynamic over Static: Load/unload transformers with patterns
         
-        **Example Compositions**:
+        **Example DSL with Transformers**:
         ```
-        # Distribute work without specific primitive
-        FOREACH agent IN available_agents:
-          SEND task_portion TO agent WITH {criteria: {capability: "evaluate"}}
+        # Pattern defines vocabulary
+        EMIT tournament:open_registration
         
-        # Barrier synchronization
-        COORDINATE WITH {type: "barrier", agents: "all", timeout: 30}
+        # Async operation with token
+        token = EMIT tournament:complex_analysis WITH {data: analysis_input}
         
-        # Replace failed agent
-        IF agent_failed:
-          SPAWN new_agent WITH {profile: failed_agent.profile}
-          SEND catchup_context TO new_agent
-          TRACK {type: "decision", data: {action: "replaced_agent", reason: "timeout"}}
+        # Wait for async result
+        result = AWAIT transform:result WHERE {transform_id: token}
+        
+        # Or use direct system events
+        EMIT agent:spawn WITH {profile: "evaluator", count: 3}
         ```
         
-        **Also Available**:
-        - event:emit - Universal event emission for DSL implementation
-        - agent:* - Direct agent operations when needed
-        - evaluation:* - Evaluation system integration
-        - state:entity:* - State tracking for complex workflows
-        - composition:* - All pattern management operations
+        **Key Events for DSL**:
+        - event:emit - Universal event emission
+        - router:register_transformer - Dynamic transformer registration
+        - router:unregister_transformer - Remove transformers
+        - agent:* - Agent operations
+        - completion:* - Async operations with tokens
+        - evaluation:* - Evaluation system
+        - state:* - State management
+        - composition:* - Pattern operations
         
         ## PATTERN LIFECYCLE
         

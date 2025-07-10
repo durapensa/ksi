@@ -27,8 +27,7 @@ from ksi_common.timestamps import timestamp_utc, format_for_logging
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 
-# Import orchestration primitives to register their event handlers
-from ksi_daemon.orchestration import orchestration_primitives
+# Orchestration primitives removed - patterns now define their own transformers
 
 # Module state
 logger = get_bound_logger("orchestration", version="1.0.0")
