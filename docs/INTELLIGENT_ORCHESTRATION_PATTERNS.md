@@ -253,13 +253,175 @@ learnings:
 2. **Composition Events**: fork, merge, diff, track_decision
 3. **Self-Contained Storage**: Patterns and decisions in composition system
 
-### Phase 2: Pattern-Aware Orchestrators
+### Phase 2: Pattern-Aware Orchestrators (Implemented)
 
 1. **Base Orchestrator Profile**: Pattern discovery and interpretation
 2. **Example Patterns**: Tournament, pipeline, consensus patterns with DSL
 3. **Decision Tracking**: Both inline learnings and detailed logs
 
-### Phase 3: Event-Driven DSL
+### Phase 3: Orchestration Primitives
+
+High-level coordination primitives that wrap existing KSI events with orchestration-specific features.
+
+#### Design Principles
+- **Wrapper Architecture**: Each primitive wraps existing events with orchestration context
+- **Metadata Consistency**: All primitives accept and propagate orchestration metadata
+- **Failure Handling**: Built-in timeout and error recovery
+- **Observable**: Emit events for monitoring and pattern learning
+- **LLM-Friendly**: Return structured data easy for orchestrators to interpret
+
+#### Minimal Primitive Set
+
+After analysis, we've identified a minimal set of ~6-8 primitives that provide maximum flexibility through composition rather than prescription:
+
+##### Core Primitives (Essential)
+
+```python
+orchestration:spawn     # Create agent(s) with orchestration context
+orchestration:send      # Send to any subset (one, some, all, criteria-based)
+orchestration:await     # Wait for responses with flexible conditions
+orchestration:track     # Record any orchestration data (decisions, metrics, state)
+orchestration:query     # Get any information about orchestration state
+orchestration:coordinate # Any synchronization pattern (barrier, turns, checkpoint)
+```
+
+##### Optional but Valuable
+
+```python
+orchestration:aggregate # Complex aggregation (voting, consensus, statistical)
+orchestration:adapt     # Broadcast strategy changes to multiple agents
+```
+
+#### Design Philosophy
+
+1. **Parameters over Primitives**: One flexible primitive with rich parameters beats 5 specific ones
+2. **Composition over Prescription**: Orchestrators build complex behaviors from simple parts
+3. **Context over Control**: Rich metadata and context, not rigid workflows
+4. **General over Specific**: "track anything" instead of track_metrics, track_decisions, etc.
+
+#### Example Compositions
+
+```yaml
+# Distribute work (no specific primitive needed)
+FOREACH agent IN available_agents:
+  SEND task_portion TO agent WITH load_balancing
+
+# Barrier synchronization (parameter to coordinate)
+COORDINATE WITH type: "barrier", agents: all, timeout: 30s
+
+# Replace failed agent (compose from primitives)
+IF agent_failed:
+  SPAWN new_agent WITH role: failed_agent.role
+  SEND catchup_context TO new_agent
+  TRACK decision: "replaced_agent", reason: "timeout"
+```
+
+Note: Current KSI has `agent:broadcast` (all agents) and `agent:send_message` (single agent), but lacks multicast. `orchestration:send` adds flexible targeting.
+
+#### Implementation Example: orchestration:send
+
+```python
+@event_handler("orchestration:send")
+async def handle_orchestration_send(data):
+    """
+    Flexible message sending with orchestration context.
+    
+    Parameters:
+        message: Dict - Message content to send
+        to: str | List[str] | Dict - Target specification:
+            - str: Single agent ID
+            - List[str]: Multiple agent IDs (multicast)
+            - Dict: Selection criteria like {"role": "evaluator", "status": "ready"}
+        pattern: str - Orchestration pattern being used
+        wait_for_ack: bool - Wait for acknowledgments (default: False)
+        timeout: float - Acknowledgment timeout in seconds
+        metadata: Dict - Additional orchestration context
+    
+    Returns:
+        sent_to: List[str] - Agents that received the message
+        acknowledged: List[str] - Agents that acknowledged (if wait_for_ack)
+        failed: List[str] - Agents that failed to receive
+        duration: float - Time taken
+    """
+    start_time = time.time()
+    to = data.get('to')
+    message = data.get('message', {})
+    pattern = data.get('pattern', 'unknown')
+    
+    # Determine recipient agents
+    if isinstance(to, str):
+        # Single agent
+        target_agents = [to]
+    elif isinstance(to, list):
+        # Multiple specific agents (multicast)
+        target_agents = to
+    elif isinstance(to, dict):
+        # Selection criteria like {"role": "evaluator", "status": "ready"}
+        target_agents = await select_agents_by_criteria(to)
+    else:
+        return {"error": "Invalid 'to' parameter"}
+    
+    # Add orchestration context
+    enriched_message = {
+        **message,
+        "_orchestration": {
+            "pattern": pattern,
+            "send_id": str(uuid.uuid4()),
+            "timestamp": timestamp_utc(),
+            **data.get('metadata', {})
+        }
+    }
+    
+    # Send to each agent
+    sent = []
+    failed = []
+    for agent_id in target_agents:
+        try:
+            result = await emit_event("agent:send_message", {
+                "agent_id": agent_id,
+                "message": enriched_message
+            })
+            if result.get("status") == "sent":
+                sent.append(agent_id)
+            else:
+                failed.append(agent_id)
+        except Exception as e:
+            failed.append(agent_id)
+            logger.warning(f"Failed to send to {agent_id}: {e}")
+    
+    # Handle acknowledgments if requested
+    acknowledged = []
+    if data.get('wait_for_ack') and sent:
+        # ... acknowledgment collection logic ...
+        pass
+    
+    return {
+        "status": "success",
+        "sent_to": sent,
+        "acknowledged": acknowledged,
+        "failed": failed,
+        "duration": time.time() - start_time,
+        "pattern": pattern
+    }
+```
+
+#### Orchestration Context
+
+All primitives maintain orchestration context:
+```python
+{
+    "_orchestration": {
+        "pattern": "adaptive_tournament_v2",      # Pattern being executed
+        "orchestrator_id": "orch_123",           # Orchestrating agent
+        "execution_id": "exec_456",              # This execution instance
+        "parent_task": "tournament_round_1",      # Task hierarchy
+        "timestamp": "2025-07-10T19:30:00Z",
+        "metadata": {...}                        # Pattern-specific data
+    }
+}
+```
+
+### Phase 4: Event-Driven DSL
 
 The DSL is interpreted by orchestrators using event:emit:
 
