@@ -1,0 +1,53 @@
+name: adaptive_tournament_ml
+type: orchestration
+version: 0.1.0
+description: 'Fork of adaptive_tournament_v2: Add machine learning based test selection'
+author: unknown
+extends: adaptive_tournament_v2
+mixins: []
+components: []
+variables: {}
+metadata:
+  tags:
+  - tournament
+  - adaptive
+  - multi-agent
+  - evaluation
+  - pattern-aware
+  capabilities_required:
+  - evaluation:prompt
+  - agent:spawn
+  - orchestration:coordinate
+  use_cases:
+  - Prompt evaluation tournaments
+  - Agent capability assessment
+  - Comparative testing
+  - Skill ranking
+  selection_criteria:
+    task_keywords:
+    - tournament
+    - competition
+    - ranking
+    - evaluation
+    min_participants: 3
+    max_participants: 50
+    complexity: medium-high
+  sharing:
+    visibility: public
+    license: MIT
+    endorsements: 3
+    usage_count: 42
+  requirements:
+    min_ksi_version: 1.2.0
+    required_events:
+    - evaluation:prompt
+    - agent:spawn
+    - composition:track_decision
+    recommended_profiles:
+    - base_orchestrator
+    - evaluator_judge
+  lineage:
+    parent: adaptive_tournament_v2@2.1.0
+    fork_date: '2025-07-10T18:10:17.216522Z'
+    fork_reason: Add machine learning based test selection
+    fork_author: unknown

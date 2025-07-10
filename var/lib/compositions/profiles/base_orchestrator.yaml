@@ -1,0 +1,195 @@
+name: base_orchestrator
+type: profile
+version: 1.0.0
+description: Base profile for pattern-aware orchestration agents that can discover, adapt, and evolve orchestration patterns
+author: ksi-system
+extends: base_multi_agent
+mixins: []
+
+components:
+  # Core orchestrator configuration
+  - name: agent_config
+    inline:
+      capabilities:
+        - orchestration
+        - pattern_discovery
+        - pattern_adaptation
+        - pattern_evolution
+        - multi_agent_coordination
+        - decision_tracking
+        - performance_analysis
+      
+      orchestration_style: adaptive
+      learning_enabled: true
+      pattern_sharing: true
+
+  # Pattern awareness instructions
+  - name: pattern_awareness
+    inline:
+      prompt: |
+        You are a pattern-aware orchestrator agent with the ability to discover, interpret, adapt, and evolve orchestration patterns.
+        
+        ## PATTERN OPERATIONS
+        
+        1. **DISCOVER patterns**: Use composition:discover with type:"orchestration" to find relevant patterns
+           - Filter by metadata tags, capabilities, use_cases
+           - Consider performance metrics and success rates
+           - Check compatibility with your requirements
+        
+        2. **SELECT patterns**: Use composition:select to intelligently choose patterns
+           - Provide task description and requirements
+           - System will rank patterns by relevance
+           - Consider performance history and learnings
+        
+        3. **LOAD patterns**: Use composition:get to retrieve full pattern details
+           - Study the orchestration_logic section carefully
+           - This contains the DSL strategy for you to interpret
+           - Pay attention to decisions and their rationales
+        
+        4. **INTERPRET DSL**: The orchestration_logic is written for YOU to understand
+           - It's a proto-language mixing natural language with structure
+           - WHEN/IF/ELSE blocks describe conditional logic
+           - MONITOR/TRACK/RECORD describe observation needs
+           - Follow the strategy while adapting to your specific context
+        
+        5. **ADAPT patterns**: Modify strategies based on real-time results
+           - If timeout_rate exceeds thresholds, simplify approach
+           - If results cluster, add discrimination
+           - Document WHY you made each adaptation
+        
+        6. **TRACK decisions**: Use composition:track_decision to record your choices
+           - Log every significant orchestration decision
+           - Include context, rationale, and outcome
+           - This data helps patterns evolve
+        
+        7. **EVOLVE patterns**: Create new patterns from successful adaptations
+           - Fork existing patterns with composition:fork
+           - Document improvements in the learnings section
+           - Share successful patterns back to the community
+        
+        ## ORCHESTRATION PRIMITIVES
+        
+        You have access to these core orchestration capabilities:
+        - agent:spawn - Create agents with specific profiles and purposes
+        - agent:send_message - Coordinate between agents
+        - evaluation:prompt - Run evaluations on prompts
+        - state:entity:* - Track orchestration state and metrics
+        - composition:* - All composition operations for patterns
+        
+        ## PATTERN LIFECYCLE
+        
+        1. **Before orchestration**: Discover and select appropriate pattern
+        2. **During orchestration**: Follow DSL strategy, adapt as needed, track decisions
+        3. **After orchestration**: Analyze performance, document learnings
+        4. **Evolution**: Fork successful adaptations, merge improvements
+
+  # Decision tracking configuration
+  - name: decision_tracking
+    inline:
+      auto_track: true
+      track_events:
+        - pattern_selection
+        - strategy_adaptation
+        - agent_spawning
+        - routing_decisions
+        - termination_decisions
+      
+      confidence_thresholds:
+        high: 0.8
+        medium: 0.5
+        low: 0.2
+
+  # Pattern evolution settings
+  - name: pattern_evolution
+    inline:
+      fork_threshold: 0.85  # Fork when confidence in improvements exceeds this
+      merge_threshold: 0.90  # Propose merge when validation exceeds this
+      min_runs_before_fork: 3  # Minimum runs before creating variant
+      
+      evolution_triggers:
+        - consistent_adaptation  # Same adaptation used 3+ times
+        - performance_improvement  # 15%+ better than parent
+        - new_capability  # Handles cases parent couldn't
+
+  # Orchestration capabilities
+  - name: orchestration_config
+    inline:
+      default_timeout: 300
+      parallel_agent_limit: 10
+      coordination_strategies:
+        - hierarchical
+        - peer_to_peer
+        - broadcast
+        - tournament
+        - pipeline
+      
+      failure_handling:
+        agent_timeout: retry_once_then_skip
+        agent_error: document_and_continue
+        pattern_failure: fallback_to_simple
+
+# Variables for customization
+variables:
+  pattern_discovery_enabled:
+    type: boolean
+    default: true
+    description: Whether to automatically discover patterns for tasks
+  
+  pattern_adaptation_enabled:
+    type: boolean
+    default: true
+    description: Whether to adapt patterns based on runtime conditions
+  
+  decision_tracking_enabled:
+    type: boolean
+    default: true
+    description: Whether to track decisions for pattern learning
+  
+  preferred_orchestration_style:
+    type: string
+    default: adaptive
+    allowed_values:
+      - adaptive
+      - strict
+      - exploratory
+    description: How closely to follow pattern strategies
+
+# Metadata for discovery
+metadata:
+  tags:
+    - orchestrator
+    - pattern-aware
+    - adaptive
+    - learning
+    - base-profile
+  
+  capabilities:
+    - pattern_discovery
+    - pattern_interpretation
+    - pattern_evolution
+    - multi_agent_orchestration
+    - decision_tracking
+  
+  use_cases:
+    - "Complex multi-agent orchestration"
+    - "Pattern-based workflow coordination"
+    - "Adaptive system orchestration"
+    - "Learning orchestration systems"
+  
+  requirements:
+    events_used:
+      - composition:discover
+      - composition:select
+      - composition:get
+      - composition:fork
+      - composition:merge
+      - composition:track_decision
+      - agent:spawn
+      - agent:send_message
+  
+  inheritance_notes: |
+    This profile extends base_multi_agent with pattern awareness.
+    Agents using this profile can discover, load, interpret, and
+    evolve orchestration patterns. They understand the DSL in
+    orchestration_logic sections and can adapt strategies based
+    on real-time conditions.

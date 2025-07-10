@@ -491,7 +491,7 @@ Successfully implemented complete autonomous improvement cycle:
 
 **Full documentation**: See [`docs/AUTONOMOUS_JUDGE_ARCHITECTURE.md`](../../docs/AUTONOMOUS_JUDGE_ARCHITECTURE.md)
 
-## Intelligent Orchestration Patterns (2025-07-09)
+## Intelligent Orchestration Patterns (2025-07-10)
 
 ### Overview
 Hybrid approach combining intelligent agents as orchestrators with shareable declarative patterns.
@@ -502,14 +502,42 @@ Hybrid approach combining intelligent agents as orchestrators with shareable dec
 - Adaptation happens naturally through agent intelligence
 - Meta-orchestration enables orchestrators to coordinate other orchestrators
 
+### Pattern Evolution System (NEW)
+Implemented comprehensive pattern evolution through the composition system:
+
+**Core Features**:
+- **Pattern Fork/Merge**: `composition:fork`, `composition:merge`, `composition:diff` - Evolution with lineage tracking
+- **Decision Tracking**: `composition:track_decision` - Records orchestration decisions for learning
+- **Universal Event Emission**: `event:emit` - Enables DSL implementation without tight coupling
+- **Self-Contained Storage**: Patterns and decisions stored in composition files
+
+**Pattern Format**:
+- Enhanced orchestration compositions with DSL section for agent interpretation
+- Performance metrics, learnings, and lineage tracking in metadata
+- Decision logs stored alongside patterns in `*_decisions.yaml` files
+- Natural language strategies mixed with structured DSL
+
+**Orchestrator Capabilities**:
+- `base_orchestrator` profile with pattern awareness
+- Discover patterns via `composition:discover` 
+- Interpret DSL and implement using `event:emit`
+- Fork successful adaptations, merge improvements
+- Track decisions for continuous learning
+
+**Example Patterns Created**:
+- `adaptive_tournament_v2` - Tournament with intelligent matching
+- `adaptive_pipeline` - Multi-stage processing with dynamic adaptation
+- Demonstrated fork: `adaptive_tournament_ml` with ML-based test selection
+
 **Benefits**:
 - Natural adaptation to unexpected situations
 - Patterns evolve and improve through use
-- Explanable decisions with documented rationale
+- Explainable decisions with documented rationale
 - Federation-ready for sharing across KSI networks
+- Loose coupling through event-based architecture
 
 **Full documentation**: See [`docs/INTELLIGENT_ORCHESTRATION_PATTERNS.md`](../../docs/INTELLIGENT_ORCHESTRATION_PATTERNS.md)
 
 ---
-*Last updated: 2025-07-09*
+*Last updated: 2025-07-10*
 *For development practices, see `/Users/dp/projects/ksi/CLAUDE.md`*

@@ -837,6 +837,57 @@ async def handle_error_propagation(data: Dict[str, Any]) -> Dict[str, Any]:
         }
 
 
+@event_handler("event:emit")
+async def handle_emit_event(data: Dict[str, Any]) -> Any:
+    """
+    Generic event emission - allows any module to emit any event.
+    Perfect for orchestrators implementing DSL actions without tight coupling.
+    
+    Parameters:
+        event: str - Target event name (required)
+        data: Dict - Event data to pass (optional)
+        delay: float - Delay in seconds before emitting (optional)
+        condition: str - Only emit if condition evaluates true (optional)
+        
+    Returns:
+        The result(s) from the event emission
+        
+    Examples:
+        {"event": "agent:spawn", "data": {"profile": "test"}}
+        {"event": "monitoring:alert", "data": {"severity": "high"}, "delay": 5.0}
+    """
+    target_event = data.get('event')
+    event_data = data.get('data', {})
+    delay = data.get('delay', 0)
+    condition = data.get('condition')
+    
+    if not target_event:
+        return {'error': 'Target event name required'}
+    
+    # Check condition if provided (simple evaluation for now)
+    if condition:
+        # For now, just check if condition is "true" or "false" string
+        # In future, could add more sophisticated condition evaluation
+        if str(condition).lower() == 'false':
+            return {'status': 'skipped', 'reason': 'Condition evaluated to false'}
+    
+    # Handle delay if specified
+    if delay > 0:
+        await asyncio.sleep(delay)
+    
+    # Emit the event
+    router = get_router()
+    results = await router.emit(target_event, event_data)
+    
+    # Return results based on what we got back
+    if not results:
+        return {'status': 'success', 'results': [], 'message': f'Event {target_event} emitted with no handlers'}
+    elif len(results) == 1:
+        return results[0]  # Single result, return it directly
+    else:
+        return {'status': 'success', 'results': results, 'count': len(results)}
+
+
 async def emit_event(event: str, data: Any = None) -> List[Any]:
     """Emit event through global router."""
     router = get_router()

@@ -5,6 +5,7 @@ Composition Service Module - Event handlers for composition system
 
 import asyncio
 import json
+import yaml
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Set, TypedDict, Tuple
 from typing_extensions import NotRequired
@@ -744,11 +745,29 @@ async def handle_create_composition(data: Dict[str, Any]) -> Dict[str, Any]:
             'parent_agent': data.get('agent_id')
         })
         
-        # Save to state manager as dynamic composition
-        # TODO: Update to use new relational state API
-        # if state_manager:
-        #     dynamic_cache_key = f"dynamic_composition:{name}"
-        #     state_manager.set_shared_state(dynamic_cache_key, composition)
+        # Use provided content if available (for forking)
+        if 'content' in data:
+            composition = data['content']
+            
+        # Save to disk if requested
+        if data.get('save', False):
+            # Create Composition object
+            comp_obj = Composition.from_yaml(composition)
+            save_result = await _save_composition_to_disk(comp_obj, overwrite=data.get('overwrite', False))
+            
+            if save_result['status'] != 'success':
+                return save_result
+                
+            logger.info(f"Created and saved composition: {name}")
+            
+            return {
+                'status': 'success',
+                'name': name,
+                'composition': composition,
+                'path': save_result['path'],
+                'message': f'Created and saved composition: {name}'
+            }
+        
         logger.info(f"Created dynamic composition: {name}")
         
         return {
@@ -1039,3 +1058,366 @@ async def compose_prompt(name: str, variables: Optional[Dict[str, Any]] = None) 
     else:
         # Otherwise return as string
         return str(prompt_parts)
+
+
+# Pattern Evolution Event Handlers
+
+@event_handler("composition:fork")
+async def handle_fork_composition(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Fork a composition to create a variant with lineage tracking.
+    
+    Parameters:
+        parent: str - Name of parent composition
+        name: str - Name for forked composition  
+        reason: str - Reason for forking
+        modifications: Dict[str, Any] - Initial modifications to apply
+        author: str (optional) - Author of fork (defaults to agent_id)
+    """
+    parent_name = data.get('parent')
+    new_name = data.get('name')
+    fork_reason = data.get('reason', 'Experimental variant')
+    modifications = data.get('modifications', {})
+    author = data.get('author', data.get('agent_id', 'unknown'))
+    
+    if not parent_name or not new_name:
+        return {'error': 'Both parent and name required for fork'}
+    
+    try:
+        # Load parent composition
+        parent = await load_composition(parent_name)
+        
+        # Create forked composition with lineage
+        forked_data = {
+            'name': new_name,
+            'type': parent.type,
+            'version': '0.1.0',  # Start fork at 0.1.0
+            'description': f"Fork of {parent_name}: {fork_reason}",
+            'author': author,
+            'extends': parent_name,  # Inherit from parent
+            'components': [vars(c) for c in parent.components],  # Serialize components
+            'variables': parent.variables,
+            'metadata': {
+                **parent.metadata,
+                'lineage': {
+                    'parent': f"{parent_name}@{parent.version}",
+                    'fork_date': timestamp_utc(),
+                    'fork_reason': fork_reason,
+                    'fork_author': author
+                }
+            }
+        }
+        
+        # Apply modifications
+        if modifications:
+            for key, value in modifications.items():
+                if key in forked_data:
+                    forked_data[key] = value
+        
+        # Create the forked composition
+        result = await handle_create_composition({
+            'name': new_name,
+            'type': parent.type,
+            'content': forked_data,
+            'save': data.get('save', True)  # Save by default
+        })
+        
+        if result.get('status') == 'success':
+            # Update parent's metadata to track forks
+            parent.metadata['forks'] = parent.metadata.get('forks', [])
+            parent.metadata['forks'].append({
+                'name': new_name,
+                'date': timestamp_utc(),
+                'reason': fork_reason,
+                'author': author
+            })
+            
+            # Save updated parent
+            parent_update = await handle_update_composition({
+                'name': parent_name,
+                'updates': {'metadata': parent.metadata}
+            })
+            
+            logger.info(f"Forked composition {parent_name} -> {new_name}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Fork failed: {e}")
+        return {'error': str(e)}
+
+
+@event_handler("composition:merge")
+async def handle_merge_composition(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Merge improvements from a forked composition back to parent.
+    
+    Parameters:
+        source: str - Name of source composition (the fork)
+        target: str - Name of target composition (the parent)
+        strategy: str - Merge strategy: 'selective', 'full', 'metadata_only' 
+        improvements: List[str] - List of improvements being merged
+        validation_results: Dict - Optional evaluation results proving improvement
+    """
+    source_name = data.get('source')
+    target_name = data.get('target')
+    strategy = data.get('strategy', 'selective')
+    improvements = data.get('improvements', [])
+    validation_results = data.get('validation_results', {})
+    
+    if not source_name or not target_name:
+        return {'error': 'Both source and target required for merge'}
+    
+    try:
+        # Load both compositions
+        source = await load_composition(source_name)
+        target = await load_composition(target_name)
+        
+        # Verify lineage - source should be fork of target
+        lineage = source.metadata.get('lineage', {})
+        if not lineage.get('parent', '').startswith(target_name):
+            return {'error': f'{source_name} is not a fork of {target_name}'}
+        
+        # Prepare merge based on strategy
+        updates = {}
+        
+        if strategy == 'full':
+            # Full merge - take all changes from source
+            updates = {
+                'components': source.components,
+                'variables': source.variables,
+                'metadata': {**target.metadata, **source.metadata}
+            }
+        
+        elif strategy == 'selective':
+            # Selective merge - only specific improvements
+            # This would require more sophisticated diffing
+            updates['metadata'] = target.metadata.copy()
+            
+            # Track merge in metadata
+            updates['metadata']['merges'] = updates['metadata'].get('merges', [])
+            updates['metadata']['merges'].append({
+                'from': source_name,
+                'date': timestamp_utc(),
+                'improvements': improvements,
+                'validation': validation_results
+            })
+            
+            # Copy performance metrics if better
+            if 'performance' in source.metadata:
+                source_perf = source.metadata['performance']
+                target_perf = target.metadata.get('performance', {})
+                
+                if source_perf.get('avg_score', 0) > target_perf.get('avg_score', 0):
+                    updates['metadata']['performance'] = source_perf
+        
+        elif strategy == 'metadata_only':
+            # Only merge metadata (learnings, performance)
+            updates['metadata'] = {
+                **target.metadata,
+                'learnings': source.metadata.get('learnings', []),
+                'performance': source.metadata.get('performance', {})
+            }
+        
+        # Apply updates
+        result = await handle_update_composition({
+            'name': target_name,
+            'updates': updates
+        })
+        
+        if result.get('status') == 'success':
+            logger.info(f"Merged {source_name} -> {target_name} using {strategy} strategy")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Merge failed: {e}")
+        return {'error': str(e)}
+
+
+@event_handler("composition:diff")
+async def handle_diff_composition(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Show differences between two compositions.
+    
+    Parameters:
+        left: str - First composition name
+        right: str - Second composition name
+        detail_level: str - 'summary', 'detailed', 'full'
+    """
+    left_name = data.get('left')
+    right_name = data.get('right')
+    detail_level = data.get('detail_level', 'summary')
+    
+    if not left_name or not right_name:
+        return {'error': 'Both left and right compositions required'}
+    
+    try:
+        # Load both compositions
+        left = await load_composition(left_name)
+        right = await load_composition(right_name)
+        
+        differences = {
+            'left': {'name': left_name, 'version': left.version},
+            'right': {'name': right_name, 'version': right.version},
+            'changes': {}
+        }
+        
+        # Compare basic fields
+        for field in ['type', 'description', 'author', 'extends']:
+            left_val = getattr(left, field, None)
+            right_val = getattr(right, field, None)
+            if left_val != right_val:
+                differences['changes'][field] = {
+                    'left': left_val,
+                    'right': right_val
+                }
+        
+        # Compare components
+        left_comps = {c.name: c for c in left.components}
+        right_comps = {c.name: c for c in right.components}
+        
+        comp_changes = {}
+        for name in set(left_comps.keys()) | set(right_comps.keys()):
+            if name not in left_comps:
+                comp_changes[name] = {'status': 'added'}
+            elif name not in right_comps:
+                comp_changes[name] = {'status': 'removed'}
+            elif left_comps[name] != right_comps[name]:
+                comp_changes[name] = {'status': 'modified'}
+                if detail_level in ['detailed', 'full']:
+                    # Add more details about what changed
+                    comp_changes[name]['changes'] = {
+                        'left': left_comps[name],
+                        'right': right_comps[name]
+                    }
+        
+        if comp_changes:
+            differences['changes']['components'] = comp_changes
+        
+        # Compare metadata
+        if detail_level in ['detailed', 'full']:
+            meta_diff = {}
+            all_keys = set(left.metadata.keys()) | set(right.metadata.keys())
+            for key in all_keys:
+                left_val = left.metadata.get(key)
+                right_val = right.metadata.get(key)
+                if left_val != right_val:
+                    meta_diff[key] = {
+                        'left': left_val,
+                        'right': right_val
+                    }
+            if meta_diff:
+                differences['changes']['metadata'] = meta_diff
+        
+        # Check lineage relationship
+        left_lineage = left.metadata.get('lineage', {})
+        right_lineage = right.metadata.get('lineage', {})
+        
+        if left_lineage.get('parent', '').startswith(right_name):
+            differences['relationship'] = f"{left_name} is a fork of {right_name}"
+        elif right_lineage.get('parent', '').startswith(left_name):
+            differences['relationship'] = f"{right_name} is a fork of {left_name}"
+        else:
+            differences['relationship'] = "No direct lineage relationship"
+        
+        return {
+            'status': 'success',
+            'differences': differences
+        }
+        
+    except Exception as e:
+        logger.error(f"Diff failed: {e}")
+        return {'error': str(e)}
+
+
+@event_handler("composition:track_decision")
+async def handle_track_decision(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Track orchestrator decisions for pattern learning.
+    
+    Parameters:
+        pattern: str - Pattern name being used
+        decision: str - Decision made
+        context: Dict - Context when decision was made
+        outcome: str - Outcome of decision
+        confidence: float - Confidence in decision (0-1)
+        agent_id: str - Agent making the decision
+    """
+    pattern_name = data.get('pattern')
+    decision = data.get('decision')
+    context = data.get('context', {})
+    outcome = data.get('outcome')
+    confidence = data.get('confidence', 0.5)
+    agent_id = data.get('agent_id', 'unknown')
+    
+    if not pattern_name or not decision:
+        return {'error': 'Pattern name and decision required'}
+    
+    try:
+        # Store decision in pattern-specific decision log
+        decision_record = {
+            'pattern': pattern_name,
+            'decision': decision,
+            'context': context,
+            'outcome': outcome,
+            'confidence': confidence,
+            'agent_id': agent_id,
+            'timestamp': timestamp_utc()
+        }
+        
+        # Save to decisions file alongside pattern
+        decisions_path = config.compositions_dir / 'orchestrations' / f"{pattern_name}_decisions.yaml"
+        
+        # Load existing decisions or create new list
+        if decisions_path.exists():
+            with open(decisions_path, 'r') as f:
+                decisions = yaml.safe_load(f) or []
+        else:
+            decisions = []
+        
+        # Append new decision
+        decisions.append(decision_record)
+        
+        # Save updated decisions
+        save_yaml_file(decisions_path, decisions)
+        
+        # Also update pattern metadata with high-level insights
+        try:
+            pattern = await load_composition(pattern_name, 'orchestration')
+            
+            # Update decision statistics in metadata
+            if 'decision_stats' not in pattern.metadata:
+                pattern.metadata['decision_stats'] = {
+                    'total_decisions': 0,
+                    'common_adaptations': {}
+                }
+            
+            pattern.metadata['decision_stats']['total_decisions'] += 1
+            
+            # Track common adaptations
+            adaptations = pattern.metadata['decision_stats']['common_adaptations']
+            if decision not in adaptations:
+                adaptations[decision] = 0
+            adaptations[decision] += 1
+            
+            # Save updated pattern metadata
+            await handle_update_composition({
+                'name': pattern_name,
+                'updates': {'metadata': pattern.metadata}
+            })
+            
+        except Exception as meta_error:
+            logger.warning(f"Could not update pattern metadata: {meta_error}")
+        
+        logger.debug(f"Tracked decision for pattern {pattern_name}: {decision} -> {outcome}")
+        
+        return {
+            'status': 'success',
+            'tracked': decision_record,
+            'decisions_file': str(decisions_path)
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to track decision: {e}")
+        return {'error': str(e)}

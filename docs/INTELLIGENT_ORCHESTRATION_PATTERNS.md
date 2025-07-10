@@ -12,439 +12,355 @@ Instead of building complex orchestration engines with rigid state machines, we 
 2. **Patterns ARE Instructions**: We describe patterns in natural language, not code
 3. **Adaptation IS Intelligence**: The ability to change strategies based on results
 4. **Learning IS Sharing**: Successful patterns can be exported and shared across orchestrators
+5. **Loose Coupling IS Strength**: Modules interact through events, not direct dependencies
 
 ## Architecture
 
-### Essential Orchestration Primitives
+### Core System Primitives
+
+The orchestration system is built on KSI's event-driven architecture with a key addition:
 
 ```python
-# Agent Management
-spawn_agent(profile, purpose, metadata) -> agent_id
-terminate_agent(agent_id)
-list_agents(filter_criteria) -> [agents]
-
-# Coordination
-broadcast_task(task_description, target_agents)
-await_responses(agents, timeout) -> responses
-delegate_subtask(agent_id, task)
-
-# Monitoring
-observe_events(patterns, callback)
-query_agent_status(agent_id) -> status
-track_metrics(metric_names) -> values
-
-# Decision Making
-evaluate_results(criteria) -> assessment
-select_best(options, criteria) -> choice
-should_continue(condition) -> bool
-
-# Adaptation
-modify_strategy(new_approach)
-create_checkpoint(state)
-rollback_to_checkpoint(checkpoint_id)
+# Universal Event Emission
+@event_handler("event:emit")
+async def handle_emit_event(data):
+    """
+    Generic event emission - allows any module to emit any event.
+    Perfect for orchestrators implementing DSL actions.
+    
+    Parameters:
+        event: str - Target event name
+        data: Dict - Event data
+        delay: float (optional) - Delay in seconds
+        condition: str (optional) - Only emit if condition evaluates true
+    """
 ```
+
+This enables orchestrators to:
+- Implement DSL actions without knowing target modules
+- Create dynamic event chains based on patterns
+- Test and simulate complex workflows
+- Maintain loose coupling across the system
+
+### Composition-Based Pattern Management
+
+Orchestration patterns are stored as compositions in the KSI composition system:
+
+```bash
+var/lib/compositions/orchestrations/
+├── adaptive_tournament_v2.yaml    # Pattern with DSL and performance tracking
+├── adaptive_pipeline.yaml         # Multi-stage processing pattern
+├── consensus_builder.yaml         # Agreement-seeking pattern
+└── [pattern]_decisions.yaml       # Decision history for each pattern
+```
+
+Key composition events for pattern management:
+- `composition:fork` - Create variants with lineage tracking
+- `composition:merge` - Merge improvements back to parent
+- `composition:diff` - Compare pattern versions
+- `composition:track_decision` - Record orchestration decisions
+- `composition:discover` - Find patterns by capabilities and performance
+- `composition:select` - Intelligently choose patterns for tasks
 
 ### Orchestrator Agent Profile
 
 ```yaml
-name: orchestrator_agent
-extends: base_agent
+name: base_orchestrator
+extends: base_multi_agent
 components:
-  - name: orchestration_capabilities
+  - name: pattern_awareness
     inline:
       prompt: |
-        You are an orchestration agent responsible for coordinating multi-agent workflows.
+        You are a pattern-aware orchestrator that interprets and adapts patterns.
         
-        ORCHESTRATION PATTERNS YOU KNOW:
-        1. TOURNAMENT: Competitive evaluation with matches
-        2. MAP-REDUCE: Divide work, process in parallel, combine results
-        3. PIPELINE: Sequential processing through stages
-        4. CONSENSUS: Multiple agents evaluate independently
-        5. EVOLUTIONARY: Iterative improvement through generations
+        PATTERN OPERATIONS:
+        1. DISCOVER: Use composition:discover to find orchestration patterns
+        2. SELECT: Use composition:select for intelligent pattern choice
+        3. INTERPRET: Read orchestration_logic DSL and implement using event:emit
+        4. ADAPT: Modify strategies based on real-time conditions
+        5. TRACK: Use composition:track_decision to record choices
+        6. EVOLVE: Fork successful adaptations, merge improvements
         
-        ADAPTIVE BEHAVIORS:
-        - Retry, replace, or proceed without failed agents
-        - Modify approach based on results
-        - Scale up or change strategy for performance
-        - Document lessons learned
+        The DSL in patterns is for YOU to interpret - it's not parsed by KSI.
+        Implement DSL actions using event:emit for loose coupling.
 ```
 
-## Pattern Sharing Format
+## Enhanced Pattern Format
 
-### Orchestration Pattern Language (OPL)
+Orchestration patterns are YAML compositions with rich metadata and DSL:
 
 ```yaml
-type: orchestration_pattern
 name: adaptive_tournament_v2
-author: orchestrator_agent_7f3e
-learned_from: 
-  - tournament_runs: 15
-  - success_rate: 0.85
+type: orchestration
+version: 2.1.0
+extends: tournament_basic  # Inherit from parent patterns
 
-pattern:
+# Lineage tracking for evolution
+lineage:
+  parent: tournament_basic@2.0.0
+  fork_date: "2025-07-10T15:30:00Z"
+  fork_reason: "Improve participant matching"
+  improvements:
+    - "Added adaptive matching based on variance"
+    - "Implemented timeout recovery"
+
+# DSL for orchestrator interpretation (not parsed by KSI)
+orchestration_logic:
   description: |
-    Adaptive tournament that adjusts based on participant performance
+    Natural language strategy for orchestrator agents to follow.
+    Mix natural language with structured patterns.
   
-  discovery_insights:
-    - "Parallel matches should scale with participant homogeneity"
-    - "Timeout failures often indicate prompt ambiguity"
-  
-  adaptive_rules:
-    - condition: "variance(scores) < 0.1"
-      action: "increase_test_difficulty"
-      rationale: "Similar scores suggest tests aren't discriminating"
+  strategy: |
+    WHEN starting_tournament:
+      ANALYZE participant_capabilities
+      IF variance(abilities) > 0.3:
+        EMIT "orchestration:configure" WITH {mode: "elimination"}
+      ELSE:
+        EMIT "orchestration:configure" WITH {mode: "round_robin"}
+    
+    DURING each_round:
+      MONITOR metrics: timeout_rate, score_variance
       
-  orchestration_flow:
-    init:
-      spawn_strategy: |
-        parallel_matches = min(4, participant_count // 2)
-      
-    matching:
-      algorithm: |
-        if score_variance < 0.2:
-          use "swiss_pairing"
-        else:
-          use "round_robin"
+      IF timeout_rate > 30%:
+        EMIT "evaluation:adjust_complexity" WITH {reduce: "20%"}
+        EMIT "monitoring:alert" WITH {issue: "high_timeouts"}
+        
+      IF all_scores_similar:
+        EMIT "evaluation:add_discriminators"
+        TRACK decision: "added_discrimination" WITH confidence: 0.85
+    
+    AFTER completion:
+      CALCULATE performance_metrics
+      IF improved_over_baseline:
+        EMIT "composition:track_decision" WITH full_context
+        CONSIDER "composition:fork" IF confidence > 0.9
+
+# Performance tracking for evolution
+performance:
+  runs: 47
+  avg_score: 0.82
+  success_rate: 0.93
+  improvements_over_parent: "+21.7%"
+
+# Learnings for pattern selection
+learnings:
+  - insight: "Swiss pairing optimal for 5-10 participants"
+    confidence: 0.85
+    evidence: "runs:[7,9,11,14]"
+    discovered_by: "orchestrator_7f3e"
 ```
 
 ## Pattern Evolution Workflow
 
-### 1. Loading and Adapting Patterns
+### 1. Discovery and Selection
 
-```yaml
-name: pattern_aware_orchestrator
-components:
-  - name: pattern_operations
-    inline:
-      prompt: |
-        PATTERN OPERATIONS:
-        - load_pattern(name): Load shared orchestration pattern
-        - adapt_pattern(pattern, context): Modify for current situation
-        - record_decision(decision, outcome): Track choices
-        - export_pattern(): Create shareable pattern from experience
-```
-
-### 2. Learning from Experience
-
-Orchestrators record their decisions and outcomes:
+Orchestrators discover patterns using composition system:
 
 ```python
-@event_handler("orchestrator:decision")
-async def track_orchestration_decision(data):
-    decision_type = data.get('decision_type')
-    rationale = data.get('rationale')
-    outcome = data.get('outcome')
+# Find relevant patterns
+patterns = await emit("event:emit", {
+    "event": "composition:discover",
+    "data": {
+        "type": "orchestration",
+        "metadata_filter": {
+            "tags": ["tournament"],
+            "performance.avg_score": {">": 0.7}
+        }
+    }
+})
+
+# Select best pattern for task
+best = await emit("event:emit", {
+    "event": "composition:select",
+    "data": {
+        "task": "Evaluate 15 prompts competitively",
+        "requirements": {"timeout_handling": true}
+    }
+})
+```
+
+### 2. DSL Interpretation
+
+Orchestrators read and implement DSL strategies:
+
+```python
+# Orchestrator interprets DSL action
+if timeout_rate > 0.3:  # From monitoring
+    # Implement DSL: EMIT "evaluation:adjust_complexity"
+    await emit("event:emit", {
+        "event": "evaluation:adjust_complexity",
+        "data": {"reduce": "20%"}
+    })
     
-    # Store for pattern learning
-    await store_decision(decision_type, rationale, outcome)
+    # Track the decision
+    await emit("event:emit", {
+        "event": "composition:track_decision",
+        "data": {
+            "pattern": pattern_name,
+            "decision": "reduced_complexity",
+            "context": {"timeout_rate": timeout_rate},
+            "outcome": "pending"
+        }
+    })
 ```
 
-### 3. Pattern Verification
+### 3. Pattern Forking
 
-New patterns are tested before full adoption:
+When orchestrators discover improvements:
 
+```python
+# After successful run with adaptations
+if performance > baseline * 1.15:  # 15% improvement
+    await emit("event:emit", {
+        "event": "composition:fork",
+        "data": {
+            "parent": current_pattern,
+            "name": f"{current_pattern}_improved",
+            "reason": "Consistent 15%+ performance improvement",
+            "modifications": {
+                "orchestration_logic.strategy": new_strategy
+            }
+        }
+    })
+```
+
+### 4. Decision Tracking
+
+Decisions are tracked in two ways:
+
+1. **High-level learnings** in pattern metadata:
 ```yaml
-verification:
-  method: "shadow_execution"
-  description: |
-    Run new pattern in parallel with existing approach
-    Compare results before full adoption
+learnings:
+  - insight: "Discovered optimal timeout is 2x avg response time"
+    confidence: 0.92
 ```
 
-## Implementation Examples
-
-### Tournament Orchestrator V2
-
+2. **Detailed decisions** in `<pattern>_decisions.yaml`:
 ```yaml
-name: tournament_orchestrator_v2
-extends: pattern_aware_orchestrator
-components:
-  - name: improved_tournament
-    inline:
-      prompt: |
-        IMPROVEMENTS TO IMPLEMENT:
-        
-        1. SMARTER MATCHING:
-           - Profile participants with preliminary tests
-           - Group similar-skill participants
-           - Use different strategies per group
-           
-        2. ADAPTIVE TEST SELECTION:
-           - Start with baseline tests
-           - Add discriminating tests if scores cluster
-           - Simplify if timeouts occur
-           
-        3. REAL-TIME LEARNING:
-           - Monitor match progress
-           - Adjust strategy mid-tournament
-           - Document successful adaptations
-        
-        TARGET: Achieve >0.75 average score
+- timestamp: "2025-07-10T16:30:00Z"
+  agent_id: "orchestrator_7f3e"
+  decision: "increased_timeout"
+  context: {avg_response: 45, current_timeout: 60}
+  outcome: "reduced_timeout_rate"
+  confidence: 0.87
 ```
-
-### Meta-Orchestrator
-
-Orchestrators that coordinate other orchestrators:
-
-```yaml
-name: meta_orchestrator
-components:
-  - name: meta_coordination
-    inline:
-      prompt: |
-        IMPROVEMENT CYCLE ORCHESTRATION:
-        1. Spawn bootstrap_orchestrator for variations
-        2. Spawn tournament_orchestrator when ready
-        3. Monitor progress and intervene if needed
-        4. Spawn deployment_orchestrator for winners
-        5. Coordinate handoffs between orchestrators
-```
-
-## Benefits
-
-### Flexibility
-- Orchestrators adapt to unexpected situations
-- Patterns evolve through experience
-- New patterns emerge from successful adaptations
-
-### Explainability
-- Orchestrators explain their decisions
-- Patterns include rationale for rules
-- Learning is transparent and shareable
-
-### Federation
-- Patterns can be shared across KSI networks
-- Successful patterns propagate naturally
-- Local adaptations preserve what works
-
-### Efficiency
-- No need to code every orchestration scenario
-- Patterns capture what works without rigidity
-- Intelligence fills gaps in patterns
-
-## Future Directions
-
-### Pattern Library
-Build a library of proven orchestration patterns:
-- Tournament variations
-- Evaluation pipelines
-- Consensus protocols
-- Improvement cycles
-
-### Pattern DSL
-For cases requiring precision:
-```yaml
-dsl: |
-  results = parallel_map(agents, evaluate)
-  if variance(results) > threshold:
-    expert = spawn("expert_judge")
-    results.append(expert.evaluate())
-  return weighted_mean(results)
-```
-
-### Pattern Analytics
-- Track pattern usage and success rates
-- Identify emerging patterns
-- Recommend patterns based on context
-
-### Cross-Network Learning
-- Federated pattern exchange protocols
-- Pattern translation between contexts
-- Privacy-preserving pattern sharing
 
 ## Implementation Guide
 
-### Phase 1: Orchestration Primitives
+### Phase 1: Core Infrastructure (Implemented)
 
-#### Core Events (`ksi_daemon/orchestration/orchestration_primitives.py`)
+1. **System Primitive**: `event:emit` for universal event emission
+2. **Composition Events**: fork, merge, diff, track_decision
+3. **Self-Contained Storage**: Patterns and decisions in composition system
 
-```python
-@event_handler("orchestration:spawn_agent")
-async def spawn_orchestrated_agent(data):
-    """Spawn agent with orchestration metadata."""
-    profile = data.get('profile')
-    purpose = data.get('purpose')
-    orchestration_context = data.get('context', {})
-    
-    # Spawn with orchestration tracking
-    result = await emit_event('agent:spawn', {
-        'profile': profile,
-        'purpose': purpose,
-        'metadata': {'orchestration': orchestration_context}
+### Phase 2: Pattern-Aware Orchestrators
+
+1. **Base Orchestrator Profile**: Pattern discovery and interpretation
+2. **Example Patterns**: Tournament, pipeline, consensus patterns with DSL
+3. **Decision Tracking**: Both inline learnings and detailed logs
+
+### Phase 3: Event-Driven DSL
+
+The DSL is interpreted by orchestrators using event:emit:
+
+```yaml
+# In pattern DSL
+IF performance_degraded:
+  EMIT "monitoring:investigate" WITH {severity: "high"}
+  SPAWN investigator WITH profile: "debugger"
+  AWAIT investigation_complete
+  APPLY recommended_fixes
+
+# Orchestrator implements as:
+if performance < threshold:
+    await emit("event:emit", {
+        "event": "monitoring:investigate",
+        "data": {"severity": "high"}
     })
     
-    return result[0] if result else {"error": "spawn failed"}
-
-@event_handler("orchestration:broadcast_task")
-async def broadcast_to_agents(data):
-    """Send task to multiple agents."""
-    task = data.get('task')
-    target_agents = data.get('agents', [])
-    
-    # Broadcast and collect acknowledgments
-    results = []
-    for agent_id in target_agents:
-        result = await emit_event('agent:send_message', {
-            'agent_id': agent_id,
-            'message': {'type': 'task', 'content': task}
-        })
-        results.append(result)
-    
-    return {"broadcast_to": len(target_agents), "acknowledged": len(results)}
+    result = await emit("event:emit", {
+        "event": "agent:spawn",
+        "data": {"profile": "debugger", "purpose": "investigate"}
+    })
+    # ... etc
 ```
 
-#### Pattern Management (`ksi_daemon/orchestration/pattern_manager.py`)
+### Phase 4: Integration Patterns
+
+Modules can optionally enhance the system without tight coupling:
 
 ```python
-@event_handler("orchestration:load_pattern")
-async def load_orchestration_pattern(data):
-    """Load pattern from library."""
-    pattern_name = data.get('name')
-    pattern_path = config.orchestration_patterns_dir / f"{pattern_name}.yaml"
-    
-    if pattern_path.exists():
-        pattern = load_yaml_file(pattern_path)
-        return {"status": "success", "pattern": pattern}
-    
-    # Try finding in subdirectories
-    for subdir in ['core', 'learned', 'shared']:
-        alt_path = config.orchestration_patterns_dir / subdir / f"{pattern_name}.yaml"
-        if alt_path.exists():
-            pattern = load_yaml_file(alt_path)
-            return {"status": "success", "pattern": pattern}
-    
-    return {"status": "error", "error": "Pattern not found"}
+# In evaluation module (optional enhancement)
+@event_handler("composition:forked")
+async def handle_pattern_fork(data):
+    """Run comparison evaluation between parent and fork."""
+    if data.get('type') == 'orchestration':
+        # Maybe schedule evaluation of new pattern
+        pass
+
+# In monitoring module (optional enhancement)  
+@event_handler("composition:track_decision")
+async def handle_decision(data):
+    """Track pattern decision metrics."""
+    # Update dashboards with pattern performance
+    pass
 ```
 
-### Phase 2: Orchestrator Agent Profiles
+## Benefits of This Architecture
 
-#### Base Orchestrator (`var/lib/compositions/profiles/base_orchestrator.yaml`)
+### Loose Coupling
+- Modules don't import each other
+- Orchestrators use event:emit for all coordination
+- Patterns work regardless of which modules are loaded
 
-```yaml
-name: base_orchestrator
-extends: base_agent
-components:
-  - name: orchestration_instructions
-    inline:
-      prompt: |
-        You are an orchestration agent with these capabilities:
-        
-        PRIMITIVES:
-        - orchestration:spawn_agent - Create agents for tasks
-        - orchestration:broadcast_task - Send tasks to multiple agents
-        - orchestration:await_responses - Collect results with timeout
-        - orchestration:track_metrics - Monitor performance
-        
-        PATTERN OPERATIONS:
-        - orchestration:load_pattern - Load proven patterns
-        - orchestration:save_pattern - Export successful patterns
-        - orchestration:record_decision - Track your choices
-        
-        ADAPTIVE BEHAVIOR:
-        - Start with patterns as templates
-        - Adapt based on current context
-        - Record decisions and outcomes
-        - Export improvements as new patterns
-```
+### Self-Contained Evolution
+- All pattern data stored in composition files
+- Decision history tracked alongside patterns
+- No external dependencies for pattern management
 
-#### Tournament Orchestrator V2 (`var/lib/compositions/profiles/tournament_orchestrator_v2.yaml`)
+### Natural for LLMs
+- DSL is interpretive, not prescriptive
+- Orchestrators understand intent, not just syntax
+- Patterns described in natural language
 
-```yaml
-name: tournament_orchestrator_v2
-extends: base_orchestrator
-components:
-  - name: tournament_improvements
-    inline:
-      prompt: |
-        Run improved tournaments with these enhancements:
-        
-        TARGET: Achieve >0.75 average score (previous: 0.675)
-        
-        1. ADAPTIVE MATCHING:
-           - Profile participants first
-           - Use Swiss pairing for close competitions
-           - Switch strategies based on score variance
-           
-        2. DYNAMIC TEST SELECTION:
-           - Start simple, increase difficulty if needed
-           - Add discriminating tests for similar scores
-           - Simplify if timeout rate > 30%
-           
-        3. REAL-TIME LEARNING:
-           - Track what works and what doesn't
-           - Adjust mid-tournament if needed
-           - Export successful adaptations
-```
+### Continuous Improvement
+- Every run can improve patterns
+- Successful adaptations become new patterns
+- Learning is preserved and shareable
 
-### Phase 3: Pattern Library Structure
+## Future Directions
 
-```
-var/lib/orchestration_patterns/
-├── core/                          # Built-in patterns
-│   ├── tournament_adaptive.yaml   
-│   ├── pipeline_basic.yaml
-│   └── consensus_weighted.yaml
-├── learned/                       # Patterns from experience
-│   └── tournament_improved_v3.yaml
-└── shared/                        # Federation imports
-    └── external_pattern.yaml
-```
+### Pattern Federation
+- Pattern registries for sharing across KSI networks
+- Reputation systems for pattern authors
+- Automated pattern translation between contexts
 
-#### Example Pattern (`var/lib/orchestration_patterns/core/tournament_adaptive.yaml`)
+### Advanced DSL Features
+- Conditional imports: `IF complex_task: INCLUDE advanced_strategies`
+- Pattern composition: `COMBINE tournament WITH pipeline`
+- Meta-patterns: Patterns that evolve other patterns
 
-```yaml
-type: orchestration_pattern
-name: tournament_adaptive
-version: 2.0
-author: bootstrap_system
-
-pattern:
-  description: |
-    Adaptive tournament that adjusts based on participants
-    
-  parameters:
-    min_participants: 3
-    max_participants: 20
-    target_duration: 5m
-    
-  adaptive_rules:
-    - condition: "participant_count > 10"
-      action: "use elimination rounds"
-      
-    - condition: "avg_response_time > 30s"
-      action: "reduce test complexity"
-      
-    - condition: "score_variance < 0.1"
-      action: "add discriminating tests"
-      
-  flow:
-    setup:
-      parallel_matches: "min(4, participants / 2)"
-      
-    execution:
-      strategy: |
-        if first_round:
-          use round_robin
-        elif clear_leaders:
-          use elimination
-        else:
-          use swiss_pairing
-```
+### Pattern Analytics
+- Automated A/B testing of pattern variants
+- Performance prediction based on task characteristics
+- Pattern recommendation engines
 
 ## Getting Started
 
-1. **Create orchestrator agents** with pattern awareness
-2. **Define initial patterns** from existing workflows
-3. **Enable pattern recording** in orchestration events
-4. **Test pattern evolution** with real workloads
-5. **Share successful patterns** with the community
+1. **Enable event:emit** in your KSI installation
+2. **Create orchestrator agents** using base_orchestrator profile
+3. **Write patterns** with natural language DSL
+4. **Track decisions** to enable pattern evolution
+5. **Fork successful adaptations** to create new patterns
+6. **Share patterns** with the community
 
 ## Related Documentation
 
-- [Autonomous Judge Architecture](AUTONOMOUS_JUDGE_ARCHITECTURE.md) - For judge-specific orchestration
-- [Declarative Prompt Evaluation](DECLARATIVE_PROMPT_EVALUATION.md) - For evaluation patterns
-- [KSI Architecture](../README.md) - For system overview
+- [Autonomous Judge Architecture](AUTONOMOUS_JUDGE_ARCHITECTURE.md) - Judge-specific orchestration
+- [Declarative Prompt Evaluation](DECLARATIVE_PROMPT_EVALUATION.md) - Evaluation patterns
+- [Composition System](../ksi_daemon/composition/README.md) - Pattern storage details
+- [KSI Architecture](../README.md) - System overview
 
 ---
 
-The key insight: By combining intelligent agents with shareable patterns, we get both adaptability and reproducibility. Orchestration becomes a collaborative learning process rather than rigid automation.
+The key insight: By combining intelligent agents with shareable patterns and loose coupling through events, we get adaptability, reproducibility, and continuous improvement. Orchestration becomes a collaborative learning process rather than rigid automation.
