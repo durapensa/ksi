@@ -252,6 +252,185 @@ dsl: |
 - Pattern translation between contexts
 - Privacy-preserving pattern sharing
 
+## Implementation Guide
+
+### Phase 1: Orchestration Primitives
+
+#### Core Events (`ksi_daemon/orchestration/orchestration_primitives.py`)
+
+```python
+@event_handler("orchestration:spawn_agent")
+async def spawn_orchestrated_agent(data):
+    """Spawn agent with orchestration metadata."""
+    profile = data.get('profile')
+    purpose = data.get('purpose')
+    orchestration_context = data.get('context', {})
+    
+    # Spawn with orchestration tracking
+    result = await emit_event('agent:spawn', {
+        'profile': profile,
+        'purpose': purpose,
+        'metadata': {'orchestration': orchestration_context}
+    })
+    
+    return result[0] if result else {"error": "spawn failed"}
+
+@event_handler("orchestration:broadcast_task")
+async def broadcast_to_agents(data):
+    """Send task to multiple agents."""
+    task = data.get('task')
+    target_agents = data.get('agents', [])
+    
+    # Broadcast and collect acknowledgments
+    results = []
+    for agent_id in target_agents:
+        result = await emit_event('agent:send_message', {
+            'agent_id': agent_id,
+            'message': {'type': 'task', 'content': task}
+        })
+        results.append(result)
+    
+    return {"broadcast_to": len(target_agents), "acknowledged": len(results)}
+```
+
+#### Pattern Management (`ksi_daemon/orchestration/pattern_manager.py`)
+
+```python
+@event_handler("orchestration:load_pattern")
+async def load_orchestration_pattern(data):
+    """Load pattern from library."""
+    pattern_name = data.get('name')
+    pattern_path = config.orchestration_patterns_dir / f"{pattern_name}.yaml"
+    
+    if pattern_path.exists():
+        pattern = load_yaml_file(pattern_path)
+        return {"status": "success", "pattern": pattern}
+    
+    # Try finding in subdirectories
+    for subdir in ['core', 'learned', 'shared']:
+        alt_path = config.orchestration_patterns_dir / subdir / f"{pattern_name}.yaml"
+        if alt_path.exists():
+            pattern = load_yaml_file(alt_path)
+            return {"status": "success", "pattern": pattern}
+    
+    return {"status": "error", "error": "Pattern not found"}
+```
+
+### Phase 2: Orchestrator Agent Profiles
+
+#### Base Orchestrator (`var/lib/compositions/profiles/base_orchestrator.yaml`)
+
+```yaml
+name: base_orchestrator
+extends: base_agent
+components:
+  - name: orchestration_instructions
+    inline:
+      prompt: |
+        You are an orchestration agent with these capabilities:
+        
+        PRIMITIVES:
+        - orchestration:spawn_agent - Create agents for tasks
+        - orchestration:broadcast_task - Send tasks to multiple agents
+        - orchestration:await_responses - Collect results with timeout
+        - orchestration:track_metrics - Monitor performance
+        
+        PATTERN OPERATIONS:
+        - orchestration:load_pattern - Load proven patterns
+        - orchestration:save_pattern - Export successful patterns
+        - orchestration:record_decision - Track your choices
+        
+        ADAPTIVE BEHAVIOR:
+        - Start with patterns as templates
+        - Adapt based on current context
+        - Record decisions and outcomes
+        - Export improvements as new patterns
+```
+
+#### Tournament Orchestrator V2 (`var/lib/compositions/profiles/tournament_orchestrator_v2.yaml`)
+
+```yaml
+name: tournament_orchestrator_v2
+extends: base_orchestrator
+components:
+  - name: tournament_improvements
+    inline:
+      prompt: |
+        Run improved tournaments with these enhancements:
+        
+        TARGET: Achieve >0.75 average score (previous: 0.675)
+        
+        1. ADAPTIVE MATCHING:
+           - Profile participants first
+           - Use Swiss pairing for close competitions
+           - Switch strategies based on score variance
+           
+        2. DYNAMIC TEST SELECTION:
+           - Start simple, increase difficulty if needed
+           - Add discriminating tests for similar scores
+           - Simplify if timeout rate > 30%
+           
+        3. REAL-TIME LEARNING:
+           - Track what works and what doesn't
+           - Adjust mid-tournament if needed
+           - Export successful adaptations
+```
+
+### Phase 3: Pattern Library Structure
+
+```
+var/lib/orchestration_patterns/
+├── core/                          # Built-in patterns
+│   ├── tournament_adaptive.yaml   
+│   ├── pipeline_basic.yaml
+│   └── consensus_weighted.yaml
+├── learned/                       # Patterns from experience
+│   └── tournament_improved_v3.yaml
+└── shared/                        # Federation imports
+    └── external_pattern.yaml
+```
+
+#### Example Pattern (`var/lib/orchestration_patterns/core/tournament_adaptive.yaml`)
+
+```yaml
+type: orchestration_pattern
+name: tournament_adaptive
+version: 2.0
+author: bootstrap_system
+
+pattern:
+  description: |
+    Adaptive tournament that adjusts based on participants
+    
+  parameters:
+    min_participants: 3
+    max_participants: 20
+    target_duration: 5m
+    
+  adaptive_rules:
+    - condition: "participant_count > 10"
+      action: "use elimination rounds"
+      
+    - condition: "avg_response_time > 30s"
+      action: "reduce test complexity"
+      
+    - condition: "score_variance < 0.1"
+      action: "add discriminating tests"
+      
+  flow:
+    setup:
+      parallel_matches: "min(4, participants / 2)"
+      
+    execution:
+      strategy: |
+        if first_round:
+          use round_robin
+        elif clear_leaders:
+          use elimination
+        else:
+          use swiss_pairing
+```
+
 ## Getting Started
 
 1. **Create orchestrator agents** with pattern awareness
