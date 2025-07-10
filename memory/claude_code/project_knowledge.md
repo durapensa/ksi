@@ -536,7 +536,71 @@ Implemented comprehensive pattern evolution through the composition system:
 - Federation-ready for sharing across KSI networks
 - Loose coupling through event-based architecture
 
+### Orchestration Primitives (2025-07-10)
+**Status**: Implemented all 6 core primitives + aggregate planned
+
+**Core Primitives**:
+- `orchestration:spawn` - Create agents with orchestration context
+- `orchestration:send` - Flexible message targeting (one, many, criteria)
+- `orchestration:await` - Wait for responses with conditions
+- `orchestration:track` - Record any orchestration data
+- `orchestration:query` - Get orchestration state information
+- `orchestration:coordinate` - Flexible synchronization patterns
+
+**Planned Enhancement**: `orchestration:aggregate` for voting, statistics, consensus
+
 **Full documentation**: See [`docs/INTELLIGENT_ORCHESTRATION_PATTERNS.md`](../../docs/INTELLIGENT_ORCHESTRATION_PATTERNS.md)
+
+## Event Router Enhancement (Planned)
+
+### Generic Event Transformation System
+A powerful enhancement to the event router enabling event transformation without duplicate events in the log.
+
+**Concept**:
+```python
+# Any module can register transformers
+@event_transformer("source:event", target="target:event")
+async def transform_something(data: Dict[str, Any]) -> Dict[str, Any]:
+    # Transform source event data into target event data
+    return transformed_data
+```
+
+**Benefits**:
+- **No duplicate events**: Transformers convert events before emission
+- **Protocol adapters**: Transform external events to internal format
+- **API versioning**: Transform v1 events → v2 events seamlessly
+- **Cross-module bridges**: Module A's output → Module B's expected input
+- **Event enrichment**: Add context/metadata without wrapper events
+- **Backwards compatibility**: Old event names → new event names
+
+**Implementation Plan**:
+1. Add transformer registry to EventRouter class
+2. Modify emit logic to check transformers before handlers
+3. Create @event_transformer decorator similar to @event_handler
+4. Add transform logging for debugging/observability
+5. Update orchestration primitives to use transformers instead of wrapping
+
+**Example Use Cases**:
+```python
+# Orchestration primitives become transformers
+@event_transformer("orchestration:spawn", target="agent:spawn")
+async def transform_spawn(data: Dict[str, Any]) -> Dict[str, Any]:
+    context = get_or_create_context(data)
+    # Enrich with orchestration metadata
+    return enriched_data
+
+# API version migration
+@event_transformer("api:v1:user_create", target="user:create")
+async def migrate_v1_to_v2(data: Dict[str, Any]) -> Dict[str, Any]:
+    # Transform old format to new
+    return {"username": data["name"], "email": data["mail"]}
+```
+
+**Impact on Orchestration**:
+- Orchestration primitives will use transformers instead of emit_event
+- Cleaner event log without wrapper events
+- Same loose coupling but more efficient
+- Better performance with less event processing overhead
 
 ---
 *Last updated: 2025-07-10*

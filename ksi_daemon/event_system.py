@@ -90,6 +90,9 @@ class EventRouter:
         # Pattern handlers for wildcard matching (e.g., "state:*")
         self._pattern_handlers: List[Tuple[str, EventHandler]] = []
         
+        # Event transformers - source event -> (target event, transformer)
+        self._transformers: Dict[str, Tuple[str, Callable]] = {}
+        
         # Global middleware
         self._middleware: List[Callable] = []
         
@@ -145,6 +148,20 @@ class EventRouter:
             
         logger.debug(f"Registered handler {handler.name} for event {event} (priority={handler.priority})")
     
+    def register_transformer(self, source_event: str, target_event: str, transformer: Callable):
+        """Register an event transformer that converts source events to target events.
+        
+        Args:
+            source_event: The event to transform from
+            target_event: The event to transform to
+            transformer: Async function that transforms data
+        """
+        if source_event in self._transformers:
+            logger.warning(f"Overwriting existing transformer for {source_event}")
+        
+        self._transformers[source_event] = (target_event, transformer)
+        logger.info(f"Registered transformer: {source_event} -> {target_event}")
+    
     def register_shutdown_handler(self, service_name: str, handler: EventHandler):
         """Register a critical shutdown handler that must complete before daemon exits.
         
@@ -192,6 +209,23 @@ class EventRouter:
     async def emit(self, event: str, data: Any = None, 
                    context: Optional[Dict[str, Any]] = None) -> List[Any]:
         """Emit an event to all matching handlers."""
+        # Check for event transformer first
+        if event in self._transformers:
+            target_event, transformer = self._transformers[event]
+            # Transform the data
+            try:
+                if inspect.iscoroutinefunction(transformer):
+                    transformed_data = await transformer(data)
+                else:
+                    transformed_data = transformer(data)
+                
+                # Emit the target event with transformed data
+                logger.debug(f"Transforming event {event} -> {target_event}")
+                return await self.emit(target_event, transformed_data, context)
+            except Exception as e:
+                logger.error(f"Error in transformer {event} -> {target_event}: {e}")
+                # Fall through to normal emission on transformer error
+        
         # During shutdown, only allow shutdown-related events
         if self._shutdown_in_progress:
             allowed_events = {"system:shutdown", "shutdown:acknowledge", "system:shutdown_complete",
@@ -720,6 +754,35 @@ def event_handler(event: str,
         router.register_handler(event, handler)
         
         logger.debug(f"Auto-registered handler {func.__name__} for {event} from {func.__module__}")
+        
+        return func
+    return decorator
+
+
+def event_transformer(source_event: str, target: str):
+    """
+    Event transformer decorator that converts one event to another.
+    
+    The decorated function receives source event data and returns transformed data
+    that will be emitted as the target event. No duplicate events in the log.
+    
+    Usage: 
+        @event_transformer("orchestration:spawn", target="agent:spawn")
+        async def transform_spawn(data: Dict[str, Any]) -> Dict[str, Any]:
+            # Transform orchestration spawn to agent spawn
+            return transformed_data
+    """
+    def decorator(func: Callable) -> Callable:
+        # Store metadata on function for discovery
+        func._event_transformer = True
+        func._source_event = source_event
+        func._target_event = target
+        
+        # AUTO-REGISTER: Register with global router immediately at import time
+        router = get_router()
+        router.register_transformer(source_event, target, func)
+        
+        logger.debug(f"Auto-registered transformer {func.__name__} for {source_event} -> {target} from {func.__module__}")
         
         return func
     return decorator

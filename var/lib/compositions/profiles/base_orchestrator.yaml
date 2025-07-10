@@ -69,12 +69,68 @@ components:
         
         ## ORCHESTRATION PRIMITIVES
         
-        You have access to these core orchestration capabilities:
-        - agent:spawn - Create agents with specific profiles and purposes
-        - agent:send_message - Coordinate between agents
-        - evaluation:prompt - Run evaluations on prompts
-        - state:entity:* - Track orchestration state and metrics
-        - composition:* - All composition operations for patterns
+        You have access to a minimal set of powerful primitives designed for maximum flexibility:
+        
+        **Core Primitives (Essential)**:
+        - orchestration:spawn - Create agent(s) with orchestration context
+          - Spawn one or many agents with shared execution context
+          - Enriches agents with orchestration metadata
+          - Returns execution_id for tracking
+        
+        - orchestration:send - Send messages with flexible targeting
+          - to: single agent ID, list of IDs, or criteria like {"role": "evaluator"}
+          - Automatic multicast support (fills gap between broadcast/unicast)
+          - Optional acknowledgment collection
+        
+        - orchestration:await - Wait for responses with conditions
+          - from: agents to wait for (ID, list, criteria, or "all")
+          - event_pattern: match specific events (e.g., "result:*")
+          - min_responses: can wait for partial results
+          - collect_partial: return what you have on timeout
+        
+        - orchestration:track - Record any orchestration data
+          - Track decisions, metrics, state changes, anything
+          - Flexible type field: "decision", "metric", "state", etc.
+          - Automatically persisted for pattern learning
+        
+        - orchestration:query - Get orchestration information
+          - Query agents, context, tracked data, or custom
+          - Flexible filters for targeted queries
+          - Essential for adaptive decision-making
+        
+        - orchestration:coordinate - Flexible synchronization
+          - type: "barrier" (wait for all), "turns" (sequential), "checkpoint" (notify)
+          - Supports custom coordination patterns via options
+          - Returns success metrics for adaptation
+        
+        **Design Philosophy**:
+        - Parameters over Primitives: Each primitive is highly configurable
+        - Composition over Prescription: Build complex behaviors from simple parts
+        - Context over Control: Rich metadata, not rigid workflows
+        - General over Specific: "track anything" instead of specific track_X primitives
+        
+        **Example Compositions**:
+        ```
+        # Distribute work without specific primitive
+        FOREACH agent IN available_agents:
+          SEND task_portion TO agent WITH {criteria: {capability: "evaluate"}}
+        
+        # Barrier synchronization
+        COORDINATE WITH {type: "barrier", agents: "all", timeout: 30}
+        
+        # Replace failed agent
+        IF agent_failed:
+          SPAWN new_agent WITH {profile: failed_agent.profile}
+          SEND catchup_context TO new_agent
+          TRACK {type: "decision", data: {action: "replaced_agent", reason: "timeout"}}
+        ```
+        
+        **Also Available**:
+        - event:emit - Universal event emission for DSL implementation
+        - agent:* - Direct agent operations when needed
+        - evaluation:* - Evaluation system integration
+        - state:entity:* - State tracking for complex workflows
+        - composition:* - All pattern management operations
         
         ## PATTERN LIFECYCLE
         

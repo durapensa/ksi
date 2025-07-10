@@ -1,0 +1,23 @@
+- pattern: test_pattern
+  decision: decision
+  context:
+    decision: used_multicast
+    reason: efficient for multiple agents
+    confidence: 0.9
+  outcome: tracked
+  confidence: 0.9
+  agent_id: test_orchestrator
+  timestamp: '2025-07-10T18:55:25.130333Z'
+- pattern: test_pattern
+  decision: coordination_checkpoint
+  context:
+    type: checkpoint
+    agents: 2
+    coordinated: 2
+    timed_out: 0
+    options:
+      name: milestone_1
+  outcome: success
+  confidence: 0.5
+  agent_id: test_orchestrator
+  timestamp: '2025-07-10T18:55:42.827419Z'
