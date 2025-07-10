@@ -138,6 +138,13 @@ Essential utilities available throughout the codebase:
 - **logging_utils.py**: Structured logging configuration
 - **time_utils.py**: Timestamp formatting and parsing
 
+## Orchestration Patterns
+
+For intelligent multi-agent orchestration:
+- **Architecture**: See `docs/INTELLIGENT_ORCHESTRATION_PATTERNS.md` for hybrid orchestration approach
+- **Pattern Library**: See `var/lib/orchestration_patterns/` for shareable patterns
+- **Orchestrator Agents**: Use pattern-aware orchestrators for adaptive workflows
+
 ## KSI Hook Monitor
 Claude Code has a hook that monitors KSI activity and provides real-time feedback:
 

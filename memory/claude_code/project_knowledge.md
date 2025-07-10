@@ -491,6 +491,25 @@ Successfully implemented complete autonomous improvement cycle:
 
 **Full documentation**: See [`docs/AUTONOMOUS_JUDGE_ARCHITECTURE.md`](../../docs/AUTONOMOUS_JUDGE_ARCHITECTURE.md)
 
+## Intelligent Orchestration Patterns (2025-07-09)
+
+### Overview
+Hybrid approach combining intelligent agents as orchestrators with shareable declarative patterns.
+
+**Key Concepts**:
+- Orchestration agents (like Claude) act as the orchestration engine
+- Patterns are learned through experience and shared between orchestrators
+- Adaptation happens naturally through agent intelligence
+- Meta-orchestration enables orchestrators to coordinate other orchestrators
+
+**Benefits**:
+- Natural adaptation to unexpected situations
+- Patterns evolve and improve through use
+- Explanable decisions with documented rationale
+- Federation-ready for sharing across KSI networks
+
+**Full documentation**: See [`docs/INTELLIGENT_ORCHESTRATION_PATTERNS.md`](../../docs/INTELLIGENT_ORCHESTRATION_PATTERNS.md)
+
 ---
 *Last updated: 2025-07-09*
 *For development practices, see `/Users/dp/projects/ksi/CLAUDE.md`*
