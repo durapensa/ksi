@@ -157,7 +157,7 @@ class DaemonController:
             logger.warning(f"Socket communication failed: {e}")
             return None
     
-    async def start(self) -> int:
+    async def start(self, debug: bool = False) -> int:
         """Start the daemon."""
         if not self._check_venv():
             return 1
@@ -178,12 +178,15 @@ class DaemonController:
             logger.info("Cleaning up stale socket file")
             self.socket_path.unlink()
         
-        print("Starting KSI daemon...")
+        if debug:
+            print("Starting KSI daemon with DEBUG logging...")
+        else:
+            print("Starting KSI daemon...")
         
         # Prepare environment with config values
         env = os.environ.copy()
         env.update({
-            "KSI_LOG_LEVEL": config.log_level,
+            "KSI_LOG_LEVEL": "DEBUG" if debug else config.log_level,
             "KSI_LOG_FORMAT": config.log_format,
             "KSI_LOG_STRUCTURED": "true"
         })
@@ -340,7 +343,7 @@ class DaemonController:
                 self.pid_file.unlink()
             return 0
     
-    async def restart(self) -> int:
+    async def restart(self, debug: bool = False) -> int:
         """Restart the daemon."""
         print("Restarting daemon...")
         stop_result = await self.stop()
@@ -348,7 +351,7 @@ class DaemonController:
             return stop_result
         
         # Start immediately after stop
-        return await self.start()
+        return await self.start(debug=debug)
     
     def status(self) -> int:
         """Show daemon status."""
@@ -401,9 +404,11 @@ class DaemonController:
             print("✗ Socket communication failed")
             return 1
 
-    async def dev(self) -> int:
+    async def dev(self, debug: bool = False) -> int:
         """Run daemon in development mode with auto-restart on file changes."""
         print("Starting KSI daemon in development mode...")
+        if debug:
+            print("Debug logging enabled")
         print("Ensuring clean development mode startup...")
         
         # Always stop any running daemon first (like restart command)
@@ -438,7 +443,7 @@ class DaemonController:
         
         # Start daemon initially
         print("Starting daemon with checkpoint support...")
-        start_result = await self.start()
+        start_result = await self.start(debug=debug)
         if start_result != 0:
             return start_result
         
@@ -509,6 +514,7 @@ Examples:
   python3 daemon_control.py status   # Show status
   python3 daemon_control.py health   # Check health via socket
   python3 daemon_control.py dev      # Development mode with auto-restart
+  python3 daemon_control.py --debug start  # Start with debug logging
         """
     )
     
@@ -518,22 +524,28 @@ Examples:
         help="Command to execute"
     )
     
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging (sets KSI_LOG_LEVEL=DEBUG)"
+    )
+    
     args = parser.parse_args()
     
     controller = DaemonController()
     
     if args.command == "start":
-        return asyncio.run(controller.start())
+        return asyncio.run(controller.start(debug=args.debug))
     elif args.command == "stop":
         return asyncio.run(controller.stop())
     elif args.command == "restart":
-        return asyncio.run(controller.restart())
+        return asyncio.run(controller.restart(debug=args.debug))
     elif args.command == "status":
         return controller.status()
     elif args.command == "health":
         return controller.health()
     elif args.command == "dev":
-        return asyncio.run(controller.dev())
+        return asyncio.run(controller.dev(debug=args.debug))
     else:
         parser.print_help()
         return 1

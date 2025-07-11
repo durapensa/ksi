@@ -276,10 +276,10 @@ class EventRouter:
                 # Response was routed, return indicator
                 return [response_result]
         
-        # During shutdown, only allow shutdown-related events
+        # During shutdown, only allow shutdown-related events and critical state updates
         if self._shutdown_in_progress:
             allowed_events = {"system:shutdown", "shutdown:acknowledge", "system:shutdown_complete",
-                            "event:error", "log:*"}  # Allow logging during shutdown
+                            "event:error", "log:*", "state:entity:update"}  # Allow state updates during shutdown
             if not any(event == allowed or (allowed.endswith('*') and event.startswith(allowed[:-1])) 
                       for allowed in allowed_events):
                 logger.debug(f"Blocking event {event} during shutdown")

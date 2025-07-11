@@ -20,7 +20,7 @@ from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc
 from ksi_daemon.capability_enforcer import get_capability_enforcer
-from ksi_daemon.event_system import event_handler, get_router
+from ksi_daemon.event_system import event_handler, shutdown_handler, get_router
 from ksi_daemon.mcp import mcp_config_manager
 from ksi_daemon.agent.metadata import AgentMetadata
 from ksi_daemon.evaluation.tournament_evaluation import process_agent_tournament_message, extract_evaluation_from_response
@@ -107,10 +107,134 @@ async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-@event_handler("system:shutdown")
+@event_handler("system:ready")
+async def handle_ready(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Load agents from graph database after all services are ready."""
+    loaded_agents = 0
+    
+    if not event_emitter:
+        logger.error("Event emitter not available, cannot load agents from state")
+        return {"loaded_agents": 0}
+    
+    try:
+        # Query all suspended agents from relational state
+        logger.debug("Querying for suspended agents...")
+        result = await event_emitter("state:entity:query", {
+            "type": "agent",
+            "where": {"status": "suspended"}
+        })
+        logger.debug(f"Query result: {result}")
+        
+        # Handle both single dict and list of dicts responses
+        if isinstance(result, list) and result:
+            result = result[0]
+        
+        if result and "entities" in result:
+            for entity in result["entities"]:
+                agent_id = entity["id"]
+                props = entity.get("properties", {})
+                
+                # Skip if agent already exists (shouldn't happen but be safe)
+                if agent_id in agents:
+                    continue
+                
+                # Reconstruct agent info from entity properties
+                agent_info = {
+                    "agent_id": agent_id,
+                    "profile": props.get("profile"),
+                    "composition": props.get("profile"),  # Often same as profile
+                    "config": {
+                        "model": "sonnet",  # Default, may need to store this
+                        "role": "assistant",
+                        "enable_tools": False,
+                        "expanded_capabilities": props.get("capabilities", []),
+                        "allowed_events": [],  # Would need to reconstruct from capabilities
+                        "allowed_claude_tools": []
+                    },
+                    "status": props.get("status", "ready"),
+                    "created_at": entity.get("created_at_iso"),
+                    "session_id": props.get("session_id"),
+                    "permission_profile": props.get("permission_profile", "standard"),
+                    "sandbox_dir": props.get("sandbox_dir"),
+                    "mcp_config_path": props.get("mcp_config_path"),
+                    "conversation_id": None,
+                    "originator_agent_id": None,
+                    "agent_type": props.get("agent_type", "system"),
+                    "purpose": props.get("purpose"),
+                    "composed_prompt": None,
+                    "message_queue": asyncio.Queue(),
+                    "metadata": AgentMetadata(
+                        agent_id=agent_id,
+                        originator_agent_id=None,
+                        agent_type=props.get("agent_type", "system"),
+                        spawned_at=entity.get("created_at", time.time()),
+                        purpose=props.get("purpose")
+                    )
+                }
+                
+                # Register agent
+                agents[agent_id] = agent_info
+                
+                # Start agent thread
+                task = asyncio.create_task(run_agent_thread(agent_id))
+                agent_threads[agent_id] = task
+                
+                # Mark agent as active again
+                try:
+                    await event_emitter("state:entity:update", {
+                        "id": agent_id,
+                        "properties": {"status": "active"}
+                    })
+                except Exception as e:
+                    logger.error(f"Failed to mark agent {agent_id} as active: {e}")
+                
+                loaded_agents += 1
+                logger.debug(f"Loaded agent {agent_id} from relational state")
+                
+    except Exception as e:
+        logger.error(f"Failed to load agents from relational state: {e}", exc_info=True)
+    
+    logger.info(f"Loaded {loaded_agents} agents from state (total: {len(agents)})")
+    
+    # Re-establish observation subscriptions for loaded agents
+    if loaded_agents > 0:
+        await reestablish_observations({})
+    
+    return {
+        "agents_loaded": loaded_agents,
+        "total_agents": len(agents)
+    }
+
+
+@shutdown_handler("agent_service")
 async def handle_shutdown(data: Dict[str, Any]) -> None:
-    """Clean up on shutdown."""
-    # Cancel all agent threads
+    """Clean up on shutdown - update state before terminating."""
+    # First, mark all agents as suspended in the graph
+    if event_emitter:
+        # Collect all update operations
+        update_tasks = []
+        for agent_id in list(agents.keys()):
+            try:
+                # The event_emitter returns the result from handlers
+                task = event_emitter("state:entity:update", {
+                    "id": agent_id,
+                    "properties": {"status": "suspended"}
+                })
+                update_tasks.append(task)
+                logger.debug(f"Marking agent {agent_id} as suspended")
+            except Exception as e:
+                logger.error(f"Failed to update agent {agent_id} status: {e}")
+        
+        # Wait for all state updates to complete
+        if update_tasks:
+            results = await asyncio.gather(*update_tasks, return_exceptions=True)
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    logger.error(f"Failed to suspend agent: {result}")
+                else:
+                    logger.debug(f"Agent suspension confirmed")
+    
+    # Then cancel all agent threads
     for agent_id, task in list(agent_threads.items()):
         task.cancel()
     
@@ -119,6 +243,10 @@ async def handle_shutdown(data: Dict[str, Any]) -> None:
     
     logger.info(f"Agent service stopped - {len(agents)} agents, "
                 f"{len(identities)} identities")
+    
+    # Acknowledge shutdown to event system
+    router = get_router()
+    await router.acknowledge_shutdown("agent_service")
 
 
 @event_handler("observation:ready")

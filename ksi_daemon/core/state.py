@@ -22,7 +22,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple, Union
 
-from ksi_daemon.event_system import event_handler
+from ksi_daemon.event_system import event_handler, shutdown_handler, get_router
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc, numeric_to_iso
@@ -1001,3 +1001,23 @@ async def handle_aggregate_count(data: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error in aggregate count: {e}")
         return {"error": str(e)}
+
+
+@shutdown_handler("state_service")
+async def handle_shutdown(data: Dict[str, Any]) -> None:
+    """Ensure all database operations complete before shutdown."""
+    if state_manager:
+        # Force any pending operations to complete by accessing the database
+        logger.info("State service shutting down, ensuring database operations complete...")
+        try:
+            # Do a simple query to ensure any pending writes are flushed
+            async with state_manager._get_db() as conn:
+                await conn.execute("SELECT COUNT(*) FROM entities")
+                await conn.commit()
+            logger.info("State service database operations completed")
+        except Exception as e:
+            logger.error(f"Error during state service shutdown: {e}")
+    
+    # Acknowledge shutdown
+    router = get_router()
+    await router.acknowledge_shutdown("state_service")

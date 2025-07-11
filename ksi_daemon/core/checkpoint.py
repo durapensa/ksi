@@ -92,14 +92,48 @@ async def initialize_checkpoint_db():
             )
         """)
         
-        # Create indexes
-        await db.execute("CREATE INDEX idx_checkpoints_status ON checkpoints(status)")
-        await db.execute("CREATE INDEX idx_checkpoints_created ON checkpoints(created_at)")
-        await db.execute("CREATE INDEX idx_requests_checkpoint ON checkpoint_requests(checkpoint_id)")
-        await db.execute("CREATE INDEX idx_sessions_checkpoint ON checkpoint_sessions(checkpoint_id)")
+        # Create checkpoint_agents table
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS checkpoint_agents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                checkpoint_id INTEGER NOT NULL,
+                agent_id TEXT NOT NULL,
+                profile TEXT,
+                composition TEXT,
+                status TEXT,
+                created_at TEXT,
+                session_id TEXT,
+                permission_profile TEXT,
+                agent_type TEXT,
+                purpose TEXT,
+                agent_data TEXT NOT NULL, -- JSON blob for full agent data
+                FOREIGN KEY (checkpoint_id) REFERENCES checkpoints(id),
+                UNIQUE(checkpoint_id, agent_id)
+            )
+        """)
+        
+        # Create checkpoint_identities table
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS checkpoint_identities (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                checkpoint_id INTEGER NOT NULL,
+                agent_id TEXT NOT NULL,
+                identity_data TEXT NOT NULL, -- JSON blob for identity data
+                FOREIGN KEY (checkpoint_id) REFERENCES checkpoints(id),
+                UNIQUE(checkpoint_id, agent_id)
+            )
+        """)
+        
+        # Create indexes (IF NOT EXISTS)
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_checkpoints_status ON checkpoints(status)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_checkpoints_created ON checkpoints(created_at)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_requests_checkpoint ON checkpoint_requests(checkpoint_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_sessions_checkpoint ON checkpoint_sessions(checkpoint_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_agents_checkpoint ON checkpoint_agents(checkpoint_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_identities_checkpoint ON checkpoint_identities(checkpoint_id)")
         
         await db.commit()
-        logger.info("Checkpoint database initialized with relational schema", path=str(CHECKPOINT_DB))
+        logger.info("Checkpoint database initialized with relational schema including agent tables", path=str(CHECKPOINT_DB))
     
     return True
 
@@ -192,6 +226,7 @@ async def save_checkpoint(checkpoint_data: Dict[str, Any]) -> bool:
                         )
                     )
             
+            
             # Keep only last 5 checkpoints
             await db.execute("""
                 UPDATE checkpoints SET status = 'archived'
@@ -204,7 +239,10 @@ async def save_checkpoint(checkpoint_data: Dict[str, Any]) -> bool:
             
             await db.commit()
             
-        logger.info(f"Checkpoint {checkpoint_id} saved: {total_requests} requests, {total_sessions} sessions")
+        logger.info(
+            f"Checkpoint {checkpoint_id} saved: {total_requests} requests, "
+            f"{total_sessions} sessions"
+        )
         return True
         
     except Exception as e:
@@ -299,7 +337,8 @@ async def load_latest_checkpoint() -> Optional[Dict[str, Any]]:
                     }
             
             logger.info(
-                f"Loaded checkpoint {checkpoint_id} with {total_requests} requests, {total_sessions} sessions"
+                f"Loaded checkpoint {checkpoint_id} with {total_requests} requests, "
+                f"{total_sessions} sessions"
             )
             return checkpoint_data
                     
@@ -309,40 +348,52 @@ async def load_latest_checkpoint() -> Optional[Dict[str, Any]]:
 
 
 async def extract_completion_state() -> Dict[str, Any]:
-    """Extract state from completion service via event system."""
+    """Extract state from ALL services via event system."""
     try:
         # Use event system to collect checkpoint data
         result = await emit_event("checkpoint:collect", {})
         
+        # Initialize checkpoint data with all expected fields
+        checkpoint_data = {
+            "timestamp": timestamp_utc(),
+            "session_queues": {},
+            "active_completions": {},
+            "observation_subscriptions": {}
+        }
+        
         # Handle both single and multi-handler responses
-        if isinstance(result, list):
-            # Find the completion service response
-            for response in result:
-                if isinstance(response, dict) and "session_queues" in response:
-                    return response
-            # If no completion service response found, return empty state
-            return {
-                "timestamp": timestamp_utc(),
-                "session_queues": {},
-                "active_completions": {}
-            }
-        elif isinstance(result, dict) and "session_queues" in result:
-            # Single response from completion service
-            return result
-        else:
-            # No valid response
-            logger.warning("No checkpoint data received from completion service")
-            return {
-                "timestamp": timestamp_utc(),
-                "session_queues": {},
-                "active_completions": {}
-            }
+        responses = result if isinstance(result, list) else [result]
+        
+        for response in responses:
+            if not isinstance(response, dict):
+                continue
+                
+            # Merge data from different services
+            if "session_queues" in response:
+                # Completion service data
+                checkpoint_data["session_queues"] = response.get("session_queues", {})
+                checkpoint_data["active_completions"] = response.get("active_completions", {})
+                
+            if "observation_subscriptions" in response:
+                # Observation service data
+                checkpoint_data["observation_subscriptions"] = response.get("observation_subscriptions", {})
+        
+        logger.info(
+            "Collected checkpoint data",
+            sessions=len(checkpoint_data.get("session_queues", {})),
+            requests=len(checkpoint_data.get("active_completions", {}))
+        )
+        
+        return checkpoint_data
+        
     except Exception as e:
-        logger.error(f"Failed to extract completion state: {e}", exc_info=True)
+        logger.error(f"Failed to extract checkpoint state: {e}", exc_info=True)
         return {
             "timestamp": timestamp_utc(),
             "session_queues": {},
-            "active_completions": {}
+            "active_completions": {},
+            "agents": {},
+            "identities": {}
         }
 
 
@@ -490,7 +541,10 @@ async def _create_checkpoint(save_if_empty: bool = True, reason: str = "manual")
         
         # Log checkpoint creation
         if total_queued > 0 or total_active > 0:
-            logger.info(f"Creating {reason} checkpoint: {total_queued} queued, {total_active} active requests")
+            logger.info(
+                f"Creating {reason} checkpoint: {total_queued} queued, "
+                f"{total_active} active requests"
+            )
         else:
             logger.debug(f"Creating {reason} checkpoint (empty state)")
         
