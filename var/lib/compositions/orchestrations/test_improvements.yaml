@@ -1,0 +1,57 @@
+name: test_improvements
+type: orchestration
+version: 1.0.0
+description: |
+  Test pattern demonstrating all orchestration improvements:
+  - Pattern validation with valid profiles
+  - Default routing for unmatched messages
+  - Initial messages sent on spawn
+  - Self-termination by orchestrator
+author: claude_assistant
+extends: null
+
+# Define agents with valid profiles
+agents:
+  coordinator:
+    profile: "base_orchestrator"
+    initial_message: "test_coordinator_init"  # Will be created next
+    
+  worker:
+    profile: "base_single_agent"
+    initial_message: "test_worker_init"       # Will be created next
+
+# Routing with default target
+routing:
+  default: "coordinator"  # Unmatched messages go to coordinator
+  rules:
+    # Coordinator can message worker
+    - pattern: "task"
+      from: "coordinator"
+      to: "worker"
+      
+    # Worker responses go back to coordinator
+    - pattern: "result"
+      from: "worker"
+      to: "coordinator"
+
+# Variables
+variables:
+  max_tasks: 3
+  test_mode: true
+
+metadata:
+  tags:
+    - test
+    - improvements
+    - validation
+  capabilities_required:
+    - agent:spawn
+    - agent:send_message
+    - orchestration:request_termination
+
+# Expected flow:
+# 1. Both agents spawn and receive initial messages
+# 2. External message routes to coordinator via default
+# 3. Coordinator sends tasks to worker
+# 4. Worker sends results back
+# 5. Coordinator self-terminates after max_tasks

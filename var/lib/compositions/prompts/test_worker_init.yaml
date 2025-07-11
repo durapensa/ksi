@@ -1,0 +1,12 @@
+name: test_worker_init
+type: prompt
+version: 1.0.0
+description: Initial message for test worker agent
+author: claude_assistant
+content: |
+  You are a worker agent in the test_improvements pattern. Your job is to:
+  1. Wait for task messages from the coordinator
+  2. Process each task (just acknowledge it)
+  3. Send a result message back to the coordinator
+  
+  Respond to each task with: 'Task [number] completed'

@@ -32,6 +32,12 @@ from .evaluation_utils import (
     find_best_evaluation, summarize_evaluation_status,
     merge_evaluation_record
 )
+from ksi_common.event_types import (
+    CompositionCreateData, CompositionForkData, CompositionMergeData,
+    CompositionDiffData, CompositionTrackDecisionData, CompositionListData,
+    CompositionGetData, CompositionValidateData, CompositionEvaluateData,
+    CompositionComposeData, CompositionProfileData, CompositionResult
+)
 
 # Module state
 logger = get_bound_logger("composition_service", version="2.0.0")
@@ -738,8 +744,8 @@ async def handle_select_composition(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("composition:create")
-async def handle_create_composition(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Create a dynamic composition in memory (not saved to disk)."""
+async def handle_create_composition(data: CompositionCreateData) -> CompositionResult:
+    """Create and save a composition."""
     try:
         name = data.get('name')  # Optional composition name (auto-generated if not provided)
         if not name:
@@ -796,32 +802,22 @@ async def handle_create_composition(data: Dict[str, Any]) -> Dict[str, Any]:
         if 'content' in data:
             composition = data['content']
             
-        # Save to disk if requested
-        if data.get('save', False):
-            # Create Composition object
-            comp_obj = Composition.from_yaml(composition)
-            save_result = await _save_composition_to_disk(comp_obj, overwrite=data.get('overwrite', False))
-            
-            if save_result['status'] != 'success':
-                return save_result
-                
-            logger.info(f"Created and saved composition: {name}")
-            
-            return {
-                'status': 'success',
-                'name': name,
-                'composition': composition,
-                'path': save_result['path'],
-                'message': f'Created and saved composition: {name}'
-            }
+        # Always save to disk (no more in-memory only compositions)
+        # Create Composition object
+        comp_obj = Composition.from_yaml(composition)
+        save_result = await _save_composition_to_disk(comp_obj, overwrite=data.get('overwrite', False))
         
-        logger.info(f"Created dynamic composition: {name}")
+        if save_result['status'] != 'success':
+            return save_result
+            
+        logger.info(f"Created and saved composition: {name}")
         
         return {
             'status': 'success',
             'name': name,
             'composition': composition,
-            'message': f'Created dynamic composition: {name}'
+            'path': save_result['path'],
+            'message': f'Created and saved composition: {name}'
         }
         
     except Exception as e:
@@ -1110,17 +1106,8 @@ async def compose_prompt(name: str, variables: Optional[Dict[str, Any]] = None) 
 # Pattern Evolution Event Handlers
 
 @event_handler("composition:fork")
-async def handle_fork_composition(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Fork a composition to create a variant with lineage tracking.
-    
-    Parameters:
-        parent: str - Name of parent composition
-        name: str - Name for forked composition  
-        reason: str - Reason for forking
-        modifications: Dict[str, Any] - Initial modifications to apply
-        author: str (optional) - Author of fork (defaults to agent_id)
-    """
+async def handle_fork_composition(data: CompositionForkData) -> CompositionResult:
+    """Fork a composition to create a variant with lineage tracking."""
     parent_name = data.get('parent')
     new_name = data.get('name')
     fork_reason = data.get('reason', 'Experimental variant')
@@ -1195,17 +1182,8 @@ async def handle_fork_composition(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("composition:merge")
-async def handle_merge_composition(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Merge improvements from a forked composition back to parent.
-    
-    Parameters:
-        source: str - Name of source composition (the fork)
-        target: str - Name of target composition (the parent)
-        strategy: str - Merge strategy: 'selective', 'full', 'metadata_only' 
-        improvements: List[str] - List of improvements being merged
-        validation_results: Dict - Optional evaluation results proving improvement
-    """
+async def handle_merge_composition(data: CompositionMergeData) -> CompositionResult:
+    """Merge improvements from a forked composition back to parent."""
     source_name = data.get('source')
     target_name = data.get('target')
     strategy = data.get('strategy', 'selective')
@@ -1283,15 +1261,8 @@ async def handle_merge_composition(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("composition:diff")
-async def handle_diff_composition(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Show differences between two compositions.
-    
-    Parameters:
-        left: str - First composition name
-        right: str - Second composition name
-        detail_level: str - 'summary', 'detailed', 'full'
-    """
+async def handle_diff_composition(data: CompositionDiffData) -> Dict[str, Any]:
+    """Show differences between two compositions."""
     left_name = data.get('left')
     right_name = data.get('right')
     detail_level = data.get('detail_level', 'summary')
@@ -1379,18 +1350,8 @@ async def handle_diff_composition(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("composition:track_decision")
-async def handle_track_decision(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Track orchestrator decisions for pattern learning.
-    
-    Parameters:
-        pattern: str - Pattern name being used
-        decision: str - Decision made
-        context: Dict - Context when decision was made
-        outcome: str - Outcome of decision
-        confidence: float - Confidence in decision (0-1)
-        agent_id: str - Agent making the decision
-    """
+async def handle_track_decision(data: CompositionTrackDecisionData) -> Dict[str, Any]:
+    """Track orchestrator decisions for pattern learning."""
     pattern_name = data.get('pattern')
     decision = data.get('decision')
     context = data.get('context', {})
