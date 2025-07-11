@@ -5,16 +5,15 @@ Completion Service Module V4 - Modular Architecture
 Refactored completion service using focused components:
 - QueueManager: Per-session queue management
 - ProviderManager: Provider selection and failover
-- SessionManager: Session continuity and locking
+- ConversationTracker: Session continuity, locking, and automatic tracking
 - TokenTracker: Usage analytics
-- RetryManager: Failure recovery (existing)
+- RetryManager: Failure recovery
 """
 
 import asyncio
 import json
 import time
 import uuid
-from pathlib import Path
 from typing import Dict, Any, Optional, List
 
 from ksi_daemon.event_system import event_handler, EventPriority, emit_event, get_router
@@ -26,7 +25,7 @@ from ksi_common.logging import get_bound_logger
 # Import modular components
 from ksi_daemon.completion.queue_manager import CompletionQueueManager
 from ksi_daemon.completion.provider_manager import ProviderManager
-from ksi_daemon.completion.session_manager_v2 import SessionManager
+from ksi_daemon.completion.conversation_tracker import ConversationTracker
 from ksi_daemon.completion.token_tracker import TokenTracker
 from ksi_daemon.completion.retry_manager import RetryManager, RetryPolicy, extract_error_type
 from ksi_common.json_extraction import extract_and_emit_json_events
@@ -38,7 +37,7 @@ logger = get_bound_logger("completion_service", version="4.0.0")
 # Module components
 queue_manager: Optional[CompletionQueueManager] = None
 provider_manager: Optional[ProviderManager] = None
-session_manager: Optional[SessionManager] = None
+conversation_tracker: Optional[ConversationTracker] = None
 token_tracker: Optional[TokenTracker] = None
 retry_manager: Optional[RetryManager] = None
 
@@ -90,7 +89,7 @@ def save_completion_response(response_data: Dict[str, Any]) -> None:
 @event_handler("system:startup", priority=EventPriority.LOW)
 async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
     """Initialize completion service on startup."""
-    global queue_manager, provider_manager, session_manager, token_tracker
+    global queue_manager, provider_manager, conversation_tracker, token_tracker
     
     logger.info("Completion service startup handler called")
     
@@ -99,14 +98,14 @@ async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
     # Initialize components
     queue_manager = CompletionQueueManager()
     provider_manager = ProviderManager()
-    session_manager = SessionManager()
+    conversation_tracker = ConversationTracker()
     token_tracker = TokenTracker()
     
     logger.info("Completion service started with modular architecture")
     logger.info(
         f"Components initialized: queue={queue_manager is not None}, "
-        f"session={session_manager is not None}, provider={provider_manager is not None}, "
-        f"token={token_tracker is not None}"
+        f"conversation={conversation_tracker is not None}, "
+        f"provider={provider_manager is not None}, token={token_tracker is not None}"
     )
     
     return {"status": "completion_service_ready", "version": "4.0.0"}
@@ -160,9 +159,9 @@ async def manage_completion_service():
                         
                         if queue_manager:
                             queue_manager.cleanup_empty_queues()
-                        if session_manager:
-                            session_manager.cleanup_expired_locks()
-                            session_manager.cleanup_inactive_sessions()
+                        if conversation_tracker:
+                            conversation_tracker.cleanup_expired_locks()
+                            conversation_tracker.cleanup_inactive_sessions()
                             
                     except asyncio.CancelledError:
                         break
@@ -199,35 +198,65 @@ async def handle_ready(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 @event_handler("completion:async")
 async def handle_async_completion(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle async completion requests with smart queueing."""
-    if not all([queue_manager, session_manager, provider_manager]):
+    """Handle async completion requests with smart queueing and automatic session continuity."""
+    if not all([queue_manager, provider_manager, conversation_tracker]):
         return {"error": "Completion service not fully initialized"}
     
-    request_id = str(uuid.uuid4())
+    # Preserve original request_id from agent, or generate new one if missing
+    request_id = data.get("request_id", str(uuid.uuid4()))
     start_time = time.time()
     
+    # Ensure request_id is set in data
     data["request_id"] = request_id
-    session_id = data.get("session_id", "default")
+    
+    # AUTOMATIC SESSION CONTINUITY: Resolve session_id based on agent_id if not explicitly provided
+    agent_id = data.get("agent_id")
+    requested_session_id = data.get("session_id")
+    
+    if requested_session_id:
+        # Explicit session_id provided - use it
+        session_id = requested_session_id
+        logger.debug(f"Using explicit session_id {session_id} for agent {agent_id}")
+    elif agent_id:
+        # No explicit session - try to continue agent's current conversation
+        agent_session = conversation_tracker.get_agent_session(agent_id)
+        if agent_session:
+            session_id = agent_session
+            data["session_id"] = session_id  # Update the request data
+            logger.info(f"Automatic session continuity: agent {agent_id} continuing session {session_id}")
+        else:
+            # Agent has no current session - new conversation
+            session_id = None
+            data["session_id"] = None
+            logger.info(f"New conversation for agent {agent_id} (no current session)")
+    else:
+        # No agent_id - use provided session_id or None for new conversation
+        session_id = requested_session_id
+        logger.debug(f"No agent_id provided, using session_id {session_id}")
     
     logger.info(
         f"Received async completion request",
         request_id=request_id,
         session_id=session_id,
+        agent_id=agent_id,
+        automatic_continuity=bool(agent_id and not requested_session_id and session_id),
         model=data.get("model", config.completion_default_model)
     )
     
-    # Register with session manager
-    session_manager.register_request(session_id, request_id, data.get("agent_id"))
+    # Track with conversation tracker for session continuity
+    conversation_tracker.track_request(request_id, agent_id, session_id)
     
     # Save recovery data
-    session_manager.save_recovery_data(session_id, request_id, data)
+    conversation_tracker.save_recovery_data(request_id, data)
     
-    # Enqueue request
-    queue_status = await queue_manager.enqueue(session_id, request_id, data)
+    # Enqueue request (use "pending" as session key if session_id is None)
+    queue_session_key = session_id or "pending"
+    queue_status = await queue_manager.enqueue(queue_session_key, request_id, data)
     
     # Track active completion (preserved from original)
     active_completions[request_id] = {
         "session_id": session_id,
+        "agent_id": agent_id,
         "status": "queued",
         "queued_at": timestamp_utc(),
         "data": dict(data),  # Store full request for potential retry
@@ -235,14 +264,14 @@ async def handle_async_completion(data: Dict[str, Any]) -> Dict[str, Any]:
     }
     
     # Start processor if needed
-    if queue_manager.should_create_processor(session_id):
-        queue_manager.mark_session_active(session_id)
+    if queue_manager.should_create_processor(queue_session_key):
+        queue_manager.mark_session_active(queue_session_key)
         
         async def process_session():
             try:
-                await process_session_queue(session_id)
+                await process_session_queue(queue_session_key)
             finally:
-                queue_manager.mark_session_inactive(session_id)
+                queue_manager.mark_session_inactive(queue_session_key)
         
         completion_task_group.create_task(process_session())
     
@@ -291,13 +320,13 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
         # Handle conversation lock if needed
         conversation_lock = data.get("conversation_lock", {})
         if conversation_lock.get("enabled", False):
-            lock_result = await session_manager.acquire_conversation_lock(
+            lock_result = await conversation_tracker.acquire_conversation_lock(
                 data.get("session_id"),
                 data.get("agent_id"),
                 conversation_lock.get("timeout", 300)
             )
             
-            if not lock_result.get("locked"):
+            if not lock_result.get("success"):
                 raise Exception(f"Failed to acquire conversation lock: {lock_result.get('reason')}")
         
         # Select provider - use config default if not specified
@@ -381,11 +410,15 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
         # CRITICAL: Update session tracking with the NEW session_id from claude-cli
         if provider == "claude-cli":
             response_session_id = get_response_session_id(standardized_response)
-            if response_session_id and hasattr(session_manager, 'update_request_session'):
-                session_manager.update_request_session(request_id, response_session_id)
-                logger.debug(
-                    f"Updated request {request_id} with session {response_session_id}",
-                    original_session_id=data.get("session_id")
+            if response_session_id:
+                # Update ConversationTracker for automatic session continuity
+                conversation_tracker.update_request_session(request_id, response_session_id)
+                
+                logger.info(
+                    f"Updated session tracking: request {request_id} -> session {response_session_id}",
+                    original_session_id=data.get("session_id"),
+                    agent_id=data.get("agent_id"),
+                    automatic_continuity=True
                 )
         
         # Track token usage
@@ -408,8 +441,8 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
                     })
         
         # Clean up tracking
-        session_manager.complete_request(data.get("session_id"), request_id)
-        session_manager.clear_recovery_data(request_id)
+        conversation_tracker.complete_request(request_id)
+        conversation_tracker.clear_recovery_data(request_id)
         
         # Remove from active completions (with delayed cleanup)
         if request_id in active_completions:
@@ -447,7 +480,7 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
         
         # Unlock conversation
         if conversation_lock.get("enabled", False):
-            await session_manager.release_conversation_lock(
+            await conversation_tracker.release_conversation_lock(
                 data.get("session_id"),
                 data.get("agent_id")
             )
@@ -485,7 +518,7 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
         
         # Unlock conversation on error
         if conversation_lock.get("enabled", False):
-            await session_manager.release_conversation_lock(
+            await conversation_tracker.release_conversation_lock(
                 data.get("session_id"),
                 data.get("agent_id")
             )
@@ -500,12 +533,12 @@ async def handle_completion_status(data: Dict[str, Any]) -> Dict[str, Any]:
     logger.debug(
         f"Status check - components initialized: "
         f"queue={queue_manager is not None}, "
-        f"session={session_manager is not None}, "
+        f"conversation={conversation_tracker is not None}, "
         f"provider={provider_manager is not None}, "
         f"token={token_tracker is not None}"
     )
     
-    if not all([queue_manager, session_manager, provider_manager, token_tracker]):
+    if not all([queue_manager, conversation_tracker, provider_manager, token_tracker]):
         return {"error": "Completion service not fully initialized"}
     
     # Build status summary (preserving original functionality)
@@ -520,7 +553,7 @@ async def handle_completion_status(data: Dict[str, Any]) -> Dict[str, Any]:
         "active_tasks": len(active_tasks),
         "status_counts": status_counts,
         "queues": queue_manager.get_all_queue_status(),
-        "sessions": session_manager.get_all_sessions_status(),
+        "sessions": conversation_tracker.get_all_sessions_status(),
         "providers": provider_manager.get_all_provider_status(),
         "token_usage": token_tracker.get_summary_statistics(),
         "retry_manager": retry_manager.get_retry_stats() if retry_manager else None
@@ -530,7 +563,7 @@ async def handle_completion_status(data: Dict[str, Any]) -> Dict[str, Any]:
 @event_handler("completion:session_status")
 async def handle_session_status(data: Dict[str, Any]) -> Dict[str, Any]:
     """Get detailed status for a specific session."""
-    if not all([queue_manager, session_manager]):
+    if not all([queue_manager, conversation_tracker]):
         return {"error": "Completion service not fully initialized"}
     
     session_id = data.get("session_id")
@@ -553,7 +586,7 @@ async def handle_session_status(data: Dict[str, Any]) -> Dict[str, Any]:
         "session_id": session_id,
         "completions": session_completions,
         "queue": queue_manager.get_queue_status(session_id),
-        "session": session_manager.get_session_status(session_id)
+        "session": conversation_tracker.get_session_status(session_id)
     }
 
 
@@ -650,8 +683,8 @@ async def handle_completion_failed(data: Dict[str, Any]) -> Dict[str, Any]:
         logger.warning("Completion failure without request_id", data=data)
         return {"error": "Missing request_id"}
     
-    # Get recovery data from session manager
-    recovery_data = session_manager.get_recovery_data(request_id) if session_manager else None
+    # Get recovery data from conversation tracker
+    recovery_data = conversation_tracker.get_recovery_data(request_id) if conversation_tracker else None
     
     # If no recovery data, check active completions (fallback)
     if not recovery_data and request_id in active_completions:
@@ -729,7 +762,7 @@ async def collect_checkpoint_data(data: Dict[str, Any]) -> Dict[str, Any]:
     checkpoint_data["components"] = {
         "queue_manager": queue_manager is not None,
         "provider_manager": provider_manager is not None,
-        "session_manager": session_manager is not None,
+        "conversation_tracker": conversation_tracker is not None,
         "token_tracker": token_tracker is not None,
         "retry_manager": retry_manager is not None
     }
@@ -803,9 +836,9 @@ async def handle_shutdown(data: Dict[str, Any]) -> None:
     if queue_manager:
         stats["queue"] = queue_manager.shutdown()
     
-    if session_manager:
+    if conversation_tracker:
         # Cancel any active locks
-        stats["sessions"] = session_manager.get_all_sessions_status()
+        stats["sessions"] = conversation_tracker.get_all_sessions_status()
     
     if provider_manager:
         stats["providers"] = provider_manager.get_all_provider_status()

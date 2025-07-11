@@ -318,8 +318,21 @@ class ClaudeCLIProvider(CustomLLM):
         optional_params = kwargs.get("optional_params", {})
         extra_body = optional_params.get("extra_body", {})
         ksi_params = extra_body.get("ksi", {})
+        
+        # Debug logging to trace session_id
+        logger.debug(
+            "Extracted KSI params",
+            ksi_params_keys=list(ksi_params.keys()),
+            has_session_id_in_ksi="session_id" in ksi_params,
+            has_session_id_in_kwargs="session_id" in kwargs,
+            ksi_session_id=ksi_params.get("session_id"),
+            kwargs_session_id=kwargs.get("session_id")
+        )
+        
         sandbox_dir = ksi_params.get("sandbox_dir")
         ksi_permissions = ksi_params.get("permissions", {})
+        # Session ID may come from KSI params or top-level kwargs
+        ksi_session_id = ksi_params.get("session_id")
         mcp_config_path = ksi_params.get("mcp_config_path")
         
         # Respect LiteLLM timeout parameter, fall back to config if not provided
@@ -348,7 +361,8 @@ class ClaudeCLIProvider(CustomLLM):
                 allowed = allowed_tools_from_openai(kwargs.get("tools"))
             
             disallowed = kwargs.get("disallowed_tools") or []
-            session_id = kwargs.get("session_id")
+            # Check both KSI params and kwargs for session_id
+            session_id = ksi_session_id or kwargs.get("session_id")
             max_turns = kwargs.get("max_turns")
 
             cmd = build_cmd(

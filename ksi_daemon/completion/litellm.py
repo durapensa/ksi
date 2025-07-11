@@ -63,7 +63,11 @@ async def handle_litellm_completion(data: Dict[str, Any]) -> Tuple[str, Dict[str
     request_id = data.get("request_id", str(uuid.uuid4()))
     agent_id = data.get("agent_id")
     
-    logger.info(f"Starting LiteLLM completion: model={model}, session_id={session_id}")
+    logger.info(
+        f"Starting LiteLLM completion: model={model}, session_id={session_id}",
+        data_keys=list(data.keys()),
+        has_session_id="session_id" in data
+    )
     
     try:
         # Convert prompt to messages if needed
@@ -110,6 +114,15 @@ async def handle_litellm_completion(data: Dict[str, Any]) -> Tuple[str, Dict[str
                     data["extra_body"]["ksi"] = {}
                 data["extra_body"]["ksi"]["sandbox_dir"] = sandbox_dir
                 logger.debug(f"Added sandbox_dir to extra_body", sandbox_dir=sandbox_dir)
+        
+        # Ensure session_id is passed to custom providers via extra_body
+        if "session_id" in data and data["session_id"]:
+            if "extra_body" not in data:
+                data["extra_body"] = {}
+            if "ksi" not in data["extra_body"]:
+                data["extra_body"]["ksi"] = {}
+            data["extra_body"]["ksi"]["session_id"] = data["session_id"]
+            logger.debug(f"Added session_id to extra_body for custom provider", session_id=data["session_id"])
         
         # Call litellm asynchronously
         response = await litellm.acompletion(**data)

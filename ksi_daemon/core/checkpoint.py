@@ -22,6 +22,7 @@ from ksi_common.logging import get_bound_logger
 # Module state
 logger = get_bound_logger("checkpoint", version="1.0.0")
 is_checkpoint_disabled = os.environ.get("KSI_CHECKPOINT_DISABLED", "false").lower() == "true"
+reset_db_on_startup = os.environ.get("KSI_RESET_CHECKPOINT_DB", "false").lower() == "true"
 
 # Checkpoint database path
 CHECKPOINT_DB = config.checkpoint_db_path
@@ -35,10 +36,12 @@ async def initialize_checkpoint_db():
         logger.error("aiosqlite not installed. Run: pip install aiosqlite")
         return False
     
-    # Delete existing database for clean start
-    if CHECKPOINT_DB.exists():
+    # Conditionally delete existing database based on environment variable
+    if reset_db_on_startup and CHECKPOINT_DB.exists():
         CHECKPOINT_DB.unlink()
-        logger.info("Deleted existing checkpoint database for clean start")
+        logger.info("Deleted existing checkpoint database for clean start (KSI_RESET_CHECKPOINT_DB=true)")
+    elif CHECKPOINT_DB.exists():
+        logger.info("Preserving existing checkpoint database for state restoration")
     
     async with aiosqlite.connect(CHECKPOINT_DB) as db:
         # Enable WAL mode for better concurrency

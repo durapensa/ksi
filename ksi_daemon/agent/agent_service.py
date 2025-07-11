@@ -24,6 +24,7 @@ from ksi_daemon.event_system import event_handler, get_router
 from ksi_daemon.mcp import mcp_config_manager
 from ksi_daemon.agent.metadata import AgentMetadata
 from ksi_daemon.evaluation.tournament_evaluation import process_agent_tournament_message, extract_evaluation_from_response
+from ksi_common.completion_format import get_response_session_id
 
 # Module state
 logger = get_bound_logger("agent_service", version="2.0.0")
@@ -191,6 +192,143 @@ async def handle_observation_restored(data: Dict[str, Any]) -> None:
     
     logger.info(f"Observation subscriptions restored from checkpoint: {restored_count} subscriptions "
                 f"from checkpoint at {from_checkpoint}")
+
+
+# Session tracking is now handled by completion service ConversationTracker
+# No longer need completion:result handler in agent service
+
+
+@event_handler("checkpoint:collect")
+async def handle_checkpoint_collect(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Collect agent state for checkpoint."""
+    try:
+        # Prepare agent state for checkpointing
+        agent_state = {}
+        
+        for agent_id, agent_info in agents.items():
+            # Skip terminated agents
+            if agent_info.get("status") == "terminated":
+                continue
+                
+            # Create a serializable copy of agent info
+            checkpoint_info = {
+                "agent_id": agent_id,
+                "profile": agent_info.get("profile"),
+                "composition": agent_info.get("composition"),
+                "config": agent_info.get("config", {}),
+                "status": agent_info.get("status"),
+                "created_at": agent_info.get("created_at"),
+                "session_id": agent_info.get("session_id"),
+                "permission_profile": agent_info.get("permission_profile"),
+                "sandbox_dir": agent_info.get("sandbox_dir"),
+                "mcp_config_path": agent_info.get("mcp_config_path"),
+                "conversation_id": agent_info.get("conversation_id"),
+                "originator_agent_id": agent_info.get("originator_agent_id"),
+                "agent_type": agent_info.get("agent_type"),
+                "purpose": agent_info.get("purpose"),
+                "composed_prompt": agent_info.get("composed_prompt"),
+                # Convert metadata to dict if it exists
+                "metadata": agent_info.get("metadata").to_dict() if agent_info.get("metadata") else None
+            }
+            
+            agent_state[agent_id] = checkpoint_info
+        
+        checkpoint_data = {
+            "agents": agent_state,
+            "identities": dict(identities),
+            "active_agents": len([a for a in agents.values() if a.get("status") in ["ready", "active"]])
+        }
+        
+        logger.info(f"Collected agent state for checkpoint: {len(agent_state)} agents")
+        return checkpoint_data
+        
+    except Exception as e:
+        logger.error(f"Failed to collect agent state for checkpoint: {e}")
+        return {"error": str(e)}
+
+
+@event_handler("checkpoint:restore")
+async def handle_checkpoint_restore(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Restore agent state from checkpoint."""
+    try:
+        # Extract agent data from checkpoint
+        checkpoint_agents = data.get("agents", {})
+        checkpoint_identities = data.get("identities", {})
+        
+        restored_agents = 0
+        failed_restorations = []
+        
+        # Restore identities first
+        identities.clear()
+        identities.update(checkpoint_identities)
+        
+        # Restore agents
+        for agent_id, agent_info in checkpoint_agents.items():
+            try:
+                # Recreate agent metadata if it exists
+                metadata = None
+                if agent_info.get("metadata"):
+                    metadata_dict = agent_info["metadata"]
+                    metadata = AgentMetadata(
+                        agent_id=metadata_dict.get("agent_id"),
+                        originator_agent_id=metadata_dict.get("originator_agent_id"),
+                        agent_type=metadata_dict.get("agent_type", "system"),
+                        purpose=metadata_dict.get("purpose")
+                    )
+                
+                # Restore agent info
+                restored_info = dict(agent_info)
+                restored_info["message_queue"] = asyncio.Queue()
+                restored_info["metadata"] = metadata
+                
+                # Register restored agent
+                agents[agent_id] = restored_info
+                
+                # Restart agent thread
+                agent_task = asyncio.create_task(run_agent_thread(agent_id))
+                agent_threads[agent_id] = agent_task
+                
+                restored_agents += 1
+                logger.debug(f"Restored agent {agent_id}")
+                
+            except Exception as e:
+                logger.error(f"Failed to restore agent {agent_id}: {e}")
+                failed_restorations.append({"agent_id": agent_id, "error": str(e)})
+        
+        # Update agent entities in relational state if we have event_emitter
+        if event_emitter and restored_agents > 0:
+            for agent_id in agents.keys():
+                try:
+                    await event_emitter("state:entity:create", {
+                        "id": agent_id,
+                        "type": "agent",
+                        "properties": {
+                            "status": agents[agent_id].get("status", "active"),
+                            "profile": agents[agent_id].get("profile"),
+                            "agent_type": agents[agent_id].get("agent_type", "system"),
+                            "purpose": agents[agent_id].get("purpose"),
+                            "capabilities": agents[agent_id].get("config", {}).get("expanded_capabilities", []),
+                            "session_id": agents[agent_id].get("session_id"),
+                            "permission_profile": agents[agent_id].get("permission_profile"),
+                            "sandbox_dir": agents[agent_id].get("sandbox_dir"),
+                            "mcp_config_path": agents[agent_id].get("mcp_config_path")
+                        }
+                    })
+                except Exception as e:
+                    logger.warning(f"Failed to restore agent entity {agent_id}: {e}")
+        
+        result = {
+            "restored_agents": restored_agents,
+            "restored_identities": len(checkpoint_identities),
+            "failed_restorations": failed_restorations
+        }
+        
+        logger.info(f"Agent checkpoint restore complete: {restored_agents} agents restored")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Failed to restore agent checkpoint: {e}")
+        return {"error": str(e)}
 
 
 # Agent lifecycle handlers
@@ -787,6 +925,7 @@ async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
             completion_data["extra_body"] = {"ksi": ksi_body}
             logger.debug(f"Agent {agent_id} sending completion with MCP config: {agent_info.get('mcp_config_path')}")
             
+            # Session continuity is now handled automatically by completion service
             await event_emitter("completion:async", completion_data)
     
     elif msg_type == "tournament_match":
@@ -827,6 +966,7 @@ async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
                 completion_data["extra_body"] = {"ksi": ksi_body}
                 logger.info(f"Agent {agent_id} processing tournament match {match_id}")
                 
+                # Session continuity is now handled automatically by completion service
                 # Send completion request
                 result = await event_emitter("completion:async", completion_data)
                 
