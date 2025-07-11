@@ -201,13 +201,22 @@ tail -f var/logs/daemon/daemon.log
 - **Pattern Matching**: Supports wildcards and arrays of patterns
 - **Efficient Queries**: Server-side filtering reduces data transfer
 
-## Claude Code Integration (2025-07-06)
+## Claude Code Integration
 
 ### Hook System
 - **Configuration**: `.claude/settings.local.json` (project-specific)
-- **Input**: JSON via stdin with session_id, tool_name, tool_input, tool_response
-- **Smart Filtering**: Only triggers on KSI-related commands
-- **Implementation**: `experiments/ksi_hook_monitor.py`
+- **Implementation**: `ksi_claude_code/ksi_hook_monitor.py`
+- **Output Format**: JSON `{"decision": "block", "reason": "[KSI] message"}` with exit 0
+- **Smart Filtering**: Only triggers on KSI-related commands (see `ksi_hook_monitor_filters.txt`)
+- **Verbosity Modes**: 
+  - `summary` (default): Shows event/agent counts
+  - `verbose`: Shows detailed event timeline
+  - `errors`: Only shows error events
+  - `silent`: No output
+- **Mode Commands**: `echo ksi_summary`, `echo ksi_verbose`, `echo ksi_errors`, `echo ksi_silent`, `echo ksi_status`
+- **State Persistence**: Tracks last seen timestamp to show only new events
+- **Connection Pooling**: Reuses socket connections for performance
+- **Error Handling**: Graceful degradation when daemon offline
 
 ### Session Management
 - **Conversation Files**: `~/.claude/projects/{encoded-path}/*.jsonl`

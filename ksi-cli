@@ -62,20 +62,40 @@ class KSICLI:
         # Use send_and_merge for discovery - merge 'events' field from all handlers
         merged = await self.client.send_and_merge("system:discover", data, merge_key="events")
         all_events = merged.get('events', {})
-        total_events = merged.get('total_events', 0)
+        total_events = merged.get('total', 0)  # Changed from 'total_events' to 'total'
         
         # Pretty print merged discovery results
         print(f"KSI Events ({total_events} available)")
         print("=" * 60)
         
-        for ns, events in all_events.items():
+        # Group events by namespace
+        namespaces = {}
+        for event_name, event_info in all_events.items():
+            # Extract namespace from event name (e.g., "system:health" -> "system")
+            if ':' in event_name:
+                ns, event_short = event_name.split(':', 1)
+            else:
+                ns = 'default'
+                event_short = event_name
+            
+            if ns not in namespaces:
+                namespaces[ns] = []
+            
+            namespaces[ns].append({
+                'name': event_name,
+                'short_name': event_short,
+                'info': event_info
+            })
+        
+        # Sort namespaces and print
+        for ns in sorted(namespaces.keys()):
             print(f"\n{ns}:")
-            for event in events:
-                summary = event.get('summary', 'No description')
+            for event in sorted(namespaces[ns], key=lambda e: e['short_name']):
+                summary = event['info'].get('summary', 'No description')
                 # Truncate long summaries
                 if len(summary) > 50:
                     summary = summary[:47] + "..."
-                print(f"  {event['event']:<30} {summary}")
+                print(f"  {event['name']:<30} {summary}")
     
     async def help(self, event_name: str) -> None:
         """Get detailed help for an event."""

@@ -70,8 +70,8 @@ ksi_check
 #    - Settings changes require Claude Code restart
 
 # 3. OUTPUT FORMAT:
-#    - Hooks output plain text to stdout (NOT JSON)
-#    - Output appears after tool results in Claude Code
+#    - Hooks output JSON to stdout: {"decision": "block", "reason": "message"}
+#    - This allows Claude to see [KSI] messages with exit code 0
 #    - Empty output = silent execution (common pitfall)
 
 # 4. DEBUGGING TECHNIQUES:

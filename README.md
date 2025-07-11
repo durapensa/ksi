@@ -51,6 +51,15 @@ source .venv/bin/activate
 
 ## Usage
 
+### Command-Line Interface
+
+```bash
+# Use the ksi command (no installation required during development)
+./ksi discover                    # Discover available events
+./ksi help completion:async       # Get help for specific events
+./ksi send state:set --key mykey --value '{"data": "test"}'
+```
+
 ### Basic Chat Interface
 
 ```bash
@@ -187,8 +196,14 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 ### Development Setup
 
 ```bash
-# Install development dependencies
+# For development, use the wrapper script (no installation needed)
+./ksi discover    # Works immediately after setup.sh
+
+# For production deployment, install the package
 pip install -e ".[dev]"
+
+# After installation, 'ksi' is available system-wide
+ksi discover      # Available anywhere after pip install
 
 # Run tests
 pytest

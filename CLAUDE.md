@@ -213,6 +213,12 @@ source .venv/bin/activate          # Always first
 ./daemon_control.py status         # Check status
 ./daemon_control.py restart        # Restart daemon
 
+# KSI command-line interface (no installation needed for dev)
+./ksi discover                     # List all available events
+./ksi discover --namespace system  # Filter by namespace  
+./ksi help completion:async        # Get detailed help for an event
+./ksi send state:set --key config --value '{"theme": "dark"}'
+
 # Module introspection
 echo '{"event": "module:list", "data": {}}' | nc -U var/run/daemon.sock
 echo '{"event": "system:health", "data": {}}' | nc -U var/run/daemon.sock
