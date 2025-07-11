@@ -37,22 +37,189 @@ Orchestration patterns stored in `var/lib/compositions/orchestrations/` with dec
 - Interprets natural language DSL via `event:emit`
 - Tracks decisions for continuous improvement
 
-## Pattern Format
+## Enhanced Pattern Format
 
-Orchestration patterns include:
+Orchestration patterns are YAML compositions with rich metadata and DSL:
+
+```yaml
+name: adaptive_tournament_v2
+type: orchestration
+version: 2.1.0
+extends: tournament_basic  # Inherit from parent patterns
+
+# Lineage tracking for evolution
+lineage:
+  parent: tournament_basic@2.0.0
+  fork_date: "2025-07-10T15:30:00Z"
+  fork_reason: "Improve participant matching"
+  improvements:
+    - "Added adaptive matching based on variance"
+    - "Implemented timeout recovery"
+
+# DSL for orchestrator interpretation (not parsed by KSI)
+orchestration_logic:
+  description: |
+    Natural language strategy for orchestrator agents to follow.
+    Mix natural language with structured patterns.
+  
+  strategy: |
+    WHEN starting_tournament:
+      ANALYZE participant_capabilities
+      IF variance(abilities) > 0.3:
+        EMIT "orchestration:configure" WITH {mode: "elimination"}
+      ELSE:
+        EMIT "orchestration:configure" WITH {mode: "round_robin"}
+    
+    DURING each_round:
+      MONITOR metrics: timeout_rate, score_variance
+      
+      IF timeout_rate > 30%:
+        EMIT "evaluation:adjust_complexity" WITH {reduce: "20%"}
+        EMIT "monitoring:alert" WITH {issue: "high_timeouts"}
+        
+      IF all_scores_similar:
+        EMIT "evaluation:add_discriminators"
+        TRACK decision: "added_discrimination" WITH confidence: 0.85
+    
+    AFTER completion:
+      CALCULATE performance_metrics
+      IF improved_over_baseline:
+        EMIT "composition:track_decision" WITH full_context
+        CONSIDER "composition:fork" IF confidence > 0.9
+
+# Performance tracking for evolution
+performance:
+  runs: 47
+  avg_score: 0.82
+  success_rate: 0.93
+  improvements_over_parent: "+21.7%"
+
+# Learnings for pattern selection
+learnings:
+  - insight: "Swiss pairing optimal for 5-10 participants"
+    confidence: 0.85
+    evidence: "runs:[7,9,11,14]"
+    discovered_by: "orchestrator_7f3e"
+
+# Transformers for pattern vocabulary
+transformers:
+  - source: "tournament:configure"
+    target: "orchestration:send"
+    mapping:
+      to: "all"
+      message.type: "{{mode}}_setup"
+  
+  - source: "tournament:analyze_variance"
+    target: "completion:async"
+    async: true
+    mapping:
+      prompt: "Analyze participant variance: {{capabilities}}"
+    response_route:
+      from: "completion:result"
+      to: "tournament:variance_result"
+```
+
+Patterns include:
 - **Metadata**: Version, lineage, performance metrics
 - **DSL Strategy**: Natural language mixed with structured operations
 - **Learnings**: Documented insights with confidence scores
 - **Decision History**: Tracked adaptations and outcomes
+- **Transformers**: Event vocabulary mapping for pattern-specific events
 
 ## Pattern Evolution Workflow
 
-1. **Discovery**: Find patterns via `composition:discover` with performance filters
-2. **Selection**: Choose best pattern via `composition:select` based on task requirements
-3. **Interpretation**: Execute DSL strategies using `event:emit`
-4. **Tracking**: Record decisions and outcomes via `composition:track_decision`
-5. **Evolution**: Fork successful adaptations when performance improves
-6. **Learning**: Document insights in pattern metadata and decision logs
+### 1. Discovery and Selection
+
+Orchestrators discover patterns using composition system:
+
+```python
+# Find relevant patterns
+patterns = await emit("event:emit", {
+    "event": "composition:discover",
+    "data": {
+        "type": "orchestration",
+        "metadata_filter": {
+            "tags": ["tournament"],
+            "performance.avg_score": {">": 0.7}
+        }
+    }
+})
+
+# Select best pattern for task
+best = await emit("event:emit", {
+    "event": "composition:select",
+    "data": {
+        "task": "Evaluate 15 prompts competitively",
+        "requirements": {"timeout_handling": true}
+    }
+})
+```
+
+### 2. DSL Interpretation
+
+Orchestrators read and implement DSL strategies:
+
+```python
+# Orchestrator interprets DSL action
+if timeout_rate > 0.3:  # From monitoring
+    # Implement DSL: EMIT "evaluation:adjust_complexity"
+    await emit("event:emit", {
+        "event": "evaluation:adjust_complexity",
+        "data": {"reduce": "20%"}
+    })
+    
+    # Track the decision
+    await emit("event:emit", {
+        "event": "composition:track_decision",
+        "data": {
+            "pattern": pattern_name,
+            "decision": "reduced_complexity",
+            "context": {"timeout_rate": timeout_rate},
+            "outcome": "pending"
+        }
+    })
+```
+
+### 3. Pattern Forking
+
+When orchestrators discover improvements:
+
+```python
+# After successful run with adaptations
+if performance > baseline * 1.15:  # 15% improvement
+    await emit("event:emit", {
+        "event": "composition:fork",
+        "data": {
+            "parent": current_pattern,
+            "name": f"{current_pattern}_improved",
+            "reason": "Consistent 15%+ performance improvement",
+            "modifications": {
+                "orchestration_logic.strategy": new_strategy
+            }
+        }
+    })
+```
+
+### 4. Decision Tracking
+
+Decisions are tracked in two ways:
+
+1. **High-level learnings** in pattern metadata:
+```yaml
+learnings:
+  - insight: "Discovered optimal timeout is 2x avg response time"
+    confidence: 0.92
+```
+
+2. **Detailed decisions** in `<pattern>_decisions.yaml`:
+```yaml
+- timestamp: "2025-07-10T16:30:00Z"
+  agent_id: "orchestrator_7f3e"
+  decision: "increased_timeout"
+  context: {avg_response: 45, current_timeout: 60}
+  outcome: "reduced_timeout_rate"
+  confidence: 0.87
+```
 
 ## Implementation Status
 
@@ -67,17 +234,27 @@ Orchestration patterns include:
 - Dual decision tracking: inline learnings + detailed logs
 
 ### 🔄 Phase 3: From Primitives to Pattern Transformers
+**Status**: Implementation in progress - blocked on composition system redesign
+
 Transitioning from hardcoded primitives to dynamic pattern-loaded transformers:
 
-**Previous Approach** (being replaced):
+**Previous Approach** (replaced):
 - Hardcoded orchestration primitives in Python
 - Fixed set of 7 primitives in `orchestration_primitives.py`
 
-**New Approach** (dynamic transformers):
+**New Approach** (partially implemented):
 - Patterns define transformers in YAML
-- Async transformers with token-based responses
+- Async transformers with token-based responses  
 - No Python modules required for patterns
 - Complete vocabulary defined by each pattern
+
+**Current State**:
+- ✅ `ksi_daemon/transformer/transformer_service.py` - Pattern-level transformer management created
+- ✅ `ksi_daemon/orchestration/orchestration_service.py` - Updated to use transformer service
+- ❌ **BLOCKED**: Composition system strips `transformers` section from patterns
+- 📋 **NEXT**: Implement `docs/GENERIC_COMPOSITION_SYSTEM_REDESIGN.md` to unblock
+
+The transformer service is loaded but cannot function until the composition system preserves all YAML sections as outlined in the redesign plan.
 
 #### orchestration:aggregate
 
@@ -164,6 +341,50 @@ transformers:
 4. **Pattern Event**: Routed to pattern-specific response event
 
 This enables patterns to define their complete vocabulary and async workflows without requiring Python modules.
+
+**Implementation Features**:
+1. **Dynamic Registration**: `router.register_transformer_from_yaml(transformer_def)`
+2. **Async Support**: Token-based async transformers with response routing
+3. **Pattern Loading**: Transformers defined in pattern YAML, loaded at runtime
+4. **Conditional Logic**: Transformers can include conditions and filters
+5. **Template Support**: Jinja2-style templates for field mapping
+6. **Response Correlation**: Automatic correlation of async responses
+
+**Pattern-Defined Transformers**:
+```yaml
+# In pattern YAML - no Python needed!
+transformers:
+  # Vocabulary mapping
+  - source: "pattern:analyze"
+    target: "agent:process"
+    mapping:
+      task: "analysis"
+      data: "{{input}}"
+  
+  # Async with completion pattern
+  - source: "pattern:complex_task"
+    target: "completion:async"
+    async: true
+    mapping:
+      prompt: "{{task_description}}"
+    response_route:
+      from: "completion:result"
+      to: "pattern:task_complete"
+  
+  # Conditional routing
+  - source: "pattern:route"
+    target: "orchestration:send"
+    condition: "priority == 'high'"
+    mapping:
+      to: {role: "priority_handler"}
+```
+
+**Impact on Orchestration**:
+- Patterns define complete vocabulary in YAML
+- No hardcoded orchestration primitives needed
+- Async operations handled elegantly with tokens
+- Patterns are truly self-contained
+- Dynamic loading/unloading with patterns
 
 ### Integration Patterns
 
