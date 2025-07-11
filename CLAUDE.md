@@ -22,7 +22,7 @@ Essential development practices for Claude Code when working with KSI.
 ### Development Practices
 - **Event-driven only** - no polling or wait loops, modules communicate only through events
 - **Complete migrations** - when implementing new features, migrate entire system, remove ALL old code
-- **Separation of concerns** - Event log (infrastructure) vs Relational state (application data)
+- **Separation of concerns** - Event log (infrastructure) vs Graph database (application data)
 - **Inspect before implementing** - check existing code before writing new functionality
 
 ### Session ID Management (Critical)

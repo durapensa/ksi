@@ -230,7 +230,7 @@ The agent service integrates with the completion service for session tracking:
 
 ### 6.3 Agent Persistence
 
-Agents are stored in the relational state system:
+Agents are stored in the graph database system:
 ```python
 # Entity type: "agent"
 # Properties: status, profile, capabilities, session_id, etc.
@@ -239,7 +239,7 @@ Agents are stored in the relational state system:
 
 ## 7. Storage & Persistence
 
-### 7.1 Relational State (state.py)
+### 7.1 Graph Database (state.py)
 
 A clean entity-property-relationship model:
 
@@ -379,7 +379,7 @@ Everything is an event:
 - **Rationale**: Loose coupling, natural observability
 - **Trade-off**: Indirection, potential performance overhead
 
-### 10.4 Relational State Model
+### 10.4 Graph Database Model
 - **Decision**: EAV pattern in SQLite vs key-value store
 - **Rationale**: Flexible schema, relationship support, queries
 - **Trade-off**: More complex than key-value

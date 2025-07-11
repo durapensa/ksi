@@ -4,7 +4,7 @@
 
 KSI employs multiple state management approaches optimized for different use cases:
 - **Memory-only**: Ring buffers for high-frequency event logging
-- **SQLite persistence**: Relational state, event logs, MCP sessions
+- **SQLite persistence**: Graph database, event logs, MCP sessions
 - **Hybrid approaches**: Memory caches with periodic persistence
 - **File-based**: Response logs, experiment results
 
@@ -30,7 +30,7 @@ self.events: deque[EventLogEntry] = deque(maxlen=max_size)  # Default 10k events
 
 ### 1.2 SQLite with Write-Ahead Logging (WAL)
 
-**Implementation**: Used in event log persistence, relational state, MCP sessions
+**Implementation**: Used in event log persistence, graph database, MCP sessions
 
 ```python
 conn.execute("PRAGMA journal_mode=WAL")
@@ -105,7 +105,7 @@ self.write_queue: asyncio.Queue = asyncio.Queue(maxsize=5000)
 ### 2.2 Full Persistence
 
 **When Required**:
-- Agent state (relational state system)
+- Agent state (graph database system)
 - Audit trails (event log to SQLite)
 - Session continuity (MCP sessions)
 - Checkpoint/restore (completion requests)
@@ -122,7 +122,7 @@ self.write_queue: asyncio.Queue = asyncio.Queue(maxsize=5000)
 - Write amplification
 - Complexity of consistency
 
-**Example Use**: Relational state for agent entities and relationships
+**Example Use**: Graph database for agent entities and relationships
 
 ### 2.3 Hybrid Approaches
 
@@ -237,7 +237,7 @@ Conversation cache: ~500B/conversation metadata
    - Implementation: 100-200 lines
    - Testing: In-memory DB
    - Debugging: SQL queries
-   - Example: Relational state
+   - Example: Graph database
 
 4. **Hybrid Async**
    - Implementation: 300-500 lines
@@ -380,7 +380,7 @@ async def _write_batch(self, batch: List[EventLogEntry]):
 - Graceful degradation
 - Tunable guarantees
 
-### 7.2 Relational State (Pure Persistence)
+### 7.2 Graph Database (Pure Persistence)
 
 ```python
 # Direct SQLite with proper schema

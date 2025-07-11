@@ -980,7 +980,7 @@ def _get_fallback_selection() -> SelectionResult:
 async def load_composition(name: str, comp_type: Optional[str] = None) -> Composition:
     """Load a composition with caching support."""
     # Check dynamic cache first
-    # TODO: Update to use new relational state API
+    # TODO: Update to use new graph database API
     # if state_manager:
     #     cache_key = f"dynamic_composition:{name}"
     #     cached = state_manager.get_shared_state(cache_key)

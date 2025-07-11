@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Universal Relational State Management
+Universal Graph Database State Management
 
-A clean relational model for all KSI state, replacing the legacy key-value system.
+A clean graph database model for all KSI state, replacing the legacy key-value system.
 Everything is an entity with properties and relationships.
 
 Core concepts:
@@ -28,11 +28,11 @@ from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc, numeric_to_iso
 
 
-logger = get_bound_logger("relational_state", version="2.0.0")
+logger = get_bound_logger("graph_state", version="2.0.0")
 
 
-class RelationalStateManager:
-    """Universal relational state manager using entity-property-relationship model."""
+class GraphStateManager:
+    """Universal graph database state manager using entity-property-relationship model."""
     
     def __init__(self):
         self.logger = logger
@@ -41,7 +41,7 @@ class RelationalStateManager:
         self._initialized = False
     
     async def _init_database(self):
-        """Initialize the relational database schema."""
+        """Initialize the graph database schema."""
         if self._initialized:
             return
             
@@ -99,7 +99,7 @@ class RelationalStateManager:
             await conn.commit()
             
         self._initialized = True
-        self.logger.info(f"Relational state initialized at {self.db_path}")
+        self.logger.info(f"Graph state initialized at {self.db_path}")
     
     @asynccontextmanager
     async def _get_db(self):
@@ -436,32 +436,32 @@ class RelationalStateManager:
 
 
 # Global state manager instance
-state_manager: Optional[RelationalStateManager] = None
+state_manager: Optional[GraphStateManager] = None
 
 
-def get_state_manager() -> RelationalStateManager:
+def get_state_manager() -> GraphStateManager:
     """Get the global state manager instance."""
     if state_manager is None:
         raise RuntimeError("State manager not initialized")
     return state_manager
 
 
-def initialize_state() -> RelationalStateManager:
+def initialize_state() -> GraphStateManager:
     """Initialize the global state manager."""
     global state_manager
     if state_manager is None:
-        state_manager = RelationalStateManager()
-        logger.info("Relational state manager initialized")
+        state_manager = GraphStateManager()
+        logger.info("Graph state manager initialized")
     return state_manager
 
 
-# Event Handlers - Clean relational API
+# Event Handlers - Clean graph database API
 
 @event_handler("system:context")
 async def handle_context(context: Dict[str, Any]) -> None:
     """Receive infrastructure context."""
     if state_manager:
-        logger.info("Relational state manager connected to event system")
+        logger.info("Graph state manager connected to event system")
     else:
         logger.error("State manager not available")
 

@@ -54,9 +54,9 @@ Include NO code or technical content."""
 
 ## Bug Tracker
 
-### BUG-001: RelationalStateManager has no attribute 'get_shared_state'
+### BUG-001: GraphStateManager has no attribute 'get_shared_state'
 **Component**: ksi_daemon/composition/composition_service.py  
-**Description**: Old state manager API being used (get_shared_state) instead of new relational API
+**Description**: Old state manager API being used (get_shared_state) instead of new graph database API
 **Workaround**: Comment out dynamic cache check
 **Fix Status**: FIXED - Commented out cache check
 

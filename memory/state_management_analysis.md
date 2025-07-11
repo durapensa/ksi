@@ -6,7 +6,7 @@ This document analyzes the different state management approaches used across the
 
 ## State Management Categories
 
-### 1. Relational State System (ksi_daemon/core/state.py)
+### 1. Graph Database State System (ksi_daemon/core/state.py)
 
 **Type**: Agent application data
 **Storage**: SQLite database at `var/db/state.db`
@@ -223,7 +223,7 @@ cache_ttl_seconds = 60
 ### 9. Observation Subscriptions (ksi_daemon/observation/observation_manager.py)
 
 **Type**: Event routing rules
-**Storage**: Dual - Memory + Relational State
+**Storage**: Dual - Memory + Graph Database
 **Pattern**: Runtime subscriptions with persistence
 
 **Memory State**:
@@ -274,7 +274,7 @@ Used by: Message bus, active agents, conversation cache
 - No persistence requirements
 
 ### 2. SQLite Persistence Pattern
-Used by: Relational state, event log, checkpoints, MCP cache
+Used by: Graph database, event log, checkpoints, MCP cache
 
 **When to use**:
 - ACID guarantees needed
@@ -364,7 +364,7 @@ Used by: Completion service via checkpoint system
 - Active agents: In-memory dictionaries
 
 ### Moderate-Frequency Updates
-- Relational state: SQLite with indexes
+- Graph database: SQLite with indexes
 - Agent identities: Periodic file writes
 - Checkpoints: On shutdown only
 
@@ -387,7 +387,7 @@ Used by: Completion service via checkpoint system
 
 ### 2. Separation of Concerns
 - Event log for infrastructure monitoring
-- Relational state for agent application data
+- Graph database for agent application data
 - Don't mix monitoring with business data
 
 ### 3. Recovery Planning

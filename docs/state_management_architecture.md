@@ -26,7 +26,7 @@ Application state should be:
 - Persisted with ACID guarantees
 - Recovered on startup
 - The single source of truth
-- Managed through the relational state system
+- Managed through the graph database system
 
 ### 2. State Management Patterns in KSI
 
@@ -43,7 +43,7 @@ Our analysis identified five primary patterns:
 
 #### Pattern 2: Full Persistence (Durable)
 **Used for**: Application data, audit trails, entity state
-**Examples**: Relational state system, agent identities
+**Examples**: Graph database system, agent identities
 **Characteristics**:
 - Survives all restarts
 - ACID guarantees
@@ -101,7 +101,7 @@ The observation system should be reimagined as a **real-time event routing layer
                                  │
                                  ▼
                         ┌──────────────────┐
-                        │ Relational State │
+                        │ Graph Database │
                         │ (App Data Refs)  │
                         └──────────────────┘
 ```
@@ -111,7 +111,7 @@ The observation system should be reimagined as a **real-time event routing layer
 1. **Live Observations**: Ephemeral routing rules in memory
 2. **Historical Observations**: Query the event log directly
 3. **No Subscription Persistence**: Agents re-establish on startup
-4. **Application References**: Observation events can reference entities in relational state
+4. **Application References**: Observation events can reference entities in graph database
 
 ### Benefits of This Approach
 
@@ -128,7 +128,7 @@ The observation system should be reimagined as a **real-time event routing layer
 **Objective**: Remove persistence code and clarify observation as infrastructure
 
 **Tasks:**
-1. Remove subscription entity creation in relational state
+1. Remove subscription entity creation in graph database
 2. Remove relationship creation for observations
 3. Update observation manager to be purely memory-based
 4. Add clear documentation about ephemeral nature
@@ -315,7 +315,7 @@ Standardize on lifecycle events:
 ### 4. State Management Guidelines
 
 1. **Default to ephemeral** unless persistence is explicitly required
-2. **Use the relational state system** for all application data
+2. **Use the graph database system** for all application data
 3. **Keep infrastructure state in memory** with clear reconstruction patterns
 4. **Document state lifetime** in module docstrings
 5. **Test recovery scenarios** for all persistent state

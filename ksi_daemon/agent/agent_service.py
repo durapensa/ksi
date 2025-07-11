@@ -117,7 +117,7 @@ async def handle_ready(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"loaded_agents": 0}
     
     try:
-        # Query all suspended agents from relational state
+        # Query all suspended agents from graph database
         logger.debug("Querying for suspended agents...")
         result = await event_emitter("state:entity:query", {
             "type": "agent",
@@ -189,10 +189,10 @@ async def handle_ready(data: Dict[str, Any]) -> Dict[str, Any]:
                     logger.error(f"Failed to mark agent {agent_id} as active: {e}")
                 
                 loaded_agents += 1
-                logger.debug(f"Loaded agent {agent_id} from relational state")
+                logger.debug(f"Loaded agent {agent_id} from graph database")
                 
     except Exception as e:
-        logger.error(f"Failed to load agents from relational state: {e}", exc_info=True)
+        logger.error(f"Failed to load agents from graph database: {e}", exc_info=True)
     
     logger.info(f"Loaded {loaded_agents} agents from state (total: {len(agents)})")
     
@@ -423,7 +423,7 @@ async def handle_checkpoint_restore(data: Dict[str, Any]) -> Dict[str, Any]:
                 logger.error(f"Failed to restore agent {agent_id}: {e}")
                 failed_restorations.append({"agent_id": agent_id, "error": str(e)})
         
-        # Update agent entities in relational state if we have event_emitter
+        # Update agent entities in graph database if we have event_emitter
         if event_emitter and restored_agents > 0:
             for agent_id in agents.keys():
                 try:
@@ -714,7 +714,7 @@ async def handle_spawn_agent(data: Dict[str, Any]) -> Dict[str, Any]:
     # Register agent
     agents[agent_id] = agent_info
     
-    # Create agent entity in relational state
+    # Create agent entity in graph database
     if event_emitter:
         # Create agent entity
         entity_props = {

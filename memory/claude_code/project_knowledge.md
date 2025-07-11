@@ -91,7 +91,7 @@ async with EventClient() as client:
 
 ### Core Infrastructure
 - **transport/unix_socket.py**: NDJSON protocol handler
-- **core/state.py**: Relational state management
+- **core/state.py**: Graph database state management
 - **core/reference_event_log.py**: High-performance event logging
 - **core/checkpoint.py**: State persistence across restarts
 - **core/health.py**: System health monitoring

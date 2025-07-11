@@ -34,7 +34,7 @@ Located in `ksi_daemon/core/`, these modules provide fundamental system services
 
 | Module | Responsibility | Events Provided |
 |--------|----------------|-----------------|
-| state.py | Relational state management | 11 events |
+| state.py | Graph database state management | 11 events |
 | health.py | System health monitoring | 1 event |
 | correlation.py | Event correlation tracking | 6 events |
 | discovery.py | Service discovery | 4 events |

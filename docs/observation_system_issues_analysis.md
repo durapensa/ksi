@@ -77,8 +77,8 @@ _rate_limiters: Dict[str, RateLimiter] = {}  # subscription_id -> rate limiter
 ### Current Architecture Issues
 
 **Inconsistent Storage:**
-- ✅ Agent entities: Stored in relational state (persistent)
-- ✅ Agent relationships: Stored in relational state (persistent)  
+- ✅ Agent entities: Stored in graph database (persistent)
+- ✅ Agent relationships: Stored in graph database (persistent)  
 - ❌ Observation subscriptions: Stored in memory (volatile)
 - ✅ Event history: Stored in event log (persistent)
 
@@ -94,8 +94,8 @@ _rate_limiters: Dict[str, RateLimiter] = {}  # subscription_id -> rate limiter
 
 **Required Changes:**
 
-1. **Migrate to Relational State Storage**
-   - Store subscriptions as entities in the relational state system
+1. **Migrate to Graph Database Storage**
+   - Store subscriptions as entities in the graph database system
    - Maintain existing in-memory cache for performance
    - Implement cache invalidation and refresh
 
@@ -176,7 +176,7 @@ async def restore_subscriptions(data: Dict[str, Any]) -> None:
 ```
 
 **Hybrid Architecture:**
-- **Persistent storage**: Use relational state for durability
+- **Persistent storage**: Use graph database for durability
 - **Memory cache**: Keep current dictionaries for O(1) lookups
 - **Write-through**: Update both on subscription changes
 - **Cache rebuilding**: Restore from persistent state on startup
@@ -244,7 +244,7 @@ async def restore_subscriptions(data: Dict[str, Any]) -> None:
 
 ## Conclusion
 
-The observation system implementation is **functionally complete** but requires the subscription persistence fix to be **production-ready**. The architecture is sound - we just need to use our own relational state system consistently throughout.
+The observation system implementation is **functionally complete** but requires the subscription persistence fix to be **production-ready**. The architecture is sound - we just need to use our own graph database system consistently throughout.
 
 **Question**: Should we tackle subscription persistence immediately, or document it as a known limitation for the current release?
 

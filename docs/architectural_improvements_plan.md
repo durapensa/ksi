@@ -118,7 +118,7 @@ class ProviderManager:
    - Verify data consistency
 
 3. **Switch Readers** (2 hours)
-   - Update read paths to use relational state
+   - Update read paths to use graph database
    - Remove old read code
 
 4. **Remove Old Writers** (1 hour)

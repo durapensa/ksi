@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test script for universal relational state system (Phase 2 Redesign)
+Test script for universal graph database system (Phase 2 Redesign)
 """
 
 import asyncio
@@ -21,9 +21,9 @@ async def send_socket_message(message):
     return None
 
 
-async def test_relational_state():
-    """Test the universal relational state system."""
-    print("Testing Universal Relational State System")
+async def test_graph_state():
+    """Test the universal graph database system."""
+    print("Testing Universal Graph Database System")
     print("=" * 50)
     
     # 1. Test basic entity operations
@@ -103,7 +103,7 @@ async def test_relational_state():
                 "status": "active",
                 "agent_type": "originator",
                 "profile": "base_single_agent",
-                "purpose": "Test originator for relational state"
+                "purpose": "Test originator for graph database"
             }
         }
     }
@@ -255,7 +255,7 @@ async def test_relational_state():
         else:
             print(f"✗ Failed to delete entity: {entity_id}")
     
-    print("\n✓ Universal relational state testing complete!")
+    print("\n✓ Universal graph database testing complete!")
     print("\nNext steps:")
     print("- Phase 3: Implement observation subscription system")
     print("- Phase 4: Add filtered event routing")
@@ -263,4 +263,4 @@ async def test_relational_state():
 
 
 if __name__ == "__main__":
-    asyncio.run(test_relational_state())
+    asyncio.run(test_graph_state())
