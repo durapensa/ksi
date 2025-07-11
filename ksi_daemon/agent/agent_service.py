@@ -1448,15 +1448,15 @@ async def handle_send_message(data: AgentSendMessageData) -> Dict[str, Any]:
         agent_info = agents[agent_id]
         agent_config = agent_info.get("config", {})
         
-        # Get current session from agent info
-        session_id = agent_info.get("session_id")
+        # Don't store session_id in agent - let ConversationTracker handle it
+        # The completion service will look up the agent's current session automatically
         
         # Prepare completion request
         completion_data = {
             "messages": [{"role": message.get("role", "user"), "content": prompt}],
             "agent_id": agent_id,
             "originator_id": agent_id,
-            "session_id": session_id,
+            # session_id intentionally omitted - completion service handles continuity
             "model": f"claude-cli/{agent_config.get('model', 'sonnet')}",
             "priority": "normal",
             "request_id": f"{agent_id}_{message.get('request_id', uuid.uuid4().hex[:8])}"
@@ -1465,7 +1465,7 @@ async def handle_send_message(data: AgentSendMessageData) -> Dict[str, Any]:
         # Add KSI parameters
         completion_data["extra_body"] = {
             "ksi": {
-                "conversation_id": session_id or f"agent_conversation_{agent_id}",
+                "conversation_id": f"agent_conversation_{agent_id}",
                 "tools": agent_config.get("allowed_claude_tools", []),
                 "agent_id": agent_id,
                 "construct_id": agent_info.get("construct_id"),
@@ -1477,9 +1477,8 @@ async def handle_send_message(data: AgentSendMessageData) -> Dict[str, Any]:
         # Emit completion event directly
         result = await event_emitter("completion:async", completion_data)
         
-        # Update agent session if we get a new session_id from completion
-        if result.get("session_id"):
-            agent_info["session_id"] = result["session_id"]
+        # Session tracking is handled by ConversationTracker in completion service
+        # Agents don't need to track session_id
         
         return {
             "status": "sent_to_completion", 
