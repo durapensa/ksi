@@ -523,15 +523,26 @@ class KSIHookMonitor:
             else:
                 return None  # No errors, no output in errors mode
         
-        # Verbose mode - show everything
+        # Verbose mode - show event details
         elif mode == "verbose":
-            message = f"[KSI: {len(new_events)} new]"
+            parts = []
+            
+            # Compact status line
             if new_events:
-                message += f" {event_summary}"
-            if agent_status != "No active agents.":
-                message += f" {agent_status}"
-            if not new_events and agent_status == "No active agents.":
-                message = "[KSI]"  # Still show something even if nothing happening
+                parts.append(f"⚡{len(new_events)}")
+            if agent_count > 0:
+                parts.append(f"🤖{agent_count}")
+            
+            if parts:
+                message = f"[KSI {' '.join(parts)}]"
+                # Add the most recent significant event on next line
+                if event_summary and event_summary.strip():
+                    # Extract just the latest event line
+                    latest_event = event_summary.strip().split('\n')[0]
+                    message += f"\n{latest_event}"
+            else:
+                message = "[KSI]"
+                
             return message
         
         # Orchestration mode - detailed view for debugging
@@ -565,22 +576,27 @@ class KSIHookMonitor:
             
             return message
         
-        # Summary mode (default) - concise
+        # Summary mode (default) - ultra-concise
         else:
-            summary_parts = []
-            if new_events:
-                summary_parts.append(f"{len(new_events)} events")
-            if agent_count > 0:
-                summary_parts.append(f"{agent_count} agents")
+            # Build compact status with emojis
+            parts = []
             
-            # Show errors even in summary mode with indicator
+            # Events with lightning bolt
+            if new_events:
+                parts.append(f"⚡{len(new_events)}")
+            
+            # Agents with robot
+            if agent_count > 0:
+                parts.append(f"🤖{agent_count}")
+                
+            # Errors with X
             if has_errors:
                 error_count = len([e for e in new_events if "error" in e.get("event_name", "").lower()])
-                summary_parts.insert(0, f"✗ {error_count} errors")
+                parts.insert(0, f"✗{error_count}")
             
-            # Always show something - even if just [KSI] to show hook is working
-            if summary_parts:
-                message = f"[KSI: {', '.join(summary_parts)}]"
+            # Format message
+            if parts:
+                message = f"[KSI {' '.join(parts)}]"
             else:
                 message = "[KSI]"  # Minimal output to confirm hook is active
             
