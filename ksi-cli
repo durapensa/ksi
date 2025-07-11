@@ -19,9 +19,11 @@ import sys
 import argparse
 from typing import Dict, Any, Optional
 from pathlib import Path
+import os
 
 from ksi_client import EventClient
 from ksi_client.exceptions import KSIError
+from ksi_common.logging import configure_structlog
 
 
 class KSICLIError(Exception):
@@ -64,10 +66,6 @@ class KSICLI:
         all_events = merged.get('events', {})
         total_events = merged.get('total', 0)  # Changed from 'total_events' to 'total'
         
-        # Pretty print merged discovery results
-        print(f"KSI Events ({total_events} available)")
-        print("=" * 60)
-        
         # Group events by namespace
         namespaces = {}
         for event_name, event_info in all_events.items():
@@ -87,9 +85,13 @@ class KSICLI:
                 'info': event_info
             })
         
-        # Sort namespaces and print
+        # Sort namespaces and print with clean output
+        first = True
         for ns in sorted(namespaces.keys()):
-            print(f"\n{ns}:")
+            if not first:
+                print()  # Empty line between namespaces
+            first = False
+            print(f"{ns}:")
             for event in sorted(namespaces[ns], key=lambda e: e['short_name']):
                 summary = event['info'].get('summary', 'No description')
                 # Truncate long summaries
@@ -115,10 +117,9 @@ class KSICLI:
             merged_help["examples"] = []
         
         
-        # Pretty print merged help
-        print(f"Event: {merged_help['event']}")
-        print(f"Namespace: {merged_help['namespace']}")
-        print(f"\n{merged_help['summary']}")
+        # Clean output format
+        print(f"{merged_help['event']}")
+        print(f"{merged_help['summary']}")
         
         # Parameters
         if merged_help["parameters"]:
@@ -138,15 +139,18 @@ class KSICLI:
         if merged_help["examples"]:
             print("\nExamples:")
             for i, ex in enumerate(merged_help["examples"], 1):
-                print(f"\n  Example {i}: {ex.get('description', '')}")
+                if desc := ex.get('description'):
+                    print(f"  {desc}")
                 # Show as CLI command
-                cmd = f"ksi-cli send {event_name}"
+                cmd = f"ksi send {event_name}"
                 for key, value in ex.get('data', {}).items():
                     if isinstance(value, (dict, list)):
                         cmd += f" --{key} '{json.dumps(value)}'"
                     else:
                         cmd += f" --{key} {value}"
                 print(f"  $ {cmd}")
+                if i < len(merged_help["examples"]):
+                    print()  # Empty line between examples
     
     async def list_conversations(self, limit: int = 10) -> None:
         """List recent conversations."""
@@ -161,18 +165,18 @@ class KSICLI:
                 print("No conversations found")
                 return
             
-            print(f"Recent Conversations (showing {len(conversations)} of {total_count})")
-            print("=" * 80)
-            
-            for conv in conversations:
+            # Clean output - no header
+            for i, conv in enumerate(conversations):
                 session_id = conv.get('session_id', 'unknown')[:8]
                 timestamp = conv.get('last_timestamp', 'unknown')
                 msg_count = conv.get('message_count', 0)
                 first_msg = conv.get('first_message', '')[:40]
                 
-                print(f"\n{session_id}... | {timestamp} | {msg_count} messages")
+                if i > 0:
+                    print()  # Empty line between conversations
+                print(f"{session_id}... | {timestamp} | {msg_count} messages")
                 if first_msg:
-                    print(f"  First: {first_msg}...")
+                    print(f"  {first_msg}...")
                     
         except Exception as e:
             print(f"Error listing conversations: {e}")
@@ -275,6 +279,12 @@ Examples:
         help="Path to KSI daemon socket (default: var/run/daemon.sock)"
     )
     
+    parser.add_argument(
+        "--health",
+        action="store_true",
+        help="Show daemon health status and connection details"
+    )
+    
     subparsers = parser.add_subparsers(dest="command", help="Commands")
     
     # Send command - the main workhorse
@@ -332,6 +342,14 @@ Examples:
         # Merge with main args
         for key, value in vars(event_args).items():
             setattr(args, key, value)
+    
+    # Configure logging based on --health flag
+    if args.health:
+        # Enable verbose logging for health check
+        configure_structlog(log_level="INFO", log_format="console")
+    else:
+        # Suppress all logging output for clean CLI output
+        configure_structlog(log_level="CRITICAL", log_format="console", force_disable_console=True)
     
     # Execute command
     cli = KSICLI(socket_path=args.socket_path)

@@ -44,8 +44,16 @@ Essential development practices for Claude Code when working with KSI.
 **Always use the `ksi` CLI tool** for daemon interactions. It provides:
 - Clean parameter syntax (no JSON escaping)
 - Built-in connection management
-- Structured output formatting
+- Structured output formatting (minimal by default)
 - No permission issues (avoids `Bash(echo:*)` restrictions)
+
+**Output Modes:**
+- **Default**: Clean output with no logging info
+- **Verbose**: Use `--health` flag to show daemon connection status
+  ```bash
+  ksi discover                    # Clean output only
+  ksi --health discover           # Shows connection/health info
+  ```
 
 ### Basic Discovery Workflow
 
@@ -246,12 +254,15 @@ source .venv/bin/activate          # Always first
 ./daemon_control.py status         # Check status
 ./daemon_control.py restart        # Restart daemon
 
-# Common ksi commands (see project_knowledge.md for technical details)
+# Common ksi commands (clean output by default)
 ksi discover                       # List all available events
 ksi discover --namespace system    # Filter by namespace  
 ksi help completion:async          # Get detailed help for an event
 ksi send state:set --key config --value '{"theme": "dark"}'
 ksi send orchestration:start --pattern simple_echo_test --vars '{"num_messages": 2}'
+
+# Use --health flag for verbose output with connection status
+ksi --health discover              # Shows daemon health and discovery results
 ```
 
 ## Available Tools
