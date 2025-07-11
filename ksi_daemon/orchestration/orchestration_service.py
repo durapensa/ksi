@@ -116,6 +116,9 @@ class OrchestrationInstance:
     current_turn: int = 0
     last_activity: float = field(default_factory=time.time)
     
+    # New features
+    default_routing_target: Optional[str] = None
+    
     # Termination tracking
     rounds_completed: int = 0
     termination_conditions: Dict[str, Any] = field(default_factory=dict)
@@ -166,11 +169,86 @@ class OrchestrationModule:
         
         return pattern
     
+    async def _validate_pattern(self, pattern: Dict[str, Any]) -> List[str]:
+        """Validate orchestration pattern and return list of errors."""
+        errors = []
+        
+        # Check if agents are defined
+        if 'agents' not in pattern or not pattern['agents']:
+            errors.append("Pattern must define at least one agent in 'agents' section")
+        
+        # Get available profiles for validation
+        available_profiles = set()
+        if event_emitter:
+            try:
+                result = await event_emitter("composition:list", {"composition_type": "profile"})
+                if result and isinstance(result, dict) and 'compositions' in result:
+                    for comp in result['compositions']:
+                        available_profiles.add(comp.get('name', ''))
+            except Exception as e:
+                logger.warning(f"Could not fetch available profiles for validation: {e}")
+        
+        # Validate agent profiles
+        agents = pattern.get('agents', {})
+        for agent_name, agent_config in agents.items():
+            profile = agent_config.get('profile')
+            if not profile:
+                errors.append(f"Agent '{agent_name}' missing required 'profile' field")
+            elif available_profiles and profile not in available_profiles:
+                errors.append(f"Agent '{agent_name}' references unknown profile: '{profile}'")
+        
+        # Validate routing rules
+        routing = pattern.get('routing', {})
+        for i, rule in enumerate(routing.get('rules', [])):
+            to_agent = rule.get('to')
+            from_agent = rule.get('from', '*')
+            
+            # Check if target agent exists
+            if to_agent and to_agent != '*' and to_agent not in agents:
+                errors.append(f"Routing rule {i} targets undefined agent: '{to_agent}'")
+            
+            # Check if source agent exists
+            if from_agent and from_agent != '*' and from_agent not in agents:
+                errors.append(f"Routing rule {i} from undefined agent: '{from_agent}'")
+        
+        # Check default routing target if specified
+        default_target = routing.get('default')
+        if default_target and default_target not in agents:
+            errors.append(f"Default routing target '{default_target}' not found in agents")
+        
+        # Warn about unreachable agents
+        if agents and routing.get('rules'):
+            agents_with_incoming = set()
+            for rule in routing['rules']:
+                to_agent = rule.get('to')
+                if to_agent and to_agent != '*':
+                    agents_with_incoming.add(to_agent)
+            
+            # Add default target to reachable agents
+            if default_target:
+                agents_with_incoming.add(default_target)
+            
+            orphaned = set(agents.keys()) - agents_with_incoming
+            if orphaned:
+                # This is a warning, not an error
+                logger.warning(f"Agents with no incoming routes: {orphaned}")
+        
+        return errors
+    
     async def start_orchestration(self, pattern_name: str, vars: Dict[str, Any]) -> Dict[str, Any]:
         """Start a new orchestration instance."""
         try:
             # Load pattern
             pattern = await self.load_pattern(pattern_name)
+            
+            # Validate pattern
+            validation_errors = await self._validate_pattern(pattern)
+            if validation_errors:
+                return {
+                    "error": "Pattern validation failed",
+                    "validation_errors": validation_errors,
+                    "status": "failed"
+                }
             
             # Create instance
             orchestration_id = f"orch_{uuid.uuid4().hex[:8]}"
@@ -180,6 +258,10 @@ class OrchestrationModule:
                 pattern=pattern,
                 vars=vars
             )
+            
+            # Parse routing configuration
+            routing_config = pattern.get('routing', {})
+            instance.default_routing_target = routing_config.get('default')
             
             # Parse agents
             for agent_name, agent_config in pattern.get('agents', {}).items():
@@ -192,7 +274,7 @@ class OrchestrationModule:
                 )
             
             # Parse routing rules
-            for rule_config in pattern.get('routing', {}).get('rules', []):
+            for rule_config in routing_config.get('rules', []):
                 rule = RoutingRule(
                     pattern=rule_config.get('pattern', '*'),
                     from_agent=rule_config.get('from', '*'),
@@ -281,6 +363,50 @@ class OrchestrationModule:
                 logger.info(f"Spawned agent {agent_id}")
             except Exception as e:
                 logger.error(f"Failed to spawn agent {agent_id}: {e}")
+        
+        # Send initial messages to spawned agents
+        await self._send_initial_messages(instance)
+    
+    async def _send_initial_messages(self, instance: OrchestrationInstance):
+        """Send initial messages to agents that have initial_message defined."""
+        if not event_emitter:
+            return
+        
+        pattern = instance.pattern
+        agents_config = pattern.get('agents', {})
+        
+        for agent_name, agent_config in agents_config.items():
+            agent_id = f"{instance.orchestration_id}_{agent_name}"
+            
+            # Check if agent was successfully spawned
+            agent_info = instance.agents.get(agent_id)
+            if not agent_info or not agent_info.spawned:
+                continue
+            
+            # Check for initial_message composition reference
+            initial_message_ref = agent_config.get('initial_message')
+            if initial_message_ref:
+                try:
+                    # Get the composition content
+                    comp_result = await event_emitter("composition:get", {
+                        "name": initial_message_ref
+                    })
+                    
+                    if comp_result and 'content' in comp_result:
+                        # Send the initial message
+                        await event_emitter("agent:send_message", {
+                            "agent_id": agent_id,
+                            "message": {
+                                "role": "system",
+                                "content": comp_result['content']
+                            }
+                        })
+                        logger.info(f"Sent initial message to {agent_id} from composition {initial_message_ref}")
+                    else:
+                        logger.warning(f"Could not find composition {initial_message_ref} for agent {agent_id}")
+                        
+                except Exception as e:
+                    logger.error(f"Failed to send initial message to {agent_id}: {e}")
     
     async def route_message(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Route a message according to orchestration rules."""
@@ -307,6 +433,14 @@ class OrchestrationModule:
         if instance.turn_order and not self._is_agents_turn(instance, from_agent):
             logger.debug(f"Blocking message from {from_agent} - not their turn")
             return {"status": "blocked", "reason": "not_agents_turn"}
+        
+        # If no targets found and we have a default, use it
+        if not targets and instance.default_routing_target:
+            if instance.default_routing_target in instance.agents:
+                targets.add(instance.default_routing_target)
+                logger.info(f"No routing rules matched for {event_name}, using default target: {instance.default_routing_target}")
+            else:
+                logger.warning(f"Default routing target {instance.default_routing_target} not found in agents")
         
         # Route to targets
         routed_to = []
@@ -514,6 +648,39 @@ async def handle_orchestration_terminate(data: Dict[str, Any]) -> Dict[str, Any]
     # Terminate orchestration
     await orchestration_module._terminate_orchestration(instance, "manual")
     return {"status": "terminated"}
+
+
+@event_handler("orchestration:request_termination")
+async def handle_orchestration_request_termination(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Allow an agent within an orchestration to request termination."""
+    agent_id = data.get("agent_id")
+    reason = data.get("reason", "completed")
+    
+    if not agent_id:
+        return {"error": "No agent_id provided"}
+    
+    # Find the orchestration this agent belongs to
+    orchestration_id = None
+    instance = None
+    
+    for orch_id, orch_instance in orchestrations.items():
+        if agent_id in orch_instance.agents:
+            orchestration_id = orch_id
+            instance = orch_instance
+            break
+    
+    if not instance:
+        return {"error": f"Agent {agent_id} not found in any orchestration"}
+    
+    # Verify the agent is an orchestrator (has orchestration capabilities)
+    agent_info = instance.agents.get(agent_id)
+    if agent_info and agent_info.profile in ["base_orchestrator"]:
+        # Allow termination
+        logger.info(f"Agent {agent_id} requested termination of orchestration {orchestration_id}: {reason}")
+        await orchestration_module._terminate_orchestration(instance, f"agent_requested: {reason}")
+        return {"status": "terminated", "orchestration_id": orchestration_id}
+    else:
+        return {"error": "Only orchestrator agents can request termination"}
 
 
 @event_handler("orchestration:list_patterns")
