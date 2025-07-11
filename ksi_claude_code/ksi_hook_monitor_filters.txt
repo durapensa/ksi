@@ -28,6 +28,7 @@ event:
 # KSI scripts/mentions
 ksi_
 KSI
+ksi
 
 # KSI paths and tools
 /ksi/

@@ -84,11 +84,11 @@ class ExitStrategy:
     @staticmethod
     def exit_with_feedback(message: str, is_error: bool = False):
         """Exit with JSON decision format for Claude Code feedback"""
-        # Use JSON decision format to provide feedback
+        # For PostToolUse: omit decision to allow, include reason for feedback
         output = {
-            "decision": "block",
             "reason": message
         }
+        # Note: NOT including "decision" field allows the operation
         print(json.dumps(output), flush=True)
         sys.exit(ExitStrategy.SUCCESS)
     
