@@ -59,7 +59,7 @@ DEFAULT_LOG_FORMAT = "console"  # or "json"
 
 # Agent defaults
 DEFAULT_AGENT_PROFILE = "ksi-developer"
-DEFAULT_MODEL = "claude-sonnet-4-20250514"
+DEFAULT_MODEL = "claude-cli/claude-sonnet-4-20250514"
 
 # Claude CLI configuration
 DEFAULT_CLAUDE_BIN = None  # Set via KSI_CLAUDE_BIN environment variable

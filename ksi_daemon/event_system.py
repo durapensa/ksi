@@ -239,20 +239,26 @@ class EventRouter:
             # Transform the data if no condition or condition passed
             if should_transform:
                 try:
-                    transformed_data = self._apply_mapping(transformer.get('mapping', {}), data)
-                    
-                    # Handle async transformers
+                    # For async transformers, generate transform_id before mapping
                     if transformer.get('async', False):
                         # Generate transform_id for async tracking
                         transform_id = str(uuid.uuid4())
                         self._async_transformers[transform_id] = event
                         
+                        # Add transform_id to data for template substitution
+                        data_with_transform_id = dict(data)
+                        data_with_transform_id['transform_id'] = transform_id
+                        
+                        # Debug logging
+                        logger.debug(f"Async transformer data: {data_with_transform_id}")
+                        
+                        # Apply mapping with transform_id available
+                        transformed_data = self._apply_mapping(transformer.get('mapping', {}), data_with_transform_id)
+                        logger.debug(f"Transformed data: {transformed_data}")
+                        
                         # Store context for later injection (if available)
                         if context:
                             self._transform_contexts[transform_id] = context
-                        
-                        # Add transform_id to transformed data
-                        transformed_data['transform_id'] = transform_id
                         
                         # Emit to target with transform_id
                         logger.debug(f"Async transforming {event} -> {target} (id: {transform_id})")
@@ -266,6 +272,7 @@ class EventRouter:
                         }]
                     else:
                         # Synchronous transformation
+                        transformed_data = self._apply_mapping(transformer.get('mapping', {}), data)
                         logger.debug(f"Transforming {event} -> {target}")
                         return await self.emit(target, transformed_data, context)
                 except Exception as e:
@@ -816,38 +823,63 @@ def event_handler(event: str,
 
 def _apply_mapping(self, mapping: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
     """Apply field mapping from transformer definition."""
+    
+    def substitute_template(value: Any, data: Dict[str, Any]) -> Any:
+        """Recursively substitute template variables in any structure."""
+        if isinstance(value, str):
+            # Check for embedded templates in strings
+            import re
+            template_pattern = r'\{\{([^}]+)\}\}'
+            
+            def replace_template(match):
+                template = match.group(1).strip()
+                # Simple dot notation support with array indexing
+                parts = template.split('.')
+                result = data
+                for part in parts:
+                    if isinstance(result, dict) and part in result:
+                        result = result[part]
+                    elif isinstance(result, list) and part.isdigit():
+                        # Array index access
+                        index = int(part)
+                        if 0 <= index < len(result):
+                            result = result[index]
+                        else:
+                            return match.group(0)  # Return original if not found
+                    else:
+                        return match.group(0)  # Return original if not found
+                return str(result)
+            
+            # Replace all templates in the string
+            return re.sub(template_pattern, replace_template, value)
+        elif isinstance(value, dict):
+            # Recursively process dictionary
+            return {k: substitute_template(v, data) for k, v in value.items()}
+        elif isinstance(value, list):
+            # Recursively process list
+            return [substitute_template(item, data) for item in value]
+        else:
+            # Static value
+            return value
+    
     result = {}
     
     for target_field, source_value in mapping.items():
-        if isinstance(source_value, str) and source_value.startswith('{{') and source_value.endswith('}}'):
-            # Template syntax: {{source.field}}
-            template = source_value[2:-2].strip()
-            
-            # Simple dot notation support
-            parts = template.split('.')
-            value = data
-            for part in parts:
-                if isinstance(value, dict) and part in value:
-                    value = value[part]
-                else:
-                    value = None
-                    break
-            
-            # Handle nested target fields
-            if '.' in target_field:
-                # Create nested structure
-                current = result
-                parts = target_field.split('.')
-                for part in parts[:-1]:
-                    if part not in current:
-                        current[part] = {}
-                    current = current[part]
-                current[parts[-1]] = value
-            else:
-                result[target_field] = value
+        # Apply template substitution recursively
+        processed_value = substitute_template(source_value, data)
+        
+        # Handle nested target fields
+        if '.' in target_field:
+            # Create nested structure
+            current = result
+            parts = target_field.split('.')
+            for part in parts[:-1]:
+                if part not in current:
+                    current[part] = {}
+                current = current[part]
+            current[parts[-1]] = processed_value
         else:
-            # Static value
-            result[target_field] = source_value
+            result[target_field] = processed_value
     
     return result
 

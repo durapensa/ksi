@@ -35,7 +35,8 @@ transformers:
     async: true
     mapping:
       prompt: "Test async completion: {{task_description}}"
-      model: "sonnet"
+      model: "claude-cli/claude-sonnet-4-20250514"
+      request_id: "{{transform_id}}"  # Use transform_id as request_id
     response_route:
       from: "completion:result"
       to: "test:async_complete"
