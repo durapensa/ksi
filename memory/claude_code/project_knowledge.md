@@ -62,6 +62,10 @@ async with EventClient() as client:
 - **state**: entity:*, relationship:*, graph:*
 - **observation**: subscribe, unsubscribe, query_history
 - **message**: publish, subscribe
+- **transformer**: load_pattern, unload_pattern, reload_pattern, list_by_pattern
+- **composition**: get, create, list, rebuild_index
+- **orchestration**: spawn, coordinate, aggregate, track
+- **evaluation**: prompt, compare
 
 ## Infrastructure Services
 
@@ -96,6 +100,10 @@ async with EventClient() as client:
 - **completion/completion_service.py**: Async completion orchestration
 - **agent/agent_service.py**: Agent lifecycle and spawning
 - **observation/observation_manager.py**: Event observation routing
+- **transformer/transformer_service.py**: Pattern-based event transformation
+- **orchestration/orchestration_service.py**: Multi-agent orchestration patterns
+- **composition/composition_service.py**: YAML pattern management
+- **evaluation/prompt_evaluation.py**: Declarative prompt testing
 - **mcp/dynamic_server.py**: MCP server with tool generation
 - **capability_enforcer.py**: Runtime permission enforcement
 
@@ -242,27 +250,68 @@ tail -f var/logs/daemon/daemon.log
 
 See `ksi_claude_code/docs/PROMPT_EXPERIMENTS_GUIDE.md` for usage.
 
-## Declarative Evaluation System (2025-07-08)
+## Pattern-Based Orchestration
 
-### ✅ Phase 2 Complete: YAML-Based Evaluation
-- **Migrated to declarative test suites**: All tests now in YAML format
-- **Implemented evaluator system**: 11 built-in evaluator types
-- **Clean separation**: `config.evaluations_dir` separate from `config.compositions_dir`
-- **File-based results**: Pattern `{type}_{name}_{eval}_{id}.yaml` in `var/lib/evaluations/results/`
-- **Weighted scoring**: Each evaluator has configurable weight, success threshold per test
-- **Format options for evaluation:compare**: summary (default), rankings, detailed - reduces output from 1500+ to ~20 lines
+### Transformer System
+Patterns define custom event vocabularies via transformers in YAML:
+
+```yaml
+transformers:
+  # Sync transformer
+  - source: "pattern:command"
+    target: "agent:send_message"
+    mapping:
+      agent_id: "{{target_agent}}"
+      message: "Command: {{instruction}}"
+  
+  # Async with response routing
+  - source: "pattern:analyze"
+    target: "completion:async"
+    async: true
+    mapping:
+      prompt: "Analyze this data: {{data}}"
+      model: "claude-cli/claude-sonnet-4-20250514"
+      request_id: "{{transform_id}}"
+    response_route:
+      from: "completion:result"
+      to: "pattern:analysis_complete"
+  
+  # Conditional
+  - source: "pattern:notify"
+    target: "message:broadcast"
+    condition: "priority == 'high'"
+    mapping:
+      message: "Alert: {{notification}}"
+```
+
+### Template Substitution
+- **Simple**: `{{variable}}`
+- **Embedded**: `"Status: {{status}} at {{time}}"`
+- **Nested**: `{{user.name}}`, `{{config.timeout}}`
+- **Arrays**: `{{items.0}}`, `{{tags.1}}`
+- **Special**: `{{transform_id}}` available in async transformers
+
+### Composition System
+- **Preserves all YAML sections**: transformers, agents, routing, custom fields
+- **Patterns location**: `var/lib/compositions/orchestrations/`
+- **Hot reload**: `transformer:reload_pattern` event
+- **Reference counting**: Multiple systems can share patterns
+
+## Declarative Evaluation System
 
 ### Architecture
 ```
 var/lib/evaluations/
-├── test_suites/           # Test definitions
-│   ├── basic_effectiveness.yaml
-│   ├── reasoning_tasks.yaml
-│   └── instruction_following.yaml
-├── evaluators/            # (Future) Reusable evaluator definitions
-├── schemas/               # (Future) Validation schemas  
+├── test_suites/           # Test definitions (YAML)
+├── evaluators/            # Reusable evaluator definitions
 └── results/               # Evaluation results
-    └── profile_base-single-agent_basic-effectiveness_001.yaml
+```
+
+### Features
+- **YAML test suites**: Declarative test definitions
+- **11 evaluator types**: exact_match, contains, regex, length, etc.
+- **Weighted scoring**: Configure weight and success threshold per test
+- **Format options**: summary, rankings, detailed
 ```
 
 ### Evaluator Types Implemented

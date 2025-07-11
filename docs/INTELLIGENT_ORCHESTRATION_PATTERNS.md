@@ -233,32 +233,25 @@ learnings:
 - Example patterns: adaptive_tournament_v2, distributed_analysis
 - Dual decision tracking: inline learnings + detailed logs
 
-### 🔄 Phase 3: From Primitives to Pattern Transformers
-**Status**: Implementation in progress - blocked on composition system redesign
+### ✅ Phase 3: Pattern Transformers
+**Status**: Complete - transformer system fully operational
 
-Transitioning from hardcoded primitives to dynamic pattern-loaded transformers:
+Dynamic pattern-loaded transformers enable custom event vocabularies:
 
-**Previous Approach** (replaced):
-- Hardcoded orchestration primitives in Python
-- Fixed set of 7 primitives in `orchestration_primitives.py`
+**Implementation**:
+- ✅ `ksi_daemon/transformer/transformer_service.py` - Pattern-level transformer management
+- ✅ `ksi_daemon/orchestration/orchestration_service.py` - Integrated with transformer service
+- ✅ Composition system preserves all YAML sections including `transformers`
+- ✅ Full template variable substitution with embedded templates
+- ✅ Async transformers with token-based responses and routing
 
-**New Approach** (partially implemented):
-- Patterns define transformers in YAML
-- Async transformers with token-based responses  
-- No Python modules required for patterns
-- Complete vocabulary defined by each pattern
-
-**Current State**:
-- ✅ `ksi_daemon/transformer/transformer_service.py` - Pattern-level transformer management created
-- ✅ `ksi_daemon/orchestration/orchestration_service.py` - Updated to use transformer service
-- ❌ **BLOCKED**: Composition system strips `transformers` section from patterns
-- 📋 **NEXT**: Implement `docs/GENERIC_COMPOSITION_SYSTEM_REDESIGN.md` to unblock
-
-**Remaining Work** (after unblocking):
-- ⏳ Test end-to-end DSL + transformer flow
-- ⏳ Create pattern monitoring for transformer hot-reload
-
-The transformer service is loaded but cannot function until the composition system preserves all YAML sections as outlined in the redesign plan.
+**Features**:
+- Patterns define transformers in YAML - no Python required
+- Template substitution: `{{var}}`, `{{obj.field}}`, `{{array.0}}`
+- Embedded templates: `"prefix {{variable}} suffix"`
+- Async transformers with response routing via `transform_id`
+- Reference counting for shared patterns
+- Hot-reload support ready for future use
 
 #### orchestration:aggregate
 
@@ -307,7 +300,7 @@ This enables orchestrators to coordinate complex workflows without needing tools
 
 ### Dynamic Pattern-Loaded Transformers
 
-Patterns can define their own event transformers in YAML, enabling vocabulary mapping without Python code:
+Patterns define their own event transformers in YAML, creating custom vocabularies without Python code:
 
 ```yaml
 transformers:
@@ -324,6 +317,8 @@ transformers:
     async: true
     mapping:
       prompt: "Evaluate: {{matches}}"
+      model: "claude-cli/claude-sonnet-4-20250514"  # Use claude-cli prefix
+      request_id: "{{transform_id}}"               # Correlate responses
     response_route:
       from: "completion:result"
       to: "tournament:batch_evaluated"
@@ -335,60 +330,23 @@ transformers:
     condition: "score > threshold"
     mapping:
       type: "high_performer"
+      data: "{{event_data}}"
 ```
+
+#### Template Substitution
+
+Templates support embedded variables, nested access, and array indexing:
+- Simple: `{{variable}}` 
+- Embedded: `"Result: {{score}} points"`
+- Nested: `{{user.name}}`, `{{metadata.tags.0}}`
+- Available in async: `{{transform_id}}` for correlation
 
 #### Async Transformer Flow
 
-1. **Request**: Pattern event → Transformer → Target event
-2. **Token Return**: `{transform_id: "uuid", status: "queued"}`
-3. **Response**: Result event with transform_id → Response routing
-4. **Pattern Event**: Routed to pattern-specific response event
-
-This enables patterns to define their complete vocabulary and async workflows without requiring Python modules.
-
-**Implementation Features**:
-1. **Dynamic Registration**: `router.register_transformer_from_yaml(transformer_def)`
-2. **Async Support**: Token-based async transformers with response routing
-3. **Pattern Loading**: Transformers defined in pattern YAML, loaded at runtime
-4. **Conditional Logic**: Transformers can include conditions and filters
-5. **Template Support**: Jinja2-style templates for field mapping
-6. **Response Correlation**: Automatic correlation of async responses
-
-**Pattern-Defined Transformers**:
-```yaml
-# In pattern YAML - no Python needed!
-transformers:
-  # Vocabulary mapping
-  - source: "pattern:analyze"
-    target: "agent:process"
-    mapping:
-      task: "analysis"
-      data: "{{input}}"
-  
-  # Async with completion pattern
-  - source: "pattern:complex_task"
-    target: "completion:async"
-    async: true
-    mapping:
-      prompt: "{{task_description}}"
-    response_route:
-      from: "completion:result"
-      to: "pattern:task_complete"
-  
-  # Conditional routing
-  - source: "pattern:route"
-    target: "orchestration:send"
-    condition: "priority == 'high'"
-    mapping:
-      to: {role: "priority_handler"}
-```
-
-**Impact on Orchestration**:
-- Patterns define complete vocabulary in YAML
-- No hardcoded orchestration primitives needed
-- Async operations handled elegantly with tokens
-- Patterns are truly self-contained
-- Dynamic loading/unloading with patterns
+1. **Request**: Event triggers transformer, generates unique `transform_id`
+2. **Token Return**: Immediate response with `{transform_id: "uuid", status: "queued"}`
+3. **Async Work**: Target service processes request using `transform_id` as `request_id`
+4. **Response Routing**: Result event filtered by `transform_id` and routed to pattern event
 
 ### Integration Patterns
 
