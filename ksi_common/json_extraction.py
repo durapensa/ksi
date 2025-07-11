@@ -143,7 +143,7 @@ async def extract_and_emit_json_events(
             
             logger.info(f"Emitted {event_name} extracted from response", 
                        agent_id=agent_id,
-                       event=event_name)
+                       event_name=event_name)
                        
         except Exception as e:
             logger.error(f"Failed to emit extracted event: {e}", 
