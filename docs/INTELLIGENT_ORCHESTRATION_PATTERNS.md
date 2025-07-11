@@ -254,6 +254,10 @@ Transitioning from hardcoded primitives to dynamic pattern-loaded transformers:
 - ❌ **BLOCKED**: Composition system strips `transformers` section from patterns
 - 📋 **NEXT**: Implement `docs/GENERIC_COMPOSITION_SYSTEM_REDESIGN.md` to unblock
 
+**Remaining Work** (after unblocking):
+- ⏳ Test end-to-end DSL + transformer flow
+- ⏳ Create pattern monitoring for transformer hot-reload
+
 The transformer service is loaded but cannot function until the composition system preserves all YAML sections as outlined in the redesign plan.
 
 #### orchestration:aggregate
