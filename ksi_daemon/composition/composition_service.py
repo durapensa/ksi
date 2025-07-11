@@ -6,6 +6,7 @@ Composition Service Module - Event handlers for composition system
 import asyncio
 import json
 import yaml
+import re
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Set, TypedDict, Tuple
 from typing_extensions import NotRequired
@@ -15,7 +16,7 @@ from ksi_daemon.event_system import event_handler, get_router
 from ksi_common.timestamps import timestamp_utc, format_for_logging
 from ksi_common.logging import get_bound_logger
 from ksi_common.config import config
-from ksi_common.file_utils import save_yaml_file, ensure_directory
+from ksi_common.file_utils import save_yaml_file, ensure_directory, load_yaml_file
 from ksi_common.event_utils import extract_single_response
 
 # Import composition modules
@@ -549,9 +550,67 @@ async def handle_list(data: CompositionListData) -> Dict[str, Any]:
     }
 
 
+async def load_composition_raw(name: str, comp_type: Optional[str] = None) -> Dict[str, Any]:
+    """Load raw composition YAML data preserving all sections."""
+    # Try to find composition file
+    composition_path = None
+    
+    if comp_type:
+        # Try specific type directory first
+        type_dirs = {
+            'profile': 'profiles',
+            'prompt': 'prompts',
+            'system': 'system',
+            'orchestration': 'orchestrations',
+            'evaluation': 'evaluations'
+        }
+        if comp_type in type_dirs:
+            potential_path = COMPOSITIONS_BASE / type_dirs[comp_type] / f"{name}.yaml"
+            if potential_path.exists():
+                composition_path = potential_path
+    
+    # Search all composition directories
+    if not composition_path:
+        for yaml_file in COMPOSITIONS_BASE.rglob(f"{name}.yaml"):
+            composition_path = yaml_file
+            break
+    
+    if not composition_path or not composition_path.exists():
+        raise FileNotFoundError(f"Composition not found: {name}")
+    
+    # Load and return raw YAML data
+    return load_yaml_file(composition_path)
+
+
+def validate_core_composition(data: Dict[str, Any]) -> List[str]:
+    """Validate only core composition fields."""
+    errors = []
+    
+    # Required fields
+    if not isinstance(data.get('name'), str):
+        errors.append("'name' must be a string")
+    if not isinstance(data.get('type'), str):
+        errors.append("'type' must be a string")
+    
+    # Optional fields with type checking
+    if 'version' in data and not isinstance(data['version'], str):
+        errors.append("'version' must be a string")
+    if 'description' in data and not isinstance(data['description'], str):
+        errors.append("'description' must be a string")
+    if 'author' in data and not isinstance(data['author'], str):
+        errors.append("'author' must be a string")
+    
+    # Name format validation
+    name = data.get('name', '')
+    if name and not re.match(r'^[a-zA-Z0-9_-]+$', name):
+        errors.append("'name' must contain only alphanumeric, underscore, and hyphen characters")
+    
+    return errors
+
+
 @event_handler("composition:get")
 async def handle_get(data: CompositionGetData) -> Dict[str, Any]:
-    """Get a composition definition."""
+    """Get a composition definition with all sections preserved."""
     name = data.get('name')
     comp_type = data.get('type')
     
@@ -559,33 +618,21 @@ async def handle_get(data: CompositionGetData) -> Dict[str, Any]:
         return {'error': 'Composition name required'}
     
     try:
-        composition = await load_composition(name, comp_type)
+        # Load raw YAML data to preserve all sections
+        composition_data = await load_composition_raw(name, comp_type)
+        
+        # Validate core fields
+        validation_errors = validate_core_composition(composition_data)
+        if validation_errors:
+            return {
+                'status': 'error',
+                'error': 'Invalid composition structure',
+                'validation_errors': validation_errors
+            }
         
         return {
             'status': 'success',
-            'composition': {
-                'name': composition.name,
-                'type': composition.type,
-                'version': composition.version,
-                'description': composition.description,
-                'author': composition.author,
-                'extends': composition.extends,
-                'mixins': composition.mixins,
-                'components': [
-                    {
-                        'name': c.name,
-                        'source': c.source,
-                        'composition': c.composition,
-                        'has_inline': c.inline is not None,
-                        'has_template': c.template is not None,
-                        'condition': c.condition,
-                        'vars': list(c.vars.keys())
-                    }
-                    for c in composition.components
-                ],
-                'variables': list(composition.variables.keys()),
-                'metadata': composition.metadata
-            }
+            'composition': composition_data  # Return ALL sections, not just core fields
         }
         
     except Exception as e:

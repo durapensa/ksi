@@ -228,46 +228,49 @@ class EventRouter:
             target = transformer.get('target')
             
             # Check condition if present
+            should_transform = True
             if 'condition' in transformer:
                 # Simple condition evaluation (can be enhanced)
                 if not self._evaluate_condition(transformer['condition'], data):
                     # Condition not met, skip transformation
                     logger.debug(f"Transformer condition not met for {event}")
-                else:
-                    # Transform the data
-                    try:
-                        transformed_data = self._apply_mapping(transformer.get('mapping', {}), data)
+                    should_transform = False
+            
+            # Transform the data if no condition or condition passed
+            if should_transform:
+                try:
+                    transformed_data = self._apply_mapping(transformer.get('mapping', {}), data)
+                    
+                    # Handle async transformers
+                    if transformer.get('async', False):
+                        # Generate transform_id for async tracking
+                        transform_id = str(uuid.uuid4())
+                        self._async_transformers[transform_id] = event
                         
-                        # Handle async transformers
-                        if transformer.get('async', False):
-                            # Generate transform_id for async tracking
-                            transform_id = str(uuid.uuid4())
-                            self._async_transformers[transform_id] = event
-                            
-                            # Store context for later injection (if available)
-                            if context:
-                                self._transform_contexts[transform_id] = context
-                            
-                            # Add transform_id to transformed data
-                            transformed_data['transform_id'] = transform_id
-                            
-                            # Emit to target with transform_id
-                            logger.debug(f"Async transforming {event} -> {target} (id: {transform_id})")
-                            result = await self.emit(target, transformed_data, context)
-                            
-                            # Return token response
-                            return [{
-                                "transform_id": transform_id,
-                                "status": "queued",
-                                "target_event": target
-                            }]
-                        else:
-                            # Synchronous transformation
-                            logger.debug(f"Transforming {event} -> {target}")
-                            return await self.emit(target, transformed_data, context)
-                    except Exception as e:
-                        logger.error(f"Dynamic transformer failed for {event}: {e}")
-                        # Fall through to normal handling
+                        # Store context for later injection (if available)
+                        if context:
+                            self._transform_contexts[transform_id] = context
+                        
+                        # Add transform_id to transformed data
+                        transformed_data['transform_id'] = transform_id
+                        
+                        # Emit to target with transform_id
+                        logger.debug(f"Async transforming {event} -> {target} (id: {transform_id})")
+                        result = await self.emit(target, transformed_data, context)
+                        
+                        # Return token response
+                        return [{
+                            "transform_id": transform_id,
+                            "status": "queued",
+                            "target_event": target
+                        }]
+                    else:
+                        # Synchronous transformation
+                        logger.debug(f"Transforming {event} -> {target}")
+                        return await self.emit(target, transformed_data, context)
+                except Exception as e:
+                    logger.error(f"Dynamic transformer failed for {event}: {e}")
+                    # Fall through to normal handling
         
         # Check for async transformer response routing
         if hasattr(self, '_handle_async_response'):

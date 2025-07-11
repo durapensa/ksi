@@ -145,6 +145,9 @@ class EventDaemonCore:
         # Messaging modules
         import ksi_daemon.messaging.message_bus
         
+        # Transformer management (extends event system)
+        import ksi_daemon.transformer.transformer_service
+        
         # Orchestration modules
         import ksi_daemon.orchestration.orchestration_service
         

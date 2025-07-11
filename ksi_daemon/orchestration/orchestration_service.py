@@ -135,7 +135,7 @@ class OrchestrationModule:
         # Provider loading not yet implemented
         pass
     
-    async def load_pattern(self, pattern_name: str) -> Dict[str, Any]:
+    async def load_pattern(self, pattern_name: str, load_transformers: bool = True) -> Dict[str, Any]:
         """Load an orchestration pattern from YAML."""
         pattern_file = self.patterns_dir / f"{pattern_name}.yaml"
         
@@ -149,11 +149,20 @@ class OrchestrationModule:
         with open(pattern_file, 'r') as f:
             pattern = yaml.safe_load(f)
         
-        # Validate required fields
-        required = ['name', 'agents', 'routing']
-        for field in required:
-            if field not in pattern:
-                raise ValueError(f"Orchestration pattern missing required field: {field}")
+        # Validate required fields (relaxed - only name is truly required)
+        if 'name' not in pattern:
+            raise ValueError("Orchestration pattern missing required field: name")
+        
+        # Load transformers via transformer service if requested and present
+        if load_transformers and 'transformers' in pattern and event_emitter:
+            try:
+                await event_emitter("transformer:load_pattern", {
+                    "pattern": pattern_name,
+                    "source": "orchestration"
+                })
+                logger.debug(f"Requested transformer loading for pattern {pattern_name}")
+            except Exception as e:
+                logger.warning(f"Failed to load transformers for pattern {pattern_name}: {e}")
         
         return pattern
     
@@ -367,6 +376,17 @@ class OrchestrationModule:
         if event_emitter:
             for agent_id in instance.agents:
                 await event_emitter("agent:terminate", {"agent_id": agent_id})
+        
+        # Unload pattern transformers via transformer service
+        if event_emitter:
+            try:
+                await event_emitter("transformer:unload_pattern", {
+                    "pattern": instance.pattern_name,
+                    "source": "orchestration"
+                })
+                logger.debug(f"Requested transformer unloading for pattern {instance.pattern_name}")
+            except Exception as e:
+                logger.warning(f"Failed to unload transformers for pattern {instance.pattern_name}: {e}")
         
         # Update state
         instance.state = "terminated"
