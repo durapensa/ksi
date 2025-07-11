@@ -159,13 +159,13 @@ from ksi_common.config import config
 ./daemon_control.py start|stop|restart|status|dev
 
 # Health check
-echo '{"event": "system:health", "data": {}}' | nc -U var/run/daemon.sock
+ksi send system:health
 
 # List agents
-echo '{"event": "agent:list", "data": {}}' | nc -U var/run/daemon.sock
+ksi send agent:list
 
 # Module introspection
-echo '{"event": "module:list", "data": {}}' | nc -U var/run/daemon.sock
+ksi send module:list
 ```
 
 ### Debugging
@@ -188,12 +188,18 @@ tail -f var/logs/daemon/daemon.log
 4. **Modular**: Clean module boundaries, no coupling
 5. **Declarative**: Capabilities and permissions, not code
 
-## Socket Communication Patterns (2025-07-06)
+## Socket Communication Patterns (2025-07-11)
 
-### Direct Unix Socket
-- **More Reliable**: EventClient has discovery timeout issues
+### KSI CLI Tool (Recommended)
+- **Primary Interface**: `ksi` command-line tool for all daemon interactions
+- **Advantages**: No JSON escaping, parameter validation, connection management
+- **Permission-free**: Avoids Claude Code `Bash(echo:*)` permission requirements
+- **Examples**: `ksi send event:name --param value` or `ksi send event:name --json '{...}'`
+
+### Direct Unix Socket (Legacy)
 - **Pattern**: `echo '{"event": "name", "data": {}}' | nc -U var/run/daemon.sock`
 - **Response**: Always includes event, data, count, correlation_id, timestamp
+- **Use cases**: Python scripts, when ksi CLI unavailable
 - **Documentation**: See `experiments/socket_patterns_documentation.md`
 
 ### Event Log Features

@@ -39,18 +39,45 @@ Essential development practices for Claude Code when working with KSI.
 
 **CRITICAL**: Always use the discovery system before reading source code. The discovery system is your primary tool for understanding available events and their parameters.
 
+### KSI CLI Tool (Preferred Method)
+
+**Always use the `ksi` CLI tool** for daemon interactions. It provides:
+- Clean parameter syntax (no JSON escaping)
+- Built-in connection management
+- Structured output formatting
+- No permission issues (avoids `Bash(echo:*)` restrictions)
+
 ### Basic Discovery Workflow
 
 ```bash
-# 1. Find events in a namespace (start with detail=false)
-echo '{"event": "system:discover", "data": {"namespace": "evaluation", "detail": false}}' | nc -U var/run/daemon.sock | jq
+# 1. Find events in a namespace
+ksi discover --namespace evaluation
 
-# 2. Get detailed help for a specific event (now with rich parameter info!)
-echo '{"event": "system:help", "data": {"event": "evaluation:prompt"}}' | nc -U var/run/daemon.sock | jq
+# 2. Get detailed help for a specific event (with rich parameter info!)
+ksi help evaluation:prompt
 
-# 3. Filter events by module
-echo '{"event": "system:discover", "data": {"module": "ksi_daemon.evaluation.prompt_evaluation", "detail": true}}' | nc -U var/run/daemon.sock | jq
+# 3. List all available events
+ksi discover
+
+# 4. Send events with parameters
+ksi send state:set --key config --value '{"theme": "dark"}' --namespace user
 ```
+
+### Legacy Method (Deprecated)
+
+<details>
+<summary>Echo/netcat pattern (avoid if possible)</summary>
+
+The `echo | nc` pattern is deprecated due to:
+- JSON escaping complexity
+- Permission requirements for `Bash(echo:*)`
+- Less readable commands
+
+```bash
+# Old way - not recommended
+echo '{"event": "system:discover", "data": {"namespace": "evaluation"}}' | nc -U var/run/daemon.sock
+```
+</details>
 
 ### Enhanced Discovery Features (2025-07-09)
 
@@ -69,17 +96,20 @@ The discovery system now provides:
 # Wrong: Grepping source code
 grep "@event_handler" ksi_daemon/evaluation/*.py  # ❌ Don't do this
 
-# Right: Use discovery system
-echo '{"event": "system:help", "data": {"event": "evaluation:prompt"}}' | nc -U var/run/daemon.sock | jq '.data.parameters'  # ✅ Do this
+# Right: Use ksi CLI
+ksi help evaluation:prompt  # ✅ Do this
 ```
 
 **Exploring Namespaces:**
 ```bash
-# List all events in a namespace without overwhelming detail
-echo '{"event": "system:discover", "data": {"namespace": "composition", "detail": false}}' | nc -U var/run/daemon.sock | jq '.data.events | keys'
+# List all events in a namespace
+ksi discover --namespace composition
 
-# Get summary of namespace
-echo '{"event": "system:discover", "data": {"namespace": "evaluation", "format_style": "compact"}}' | nc -U var/run/daemon.sock | jq
+# Get all events (with filtering)
+ksi discover | grep evaluation
+
+# Complex JSON parameters (use --json flag)
+ksi send evaluation:prompt --json '{"prompt": "test", "params": {"model": "sonnet"}}'
 ```
 
 ### Discovery Best Practices
@@ -119,10 +149,13 @@ For prompt testing and composition evaluation:
 ### Common Operations
 ```bash
 # Rebuild composition index after changes
-echo '{"event": "composition:rebuild_index", "data": {}}' | nc -U var/run/daemon.sock
+ksi send composition:rebuild_index
 
 # Create new prompt composition
-echo '{"event": "composition:create", "data": {"name": "my-prompt", "category": "agent_tasks", "content": "..."}}' | nc -U var/run/daemon.sock
+ksi send composition:create --name my-prompt --category agent_tasks --content "Test prompt content"
+
+# List compositions
+ksi send composition:list --category agent_tasks
 
 # Judge bootstrap protocol (for autonomous evaluation)
 python ksi_claude_code/scripts/judge_bootstrap_v2.py --test-suite evaluation/judges --num-variations 5
@@ -213,15 +246,12 @@ source .venv/bin/activate          # Always first
 ./daemon_control.py status         # Check status
 ./daemon_control.py restart        # Restart daemon
 
-# KSI command-line interface (no installation needed for dev)
-./ksi discover                     # List all available events
-./ksi discover --namespace system  # Filter by namespace  
-./ksi help completion:async        # Get detailed help for an event
-./ksi send state:set --key config --value '{"theme": "dark"}'
-
-# Module introspection
-echo '{"event": "module:list", "data": {}}' | nc -U var/run/daemon.sock
-echo '{"event": "system:health", "data": {}}' | nc -U var/run/daemon.sock
+# Common ksi commands (see project_knowledge.md for technical details)
+ksi discover                       # List all available events
+ksi discover --namespace system    # Filter by namespace  
+ksi help completion:async          # Get detailed help for an event
+ksi send state:set --key config --value '{"theme": "dark"}'
+ksi send orchestration:start --pattern simple_echo_test --vars '{"num_messages": 2}'
 ```
 
 ## Available Tools
