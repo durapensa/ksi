@@ -1,0 +1,311 @@
+name: swarm_optimization_pattern
+type: orchestration
+version: 1.0.0
+description: |
+  A collective problem-solving pattern using swarm intelligence principles.
+  Agents explore solution spaces collectively, sharing information through
+  configurable mechanisms that can lead to stable convergence, oscillation,
+  or chaotic dynamics depending on parameters.
+author: claude_orchestrator
+extends: null
+
+metadata:
+  tags:
+    - swarm-intelligence
+    - optimization
+    - collective-solving
+    - emergent
+    - distributed
+    - adaptive
+  capabilities_required:
+    - agent:spawn
+    - agent:send_message
+    - orchestration:broadcast
+    - state:distributed
+  use_cases:
+    - Distributed optimization problems
+    - Collective decision making
+    - Emergent solution discovery
+    - Swarm dynamics research
+
+# Swarm intelligence DSL
+orchestration_logic:
+  description: |
+    Agents act as particles in a solution space, exploring locally while
+    sharing information globally. The pattern can exhibit different dynamics
+    based on communication topology and update rules.
+  
+  strategy: |
+    INITIALIZE swarm_system:
+      DEFINE solution_space:
+        dimensions: problem.variable_count
+        bounds: problem.constraints
+        fitness_function: problem.evaluate_solution
+      
+      CONFIGURE swarm_dynamics:
+        communication_topology: {{topology_type}}  # full, ring, small-world, random
+        information_delay: {{delay_factor}}  # 0=instant, >0=delayed
+        update_rule: {{update_strategy}}  # gradient, momentum, adaptive
+        noise_level: {{exploration_noise}}  # exploration vs exploitation
+    
+    SPAWN swarm_agents WITH:
+      COUNT: {{swarm_size}}
+      INITIALIZATION: random_positions IN solution_space
+      
+      EACH agent_maintains:
+        - current_position: solution vector
+        - current_fitness: evaluated quality
+        - personal_best: best solution found
+        - velocity: movement direction
+        - neighborhood: connected agents
+        - confidence: solution certainty
+    
+    EXPLORATION_PHASE repeating:
+      PARALLEL for_each_agent:
+        EVALUATE fitness AT current_position
+        UPDATE personal_best IF improved
+        
+        GATHER neighborhood_information:
+          BASED_ON communication_topology:
+            IF full_connected:
+              best_neighbor = global_best  # Can cause premature convergence
+            IF ring_topology:
+              best_neighbor = best_of_adjacent  # Slower but more stable
+            IF small_world:
+              best_neighbor = mix_of_local_and_distant  # Balance
+            IF random_dynamic:
+              best_neighbor = randomly_selected  # Can be chaotic
+        
+        COMPUTE velocity_update:
+          BLEND three_influences:
+            - inertia: previous_velocity * {{inertia_weight}}
+            - cognitive: toward_personal_best * {{cognitive_factor}}
+            - social: toward_neighbor_best * {{social_factor}}
+          
+          ADD exploration_noise:
+            IF stuck_in_local_optimum:
+              INCREASE noise_temporarily  # Escape mechanism
+            IF converging_nicely:
+              DECREASE noise_gradually  # Refine solution
+        
+        UPDATE position WITH velocity
+        ENFORCE boundary_constraints
+    
+    INFORMATION_SHARING phase:
+      DETERMINE sharing_pattern BASED_ON parameters:
+        
+        SYNCHRONOUS_BROADCAST when delay_factor == 0:
+          ALL agents.share_simultaneously
+          POTENTIAL_OUTCOME: rapid convergence OR oscillation
+        
+        ASYNCHRONOUS_PROPAGATION when delay_factor > 0:
+          information.spreads_gradually
+          POTENTIAL_OUTCOME: more stable BUT slower
+        
+        SELECTIVE_SHARING when confidence_threshold > 0:
+          ONLY high_confidence.agents_broadcast
+          POTENTIAL_OUTCOME: avoid_false_convergence
+    
+    ADAPTATION_MECHANISM continuous:
+      MONITOR swarm_behavior:
+        - convergence_rate: how fast improving
+        - diversity_index: solution spread
+        - stagnation_detector: stuck patterns
+        - oscillation_detector: cycling behavior
+      
+      ADAPT parameters_dynamically:
+        IF diversity < critical_threshold:
+          INCREASE exploration_noise  # Prevent premature convergence
+          MODIFY topology TO more_sparse  # Reduce groupthink
+          
+        IF oscillating_detected:
+          REDUCE social_factor  # Less herd following
+          INCREASE inertia  # More momentum
+          
+        IF chaotic_behavior:
+          INCREASE communication  # More coordination
+          REDUCE noise_level  # Less randomness
+          
+        IF healthy_convergence:
+          GRADUALLY reduce_all_factors  # Careful refinement
+    
+    EMERGENCE_DETECTION throughout:
+      OBSERVE for_collective_phenomena:
+        - CLUSTERING: agents form solution groups
+        - MIGRATION: collective movement patterns  
+        - SYNCHRONIZATION: rhythmic behaviors
+        - SPECIALIZATION: role differentiation
+        - INNOVATION: novel solution discovery
+      
+      WHEN emergence_detected:
+        DOCUMENT pattern_characteristics
+        ANALYZE stability_properties
+        DETERMINE if_beneficial OR harmful
+        ADAPT strategy_accordingly
+    
+    SOLUTION_CRYSTALLIZATION when:
+      convergence_criteria.met OR
+      time_limit.reached OR
+      emergence.produces_solution:
+        
+        AGGREGATE final_solutions:
+          IF stable_convergence:
+            solution = swarm_consensus
+          IF multiple_clusters:
+            solutions = cluster_centers  # Multiple optima found
+          IF emergent_pattern:
+            solution = decode_from_collective_behavior
+        
+        ANALYZE swarm_dynamics:
+          - trajectory_patterns: how solutions evolved
+          - stability_characteristics: what dynamics observed
+          - emergence_catalog: novel behaviors discovered
+          - parameter_sensitivity: what settings mattered
+
+# Transformers for swarm coordination
+transformers:
+  # Agent position updates
+  - source: "swarm:update_position"
+    target: "agent:send_message"
+    mapping:
+      agent_id: "{{agent_id}}"
+      message:
+        type: "position_update"
+        position: "{{new_position}}"
+        fitness: "{{fitness_value}}"
+        velocity: "{{velocity_vector}}"
+  
+  # Neighborhood information request
+  - source: "swarm:request_neighbor_info"
+    target: "orchestration:query"
+    mapping:
+      query_type: "neighbor_states"
+      topology: "{{communication_topology}}"
+      requester: "{{agent_id}}"
+      radius: "{{neighborhood_size}}"
+  
+  # Emergence detection
+  - source: "swarm:analyze_emergence"
+    target: "completion:async"
+    async: true
+    mapping:
+      prompt: |
+        Analyze swarm behavior for emergent patterns:
+        
+        Agent positions: {{position_history}}
+        Fitness landscape: {{fitness_distribution}}
+        Movement patterns: {{velocity_field}}
+        Time window: {{analysis_period}}
+        
+        Identify:
+        1. Collective structures (clusters, streams, etc.)
+        2. Synchronization patterns
+        3. Role differentiation
+        4. Novel behaviors not in individual rules
+        
+        Classification: [none|clustering|migration|synchronization|other]
+      request_id: "{{transform_id}}"
+    response_route:
+      from: "completion:result"
+      to: "swarm:emergence_analyzed"
+  
+  # Parameter adaptation
+  - source: "swarm:adapt_parameters"
+    target: "orchestration:broadcast"
+    condition: "adaptation_needed == true"
+    mapping:
+      criteria: {type: "swarm_agent"}
+      message:
+        type: "parameter_update"
+        updates: "{{parameter_changes}}"
+        rationale: "{{adaptation_reason}}"
+  
+  # Solution aggregation
+  - source: "swarm:aggregate_solutions"
+    target: "orchestration:aggregate"
+    mapping:
+      responses: "{{agent_solutions}}"
+      method: "custom"
+      options:
+        function: "swarm_consensus"
+        clustering_threshold: "{{convergence_epsilon}}"
+        outlier_handling: "investigate"  # Might be innovative
+
+# Configurable parameters for different dynamics
+variables:
+  # Swarm configuration
+  swarm_size: 20
+  topology_type: "small-world"  # full, ring, small-world, random
+  
+  # Movement parameters (key for stability!)
+  inertia_weight: 0.7  # High=more exploration, Low=faster convergence
+  cognitive_factor: 1.5  # Personal best influence
+  social_factor: 1.5  # Neighborhood best influence
+  
+  # Noise and adaptation
+  exploration_noise: 0.1  # Base randomness level
+  delay_factor: 0  # Communication delay (0=instant)
+  confidence_threshold: 0  # Min confidence to share
+  
+  # Convergence criteria
+  convergence_epsilon: 0.001
+  stagnation_threshold: 10  # Iterations without improvement
+  diversity_threshold: 0.1  # Minimum solution spread
+  
+  # Adaptation rates
+  parameter_adaptation_rate: 0.1
+  topology_adaptation_rate: 0.05
+
+# Stability configurations (preset examples)
+stability_presets:
+  stable_convergence:
+    inertia_weight: 0.5
+    social_factor: 2.0
+    topology_type: "full"
+    exploration_noise: 0.05
+    
+  oscillating_search:
+    inertia_weight: 0.9
+    social_factor: 0.5
+    topology_type: "ring"
+    exploration_noise: 0.2
+    
+  chaotic_exploration:
+    inertia_weight: 0.3
+    social_factor: 3.0
+    topology_type: "random"
+    exploration_noise: 0.5
+    delay_factor: 5
+    
+  emergent_clusters:
+    inertia_weight: 0.7
+    social_factor: 1.0
+    topology_type: "small-world"
+    exploration_noise: 0.15
+    confidence_threshold: 0.6
+
+# Performance tracking
+performance:
+  runs: 0
+  dynamics_observed:
+    stable_convergence: 0
+    oscillation: 0
+    chaos: 0
+    emergence: 0
+  best_solutions_found: []
+  interesting_emergences: []
+
+# Learnings
+learnings:
+  - insight: "Communication topology strongly influences convergence stability"
+    confidence: 0.95
+    evidence: "Swarm intelligence research"
+  - insight: "Delayed information can stabilize but slow convergence"
+    confidence: 0.85
+    evidence: "Distributed systems theory"
+  - insight: "Emergence often occurs at boundary between order and chaos"
+    confidence: 0.8
+    evidence: "Complex adaptive systems"
+  - insight: "Heterogeneous parameters can prevent premature convergence"
+    confidence: 0.75
+    evidence: "Diversity in optimization"

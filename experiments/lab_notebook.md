@@ -214,3 +214,190 @@ From previous session, we established:
 - Proven reliable communication method
 - Better understanding of daemon capabilities
 - Foundation for future client improvements
+
+---
+
+## 2025-07-11 Session 1: Orchestration Patterns and Hook Monitor Investigation
+
+### Objective
+Investigate compositional orchestration patterns using AI-designed DSLs and improve KSI hook monitor for better debugging visibility.
+
+### Context
+Building on the Cognition AI paper's insights about multi-agent fragility, testing KSI's event-driven architecture with compositional patterns and natural language DSLs designed by AI for AI orchestrators.
+
+---
+
+## Experiment Log
+
+### EXP-101: Hook Monitor Orchestration Mode
+**Time**: 2025-07-11 15:59
+**Purpose**: Add orchestration debug mode to hook monitor for better pattern visibility
+**Method**: 
+```python
+# Added to ksi_hook_monitor.py:
+- "orchestration" mode to valid modes
+- Pattern loading shows transformer count
+- Transformer execution tracking
+- Agent message preview in orchestration mode
+```
+
+**Expected**: Detailed visibility into pattern loading and transformer execution
+**Actual**: SUCCESS - Can now see:
+- Pattern loading with transformer counts
+- Transformer execution flow (e.g., `tournament:assess_capabilities` → `composition:discover`)
+- Agent messages with content preview
+**Notes**: 
+- Hook improvements working well for debugging
+- Revealed transformer system is functional
+
+---
+
+### EXP-102: Async Transformer Cost Explosion
+**Time**: 2025-07-11 16:01
+**Purpose**: Test async transformer with tournament:analyze_performance event
+**Code**:
+```bash
+echo '{"event": "tournament:analyze_performance", "data": {"context_window": ["Test event 1", "Test event 2"], "performance_metrics": {"score": 0.8}}}' | nc -U var/run/daemon.sock
+```
+
+**Expected**: Quick completion with analysis response
+**Actual**: FAILURE - Expensive claude-cli session:
+- 22 turns of interaction
+- $1.07 USD cost
+- 126 seconds duration
+- 206,347 tokens used
+- Session ID: 7c32be94-5586-45bc-8345-c419ce4e01c8
+
+**Notes**: 
+- The prompt triggered complex multi-turn reasoning
+- No safety limits on async transformers
+- Response was eventually produced but at high cost
+
+---
+
+### EXP-103: Orchestrator Agent Non-Responsive
+**Time**: 2025-07-11 16:04
+**Purpose**: Send message to orchestrator agent to execute AI-designed tournament pattern
+**Code**:
+```bash
+# Spawned orchestrator: agent_5b710caf
+echo '{"event": "agent:send_message", "data": {"agent_id": "agent_5b710caf", "message": {"role": "user", "content": "Please load and execute the ai_designed_tournament pattern..."}}}' | nc -U var/run/daemon.sock
+```
+
+**Expected**: Orchestrator processes message and executes pattern
+**Actual**: FAILURE - Message sent but orchestrator not responding:
+- Message delivery confirmed
+- Agent status shows "ready"
+- No completion events from agent
+- agent:get_messages returns empty
+
+**Notes**:
+- Orchestrator agent exists and is "ready" but not processing messages
+- Possible issue with base_orchestrator profile or message queue
+
+---
+
+## Bug Tracker
+
+### BUG-101: Orchestrator Agents Not Processing Messages
+**Component**: Agent message processing system
+**Description**: Orchestrator agents show as "ready" but don't process incoming messages
+**Symptoms**:
+- agent:send_message succeeds
+- Agent remains in "ready" state
+- No completion events generated
+- agent:get_messages returns empty
+**Investigation Needed**: Check message queue implementation and agent event loop
+
+### BUG-102: Async Transformers Lack Safety Limits
+**Component**: Transformer system / completion:async
+**Description**: No limits on cost, turns, or duration for async transformer completions
+**Impact**: Single test event cost $1.07 with 22 turns
+**Fix Needed**: Add safety parameters to async transformers
+
+---
+
+## Pattern Engineering Discoveries
+
+### Successful Patterns Created
+1. **ai_designed_tournament**: Natural language DSL with compositional intelligence
+2. **strategy_discovery_pattern**: Generate-Debate-Evolve cycle for game theory
+3. **pattern_stability_observer**: Meta-pattern for observing orchestration dynamics
+4. **swarm_optimization_pattern**: Collective problem-solving with configurable dynamics
+
+### Transformer System Findings
+- **Working**: Synchronous transformers execute correctly
+- **Working**: Async transformers trigger but need safety limits
+- **Working**: Pattern loading registers transformers
+- **Issue**: Complex prompts can trigger expensive completions
+
+### Orchestration Architecture Insights
+- Event-driven design provides good loose coupling
+- Transformers enable custom event vocabularies without code
+- Natural language DSLs are interpretable by AI orchestrators
+- Pattern evolution and forking mechanisms in place
+
+---
+
+## Hook Monitor Improvements
+
+### Implemented Features
+1. **Orchestration Mode**: `echo ksi_orchestration` for detailed debugging
+2. **Pattern Loading**: Shows pattern name and transformer count
+3. **Transformer Tracking**: Shows source→target transformations
+4. **Agent Messages**: Preview of message content
+5. **Event Data**: Shows data for pattern-specific events
+
+### Usage
+```bash
+echo ksi_orchestration  # Switch to orchestration debug mode
+echo ksi_summary       # Return to normal mode
+echo ksi_status        # Check current mode
+```
+
+---
+
+## Next Investigation Steps
+
+1. **Debug Message Queue**: Why aren't orchestrator agents processing messages?
+2. **Check Agent Profile**: Is base_orchestrator configured correctly?
+3. **Add Safety Limits**: Implement cost/turn limits for async transformers
+4. **Create Test Patterns**: Simpler patterns that won't trigger expensive completions
+
+---
+
+### EXP-104: Fixed Agent Message Processing
+**Time**: 2025-07-11 16:28
+**Purpose**: Implement direct event routing for agent messages to bypass polling
+**Method**: 
+Modified `agent_service.py:handle_send_message` to:
+- Detect completion messages (both formats)
+- Emit `completion:async` directly instead of queuing
+- Preserve session continuity
+
+**Code**: See commit in agent_service.py
+
+**Expected**: Immediate message processing
+**Actual**: SUCCESS - Messages now process immediately:
+- Response in 4 seconds (vs 60+ second poll wait)
+- Single turn completion
+- Cost: $0.07 (vs $1.07 earlier)
+- Session ID: 7a9d92b4-28f0-44e5-9243-e6953cb0ba98
+
+**Notes**: 
+- The fix maintains event-driven architecture
+- Session tracking works correctly
+- Orchestrator agents now respond immediately
+
+---
+
+## Architecture Fix Summary
+
+**Root Cause**: Agent messages were queued with 60-second polling instead of event-driven processing
+
+**Solution**: Direct event routing for completion messages:
+- `agent:send_message` → detects completion → `completion:async`
+- Bypasses queue for immediate processing
+- Maintains session continuity automatically
+
+**Impact**: Orchestration patterns can now execute properly with responsive agents

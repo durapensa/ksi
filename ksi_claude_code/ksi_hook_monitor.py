@@ -13,10 +13,11 @@ import socket
 import time
 import os
 import logging
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any, Union, Tuple
 from contextlib import contextmanager
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
@@ -185,7 +186,7 @@ class KSIHookMonitor:
         try:
             if self.mode_file.exists():
                 mode = self.mode_file.read_text().strip()
-                if mode in ["summary", "verbose", "errors", "silent"]:
+                if mode in ["summary", "verbose", "errors", "silent", "orchestration"]:
                     return mode
         except Exception as e:
             self.logger.log_debug(f"Failed to load mode: {e}")
@@ -245,6 +246,33 @@ class KSIHookMonitor:
         except Exception as e:
             self.logger.log_diagnostic(f"Error checking agents: {e}")
             return "No active agents."
+    
+    def check_claude_processes(self) -> List[Dict[str, Any]]:
+        """Check for KSI-spawned claude processes (with ?? TTY)."""
+        try:
+            # Run ps to find claude processes
+            ps_output = subprocess.check_output(['ps', '-ef'], text=True)
+            claude_processes = []
+            
+            for line in ps_output.split('\n'):
+                if 'claude' in line and '??' in line:
+                    # Parse ps output: UID PID PPID C STIME TTY TIME CMD
+                    parts = line.split(None, 7)  # Split on whitespace, max 8 parts
+                    if len(parts) >= 8:
+                        # Safety check: Never include processes with TTY (Claude Code itself)
+                        if parts[5] == '??':
+                            claude_processes.append({
+                                'pid': parts[1],
+                                'ppid': parts[2],
+                                'start_time': parts[4],
+                                'runtime': parts[6],
+                                'cmd': parts[7][:50]  # Truncate command
+                            })
+            
+            return claude_processes
+        except Exception as e:
+            self.logger.log_debug(f"Error checking claude processes: {e}")
+            return []
     
     def _group_repetitive_events(self, events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Group similar events together (not just consecutive)."""
@@ -358,10 +386,20 @@ class KSIHookMonitor:
                     if data.get("result", {}).get("response", {}).get("is_error", False):
                         lines.append(f"{time_str} ✗ completion:{session}")
                     else:
-                        lines.append(f"{time_str} ✓ completion:{session}")
+                        # Try to get duration from response
+                        duration_ms = data.get("result", {}).get("response", {}).get("duration_ms")
+                        if duration_ms and self.verbosity_mode == "orchestration":
+                            duration_s = duration_ms / 1000
+                            lines.append(f"{time_str} ✓ completion:{session} ({duration_s:.1f}s)")
+                        else:
+                            lines.append(f"{time_str} ✓ completion:{session}")
                 elif event_name == "agent:spawn:success":
                     agent_id = event.get("data", {}).get("agent_id", "?")
-                    lines.append(f"{time_str} ✓ spawn:{agent_id}")
+                    session_id = event.get("data", {}).get("session_id")
+                    if session_id and self.verbosity_mode == "orchestration":
+                        lines.append(f"{time_str} ✓ spawn:{agent_id} session:{session_id[:8]}")
+                    else:
+                        lines.append(f"{time_str} ✓ spawn:{agent_id}")
                 elif event_name == "agent:spawn:failed":
                     lines.append(f"{time_str} ✗ agent:spawn failed")
                 elif "error" in event_name:
@@ -370,6 +408,50 @@ class KSIHookMonitor:
                     lines.append(f"{time_str} ✓ evaluation:prompt")
                 elif event_name == "composition:evaluate":
                     lines.append(f"{time_str} ✓ composition:evaluate")
+                elif event_name == "orchestration:load_pattern":
+                    data = event.get("data", {})
+                    if isinstance(data.get("pattern"), dict):
+                        # Response format with pattern details
+                        pattern_name = data["pattern"].get("name", "?")
+                        transformer_count = len(data["pattern"].get("transformers", []))
+                        lines.append(f"{time_str} ✓ pattern:{pattern_name} ({transformer_count} transformers)")
+                    else:
+                        # Request format with just pattern name
+                        pattern_name = data.get("pattern", "?")
+                        lines.append(f"{time_str} pattern:load:{pattern_name}")
+                elif event_name.startswith("transformer:"):
+                    if "registered" in event_name:
+                        source = event.get("data", {}).get("source", "?")
+                        target = event.get("data", {}).get("target", "?")
+                        # Warn about potentially expensive async transformers
+                        if target == "completion:async" and self.verbosity_mode == "orchestration":
+                            lines.append(f"{time_str} ⚠️  transformer:{source}→{target} (unbounded)")
+                        else:
+                            lines.append(f"{time_str} transformer:{source}→{target}")
+                    elif "executed" in event_name:
+                        # Show transformer execution details
+                        data = event.get("data", {})
+                        source_event = data.get("source_event", "?")
+                        target_event = data.get("target_event", "?")
+                        lines.append(f"{time_str} ✓ transformed:{source_event}→{target_event}")
+                    else:
+                        lines.append(f"{time_str} {event_name}")
+                elif event_name == "agent:send_message" and self.verbosity_mode == "orchestration":
+                    # Show agent messages in orchestration mode
+                    data = event.get("data", {})
+                    agent_id = data.get("agent_id", "?")[:12]
+                    message = data.get("message", {})
+                    content = str(message.get("content", ""))[:50]
+                    lines.append(f"{time_str} msg→{agent_id}: {content}...")
+                elif event_name == "completion:async" and self.verbosity_mode == "orchestration":
+                    # Show completion requests with prompt preview
+                    data = event.get("data", {})
+                    prompt = str(data.get("prompt", ""))[:60]
+                    lines.append(f"{time_str} completion: {prompt}...")
+                elif self.verbosity_mode == "orchestration" and any(pattern in event_name for pattern in ["discovery:", "swarm:", "tournament:", "observer:", "pattern:"]):
+                    # In orchestration mode, show these events with data preview
+                    data_str = str(event.get("data", {}))[:80]
+                    lines.append(f"{time_str} {event_name} {data_str}")
                 else:
                     # Skip verbose internal events
                     if event_name not in ["hook_event_name:PostToolUse", "permission:check", "capability:check", "sandbox:create", "mcp:config:create"]:
@@ -384,6 +466,7 @@ class KSIHookMonitor:
             "echo ksi_summary": "summary", 
             "echo ksi_errors": "errors",
             "echo ksi_silent": "silent",
+            "echo ksi_orchestration": "orchestration",
             "echo ksi_status": None  # Special case - just show status
         }
         
@@ -400,7 +483,8 @@ class KSIHookMonitor:
                     "verbose": "[KSI] Mode: verbose",
                     "summary": "[KSI] Mode: summary",
                     "errors": "[KSI] Mode: errors only",
-                    "silent": "[KSI] Mode: silent"
+                    "silent": "[KSI] Mode: silent",
+                    "orchestration": "[KSI] Mode: orchestration debug"
                 }
                 ExitStrategy.exit_with_feedback(mode_messages[new_mode])
             
@@ -448,6 +532,37 @@ class KSIHookMonitor:
                 message += f" {agent_status}"
             if not new_events and agent_status == "No active agents.":
                 message = "[KSI]"  # Still show something even if nothing happening
+            return message
+        
+        # Orchestration mode - detailed view for debugging
+        elif mode == "orchestration":
+            message = f"[KSI: {len(new_events)} events]"
+            if new_events:
+                message += f"\n{event_summary}"
+            if agent_count > 0:
+                message += f"\nAgents: {agent_count}"
+            
+            # Check for active claude processes
+            claude_processes = self.check_claude_processes()
+            if claude_processes:
+                message += f"\nClaude processes: {len(claude_processes)}"
+                for proc in claude_processes[:2]:  # Show first 2
+                    message += f"\n  PID {proc['pid']}: {proc['runtime']} (started {proc['start_time']})"
+            
+            # Try to detect active pattern from recent events
+            pattern_events = [e for e in new_events if any(p in e.get("event_name", "") for p in ["orchestration:load_pattern", "pattern:", "tournament:", "swarm:", "discovery:"])]
+            if pattern_events:
+                # Try to identify the pattern
+                for event in pattern_events:
+                    if "load_pattern" in event.get("event_name", ""):
+                        data = event.get("data", {})
+                        if isinstance(data.get("pattern"), dict):
+                            pattern_name = data["pattern"].get("name", "unknown")
+                            message += f"\n📋 Pattern: {pattern_name}"
+                        elif isinstance(data.get("pattern"), str):
+                            message += f"\n📋 Pattern: {data.get('pattern')}"
+                        break
+            
             return message
         
         # Summary mode (default) - concise

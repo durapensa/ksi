@@ -1,0 +1,90 @@
+name: simple_echo_test
+type: orchestration
+version: 1.0.0
+description: |
+  A minimal test pattern for orchestration with safe, predictable behavior.
+  Designed to test orchestration flow without triggering expensive completions.
+author: claude_orchestrator
+extends: null
+
+metadata:
+  tags:
+    - test
+    - simple
+    - safe
+    - echo
+  capabilities_required:
+    - agent:spawn
+    - agent:send_message
+  use_cases:
+    - Testing orchestration patterns
+    - Debugging agent communication
+    - Safe pattern development
+
+# Simple DSL for testing
+orchestration_logic:
+  description: |
+    This pattern simply echoes messages through agents to test communication flow.
+    No complex reasoning or expensive operations.
+  
+  strategy: |
+    WHEN receiving_test_request:
+      ACKNOWLEDGE with "Test pattern loaded"
+      
+      IF message CONTAINS "echo":
+        RESPOND with "ECHO: {{message}}"
+      
+      IF message CONTAINS "spawn":
+        SPAWN single_agent WITH:
+          profile: "base_single_agent"
+          prompt: "You are a simple echo agent. Respond with 'ECHO: [message]' for any input."
+        
+        SEND to spawned_agent: "Hello from orchestrator"
+        WAIT for response
+        RELAY response to user
+      
+      IF message CONTAINS "count":
+        COUNT to 3:
+          - EMIT "orchestration:track" WITH {type: "count", value: {{index}}}
+          - RESPOND "Count: {{index}}"
+      
+      ALWAYS:
+        TRACK decision: "Processed test message"
+        RESPOND "Test complete"
+
+# Simple transformers for testing
+transformers:
+  # Test event transformation
+  - source: "test:echo"
+    target: "agent:send_message"
+    mapping:
+      agent_id: "{{orchestrator_id}}"
+      message:
+        role: "user"
+        content: "Echo test: {{message}}"
+  
+  # Track test progress
+  - source: "test:track"
+    target: "orchestration:track"
+    mapping:
+      type: "test_event"
+      data: "{{event_data}}"
+      timestamp: "{{_timestamp}}"
+
+# Variables
+variables:
+  test_mode: true
+  max_test_agents: 1
+  echo_prefix: "ECHO:"
+
+# Performance tracking
+performance:
+  runs: 0
+  avg_response_time: null
+  test_results: []
+
+# Learnings
+learnings:
+  - insight: "Simple patterns help debug orchestration issues"
+    confidence: 1.0
+    evidence: "Design principle"

@@ -1,0 +1,255 @@
+name: strategy_discovery_pattern
+type: orchestration
+version: 1.0.0
+description: |
+  An orchestration pattern that discovers optimal game-theoretic strategies through
+  multi-agent experimentation and evolution. Inspired by AI co-scientist architecture
+  with Generate-Debate-Evolve phases for autonomous discovery.
+author: claude_orchestrator
+extends: null
+
+metadata:
+  tags:
+    - discovery
+    - evolution
+    - game-theory
+    - multi-agent
+    - research
+    - emergent
+  capabilities_required:
+    - agent:spawn
+    - orchestration:aggregate
+    - composition:track_decision
+    - evaluation:prompt
+  use_cases:
+    - Strategy discovery in game theory
+    - Algorithm optimization through competition
+    - Emergent behavior research
+    - Multi-agent system dynamics study
+
+# AI-designed DSL for autonomous discovery
+orchestration_logic:
+  description: |
+    This pattern implements a Generate-Debate-Evolve cycle for discovering
+    optimal strategies in competitive environments. Agents develop, test,
+    and refine strategies through iterative tournaments.
+  
+  strategy: |
+    PHASE 1: HYPOTHESIS_GENERATION
+      SPAWN strategy_generators WITH diverse_initialization:
+        - naive_cooperator: "Always cooperate"
+        - naive_defector: "Always defect"
+        - random_player: "50/50 random choice"
+        - pattern_seeker: "Look for patterns in opponent behavior"
+        - adaptive_learner: "Adjust based on outcomes"
+      
+      EACH generator:
+        HYPOTHESIZE strategy USING context:
+          - game_rules: "Prisoner's Dilemma payoff matrix"
+          - objective: "Maximize cumulative score over many rounds"
+          - constraints: "Must decide based only on game history"
+        
+        FORMALIZE strategy AS decision_function:
+          INPUT: opponent_history, self_history
+          OUTPUT: cooperate OR defect
+          REASONING: explanation of strategy logic
+    
+    PHASE 2: EXPERIMENTATION_TOURNAMENT
+      INITIALIZE tournament WITH discovered_strategies
+      
+      FOR each_round IN tournament:
+        MATCH all_pairs OF strategies
+        PLAY iterated_games WITH:
+          - rounds_per_match: 100
+          - noise_probability: 0.05  # Occasional mistakes
+          - memory_limit: 10  # Recent history window
+        
+        COLLECT performance_data:
+          - scores: cumulative payoffs
+          - cooperation_rate: frequency of cooperation
+          - retaliation_patterns: response to defection
+          - forgiveness_patterns: return to cooperation
+        
+        ANALYZE emergent_dynamics:
+          - stability: "Does cooperation emerge?"
+          - exploitation: "Can strategy be exploited?"
+          - robustness: "Performance against various opponents"
+    
+    PHASE 3: CRITICAL_ANALYSIS
+      SPAWN analyst_agents TO examine_results:
+        IDENTIFY successful_strategies BY score_ranking
+        DETECT emergent_patterns IN behavior_sequences
+        
+        DEBATE strategy_effectiveness:
+          FOR each_strategy:
+            ARGUE strengths WITH evidence
+            CRITIQUE weaknesses WITH counterexamples
+            PROPOSE improvements BASED_ON analysis
+        
+        SYNTHESIZE insights:
+          - "Reciprocity correlates with success"
+          - "Pure strategies are exploitable"
+          - "Forgiveness prevents death spirals"
+    
+    PHASE 4: EVOLUTIONARY_REFINEMENT
+      SELECT top_performers AND interesting_variants
+      
+      GENERATE next_generation THROUGH:
+        MUTATION of_successful_strategies:
+          - Adjust cooperation thresholds
+          - Modify retaliation severity
+          - Tune forgiveness parameters
+        
+        CROSSOVER between_strategies:
+          - Combine decision rules
+          - Blend behavioral patterns
+          - Mix memory strategies
+        
+        INNOVATION from_analysis:
+          - Implement discovered principles
+          - Address identified weaknesses
+          - Explore unexplored strategy space
+      
+      TRACK evolutionary_progress:
+        generation: current_iteration
+        fitness_trajectory: score_improvements
+        diversity_metrics: strategy_variety
+        convergence_indicators: stability_measures
+    
+    PHASE 5: DISCOVERY_SYNTHESIS
+      WHEN convergence_detected OR generations > 20:
+        CRYSTALLIZE discovered_strategies:
+          DOCUMENT winning_patterns
+          EXPLAIN why_they_succeed
+          GENERALIZE principles_learned
+        
+        COMPARE with_known_strategies:
+          - "Did we rediscover Tit-for-Tat?"
+          - "What novel strategies emerged?"
+          - "Are there environment-specific adaptations?"
+        
+        EMIT discovery_report WITH:
+          best_strategies: top_3_performers
+          theoretical_insights: general_principles
+          surprising_findings: unexpected_patterns
+          future_directions: unexplored_questions
+
+# Transformers for discovery workflow
+transformers:
+  # Generate strategy hypotheses
+  - source: "discovery:generate_hypothesis"
+    target: "completion:async"
+    async: true
+    mapping:
+      prompt: |
+        Generate a strategy for the Iterated Prisoner's Dilemma:
+        
+        Context: {{generation_context}}
+        Role: {{generator_type}}
+        Previous strategies: {{existing_strategies}}
+        
+        Design a strategy that:
+        1. Has a clear decision rule
+        2. Can be implemented as a function
+        3. Has a rationale for why it might succeed
+        
+        Return as JSON with: name, decision_rule, rationale
+      model: "claude-cli/claude-sonnet-4-20250514"
+      request_id: "{{transform_id}}"
+    response_route:
+      from: "completion:result"
+      to: "discovery:hypothesis_generated"
+  
+  # Run tournament matches
+  - source: "discovery:run_match"
+    target: "evaluation:game"
+    mapping:
+      game_type: "prisoners_dilemma"
+      players: "{{strategy_pair}}"
+      config:
+        rounds: "{{rounds_per_match}}"
+        noise: "{{noise_probability}}"
+      track_metrics: ["scores", "cooperation_rates", "decision_patterns"]
+  
+  # Analyze tournament results
+  - source: "discovery:analyze_generation"
+    target: "orchestration:aggregate"
+    mapping:
+      responses: "{{tournament_results}}"
+      method: "custom"
+      options:
+        aggregation_function: "tournament_analysis"
+        metrics: ["average_score", "cooperation_emergence", "strategy_clusters"]
+        generate_insights: true
+  
+  # Evolve strategies
+  - source: "discovery:evolve_strategies"
+    target: "completion:async"
+    async: true
+    mapping:
+      prompt: |
+        Evolve strategies based on tournament results:
+        
+        Current generation: {{generation_data}}
+        Performance metrics: {{fitness_scores}}
+        Identified patterns: {{successful_patterns}}
+        
+        Generate next generation through:
+        1. Mutation of top performers
+        2. Crossover of complementary strategies
+        3. Innovation based on insights
+        
+        Return 5 new strategy variants with rationales.
+      request_id: "{{transform_id}}"
+    response_route:
+      from: "completion:result"
+      to: "discovery:evolution_complete"
+  
+  # Track discovery progress
+  - source: "discovery:track_progress"
+    target: "composition:track_decision"
+    mapping:
+      pattern: "strategy_discovery_pattern"
+      decision: "{{evolution_decision}}"
+      context:
+        generation: "{{generation_number}}"
+        best_score: "{{top_fitness}}"
+        diversity: "{{strategy_diversity}}"
+      outcome: "{{generation_outcome}}"
+
+# Pattern-specific variables
+variables:
+  max_generations: 20
+  population_size: 10
+  tournament_rounds: 100
+  mutation_rate: 0.1
+  crossover_rate: 0.3
+  convergence_threshold: 0.95
+  
+  # Prisoner's Dilemma payoff matrix
+  payoff_matrix:
+    both_cooperate: 3
+    both_defect: 1
+    cooperate_vs_defect: 0
+    defect_vs_cooperate: 5
+
+# Performance tracking
+performance:
+  runs: 0
+  discoveries:
+    known_strategies_found: []
+    novel_strategies: []
+    convergence_generation: null
+    final_cooperation_rate: null
+
+# Learnings for pattern evolution
+learnings:
+  - insight: "Multi-phase discovery (Generate-Debate-Evolve) enables systematic exploration"
+    confidence: 0.95
+    evidence: "Pattern design incorporates proven research methodology"
+  - insight: "Tournament-based evaluation provides natural selection pressure"
+    confidence: 0.9
+    evidence: "Game-theoretic competitions reveal strategy fitness"
+  - insight: "Emergent cooperation requires balancing retaliation with forgiveness"
+    confidence: 0.0
+    evidence: "To be discovered through experimentation"

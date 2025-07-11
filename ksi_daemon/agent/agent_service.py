@@ -1429,7 +1429,65 @@ async def handle_send_message(data: AgentSendMessageData) -> Dict[str, Any]:
     if agent_id not in agents:
         return {"error": f"Agent {agent_id} not found"}
     
-    # Add message to agent's queue
+    # Check if this is a completion message (either format)
+    is_completion = False
+    prompt = None
+    
+    # Format 1: {"type": "completion", "prompt": "..."}
+    if message.get("type") == "completion" and message.get("prompt"):
+        is_completion = True
+        prompt = message.get("prompt")
+    
+    # Format 2: {"role": "user", "content": "..."} - standard chat format
+    elif message.get("role") and message.get("content"):
+        is_completion = True
+        prompt = message.get("content")
+    
+    # If it's a completion message, emit directly to completion service
+    if is_completion and prompt and event_emitter:
+        agent_info = agents[agent_id]
+        agent_config = agent_info.get("config", {})
+        
+        # Get current session from agent info
+        session_id = agent_info.get("session_id")
+        
+        # Prepare completion request
+        completion_data = {
+            "messages": [{"role": message.get("role", "user"), "content": prompt}],
+            "agent_id": agent_id,
+            "originator_id": agent_id,
+            "session_id": session_id,
+            "model": f"claude-cli/{agent_config.get('model', 'sonnet')}",
+            "priority": "normal",
+            "request_id": f"{agent_id}_{message.get('request_id', uuid.uuid4().hex[:8])}"
+        }
+        
+        # Add KSI parameters
+        completion_data["extra_body"] = {
+            "ksi": {
+                "conversation_id": session_id or f"agent_conversation_{agent_id}",
+                "tools": agent_config.get("allowed_claude_tools", []),
+                "agent_id": agent_id,
+                "construct_id": agent_info.get("construct_id"),
+                "agent_role": agent_config.get("role", "assistant"),
+                "enable_tools": agent_config.get("enable_tools", True)
+            }
+        }
+        
+        # Emit completion event directly
+        result = await event_emitter("completion:async", completion_data)
+        
+        # Update agent session if we get a new session_id from completion
+        if result.get("session_id"):
+            agent_info["session_id"] = result["session_id"]
+        
+        return {
+            "status": "sent_to_completion", 
+            "agent_id": agent_id,
+            "request_id": result.get("request_id")
+        }
+    
+    # For non-completion messages, use the queue as before
     queue = agents[agent_id].get("message_queue")
     if queue:
         await queue.put(message)
