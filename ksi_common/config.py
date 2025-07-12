@@ -200,6 +200,12 @@ class KSIBaseConfig(BaseSettings):
     tui_monitor_update_interval: float = 1.0     # Monitor refresh interval (seconds)
     tui_theme: str = "catppuccin"                # Default TUI theme
     
+    # Daemon control timeouts (in seconds)
+    daemon_shutdown_socket_timeout: float = 2.0   # Socket communication timeout for shutdown
+    daemon_shutdown_grace_period: int = 10        # Time to wait for graceful shutdown
+    daemon_shutdown_timeout: int = 15             # Total timeout before SIGTERM
+    daemon_kill_timeout: int = 5                  # Time to wait after SIGTERM before SIGKILL
+    
     # Model configuration - same as ksi_daemon
     model_config = {
         "env_prefix": "KSI_",

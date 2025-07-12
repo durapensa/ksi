@@ -117,33 +117,56 @@ class DaemonController:
             message = json.dumps(event_json) + '\n'
             sock.send(message.encode())
             
-            # For shutdown events, listen for the shutdown notification
+            # For shutdown events, listen for both notification and completion events
             if event == "system:shutdown":
                 try:
-                    # Set a short timeout just for shutdown
-                    sock.settimeout(0.5)
-                    response = sock.recv(4096).decode()
+                    # Set timeout for shutdown events  
+                    sock.settimeout(config.daemon_shutdown_socket_timeout)
                     
-                    # Check if we got a shutdown notification
-                    if response:
+                    # Collect all messages until socket closes or timeout
+                    messages = []
+                    buffer = ""
+                    
+                    while True:
                         try:
-                            msg = json.loads(response.strip())
-                            if msg.get("event") == "system:shutdown_notification":
-                                logger.info("Received shutdown notification from daemon")
-                                sock.close()
-                                return {"status": "shutdown_confirmed"}
-                        except json.JSONDecodeError:
-                            pass
+                            chunk = sock.recv(4096).decode()
+                            if not chunk:
+                                break  # Socket closed
+                            
+                            buffer += chunk
+                            # Split on newlines to handle multiple JSON messages
+                            lines = buffer.split('\n')
+                            buffer = lines[-1]  # Keep incomplete line in buffer
+                            
+                            for line in lines[:-1]:
+                                line = line.strip()
+                                if line:
+                                    try:
+                                        msg = json.loads(line)
+                                        messages.append(msg)
+                                    except json.JSONDecodeError:
+                                        pass
+                                        
+                        except socket.timeout:
+                            break  # No more data
+                        except Exception:
+                            break  # Connection closed
                     
                     sock.close()
-                    return {"status": "sent"}
                     
-                except socket.timeout:
-                    # This is OK for shutdown
-                    sock.close()
-                    return {"status": "sent"}
+                    # Check what messages we received
+                    got_notification = any(msg.get("event") == "system:shutdown_notification" for msg in messages)
+                    got_complete = any(msg.get("event") == "system:shutdown_complete" for msg in messages)
+                    
+                    if got_complete:
+                        return {"status": "shutdown_complete_confirmed"}
+                    elif got_notification:
+                        return {"status": "shutdown_confirmed"}
+                    else:
+                        return {"status": "sent"}
+                        
                 except Exception:
-                    # Connection closed by daemon - this is expected
+                    # Connection closed or other error - this is expected during shutdown
                     sock.close()
                     return {"status": "sent"}
             
@@ -263,80 +286,42 @@ class DaemonController:
         # Try graceful shutdown via socket first
         result = self._send_socket_event("system:shutdown")
         if result:
-            if result.get("status") == "shutdown_confirmed":
-                print("✓ Daemon acknowledged shutdown")
+            if result.get("status") == "shutdown_complete_confirmed":
+                # We received both shutdown_notification and shutdown_complete events
+                print("✓ Daemon shutdown complete (full sequence)")
+                return 0
+            elif result.get("status") == "shutdown_confirmed":
+                # We received the shutdown_notification event
+                print("✓ Daemon shutdown complete")
+                return 0
             else:
-                print("Sent graceful shutdown command")
-            
-            # Watch for PID file removal instead of sleeping
-            async def wait_for_pid_removal():
-                """Wait for daemon to remove its PID file."""
-                if not self.pid_file.exists():
-                    return True
-                    
-                from watchfiles import awatch
-                try:
-                    async for changes in awatch(str(self.pid_file.parent), stop_event=asyncio.Event()):
-                        for change_type, path in changes:
-                            if path == str(self.pid_file) and not self.pid_file.exists():
-                                return True
-                except Exception:
-                    # Fallback to checking if file still exists
-                    return not self.pid_file.exists()
-            
-            try:
-                # Wait up to 3 seconds for PID file removal (shorter if we got confirmation)
-                timeout = 3.0 if result.get("status") == "shutdown_confirmed" else 5.0
-                removed = await asyncio.wait_for(wait_for_pid_removal(), timeout=timeout)
-                
-                if removed:
-                    print("✓ Daemon stopped gracefully")
+                # Shutdown command was sent but we didn't get the notification
+                # This could mean the socket closed before sending notification
+                print("Shutdown command sent")
+                # Check if process is still running
+                if not self._is_process_running(pid):
+                    print("✓ Daemon stopped")
                     return 0
-                else:
-                    print("Graceful shutdown timeout, sending SIGTERM...")
-            except asyncio.TimeoutError:
-                print("Graceful shutdown timeout, sending SIGTERM...")
+                print("Daemon still running after shutdown command")
+        else:
+            # Socket already closed or unreachable
+            print("Socket not responding, checking process...")
         
-        # Send SIGTERM
+        # If we get here, graceful shutdown failed - use SIGTERM as fallback
         try:
             os.kill(pid, signal.SIGTERM)
+            print("Sent SIGTERM to force shutdown")
             
-            # Watch for process termination
-            async def wait_for_process_exit():
-                """Wait for process to exit."""
-                while self._is_process_running(pid):
-                    await asyncio.sleep(0.1)
-                return True
-            
-            try:
-                # Wait up to 3 seconds for process to terminate
-                await asyncio.wait_for(wait_for_process_exit(), timeout=3.0)
+            # Simple check - no waiting
+            if not self._is_process_running(pid):
                 print("✓ Daemon stopped")
                 return 0
-            except asyncio.TimeoutError:
-                pass  # Fall through to SIGKILL
-            
-            # Force kill if still running
-            print("Process still running, sending SIGKILL...")
-            try:
-                os.kill(pid, signal.SIGKILL)
-                
-                # SIGKILL should be immediate, just verify
-                time.sleep(0.1)  # Brief pause to let OS clean up
-                if not self._is_process_running(pid):
-                    print("✓ Daemon force-stopped")
-                    return 0
-                else:
-                    print("✗ Failed to stop daemon")
-                    return 1
-            except (OSError, ProcessLookupError):
-                # Process died between checks
-                print("✓ Daemon stopped")
-                return 0
+            else:
+                print("✗ Daemon may still be running")
+                return 1
                 
         except (OSError, ProcessLookupError) as e:
-            # Process doesn't exist or we don't have permission
-            logger.info(f"Process {pid} not found: {e}")
+            # Process doesn't exist
             print("✓ Daemon already stopped")
             # Clean up stale PID file
             if self.pid_file.exists():

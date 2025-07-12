@@ -98,6 +98,20 @@ async def daemon_wrapper():
         raise
     finally:
         logger.info("Daemon wrapper cleanup complete")
+        
+        # Remove PID file after daemon shutdown is complete
+        # This ensures the PID file exists while the daemon is running/shutting down
+        # but removes it before python-daemon's context manager (avoiding the delay)
+        if config.daemon_pid_file.exists():
+            try:
+                # Only remove if we own the PID file (our process)
+                with open(config.daemon_pid_file, 'r') as f:
+                    pid_in_file = int(f.read().strip())
+                if pid_in_file == os.getpid():
+                    config.daemon_pid_file.unlink()
+                    logger.info("PID file removed after clean shutdown")
+            except Exception as e:
+                logger.debug(f"Could not remove PID file: {e}")
 
 def run_as_daemon():
     """Run KSI daemon in background (daemonized)"""

@@ -375,8 +375,8 @@ class SystemShutdownData(TypedDict):
 
 @event_handler("system:shutdown")
 async def handle_shutdown(data: SystemShutdownData) -> Dict[str, Any]:
-    """Clean up on shutdown."""
-    global transport_instance, client_connections
+    """Begin shutdown sequence - send notification but keep socket open for completion event."""
+    global client_connections
     
     # First, broadcast shutdown notification to all connected clients
     if client_connections:
@@ -396,11 +396,42 @@ async def handle_shutdown(data: SystemShutdownData) -> Dict[str, Any]:
             except Exception as e:
                 logger.debug(f"Failed to send shutdown notification to client {client_id}: {e}")
     
-    # Then stop the transport
+    # Don't stop the transport yet - wait for shutdown_complete event
+    logger.info("Unix socket transport shutdown notification sent, awaiting completion")
+    return {"status": "unix_socket_transport_shutdown_initiated"}
+
+
+@event_handler("system:shutdown_complete")
+async def handle_shutdown_complete(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Send final shutdown_complete event to clients and close socket."""
+    global transport_instance, client_connections
+    
+    # Send shutdown_complete notification to all remaining connected clients
+    if client_connections:
+        logger.info(f"Broadcasting shutdown_complete to {len(client_connections)} connected clients")
+        shutdown_complete_msg = {
+            "event": "system:shutdown_complete",
+            "data": {
+                "reason": "daemon_shutdown_complete",
+                "timestamp": asyncio.get_event_loop().time(),
+                "services": data.get("services", [])
+            }
+        }
+        
+        # Send to all clients - this is the final message before socket closure
+        for client_id, writer in list(client_connections.items()):
+            try:
+                await send_response(writer, shutdown_complete_msg)
+                # Ensure the message is sent
+                await writer.drain()
+            except Exception as e:
+                logger.debug(f"Failed to send shutdown_complete notification to client {client_id}: {e}")
+    
+    # Now stop the transport after sending the final message
     if transport_instance:
         await transport_instance.stop()
     
-    logger.info("Unix socket transport module stopped")
+    logger.info("Unix socket transport shutdown complete - socket closed")
     return {"status": "unix_socket_transport_stopped"}
 
 
