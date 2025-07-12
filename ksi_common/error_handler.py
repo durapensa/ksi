@@ -11,6 +11,7 @@ from typing import Dict, Any, List, Optional
 from difflib import get_close_matches
 
 from ksi_common.logging import get_bound_logger
+from ksi_common.event_utils import build_error_response, build_success_response
 
 logger = get_bound_logger("error_handler")
 
@@ -133,32 +134,33 @@ class DiscoveryErrorHandler:
             # KeyError pattern: 'parameter_name'
             missing_param = error_str.strip("'")
         else:
-            return {"error": error_str}
+            return build_error_response(error_str)
             
         if not missing_param:
-            return {"error": error_str}
+            return build_error_response(error_str)
         
-        # Create proper error message
-        enhanced_error = {"error": f"Missing required parameter: {missing_param}"}
+        # Build enhanced error message
+        error_message = f"Missing required parameter: {missing_param}"
+        details = {}
         
         if event_info and verbosity in ["medium", "verbose"]:
             # Get available parameters
             parameters = event_info.get("parameters", {})
             if parameters:
                 param_names = list(parameters.keys())
-                enhanced_error["available"] = param_names
+                details["available"] = param_names
                 
                 # Add type info if we have it for the missing parameter
                 if missing_param in parameters:
                     param_info = parameters[missing_param]
                     param_type = param_info.get("type", "unknown")
-                    enhanced_error["error"] = f"Missing required parameter: {missing_param} ({param_type})"
+                    error_message = f"Missing required parameter: {missing_param} ({param_type})"
         
         if verbosity == "verbose" and event_info:
             # Add full parameter help
-            enhanced_error["help"] = f"Use: help {event_name}"
+            details["help"] = f"Use: help {event_name}"
             
-        return enhanced_error
+        return build_error_response(error_message, details if details else None)
     
     async def _handle_type_mismatch(
         self, event_name: str, provided_params: Dict[str, Any],
@@ -166,15 +168,15 @@ class DiscoveryErrorHandler:
     ) -> Dict[str, Any]:
         """Handle type mismatch errors."""
         
-        enhanced_error = {"error": error_str}
+        details = {}
         
         if verbosity in ["medium", "verbose"] and event_info:
             # Could add type examples here
             parameters = event_info.get("parameters", {})
             if parameters:
-                enhanced_error["help"] = f"Use: help {event_name}"
+                details["help"] = f"Use: help {event_name}"
         
-        return enhanced_error
+        return build_error_response(error_str, details if details else None)
     
     async def _handle_unknown_event(
         self, event_name: str, provided_params: Dict[str, Any],
@@ -182,7 +184,7 @@ class DiscoveryErrorHandler:
     ) -> Dict[str, Any]:
         """Handle unknown event errors."""
         
-        enhanced_error = {"error": error_str}
+        details = {}
         
         if verbosity in ["medium", "verbose"] and self.router:
             # Find similar event names
@@ -190,9 +192,9 @@ class DiscoveryErrorHandler:
             similar = get_close_matches(event_name, all_events, n=3, cutoff=0.6)
             
             if similar:
-                enhanced_error["similar"] = similar
+                details["similar"] = similar
         
-        return enhanced_error
+        return build_error_response(error_str, details if details else None)
     
     async def handle_unknown_event(
         self, event_name: str, provided_params: Dict[str, Any], verbosity: str
@@ -208,16 +210,16 @@ class DiscoveryErrorHandler:
         # Extract unique namespaces
         namespaces = sorted(set(event.split(':')[0] for event in all_events if ':' in event))
         
-        # Concise internal format for AI agents
-        result = {"error": f"Unknown event: {event_name}"}
+        # Build details for enhanced error response
+        details = {}
         
         if similar:
-            result["similar"] = similar
+            details["similar"] = similar
             
         if verbosity in ["medium", "verbose"] and namespaces:
-            result["namespaces"] = namespaces
+            details["namespaces"] = namespaces
         
-        return result
+        return build_error_response(f"Unknown event: {event_name}", details if details else None)
     
     async def _handle_generic_error(
         self, event_name: str, provided_params: Dict[str, Any],
@@ -225,9 +227,9 @@ class DiscoveryErrorHandler:
     ) -> Dict[str, Any]:
         """Handle generic errors."""
         
-        enhanced_error = {"error": error_str}
+        details = {}
         
         if verbosity == "verbose" and event_info:
-            enhanced_error["help"] = f"Use: help {event_name}"
+            details["help"] = f"Use: help {event_name}"
             
-        return enhanced_error
+        return build_error_response(error_str, details if details else None)

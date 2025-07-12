@@ -18,6 +18,7 @@ from ksi_daemon.config_manager import (
     get_runtime_config_keys
 )
 from ksi_common.logging import get_bound_logger
+from ksi_common.validation_utils import Validator
 
 logger = get_bound_logger("runtime_config", version="1.0.0")
 
@@ -55,14 +56,17 @@ async def handle_runtime_config_set(data: RuntimeConfigSetData) -> Dict[str, Any
     Example:
         {"key": "error_verbosity", "value": "verbose"}
     """
+    # Validate parameters using ksi_common validation utilities
+    key_validator = Validator(data.get("key"), "key").required().type(str)
+    if not key_validator.is_valid():
+        return {"error": key_validator.get_errors()[0]}
+    
+    value_validator = Validator(data.get("value"), "value").required()
+    if not value_validator.is_valid():
+        return {"error": value_validator.get_errors()[0]}
+    
     key = data.get("key")
     value = data.get("value")
-    
-    if not key:
-        return {"error": "Missing required parameter: key"}
-    
-    if value is None:
-        return {"error": "Missing required parameter: value"}
     
     success = set_runtime_config(key, value)
     
@@ -92,6 +96,12 @@ async def handle_runtime_config_get(data: RuntimeConfigGetData) -> Dict[str, Any
         {}                          # Get all runtime config
     """
     key = data.get("key")
+    
+    # Validate key parameter if provided (optional parameter validation)
+    if key is not None:
+        key_validator = Validator(key, "key").type(str)
+        if not key_validator.is_valid():
+            return {"error": key_validator.get_errors()[0]}
     
     if key:
         # Get specific key
@@ -142,6 +152,12 @@ async def handle_runtime_config_query(data: RuntimeConfigQueryData) -> Dict[str,
     """
     key = data.get("key")
     
+    # Validate key parameter if provided (optional parameter validation)
+    if key is not None:
+        key_validator = Validator(key, "key").type(str)
+        if not key_validator.is_valid():
+            return {"error": key_validator.get_errors()[0]}
+    
     return query_runtime_config(key)
 
 
@@ -161,6 +177,12 @@ async def handle_runtime_config_reset(data: RuntimeConfigResetData) -> Dict[str,
         {}                          # Reset all runtime config
     """
     key = data.get("key")
+    
+    # Validate key parameter if provided (optional parameter validation)
+    if key is not None:
+        key_validator = Validator(key, "key").type(str)
+        if not key_validator.is_valid():
+            return {"error": key_validator.get_errors()[0]}
     
     success = reset_runtime_config(key)
     

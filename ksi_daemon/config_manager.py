@@ -9,6 +9,7 @@ Provides dynamic config overrides without requiring daemon restarts.
 from typing import Dict, Any, Optional, List, Union
 from ksi_common.logging import get_bound_logger
 from ksi_common.config import config
+from ksi_common.event_utils import build_error_response
 
 logger = get_bound_logger("config_manager")
 
@@ -136,7 +137,7 @@ def query_runtime_config(key: Optional[str] = None) -> Dict[str, Any]:
     """
     if key is not None:
         if key not in RUNTIME_CONFIG_SCHEMA:
-            return {"error": f"Unknown config key: {key}"}
+            return build_error_response(f"Unknown config key: {key}")
         
         schema = RUNTIME_CONFIG_SCHEMA[key].copy()
         schema["current"] = get_runtime_config(key)
