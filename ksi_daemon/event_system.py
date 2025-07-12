@@ -19,7 +19,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from ksi_common.logging import get_bound_logger
-from ksi_common.error_handler import DiscoveryErrorHandler
+from ksi_common.error_handler import initialize_error_handler, enhance_error, handle_unknown_event
 from ksi_common.config import config
 
 logger = get_bound_logger("event_system", version="2.0.0")
@@ -144,7 +144,7 @@ class EventRouter:
             logger.warning("ERROR PROPAGATION ENABLED - Programming errors will crash handlers")
         
         # Enhanced error handling with discovery data
-        self._error_handler = DiscoveryErrorHandler(router=self)
+        initialize_error_handler(router=self)
     
     @property 
     def error_verbosity(self) -> str:
@@ -406,7 +406,7 @@ class EventRouter:
                                            {"status": "no_handlers"}, source_agent)
             
             # Unknown event - provide discovery guidance
-            unknown_event_response = await self._error_handler.handle_unknown_event(
+            unknown_event_response = await handle_unknown_event(
                 event_name=event,
                 provided_params=data,
                 verbosity=self.error_verbosity
@@ -437,7 +437,7 @@ class EventRouter:
                     logger.error(f"Handler {handlers[i].name} failed for {event}: {result}")
                     
                     # Generate enhanced error using discovery data
-                    enhanced_error = await self._error_handler.enhance_error(
+                    enhanced_error = await enhance_error(
                         event_name=event,
                         provided_params=data,
                         original_error=result,

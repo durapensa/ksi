@@ -13,7 +13,7 @@ def format_error_for_cli(error_data: Dict[str, Any]) -> str:
     Format enhanced error data for CLI display.
     
     Args:
-        error_data: Enhanced error dict from DiscoveryErrorHandler
+        error_data: Enhanced error dict from error_handler functions
         
     Returns:
         Formatted error string for CLI output
@@ -73,7 +73,7 @@ def format_error_for_json(error_data: Dict[str, Any]) -> Dict[str, Any]:
     Format enhanced error data for JSON API responses.
     
     Args:
-        error_data: Enhanced error dict from DiscoveryErrorHandler
+        error_data: Enhanced error dict from error_handler functions
         
     Returns:
         Clean JSON-serializable error response

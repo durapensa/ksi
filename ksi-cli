@@ -42,10 +42,20 @@ class KSICLI:
     def display_error(self, error_response: Dict[str, Any]) -> None:
         """Display enhanced error response."""
         if isinstance(error_response, dict) and "error" in error_response:
-            # Check if this is an enhanced error (has additional fields)
-            if any(key in error_response for key in ["available", "similar", "help", "namespaces"]):
-                # Enhanced error - use formatting utility
-                print(format_error_for_cli(error_response))
+            # Check if this is an enhanced error (has additional fields at root or in details)
+            enhanced_fields = ["available", "similar", "help", "namespaces"]
+            is_enhanced = (
+                any(key in error_response for key in enhanced_fields) or
+                (isinstance(error_response.get("details"), dict) and 
+                 any(key in error_response["details"] for key in enhanced_fields))
+            )
+            
+            if is_enhanced:
+                # Enhanced error - flatten details for formatting utility compatibility
+                flattened_error = error_response.copy()
+                if "details" in error_response and isinstance(error_response["details"], dict):
+                    flattened_error.update(error_response["details"])
+                print(format_error_for_cli(flattened_error))
             else:
                 # Simple error - just show the error message
                 print(f"Error: {error_response['error']}")
