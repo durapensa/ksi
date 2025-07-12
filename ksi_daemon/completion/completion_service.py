@@ -14,7 +14,8 @@ import asyncio
 import json
 import time
 import uuid
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, TypedDict, Literal
+from typing_extensions import NotRequired, Required
 
 from ksi_daemon.event_system import event_handler, EventPriority, emit_event, get_router
 from ksi_common import timestamp_utc, create_completion_response, parse_completion_response, get_response_session_id
@@ -86,8 +87,14 @@ def save_completion_response(response_data: Dict[str, Any]) -> None:
 
 # Event handlers
 
+class SystemStartupData(TypedDict):
+    """System startup configuration."""
+    # No specific fields required for this handler
+    pass
+
+
 @event_handler("system:startup", priority=EventPriority.LOW)
-async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_startup(config_data: SystemStartupData) -> Dict[str, Any]:
     """Initialize completion service on startup."""
     global queue_manager, provider_manager, conversation_tracker, token_tracker
     
@@ -111,8 +118,14 @@ async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
     return {"status": "completion_service_ready", "version": "4.0.0"}
 
 
+class SystemContextData(TypedDict):
+    """System context with runtime references."""
+    emit_event: NotRequired[Any]  # Event emitter function
+    shutdown_event: NotRequired[Any]  # Shutdown event object
+
+
 @event_handler("system:context")
-async def handle_context(context: Dict[str, Any]) -> None:
+async def handle_context(context: SystemContextData) -> None:
     """Receive runtime context."""
     global event_emitter, shutdown_event, retry_manager
     
@@ -180,8 +193,14 @@ async def manage_completion_service():
         completion_task_group = None
 
 
+class SystemReadyData(TypedDict):
+    """System ready notification."""
+    # No specific fields for this handler
+    pass
+
+
 @event_handler("system:ready")
-async def handle_ready(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+async def handle_ready(data: SystemReadyData) -> Optional[Dict[str, Any]]:
     """Return the completion service manager task."""
     logger.info("Completion service requesting service manager task")
     
@@ -196,8 +215,27 @@ async def handle_ready(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
+class CompletionAsyncData(TypedDict):
+    """Async completion request."""
+    request_id: NotRequired[str]  # Request ID (auto-generated if not provided)
+    session_id: NotRequired[str]  # Session ID for conversation continuity
+    agent_id: NotRequired[str]  # Agent making the request
+    model: NotRequired[str]  # Model to use (defaults to config.completion_default_model)
+    messages: NotRequired[List[Dict[str, Any]]]  # Conversation messages
+    prompt: NotRequired[str]  # Simple prompt (converted to messages)
+    stream: NotRequired[bool]  # Whether to stream response
+    temperature: NotRequired[float]  # Sampling temperature
+    max_tokens: NotRequired[int]  # Maximum tokens to generate
+    conversation_lock: NotRequired[Dict[str, Any]]  # Lock configuration
+    injection_config: NotRequired[Dict[str, Any]]  # Injection configuration
+    circuit_breaker_config: NotRequired[Dict[str, Any]]  # Circuit breaker config
+    extra_body: NotRequired[Dict[str, Any]]  # Provider-specific parameters
+    originator_id: NotRequired[str]  # Original requester ID
+    conversation_id: NotRequired[str]  # Conversation ID (auto-generated if not provided)
+
+
 @event_handler("completion:async")
-async def handle_async_completion(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_async_completion(data: CompletionAsyncData) -> Dict[str, Any]:
     """Handle async completion requests with smart queueing and automatic session continuity."""
     if not all([queue_manager, provider_manager, conversation_tracker]):
         return {"error": "Completion service not fully initialized"}
@@ -526,8 +564,14 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
         return {"error": str(e), "request_id": request_id}
 
 
+class CompletionStatusData(TypedDict):
+    """Get completion service status."""
+    # No specific fields - returns overall status
+    pass
+
+
 @event_handler("completion:status")
-async def handle_completion_status(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_completion_status(data: CompletionStatusData) -> Dict[str, Any]:
     """Get status of completion service and components."""
     # Debug logging
     logger.debug(
@@ -560,8 +604,13 @@ async def handle_completion_status(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+class CompletionSessionStatusData(TypedDict):
+    """Get status for a specific session."""
+    session_id: Required[str]  # Session ID to query
+
+
 @event_handler("completion:session_status")
-async def handle_session_status(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_session_status(data: CompletionSessionStatusData) -> Dict[str, Any]:
     """Get detailed status for a specific session."""
     if not all([queue_manager, conversation_tracker]):
         return {"error": "Completion service not fully initialized"}
@@ -590,8 +639,13 @@ async def handle_session_status(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+class CompletionProviderStatusData(TypedDict):
+    """Get provider status."""
+    provider: NotRequired[str]  # Specific provider name (optional)
+
+
 @event_handler("completion:provider_status")
-async def handle_provider_status(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_provider_status(data: CompletionProviderStatusData) -> Dict[str, Any]:
     """Get provider status and health information."""
     if not provider_manager:
         return {"error": "Provider manager not initialized"}
@@ -603,8 +657,15 @@ async def handle_provider_status(data: Dict[str, Any]) -> Dict[str, Any]:
         return provider_manager.get_all_provider_status()
 
 
+class CompletionTokenUsageData(TypedDict):
+    """Get token usage analytics."""
+    agent_id: NotRequired[str]  # Filter by agent ID
+    model: NotRequired[str]  # Filter by model
+    hours: NotRequired[int]  # Time window in hours
+
+
 @event_handler("completion:token_usage")
-async def handle_token_usage(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_token_usage(data: CompletionTokenUsageData) -> Dict[str, Any]:
     """Get token usage analytics."""
     if not token_tracker:
         return {"error": "Token tracker not initialized"}
@@ -620,8 +681,13 @@ async def handle_token_usage(data: Dict[str, Any]) -> Dict[str, Any]:
         return token_tracker.get_summary_statistics()
 
 
+class CompletionCancelData(TypedDict):
+    """Cancel an in-progress completion."""
+    request_id: Required[str]  # Request ID to cancel
+
+
 @event_handler("completion:cancel")
-async def handle_cancel_completion(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_cancel_completion(data: CompletionCancelData) -> Dict[str, Any]:
     """Cancel an in-progress completion."""
     request_id = data.get("request_id")
     if not request_id:
@@ -659,8 +725,14 @@ async def handle_cancel_completion(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+class CompletionRetryStatusData(TypedDict):
+    """Get retry manager status."""
+    # No specific fields - returns overall retry status
+    pass
+
+
 @event_handler("completion:retry_status")
-async def handle_retry_status(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_retry_status(data: CompletionRetryStatusData) -> Dict[str, Any]:
     """Get retry manager status and statistics."""
     if not retry_manager:
         return {"error": "Retry manager not available"}
@@ -675,8 +747,16 @@ async def handle_retry_status(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+class CompletionFailedData(TypedDict):
+    """Handle completion failure."""
+    request_id: Required[str]  # Failed request ID
+    message: NotRequired[str]  # Error message
+    reason: NotRequired[str]  # Failure reason (e.g., 'daemon_restart')
+    completion_data: NotRequired[Dict[str, Any]]  # Original completion data for recovery
+
+
 @event_handler("completion:failed")
-async def handle_completion_failed(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_completion_failed(data: CompletionFailedData) -> Dict[str, Any]:
     """Handle completion failures and attempt retries if appropriate."""
     request_id = data.get("request_id")
     if not request_id:
@@ -729,8 +809,14 @@ async def handle_completion_failed(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"status": "retry_unavailable"}
 
 
+class CheckpointCollectData(TypedDict):
+    """Collect checkpoint data."""
+    # No specific fields - collects all completion state
+    pass
+
+
 @event_handler("checkpoint:collect")
-async def collect_checkpoint_data(data: Dict[str, Any]) -> Dict[str, Any]:
+async def collect_checkpoint_data(data: CheckpointCollectData) -> Dict[str, Any]:
     """Collect completion service state for checkpoint."""
     checkpoint_data = {
         "session_queues": {},
@@ -776,8 +862,14 @@ async def collect_checkpoint_data(data: Dict[str, Any]) -> Dict[str, Any]:
     return checkpoint_data
 
 
+class CheckpointRestoreData(TypedDict):
+    """Restore from checkpoint data."""
+    active_completions: NotRequired[Dict[str, Any]]  # Completions to restore
+    session_queues: NotRequired[Dict[str, Any]]  # Session queues to restore
+
+
 @event_handler("checkpoint:restore")
-async def restore_checkpoint_data(data: Dict[str, Any]) -> Dict[str, Any]:
+async def restore_checkpoint_data(data: CheckpointRestoreData) -> Dict[str, Any]:
     """Restore completion service state from checkpoint."""
     global active_completions
     
@@ -802,8 +894,14 @@ async def restore_checkpoint_data(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+class SystemShutdownData(TypedDict):
+    """System shutdown notification."""
+    # No specific fields for shutdown
+    pass
+
+
 @event_handler("system:shutdown")
-async def handle_shutdown(data: Dict[str, Any]) -> None:
+async def handle_shutdown(data: SystemShutdownData) -> None:
     """Clean up on shutdown."""
     logger.info("Completion service shutting down")
     

@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, TypedDict, Literal
+from typing_extensions import NotRequired, Required
 
 from ksi_common.agent_permissions import (
     PermissionManager, AgentPermissions, PermissionLevel,
@@ -30,8 +31,14 @@ permission_manager: Optional[PermissionManager] = None
 sandbox_manager: Optional[SandboxManager] = None
 
 
+class SystemStartupData(TypedDict):
+    """System startup configuration."""
+    # No specific fields required for this handler
+    pass
+
+
 @event_handler("system:startup")
-async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_startup(config_data: SystemStartupData) -> Dict[str, Any]:
     """Initialize the permission service."""
     global permission_manager, sandbox_manager
     
@@ -52,8 +59,13 @@ async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
     return {"permission_service": {"loaded": True}}
 
 
+class PermissionGetProfileData(TypedDict):
+    """Get details of a specific permission profile."""
+    level: Required[str]  # Permission level/profile name (restricted, standard, trusted, researcher)
+
+
 @event_handler("permission:get_profile")
-async def handle_get_profile(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_get_profile(data: PermissionGetProfileData) -> Dict[str, Any]:
     """Get details of a specific permission profile.
     
     Args:
@@ -75,8 +87,16 @@ async def handle_get_profile(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+class PermissionSetAgentData(TypedDict):
+    """Set permissions for an agent."""
+    agent_id: Required[str]  # The agent ID to set permissions for
+    profile: NotRequired[str]  # Base profile to use (default: restricted)
+    permissions: NotRequired[Dict[str, Any]]  # Full permission object
+    overrides: NotRequired[Dict[str, Any]]  # Permission overrides to apply
+
+
 @event_handler("permission:set_agent")
-async def handle_set_agent_permissions(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_set_agent_permissions(data: PermissionSetAgentData) -> Dict[str, Any]:
     """Set permissions for an agent.
     
     Args:
@@ -172,8 +192,14 @@ def apply_permission_overrides(permissions: AgentPermissions, overrides: dict) -
     return AgentPermissions.from_dict(perm_dict)
 
 
+class PermissionValidateSpawnData(TypedDict):
+    """Validate if originator can spawn construct with given permissions."""
+    originator_id: Required[str]  # The originating agent ID
+    construct_permissions: Required[Dict[str, Any]]  # The requested permissions for the construct agent
+
+
 @event_handler("permission:validate_spawn")
-async def handle_validate_spawn(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_validate_spawn(data: PermissionValidateSpawnData) -> Dict[str, Any]:
     """Validate if originator can spawn construct with given permissions.
     
     Args:
@@ -203,8 +229,13 @@ async def handle_validate_spawn(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+class PermissionGetAgentData(TypedDict):
+    """Get permissions for a specific agent."""
+    agent_id: Required[str]  # The agent ID to query permissions for
+
+
 @event_handler("permission:get_agent")
-async def handle_get_agent_permissions(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_get_agent_permissions(data: PermissionGetAgentData) -> Dict[str, Any]:
     """Get permissions for a specific agent.
     
     Args:
@@ -228,8 +259,13 @@ async def handle_get_agent_permissions(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+class PermissionRemoveAgentData(TypedDict):
+    """Remove permissions for an agent."""
+    agent_id: Required[str]  # The agent ID to remove permissions for
+
+
 @event_handler("permission:remove_agent")
-async def handle_remove_agent_permissions(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_remove_agent_permissions(data: PermissionRemoveAgentData) -> Dict[str, Any]:
     """Remove permissions for an agent.
     
     Args:
@@ -251,8 +287,14 @@ async def handle_remove_agent_permissions(data: Dict[str, Any]) -> Dict[str, Any
     }
 
 
+class PermissionListProfilesData(TypedDict):
+    """List available permission profiles."""
+    # No specific fields - returns all profiles
+    pass
+
+
 @event_handler("permission:list_profiles")
-async def handle_list_profiles(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_list_profiles(data: PermissionListProfilesData) -> Dict[str, Any]:
     """List available permission profiles.
     
     Returns:
@@ -272,8 +314,23 @@ async def handle_list_profiles(data: Dict[str, Any]) -> Dict[str, Any]:
     return {"profiles": profiles}
 
 
+class SandboxCreateConfig(TypedDict):
+    """Sandbox configuration."""
+    mode: NotRequired[Literal['isolated', 'shared', 'readonly']]  # Sandbox isolation mode (default: isolated)
+    originator_agent_id: NotRequired[str]  # Originator agent for nested sandboxes
+    session_id: NotRequired[str]  # Session ID for shared sandboxes
+    originator_share: NotRequired[str]  # Originator sharing mode
+    session_share: NotRequired[bool]  # Enable session sharing
+
+
+class SandboxCreateData(TypedDict):
+    """Create a new sandbox for an agent."""
+    agent_id: Required[str]  # The agent ID
+    config: NotRequired[SandboxCreateConfig]  # Sandbox configuration
+
+
 @event_handler("sandbox:create")
-async def handle_create_sandbox(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_create_sandbox(data: SandboxCreateData) -> Dict[str, Any]:
     """Create a new sandbox for an agent.
     
     Args:
@@ -314,8 +371,13 @@ async def handle_create_sandbox(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": f"Failed to create sandbox: {str(e)}"}
 
 
+class SandboxGetData(TypedDict):
+    """Get sandbox information for an agent."""
+    agent_id: Required[str]  # The agent ID
+
+
 @event_handler("sandbox:get")
-async def handle_get_sandbox(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_get_sandbox(data: SandboxGetData) -> Dict[str, Any]:
     """Get sandbox information for an agent.
     
     Args:
@@ -339,8 +401,14 @@ async def handle_get_sandbox(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+class SandboxRemoveData(TypedDict):
+    """Remove an agent's sandbox."""
+    agent_id: Required[str]  # The agent ID
+    force: NotRequired[bool]  # Force removal even with nested children (default: false)
+
+
 @event_handler("sandbox:remove")
-async def handle_remove_sandbox(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_remove_sandbox(data: SandboxRemoveData) -> Dict[str, Any]:
     """Remove an agent's sandbox.
     
     Args:
@@ -364,8 +432,14 @@ async def handle_remove_sandbox(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+class SandboxListData(TypedDict):
+    """List all active sandboxes."""
+    # No specific fields - returns all sandboxes
+    pass
+
+
 @event_handler("sandbox:list")
-async def handle_list_sandboxes(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_list_sandboxes(data: SandboxListData) -> Dict[str, Any]:
     """List all active sandboxes.
     
     Returns:
@@ -380,8 +454,14 @@ async def handle_list_sandboxes(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+class SandboxStatsData(TypedDict):
+    """Get sandbox statistics."""
+    # No specific fields - returns overall stats
+    pass
+
+
 @event_handler("sandbox:stats")
-async def handle_sandbox_stats(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_sandbox_stats(data: SandboxStatsData) -> Dict[str, Any]:
     """Get sandbox statistics.
     
     Returns:

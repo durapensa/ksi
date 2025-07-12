@@ -126,14 +126,15 @@ class KSICLI:
             print("\nParameters:")
             for name, info in merged_help["parameters"].items():
                 req = " (required)" if info.get('required') else " (optional)"
+                param_type = info.get('type', 'Any')
                 desc = info.get('description', '')
-                print(f"  --{name}{req}")
+                print(f"  --{name}: {param_type}{req}")
                 if desc:
                     print(f"      {desc}")
                 if default := info.get('default'):
                     print(f"      Default: {default}")
                 if values := info.get('allowed_values'):
-                    print(f"      Allowed: {', '.join(values)}")
+                    print(f"      Allowed: {', '.join(map(str, values))}")
         
         # Examples
         if merged_help["examples"]:

@@ -7,6 +7,20 @@ description: |
 author: claude_orchestrator
 extends: null
 
+# Define orchestrator agent to interpret the DSL
+agents:
+  orchestrator:
+    profile: "base_orchestrator"
+    vars:
+      pattern_name: "simple_echo_test"
+      initial_prompt: |
+        You are an orchestration agent for the simple_echo_test pattern.
+        Respond to messages based on their content:
+        - If message contains "echo": respond with "ECHO: [message]"
+        - If message contains "spawn": say you would spawn an agent (but don't actually spawn)
+        - If message contains "count": count from 1 to 3
+        - Always end with "Test complete"
+
 metadata:
   tags:
     - test

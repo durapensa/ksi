@@ -18,7 +18,8 @@ import yaml
 import uuid
 import time
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Set
+from typing import Dict, Any, Optional, List, Set, TypedDict, Literal
+from typing_extensions import NotRequired, Required
 from dataclasses import dataclass, field
 import re
 
@@ -543,8 +544,14 @@ orchestration_module = OrchestrationModule()
 
 
 # System event handlers
+class SystemContextData(TypedDict):
+    """System context with runtime references."""
+    emit_event: NotRequired[Any]  # Event emitter function
+    shutdown_event: NotRequired[Any]  # Shutdown event object
+
+
 @event_handler("system:context")
-async def handle_context(context: Dict[str, Any]) -> None:
+async def handle_context(context: SystemContextData) -> None:
     """Store event emitter reference."""
     global event_emitter
     # Get router for event emission
@@ -553,8 +560,14 @@ async def handle_context(context: Dict[str, Any]) -> None:
     logger.info("Orchestration service received context, event_emitter configured")
 
 
+class SystemStartupData(TypedDict):
+    """System startup configuration."""
+    # No specific fields required for this handler
+    pass
+
+
 @event_handler("system:startup")
-async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_startup(config_data: SystemStartupData) -> Dict[str, Any]:
     """Initialize orchestration service on startup."""
     
     # Ensure orchestration patterns directory exists
@@ -569,8 +582,14 @@ async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+class SystemShutdownData(TypedDict):
+    """System shutdown notification."""
+    # No specific fields for shutdown
+    pass
+
+
 @event_handler("system:shutdown")
-async def handle_shutdown(data: Dict[str, Any]) -> None:
+async def handle_shutdown(data: SystemShutdownData) -> None:
     """Clean up on shutdown."""
     # Terminate all active orchestrations
     for instance in list(orchestrations.values()):
@@ -580,8 +599,14 @@ async def handle_shutdown(data: Dict[str, Any]) -> None:
 
 
 # Orchestration event handlers
+class OrchestrationStartData(TypedDict):
+    """Start a new orchestration."""
+    pattern: Required[str]  # Pattern name to load
+    vars: NotRequired[Dict[str, Any]]  # Variables to pass to orchestration
+
+
 @event_handler("orchestration:start")
-async def handle_orchestration_start(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_orchestration_start(data: OrchestrationStartData) -> Dict[str, Any]:
     """Start a new orchestration."""
     pattern = data.get("pattern")
     vars = data.get("vars", {})
@@ -593,14 +618,27 @@ async def handle_orchestration_start(data: Dict[str, Any]) -> Dict[str, Any]:
     return await orchestration_module.start_orchestration(pattern, vars)
 
 
+class OrchestrationMessageData(TypedDict):
+    """Route a message within an orchestration."""
+    orchestration_id: Required[str]  # Orchestration ID
+    from_agent: Required[str]  # Source agent ID
+    event: NotRequired[str]  # Event name (default: "message")
+    payload: NotRequired[Dict[str, Any]]  # Message payload
+
+
 @event_handler("orchestration:message")
-async def handle_orchestration_message(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_orchestration_message(data: OrchestrationMessageData) -> Dict[str, Any]:
     """Route a message within an orchestration."""
     return await orchestration_module.route_message(data)
 
 
+class OrchestrationStatusData(TypedDict):
+    """Get orchestration status."""
+    orchestration_id: NotRequired[str]  # Specific orchestration ID (omit for all)
+
+
 @event_handler("orchestration:status")
-async def handle_orchestration_status(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_orchestration_status(data: OrchestrationStatusData) -> Dict[str, Any]:
     """Get orchestration status."""
     orchestration_id = data.get("orchestration_id")
     
@@ -635,8 +673,13 @@ async def handle_orchestration_status(data: Dict[str, Any]) -> Dict[str, Any]:
         }
 
 
+class OrchestrationTerminateData(TypedDict):
+    """Manually terminate an orchestration."""
+    orchestration_id: Required[str]  # Orchestration ID to terminate
+
+
 @event_handler("orchestration:terminate")
-async def handle_orchestration_terminate(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_orchestration_terminate(data: OrchestrationTerminateData) -> Dict[str, Any]:
     """Manually terminate an orchestration."""
     orchestration_id = data.get("orchestration_id")
     
@@ -650,8 +693,14 @@ async def handle_orchestration_terminate(data: Dict[str, Any]) -> Dict[str, Any]
     return {"status": "terminated"}
 
 
+class OrchestrationRequestTerminationData(TypedDict):
+    """Allow an agent to request orchestration termination."""
+    agent_id: Required[str]  # Agent requesting termination
+    reason: NotRequired[str]  # Termination reason (default: "completed")
+
+
 @event_handler("orchestration:request_termination")
-async def handle_orchestration_request_termination(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_orchestration_request_termination(data: OrchestrationRequestTerminationData) -> Dict[str, Any]:
     """Allow an agent within an orchestration to request termination."""
     agent_id = data.get("agent_id")
     reason = data.get("reason", "completed")
@@ -683,8 +732,14 @@ async def handle_orchestration_request_termination(data: Dict[str, Any]) -> Dict
         return {"error": "Only orchestrator agents can request termination"}
 
 
+class OrchestrationListPatternsData(TypedDict):
+    """List available orchestration patterns."""
+    # No specific fields - returns all patterns
+    pass
+
+
 @event_handler("orchestration:list_patterns")
-async def handle_list_patterns(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_list_patterns(data: OrchestrationListPatternsData) -> Dict[str, Any]:
     """List available orchestration patterns."""
     patterns_dir = orchestration_module.patterns_dir
     patterns = []
@@ -702,8 +757,13 @@ async def handle_list_patterns(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+class OrchestrationLoadPatternData(TypedDict):
+    """Load and validate an orchestration pattern."""
+    pattern: Required[str]  # Pattern name to load
+
+
 @event_handler("orchestration:load_pattern")
-async def handle_load_pattern(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_load_pattern(data: OrchestrationLoadPatternData) -> Dict[str, Any]:
     """Load and validate an orchestration pattern."""
     pattern_name = data.get("pattern")
     
@@ -724,8 +784,13 @@ async def handle_load_pattern(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": f"Failed to load pattern: {str(e)}"}
 
 
+class OrchestrationGetInstanceData(TypedDict):
+    """Get detailed information about an orchestration instance."""
+    orchestration_id: Required[str]  # Orchestration ID to get details for
+
+
 @event_handler("orchestration:get_instance")
-async def handle_get_instance(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_get_instance(data: OrchestrationGetInstanceData) -> Dict[str, Any]:
     """Get detailed information about an orchestration instance."""
     orchestration_id = data.get("orchestration_id")
     

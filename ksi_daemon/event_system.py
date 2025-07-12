@@ -11,7 +11,8 @@ import inspect
 import uuid
 import time
 import fnmatch
-from typing import Dict, Any, List, Callable, Optional, Set, Union, TypeVar, Tuple, Type
+from typing import Dict, Any, List, Callable, Optional, Set, Union, TypeVar, Tuple, Type, TypedDict, Literal
+from typing_extensions import NotRequired, Required
 from functools import wraps
 import sys
 from collections import defaultdict
@@ -1091,8 +1092,13 @@ def get_router() -> EventRouter:
 
 
 # Router management events for dynamic transformers
+class RouterRegisterTransformerData(TypedDict):
+    """Register a dynamic transformer."""
+    transformer: Required[Dict[str, Any]]  # Transformer definition with source, target, mapping, etc.
+
+
 @event_handler("router:register_transformer")
-async def handle_register_transformer(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_register_transformer(data: RouterRegisterTransformerData) -> Dict[str, Any]:
     """Register a dynamic transformer from pattern.
     
     Parameters:
@@ -1113,8 +1119,13 @@ async def handle_register_transformer(data: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         return {"error": str(e)}
 
+class RouterUnregisterTransformerData(TypedDict):
+    """Unregister a dynamic transformer."""
+    source: Required[str]  # Source event pattern to unregister
+
+
 @event_handler("router:unregister_transformer")
-async def handle_unregister_transformer(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_unregister_transformer(data: RouterUnregisterTransformerData) -> Dict[str, Any]:
     """Unregister a dynamic transformer.
     
     Parameters:
@@ -1128,8 +1139,14 @@ async def handle_unregister_transformer(data: Dict[str, Any]) -> Dict[str, Any]:
     router.unregister_transformer(source)
     return {"status": "unregistered", "source": source}
 
+class RouterListTransformersData(TypedDict):
+    """List all registered transformers."""
+    # No specific fields - returns all transformers
+    pass
+
+
 @event_handler("router:list_transformers")
-async def handle_list_transformers(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_list_transformers(data: RouterListTransformersData) -> Dict[str, Any]:
     """List all registered transformers."""
     router = get_router()
     transformers = []
@@ -1149,8 +1166,13 @@ async def handle_list_transformers(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+class SystemErrorPropagationData(TypedDict):
+    """Control error propagation mode."""
+    enabled: NotRequired[bool]  # Set error propagation mode (omit to query current state)
+
+
 @event_handler("system:error_propagation")
-async def handle_error_propagation(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_error_propagation(data: SystemErrorPropagationData) -> Dict[str, Any]:
     """Control error propagation mode.
     
     Args:
@@ -1175,8 +1197,16 @@ async def handle_error_propagation(data: Dict[str, Any]) -> Dict[str, Any]:
         }
 
 
+class EventEmitData(TypedDict):
+    """Generic event emission data."""
+    event: Required[str]  # Target event name
+    data: NotRequired[Dict[str, Any]]  # Event data to pass
+    delay: NotRequired[float]  # Delay in seconds before emitting
+    condition: NotRequired[str]  # Only emit if condition evaluates true
+
+
 @event_handler("event:emit")
-async def handle_emit_event(data: Dict[str, Any]) -> Any:
+async def handle_emit_event(data: EventEmitData) -> Any:
     """
     Generic event emission - allows any module to emit any event.
     Perfect for orchestrators implementing DSL actions without tight coupling.

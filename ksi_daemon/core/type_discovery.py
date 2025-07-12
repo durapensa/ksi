@@ -54,7 +54,9 @@ class TypeAnalyzer:
         """Extract parameter metadata from type annotations."""
         try:
             # Get type hints with string annotations resolved
-            hints = get_type_hints(handler_func, include_extras=True)
+            # Pass the function's module globals to resolve ForwardRef from __future__ annotations
+            func_globals = getattr(handler_func, '__globals__', None)
+            hints = get_type_hints(handler_func, globalns=func_globals, include_extras=True)
             
             # Find data parameter type
             data_type = hints.get('data')
@@ -139,11 +141,18 @@ class TypeAnalyzer:
         """Extract parameters from TypedDict."""
         params = {}
         
-        # Get annotations including from parent classes
-        annotations = {}
-        for base in reversed(td_class.__mro__):
-            if hasattr(base, '__annotations__'):
-                annotations.update(base.__annotations__)
+        # Get type hints with resolved ForwardRefs
+        try:
+            # Get module globals from the TypedDict class
+            td_module = inspect.getmodule(td_class)
+            td_globals = td_module.__dict__ if td_module else None
+            annotations = get_type_hints(td_class, globalns=td_globals, include_extras=True)
+        except Exception:
+            # Fallback to raw annotations if get_type_hints fails
+            annotations = {}
+            for base in reversed(td_class.__mro__):
+                if hasattr(base, '__annotations__'):
+                    annotations.update(base.__annotations__)
         
         # Get required fields
         required_fields = getattr(td_class, '__required_keys__', set())
@@ -230,12 +239,25 @@ class TypeAnalyzer:
                 return f"{origin.__name__}[{', '.join(formatted_args)}]"
             return origin.__name__
         
+        # Handle ForwardRef objects (from __future__ annotations)
+        if hasattr(type_hint, '__forward_arg__'):
+            # This is a ForwardRef that wasn't resolved
+            return str(type_hint.__forward_arg__)
+        
         # Handle regular types
         if hasattr(type_hint, '__name__'):
             return type_hint.__name__
         
-        # Fallback
-        return str(type_hint)
+        # Fallback - clean up the string representation
+        type_str = str(type_hint)
+        # Remove ForwardRef wrapper if present
+        if type_str.startswith("ForwardRef("):
+            import re
+            match = re.match(r"ForwardRef\('([^']+)'", type_str)
+            if match:
+                return match.group(1)
+        
+        return type_str
     
     def _extract_literal_values(self, type_hint: Type) -> Optional[List[Any]]:
         """Extract allowed values from Literal type."""

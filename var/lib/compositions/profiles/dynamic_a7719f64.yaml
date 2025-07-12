@@ -1,0 +1,25 @@
+name: dynamic_a7719f64
+type: profile
+version: 1.0.0
+description: Dynamically created profile
+author: dynamic_agent
+extends: base_agent
+mixins: []
+components:
+- name: agent_config
+  source: null
+  composition: null
+  inline:
+    role: assistant
+    model: sonnet
+    capabilities: []
+    tools: []
+  template: null
+  vars: {}
+  condition: null
+  conditions: null
+variables: {}
+metadata:
+  dynamic: true
+  created_at: '2025-07-11T22:53:47.133492Z'
+  parent_agent: null
