@@ -1,0 +1,25 @@
+name: dynamic_7f6e23eb
+type: profile
+version: 1.0.0
+description: Dynamically created profile
+author: dynamic_agent
+extends: base_agent
+mixins: []
+components:
+- name: agent_config
+  source: null
+  composition: null
+  inline:
+    role: assistant
+    model: sonnet
+    capabilities: []
+    tools: []
+  template: null
+  vars: {}
+  condition: null
+  conditions: null
+variables: {}
+metadata:
+  dynamic: true
+  created_at: '2025-07-12T19:05:29.565140Z'
+  parent_agent: null
