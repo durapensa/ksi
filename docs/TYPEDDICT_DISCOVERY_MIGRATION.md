@@ -37,6 +37,7 @@ This document outlines the migration from docstring-based parameter documentatio
 ### Known Limitations
 - **Python keyword parameters**: Handlers with parameters named 'from', 'import', 'class' etc. cannot use TypedDict
 - **Affected state.py handlers**: `relationship:create`, `relationship:delete`, `relationship:query`, `graph:traverse`
+- **Workaround**: These handlers must continue using `Dict[str, Any]` but still benefit from AST-based discovery
 
 ### Problems Solved
 
@@ -259,6 +260,24 @@ For each module:
 4. **Update handler signatures** to use specific TypedDict types
 5. **Test discovery output** to verify types are detected correctly
 
+### Proven Migration Example (from state.py)
+```python
+from typing import TypedDict, Literal
+from typing_extensions import NotRequired, Required
+
+class EntityQueryData(TypedDict):
+    """Query entities."""
+    type: NotRequired[str]  # Filter by entity type (optional)
+    where: NotRequired[Dict[str, Any]]  # Filter by properties (optional)
+    include: NotRequired[List[Literal['properties', 'relationships']]]  # What to include
+    limit: NotRequired[int]  # Limit results (optional)
+
+@event_handler("state:entity:query")
+async def handle_entity_query(data: EntityQueryData) -> Dict[str, Any]:
+    """Query entities."""  # One-line docstring
+    # Implementation...
+```
+
 ## Implementation Checklist
 
 ### Immediate Tasks
@@ -335,9 +354,10 @@ class ActionData(TypedDict):
 
 ### Current Achievements ✅
 1. **Discovery Accuracy**: 100% correct required/optional detection for migrated modules
-2. **Type Coverage**: 27% complete (69/254 handlers)
+2. **Type Coverage**: 32% complete (81/254 handlers) 
 3. **Developer Experience**: Rich type information in `ksi help` commands
 4. **Cross-module Resolution**: TypedDict imports work correctly
+5. **Live Testing**: All migrated handlers show proper types in production
 
 ### Target Goals
 1. **Type Coverage**: 100% of event handlers annotated (185 remaining)
@@ -402,8 +422,8 @@ async def handle_create_composition(data: CompositionCreateData) -> CompositionR
 ## Next Steps
 
 ### Immediate (Phase 1: Critical Foundation)
-1. 🔄 Complete `core/state.py` migration (12 handlers)
-2. ⏳ Migrate `completion/completion_service.py` (14 handlers)  
+1. ✅ Complete `core/state.py` migration (12 handlers) - DONE!
+2. 🔄 Migrate `completion/completion_service.py` (14 handlers) - NEXT  
 3. ⏳ Migrate `event_system.py` (12 handlers)
 4. ⏳ Test all Tier 1 services with `ksi help` commands
 
