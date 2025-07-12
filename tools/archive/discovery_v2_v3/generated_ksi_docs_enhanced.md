@@ -1514,7 +1514,7 @@ Events that trigger other events:
 >     Dictionary with content, size, encoding, and metadata
 > 
 > Example:
->     {"path": "var/logs/daemon.log", "encoding": "utf-8"}
+>     {"path": "var/logs/daemon/daemon.log", "encoding": "utf-8"}
 
 **Parameters**:
 
