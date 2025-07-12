@@ -7,7 +7,8 @@ Provides pub/sub messaging functionality with consolidated MessageBus class.
 
 import asyncio
 import json
-from typing import Dict, List, Set, Optional, Any
+from typing import Dict, List, Set, Optional, Any, TypedDict, Literal
+from typing_extensions import NotRequired, Required
 from collections import defaultdict
 import time
 
@@ -424,8 +425,14 @@ message_bus = MessageBus()
 
 
 # System event handlers
+class SystemContextData(TypedDict):
+    """System context with runtime references."""
+    emit_event: NotRequired[Any]  # Event emitter function
+    shutdown_event: NotRequired[Any]  # Shutdown event object
+
+
 @event_handler("system:context")
-async def handle_context(context: Dict[str, Any]) -> None:
+async def handle_context(context: SystemContextData) -> None:
     """Store event emitter reference."""
     global event_emitter
     # Get router for event emission
@@ -434,8 +441,14 @@ async def handle_context(context: Dict[str, Any]) -> None:
     logger.info("Message bus received context, event_emitter configured")
 
 
+class SystemStartupData(TypedDict):
+    """System startup configuration."""
+    # No specific fields required for this handler
+    pass
+
+
 @event_handler("system:startup")
-async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_startup(config_data: SystemStartupData) -> Dict[str, Any]:
     """Initialize message bus."""
     logger.info("Message bus module started (consolidated)")
     return {"module.message_bus": {"loaded": True}}
@@ -462,8 +475,14 @@ async def handle_shutdown(data: Dict[str, Any]) -> None:
 
 
 # Message bus event handlers
+class MessageSubscribeData(TypedDict):
+    """Subscribe to message types."""
+    agent_id: Required[str]  # Agent ID making the subscription
+    event_types: Required[List[str]]  # List of event types to subscribe to
+
+
 @event_handler("message:subscribe")
-async def handle_subscribe(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_subscribe(data: MessageSubscribeData) -> Dict[str, Any]:
     """Handle subscription request."""
     agent_id = data.get("agent_id")
     event_types = data.get("event_types", [])
@@ -493,8 +512,14 @@ async def handle_subscribe(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": "Subscription failed - agent not connected"}
 
 
+class MessageUnsubscribeData(TypedDict):
+    """Unsubscribe from message types."""
+    agent_id: Required[str]  # Agent ID unsubscribing
+    event_types: NotRequired[List[str]]  # Event types to unsubscribe from (omit for all)
+
+
 @event_handler("message:unsubscribe")
-async def handle_unsubscribe(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_unsubscribe(data: MessageUnsubscribeData) -> Dict[str, Any]:
     """Handle unsubscription request."""
     agent_id = data.get("agent_id")
     event_types = data.get("event_types", [])
@@ -522,8 +547,15 @@ async def handle_unsubscribe(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+class MessagePublishData(TypedDict):
+    """Publish a message to subscribers."""
+    agent_id: Required[str]  # Agent ID publishing the message
+    event_type: Required[str]  # Event type to publish
+    message: NotRequired[Dict[str, Any]]  # Message payload (default: {})
+
+
 @event_handler("message:publish")
-async def handle_publish(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_publish(data: MessagePublishData) -> Dict[str, Any]:
     """Handle message publication."""
     agent_id = data.get("agent_id")
     event_type = data.get("event_type")
@@ -543,8 +575,13 @@ async def handle_publish(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+class MessageSubscriptionsData(TypedDict):
+    """Get subscription information."""
+    agent_id: NotRequired[str]  # Specific agent ID (omit for all)
+
+
 @event_handler("message:subscriptions")
-async def handle_get_subscriptions(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_get_subscriptions(data: MessageSubscriptionsData) -> Dict[str, Any]:
     """Get subscription information."""
     agent_id = data.get("agent_id")
     
@@ -561,14 +598,25 @@ async def handle_get_subscriptions(data: Dict[str, Any]) -> Dict[str, Any]:
         }
 
 
+class MessageBusStatsData(TypedDict):
+    """Get message bus statistics."""
+    # No specific fields - returns overall stats
+    pass
+
+
 @event_handler("message_bus:stats")
-async def handle_get_stats(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_get_stats(data: MessageBusStatsData) -> Dict[str, Any]:
     """Get message bus statistics."""
     return {"stats": message_bus.get_stats()}
 
 
+class MessageConnectData(TypedDict):
+    """Connect an agent to the message bus."""
+    agent_id: Required[str]  # Agent ID to connect
+
+
 @event_handler("message:connect")
-async def handle_connect_agent(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_connect_agent(data: MessageConnectData) -> Dict[str, Any]:
     """Handle agent connection."""
     agent_id = data.get("agent_id")
     
@@ -584,8 +632,13 @@ async def handle_connect_agent(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+class MessageDisconnectData(TypedDict):
+    """Disconnect an agent from the message bus."""
+    agent_id: Required[str]  # Agent ID to disconnect
+
+
 @event_handler("message:disconnect")
-async def handle_disconnect_agent(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_disconnect_agent(data: MessageDisconnectData) -> Dict[str, Any]:
     """Handle agent disconnection."""
     agent_id = data.get("agent_id")
     
@@ -605,8 +658,22 @@ async def handle_disconnect_agent(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # Legacy transport:message compatibility
+class TransportMessageParameters(TypedDict):
+    """Legacy transport message parameters."""
+    agent_id: NotRequired[str]  # Agent ID
+    event_type: NotRequired[str]  # Event type (for PUBLISH)
+    event_types: NotRequired[List[str]]  # Event types (for SUBSCRIBE)
+    message: NotRequired[Dict[str, Any]]  # Message payload (for PUBLISH)
+
+
+class TransportMessageData(TypedDict):
+    """Legacy transport message format."""
+    command: Required[Literal['PUBLISH', 'SUBSCRIBE']]  # Legacy command type
+    parameters: NotRequired[TransportMessageParameters]  # Command parameters
+
+
 @event_handler("transport:message")
-async def handle_transport_message(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_transport_message(data: TransportMessageData) -> Dict[str, Any]:
     """Handle legacy transport:message events by converting them."""
     command = data.get("command")
     

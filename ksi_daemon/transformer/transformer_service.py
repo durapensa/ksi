@@ -20,7 +20,8 @@ import asyncio
 import yaml
 import time
 from pathlib import Path
-from typing import Dict, Any, List, Set, Optional
+from typing import Dict, Any, List, Set, Optional, TypedDict
+from typing_extensions import NotRequired, Required
 from dataclasses import dataclass, field
 
 from ksi_daemon.event_system import event_handler, get_router
@@ -336,9 +337,53 @@ class TransformerService:
 transformer_service = TransformerService()
 
 
+# TypedDict definitions for event handlers
+
+class TransformerLoadPatternData(TypedDict):
+    """Load transformers from a pattern file."""
+    pattern: Required[str]  # Name of the pattern to load
+    source: NotRequired[str]  # System requesting the load (default: 'unknown')
+    force_reload: NotRequired[bool]  # Force reload even if already loaded (default: False)
+
+
+class TransformerUnloadPatternData(TypedDict):
+    """Unload transformers from a pattern."""
+    pattern: Required[str]  # Name of the pattern to unload
+    source: NotRequired[str]  # System requesting the unload (default: 'unknown')
+
+
+class TransformerReloadPatternData(TypedDict):
+    """Reload transformers from a pattern file."""
+    pattern: Required[str]  # Name of the pattern to reload
+
+
+class TransformerListByPatternData(TypedDict):
+    """List all loaded patterns and their transformers."""
+    # No specific fields - returns all loaded patterns
+    pass
+
+
+class TransformerGetUsageData(TypedDict):
+    """Get usage information - which systems use which patterns."""
+    # No specific fields - returns all usage information
+    pass
+
+
+class SystemStartupData(TypedDict):
+    """System startup configuration."""
+    # No specific fields required for transformer service
+    pass
+
+
+class SystemShutdownData(TypedDict):
+    """System shutdown notification."""
+    # No specific fields for shutdown
+    pass
+
+
 # Event handlers
 @event_handler("transformer:load_pattern")
-async def handle_load_pattern(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_load_pattern(data: TransformerLoadPatternData) -> Dict[str, Any]:
     """Load transformers from a pattern file.
     
     Parameters:
@@ -357,7 +402,7 @@ async def handle_load_pattern(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("transformer:unload_pattern") 
-async def handle_unload_pattern(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_unload_pattern(data: TransformerUnloadPatternData) -> Dict[str, Any]:
     """Unload transformers from a pattern.
     
     Parameters:
@@ -374,7 +419,7 @@ async def handle_unload_pattern(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("transformer:reload_pattern")
-async def handle_reload_pattern(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_reload_pattern(data: TransformerReloadPatternData) -> Dict[str, Any]:
     """Reload transformers from a pattern file.
     
     Parameters:
@@ -389,19 +434,19 @@ async def handle_reload_pattern(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("transformer:list_by_pattern")
-async def handle_list_by_pattern(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_list_by_pattern(data: TransformerListByPatternData) -> Dict[str, Any]:
     """List all loaded patterns and their transformers."""
     return transformer_service.list_loaded_patterns()
 
 
 @event_handler("transformer:get_usage")
-async def handle_get_usage(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_get_usage(data: TransformerGetUsageData) -> Dict[str, Any]:
     """Get usage information - which systems use which patterns."""
     return transformer_service.get_usage_info()
 
 
 @event_handler("system:startup")
-async def handle_startup(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_startup(data: SystemStartupData) -> Dict[str, Any]:
     """Initialize transformer service on startup."""
     logger.info("Transformer service started - ready for pattern-based transformer loading")
     
@@ -417,7 +462,7 @@ async def handle_startup(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("system:shutdown")
-async def handle_shutdown(data: Dict[str, Any]) -> None:
+async def handle_shutdown(data: SystemShutdownData) -> None:
     """Clean up on shutdown."""
     # Unload all patterns
     for pattern_name in list(transformer_service._loaded_patterns.keys()):

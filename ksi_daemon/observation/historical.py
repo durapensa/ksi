@@ -7,7 +7,8 @@ relying on real-time subscriptions.
 """
 
 import json
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, TypedDict, Literal
+from typing_extensions import NotRequired, Required
 from datetime import datetime, timezone
 
 from ksi_common.logging import get_bound_logger
@@ -17,8 +18,43 @@ logger = get_bound_logger("observation.historical")
 event_emitter = None
 
 
+# TypedDict definitions for event handlers
+
+class SystemContextData(TypedDict):
+    """System context with runtime references."""
+    emit_event: NotRequired[Any]  # Event emitter function
+    shutdown_event: NotRequired[Any]  # Shutdown event object
+
+
+class ObservationQueryData(TypedDict):
+    """Query historical observations from event log."""
+    observer: NotRequired[str]  # Observer agent ID
+    target: Required[str]  # Target agent ID
+    events: NotRequired[List[str]]  # Event patterns to match (default: ["*"])
+    time_range: NotRequired[Dict[str, str]]  # Dict with 'start' and 'end' ISO timestamps
+    limit: NotRequired[int]  # Maximum results (default 100, max 1000)
+    offset: NotRequired[int]  # Pagination offset (default 0)
+
+
+class ObservationReplayData(TypedDict):
+    """Replay historical observations to an observer."""
+    observer: Required[str]  # Observer agent ID
+    target: NotRequired[str]  # Target agent ID
+    events: NotRequired[List[str]]  # Event patterns to match
+    time_range: NotRequired[Dict[str, str]]  # Time range to replay
+    limit: NotRequired[int]  # Maximum results to replay
+    offset: NotRequired[int]  # Pagination offset
+
+
+class ObservationAnalyzeData(TypedDict):
+    """Analyze patterns in historical observations."""
+    target: Required[str]  # Target agent to analyze
+    time_range: NotRequired[Dict[str, str]]  # Time range to analyze
+    analysis_type: NotRequired[Literal["frequency", "errors", "performance"]]  # Type of analysis (default: "frequency")
+
+
 @event_handler("system:context")
-async def handle_context(context: Dict[str, Any]) -> None:
+async def handle_context(context: SystemContextData) -> None:
     """Receive system context with event emitter."""
     global event_emitter
     router = get_router()
@@ -27,22 +63,8 @@ async def handle_context(context: Dict[str, Any]) -> None:
 
 
 @event_handler("observation:query")
-async def query_historical_observations(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Query historical observations from event log.
-    
-    Args:
-        observer: Observer agent ID
-        target: Target agent ID
-        events: List of event patterns to match
-        time_range: Dict with 'start' and 'end' ISO timestamps
-        limit: Maximum results (default 100)
-        offset: Pagination offset
-    
-    Returns:
-        events: List of matching events
-        total: Total count of matching events
-        has_more: Whether more results exist
-    """
+async def query_historical_observations(data: ObservationQueryData) -> Dict[str, Any]:
+    """Query historical observations from event log."""
     observer = data.get("observer")
     target = data.get("target")
     events = data.get("events", ["*"])
@@ -98,11 +120,8 @@ async def query_historical_observations(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("observation:replay")
-async def replay_observations(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Replay historical observations to an observer.
-    
-    Like observation:query but sends results as observation events.
-    """
+async def replay_observations(data: ObservationReplayData) -> Dict[str, Any]:
+    """Replay historical observations to an observer."""
     observer = data.get("observer")
     if not observer:
         return {"error": "Observer agent ID required"}
@@ -139,17 +158,8 @@ async def replay_observations(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("observation:analyze")
-async def analyze_observation_patterns(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Analyze patterns in historical observations.
-    
-    Args:
-        target: Target agent to analyze
-        time_range: Time range to analyze
-        analysis_type: Type of analysis (frequency, errors, performance)
-    
-    Returns:
-        Analysis results based on type
-    """
+async def analyze_observation_patterns(data: ObservationAnalyzeData) -> Dict[str, Any]:
+    """Analyze patterns in historical observations."""
     target = data.get("target")
     time_range = data.get("time_range", {})
     analysis_type = data.get("analysis_type", "frequency")

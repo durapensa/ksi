@@ -4,7 +4,7 @@
 import asyncio
 import yaml
 from pathlib import Path
-from typing import Dict, Any, List, Optional, TypedDict
+from typing import Dict, Any, List, Optional, TypedDict, Literal
 from typing_extensions import NotRequired
 
 from ksi_daemon.event_system import event_handler, emit_event
@@ -18,15 +18,51 @@ from .evaluation_index import evaluation_index
 logger = get_bound_logger("prompt_evaluation", version="2.0.0")
 
 
+# TypedDict definitions for event handlers
+
+class SystemStartupData(TypedDict):
+    """System startup configuration."""
+    # No specific fields required for prompt evaluation
+    pass
+
+
 class PromptEvaluationData(TypedDict):
-    """Type-safe data for evaluation:prompt."""
-    composition_name: str
-    composition_type: NotRequired[str]
-    test_suite: NotRequired[str]
-    model: NotRequired[str]
-    test_prompts: NotRequired[List[Dict[str, Any]]]
-    update_metadata: NotRequired[bool]
-    notes: NotRequired[str]
+    """Run prompt evaluation tests for a composition."""
+    composition_name: str  # Composition/profile to test
+    composition_type: NotRequired[str]  # Type of composition (default: 'profile')
+    test_suite: NotRequired[str]  # Test suite to use (default: 'basic_effectiveness')
+    model: NotRequired[str]  # Model for testing (default: 'claude-cli/sonnet')
+    test_prompts: NotRequired[List[Dict[str, Any]]]  # Custom test prompts
+    update_metadata: NotRequired[bool]  # Save results to disk (default: False)
+    notes: NotRequired[str]  # Optional notes about evaluation run
+
+
+class EvaluationListSuitesData(TypedDict):
+    """List available test suites."""
+    # No specific fields - returns all available suites
+    pass
+
+
+class EvaluationCompareData(TypedDict):
+    """Compare multiple compositions by running evaluations."""
+    compositions: List[str]  # List of composition names to compare
+    test_suite: NotRequired[str]  # Test suite to use (default: 'basic_effectiveness')
+    model: NotRequired[str]  # Model for testing (default: 'claude-cli/sonnet')
+    update_metadata: NotRequired[bool]  # Save results to compositions (default: False)
+    format: NotRequired[Literal['summary', 'rankings', 'detailed']]  # Output format (default: 'summary')
+
+
+class EvaluationListData(TypedDict):
+    """List evaluations for a specific composition."""
+    composition_name: str  # Composition name to list evaluations for
+    composition_type: NotRequired[str]  # Composition type filter
+    limit: NotRequired[int]  # Maximum results to return
+
+
+class EvaluationRefreshIndexData(TypedDict):
+    """Refresh the evaluation index."""
+    # No specific fields - refreshes entire index
+    pass
 
 
 # Cache for loaded test suites
@@ -110,7 +146,7 @@ def save_evaluation_result(composition_type: str, composition_name: str,
 
 
 @event_handler("system:startup")
-async def handle_startup(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_startup(data: SystemStartupData) -> Dict[str, Any]:
     """Initialize prompt evaluation module."""
     logger.info("Prompt evaluation module started")
     return {"status": "prompt_evaluation_ready"}
@@ -346,7 +382,7 @@ async def _run_single_test(composition_name: str,
 
 
 @event_handler("evaluation:list_suites")
-async def handle_list_suites(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_list_suites(data: EvaluationListSuitesData) -> Dict[str, Any]:
     """List available test suites."""
     available_suites = list_available_test_suites()
     
@@ -372,7 +408,7 @@ async def handle_list_suites(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("evaluation:compare")
-async def handle_compare_compositions(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_compare_compositions(data: EvaluationCompareData) -> Dict[str, Any]:
     """Compare multiple compositions by running evaluations on each."""
     compositions = data.get('compositions', [])  # List of composition names to compare
     test_suite = data.get('test_suite', 'basic_effectiveness')  # Test suite to use
@@ -662,7 +698,7 @@ def _format_rankings_response(results: Dict[str, Dict[str, Any]], comparison: Di
 
 
 @event_handler("evaluation:list")
-async def handle_list_evaluations(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_list_evaluations(data: EvaluationListData) -> Dict[str, Any]:
     """List evaluations for a specific composition."""
     composition_name = data.get('composition_name')  # Required
     composition_type = data.get('composition_type', 'profile')  # Type of composition
@@ -698,7 +734,7 @@ async def handle_list_evaluations(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("evaluation:refresh_index")
-async def handle_refresh_index(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_refresh_index(data: EvaluationRefreshIndexData) -> Dict[str, Any]:
     """Refresh the evaluation index."""
     try:
         evaluation_index.refresh()

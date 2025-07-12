@@ -7,7 +7,8 @@ Modules auto-register their handlers at import time via decorators.
 """
 
 import asyncio
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, TypedDict
+from typing_extensions import NotRequired, Required
 
 from ksi_common.logging import get_bound_logger
 from .event_system import EventRouter, get_router
@@ -247,8 +248,44 @@ class EventDaemonCore:
 # Add built-in discovery handlers for introspection
 from .event_system import event_handler, EventPriority
 
+
+# TypedDict definitions for event handlers
+
+class SystemShutdownData(TypedDict):
+    """System shutdown notification."""
+    # No specific fields for shutdown
+    pass
+
+
+class ShutdownAcknowledgeData(TypedDict):
+    """Handle shutdown acknowledgment from a service."""
+    service_name: Required[str]  # Name of the service acknowledging shutdown
+
+
+class ModuleListData(TypedDict):
+    """List all loaded modules."""
+    # No specific fields - returns all modules
+    pass
+
+
+class ModuleEventsData(TypedDict):
+    """List all registered events and patterns."""
+    # No specific fields - returns all events
+    pass
+
+
+class ModuleInspectData(TypedDict):
+    """Inspect a specific module."""
+    module_name: Required[str]  # Module name to inspect
+
+
+class SystemHealthData(TypedDict):
+    """System health check including module status."""
+    # No specific fields - returns health status
+    pass
+
 @event_handler("system:shutdown", priority=EventPriority.HIGHEST)  # Use HIGHEST to run before other handlers
-async def handle_shutdown_request(data: Dict[str, Any]) -> None:
+async def handle_shutdown_request(data: SystemShutdownData) -> None:
     """Handle external shutdown request by setting shutdown event.
     
     This handler responds to external shutdown requests (e.g. from daemon_control)
@@ -269,7 +306,7 @@ async def handle_shutdown_request(data: Dict[str, Any]) -> None:
         logger.warning("No daemon core reference available for shutdown")
 
 @event_handler("shutdown:acknowledge")
-async def handle_shutdown_acknowledge(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_shutdown_acknowledge(data: ShutdownAcknowledgeData) -> Dict[str, Any]:
     """Handle shutdown acknowledgment from a service.
     
     Expected data:
@@ -284,7 +321,7 @@ async def handle_shutdown_acknowledge(data: Dict[str, Any]) -> Dict[str, Any]:
     return {"acknowledged": service_name}
 
 @event_handler("module:list")
-async def handle_list_modules(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_list_modules(data: ModuleListData) -> Dict[str, Any]:
     """List all loaded modules."""
     router = get_router()
     modules = router.get_modules()
@@ -304,7 +341,7 @@ async def handle_list_modules(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("module:events")
-async def handle_list_events(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_list_events(data: ModuleEventsData) -> Dict[str, Any]:
     """List all registered events and patterns."""
     router = get_router()
     events = router.get_events()
@@ -318,7 +355,7 @@ async def handle_list_events(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("module:inspect")
-async def handle_inspect_module(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_inspect_module(data: ModuleInspectData) -> Dict[str, Any]:
     """Inspect a specific module using direct function metadata."""
     router = get_router()
     module_name = data.get("module_name")
@@ -336,7 +373,7 @@ async def handle_inspect_module(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("system:health")
-async def handle_system_health(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_system_health(data: SystemHealthData) -> Dict[str, Any]:
     """System health check including module status.""" 
     import time
     

@@ -11,7 +11,8 @@ import asyncio
 import json
 import os
 from pathlib import Path
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List, Tuple, Optional, TypedDict, Literal
+from typing_extensions import NotRequired
 from datetime import datetime
 
 from ksi_daemon.event_system import event_handler, EventPriority, emit_event, shutdown_handler, get_router
@@ -484,10 +485,42 @@ async def restore_completion_state(state: Dict[str, Any]) -> Dict[str, Any]:
     return results
 
 
+# TypedDict definitions for event handlers
+
+class SystemStartupData(TypedDict):
+    """System startup configuration."""
+    # No specific fields required for checkpoint
+    pass
+
+
+class SystemReadyData(TypedDict):
+    """System ready notification."""
+    # No specific fields for checkpoint restore
+    pass
+
+
+class DevCheckpointData(TypedDict):
+    """Handle checkpoint operations with multiple actions."""
+    action: Literal['create', 'status', 'list_requests', 'remove_request', 'clear_failed', 'clear_all']  # Action to perform
+    request_id: NotRequired[str]  # Request ID for remove_request action
+
+
+class DevRestoreData(TypedDict):
+    """Manually trigger checkpoint restore."""
+    # No specific fields - restores latest checkpoint
+    pass
+
+
+class SystemShutdownData(TypedDict):
+    """System shutdown notification."""
+    # No specific fields for checkpoint shutdown
+    pass
+
+
 # Event handlers
 
 @event_handler("system:startup", priority=EventPriority.LOW)
-async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_startup(config_data: SystemStartupData) -> Dict[str, Any]:
     """Initialize checkpoint system database."""
     if is_checkpoint_disabled:
         logger.debug("Checkpoint system disabled via KSI_CHECKPOINT_DISABLED")
@@ -501,7 +534,7 @@ async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("system:ready", priority=EventPriority.LOW)
-async def handle_ready_restore(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_ready_restore(data: SystemReadyData) -> Dict[str, Any]:
     """Restore checkpoint after all services are ready."""
     if is_checkpoint_disabled:
         return {"checkpoint": "disabled"}
@@ -759,7 +792,7 @@ async def _clear_checkpoint_requests(filter_type: str = "all") -> Dict[str, Any]
 
 
 @event_handler("dev:checkpoint")
-async def handle_checkpoint(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_checkpoint(data: DevCheckpointData) -> Dict[str, Any]:
     """Handle checkpoint operations with multiple actions."""
     action = data.get("action")
     if not action:
@@ -805,7 +838,7 @@ async def handle_checkpoint(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("dev:restore")
-async def handle_restore(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_restore(data: DevRestoreData) -> Dict[str, Any]:
     """Manually trigger checkpoint restore."""
     if is_checkpoint_disabled:
         return {"error": "Checkpoint system disabled"}
@@ -823,7 +856,7 @@ async def handle_restore(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @shutdown_handler("checkpoint", priority=EventPriority.HIGH)
-async def handle_shutdown_checkpoint(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_shutdown_checkpoint(data: SystemShutdownData) -> Dict[str, Any]:
     """Create checkpoint before shutdown to preserve state.
     
     This is a critical shutdown handler that must complete before daemon exits.

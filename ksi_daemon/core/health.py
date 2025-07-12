@@ -7,7 +7,7 @@ Migrated to pure event system.
 """
 
 import time
-from typing import Dict, Any
+from typing import Dict, Any, TypedDict
 
 from ksi_daemon.event_system import event_handler
 from ksi_common.logging import get_bound_logger
@@ -26,8 +26,22 @@ MODULE_INFO = {
 startup_time = None
 
 
+# TypedDict definitions for event handlers
+
+class SystemStartupData(TypedDict):
+    """System startup configuration."""
+    # No specific fields required for health module
+    pass
+
+
+class SystemShutdownData(TypedDict):
+    """System shutdown notification."""
+    # No specific fields for shutdown
+    pass
+
+
 @event_handler("system:startup")
-async def handle_startup(config: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_startup(config: SystemStartupData) -> Dict[str, Any]:
     """Initialize health check plugin."""
     global startup_time
     startup_time = time.time()
@@ -39,7 +53,7 @@ async def handle_startup(config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("system:shutdown")
-async def handle_shutdown(data: Dict[str, Any]) -> None:
+async def handle_shutdown(data: SystemShutdownData) -> None:
     """Clean up on shutdown."""
     logger.info("Health module shutting down")
 

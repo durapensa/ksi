@@ -6,6 +6,7 @@ Analyzes TypedDict annotations to automatically discover event parameters,
 their types, requirements, and relationships.
 """
 
+import ast
 import inspect
 from typing import (
     Any, Dict, List, Optional, Union, get_type_hints, get_origin, get_args,
@@ -297,8 +298,37 @@ class TypeAnalyzer:
         return None
     
     def _extract_field_description(self, td_class: Type[TypedDict], field_name: str) -> Optional[str]:
-        """Extract field description from class docstring or comments."""
-        # Try to parse from class docstring
+        """Extract field description from inline comments or class docstring."""
+        # First try to extract from inline comments in source
+        try:
+            source = inspect.getsource(td_class)
+            source_lines = source.splitlines()
+            tree = ast.parse(source)
+            
+            # Find the ClassDef node
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef) and node.name == td_class.__name__:
+                    # Look for AnnAssign nodes (field: Type annotations)
+                    for stmt in node.body:
+                        if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                            if stmt.target.id == field_name:
+                                # Found our field, extract comment from same line
+                                comment = self._extract_inline_comment_from_line(
+                                    source_lines, 
+                                    stmt.lineno - 1  # AST uses 1-based line numbers
+                                )
+                                if comment:
+                                    return comment
+                                
+                                # Check next line for comment if not on same line
+                                if stmt.lineno < len(source_lines):
+                                    next_line = source_lines[stmt.lineno].strip()
+                                    if next_line.startswith('#'):
+                                        return next_line[1:].strip()
+        except Exception as e:
+            logger.debug(f"Failed to extract inline comment for {field_name}: {e}")
+        
+        # Fallback to docstring approach
         if td_class.__doc__:
             # Look for "field_name: description" pattern
             pattern = rf'^\s*{field_name}\s*:\s*(.+)$'
@@ -307,7 +337,23 @@ class TypeAnalyzer:
                 if match:
                     return match.group(1).strip()
         
-        # Could be enhanced to read source comments
+        return None
+    
+    def _extract_inline_comment_from_line(self, source_lines: List[str], line_idx: int) -> Optional[str]:
+        """Extract inline comment from a source line."""
+        if line_idx >= len(source_lines):
+            return None
+            
+        line = source_lines[line_idx]
+        
+        # Look for inline comment
+        comment_idx = line.find('#')
+        if comment_idx > 0:  # Must not be at start of line
+            comment = line[comment_idx + 1:].strip()
+            # Filter out obvious non-documentation comments
+            if comment and not comment.startswith(('TODO', 'FIXME', 'NOTE:', 'noqa')):
+                return comment
+        
         return None
     
     def _find_discriminator(self, variant_type: Type[TypedDict], 

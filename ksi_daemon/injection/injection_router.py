@@ -9,7 +9,8 @@ autonomous agent coordination through completion chains.
 import asyncio
 import json
 import time
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, TypedDict, Literal
+from typing_extensions import NotRequired, Required
 
 from ksi_common.logging import get_bound_logger
 from ksi_daemon.event_system import event_handler, get_router
@@ -104,9 +105,17 @@ class InjectionCircuitBreaker:
 circuit_breaker = InjectionCircuitBreaker()
 
 
+# TypedDict definitions for event handlers
+
+class SystemContextData(TypedDict):
+    """System context with runtime references."""
+    emit_event: NotRequired[Any]  # Event emitter function
+    shutdown_event: NotRequired[Any]  # Shutdown event object
+
+
 # System event handlers
 @event_handler("system:context")
-async def handle_context(context: Dict[str, Any]) -> None:
+async def handle_context(context: SystemContextData) -> None:
     """Store event emitter reference."""
     global event_emitter
     # Get router for event emission
@@ -115,15 +124,27 @@ async def handle_context(context: Dict[str, Any]) -> None:
     logger.info("Injection router received context, event_emitter configured")
 
 
+class SystemStartupData(TypedDict):
+    """System startup configuration."""
+    # No specific fields required for injection router
+    pass
+
+
 @event_handler("system:startup")
-async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_startup(config_data: SystemStartupData) -> Dict[str, Any]:
     """Initialize injection router."""
     logger.info("Injection router started")
     return {"status": "injection_router_ready"}
 
 
+class SystemReadyData(TypedDict):
+    """System ready notification."""
+    # No specific fields for this handler
+    pass
+
+
 @event_handler("system:ready")
-async def handle_ready(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_ready(data: SystemReadyData) -> Dict[str, Any]:
     """Return async task to process injection queue."""
     global injection_queue
     
@@ -175,8 +196,14 @@ async def handle_ready(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+class SystemShutdownData(TypedDict):
+    """System shutdown notification."""
+    # No specific fields for shutdown
+    pass
+
+
 @event_handler("system:shutdown")
-async def handle_shutdown(data: Dict[str, Any]) -> None:
+async def handle_shutdown(data: SystemShutdownData) -> None:
     """Clean up on shutdown."""
     # Signal queue processor to stop
     if injection_queue:
@@ -189,8 +216,14 @@ async def handle_shutdown(data: Dict[str, Any]) -> None:
 
 
 # Injection event handlers
+class InjectionStatusData(TypedDict):
+    """Get injection router status."""
+    # No specific fields - returns overall status
+    pass
+
+
 @event_handler("injection:status")
-async def handle_injection_status(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_injection_status(data: InjectionStatusData) -> Dict[str, Any]:
     """Get injection router status."""
     return {
         "queued_count": injection_queue.qsize() if injection_queue else 0,
@@ -200,8 +233,18 @@ async def handle_injection_status(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+class InjectionInjectData(TypedDict):
+    """Unified injection request."""
+    content: Required[str]  # Content to inject
+    mode: NotRequired[Literal["direct", "next"]]  # Injection mode (default: "next")
+    position: NotRequired[Literal["before_prompt", "after_prompt", "system_reminder"]]  # Position (default: "before_prompt")
+    session_id: NotRequired[str]  # Session ID (required for next mode)
+    priority: NotRequired[Literal["high", "normal", "low"]]  # Priority (default: "normal")
+    metadata: NotRequired[Dict[str, Any]]  # Additional metadata
+
+
 @event_handler("injection:inject")
-async def handle_injection_inject(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_injection_inject(data: InjectionInjectData) -> Dict[str, Any]:
     """Handle unified injection request."""
     # Unified injection handler - convert to typed interface
     try:
@@ -226,32 +269,55 @@ async def handle_injection_inject(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"status": "error", "error": str(e)}
 
 
+class InjectionQueueData(TypedDict):
+    """Queue injection metadata."""
+    id: NotRequired[str]  # Request ID (auto-generated if not provided)
+    injection_config: NotRequired[Dict[str, Any]]  # Injection configuration
+    circuit_breaker_config: NotRequired[Dict[str, Any]]  # Circuit breaker config
+
+
 @event_handler("injection:queue")
-async def handle_injection_queue(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_injection_queue(data: InjectionQueueData) -> Dict[str, Any]:
     """Handle queue injection metadata request from completion service."""
     # This replaces the direct function call from completion service
     request_id = _queue_completion_with_injection(data)
     return {"request_id": request_id}
 
 
+class InjectionBatchData(TypedDict):
+    """Batch injection request."""
+    injections: Required[List[Dict[str, Any]]]  # List of injection requests
+
+
 @event_handler("injection:batch")
-async def handle_injection_batch(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_injection_batch(data: InjectionBatchData) -> Dict[str, Any]:
     """Handle batch injection request."""
     injections = data.get("injections", [])
     result = await inject_batch(injections)
     return result
 
 
+class InjectionListData(TypedDict):
+    """List pending injections."""
+    session_id: NotRequired[str]  # Session to query (omit for all)
+
+
 @event_handler("injection:list")
-async def handle_injection_list(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_injection_list(data: InjectionListData) -> Dict[str, Any]:
     """Handle list injections request."""
     session_id = data.get("session_id")
     result = await list_pending_injections(session_id)
     return result
 
 
+class InjectionClearData(TypedDict):
+    """Clear pending injections."""
+    session_id: Required[str]  # Session to clear
+    mode: NotRequired[Literal["direct", "next"]]  # Mode filter (omit for all)
+
+
 @event_handler("injection:clear")
-async def handle_injection_clear(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_injection_clear(data: InjectionClearData) -> Dict[str, Any]:
     """Handle clear injections request."""
     session_id = data.get("session_id")
     mode = data.get("mode")
@@ -259,8 +325,15 @@ async def handle_injection_clear(data: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
+class InjectionProcessResultData(TypedDict):
+    """Process completion result for injection."""
+    request_id: Required[str]  # Request ID
+    result: Required[Dict[str, Any]]  # Completion result data
+    injection_metadata: Required[Dict[str, Any]]  # Injection metadata
+
+
 @event_handler("injection:process_result")
-async def handle_injection_process_result(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+async def handle_injection_process_result(data: InjectionProcessResultData) -> Optional[Dict[str, Any]]:
     """Process a completion result for injection - explicitly called by completion service."""
     
     request_id = data.get('request_id')
@@ -405,8 +478,19 @@ async def handle_injection_process_result(data: Dict[str, Any]) -> Optional[Dict
         }
 
 
+class InjectionExecuteData(TypedDict):
+    """Execute a queued injection."""
+    session_id: NotRequired[str]  # Session ID
+    content: Required[str]  # Content to inject
+    request_id: NotRequired[str]  # Original request ID
+    target_sessions: NotRequired[List[str]]  # Target sessions (defaults to [session_id])
+    model: NotRequired[str]  # Model to use (default: 'claude-cli/sonnet')
+    priority: NotRequired[Literal["high", "normal", "low"]]  # Priority
+    injection_type: NotRequired[str]  # Type of injection (default: 'system_reminder')
+
+
 @event_handler("injection:execute")
-async def execute_injection(data: Dict[str, Any]) -> Dict[str, Any]:
+async def execute_injection(data: InjectionExecuteData) -> Dict[str, Any]:
     """Execute a queued injection by creating a new completion request."""
     
     session_id = data.get('session_id')

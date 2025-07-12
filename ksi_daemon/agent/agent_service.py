@@ -11,9 +11,9 @@ import asyncio
 import json
 import time
 import uuid
-from typing import Any, Dict, TypedDict
+from typing import Any, Dict, TypedDict, List, Literal
 
-from typing_extensions import NotRequired
+from typing_extensions import NotRequired, Required
 
 from ksi_common import format_for_logging
 from ksi_common.config import config
@@ -39,20 +39,183 @@ identity_storage_path = config.identity_storage_path
 event_emitter = None
 
 
-# Per-module TypedDict definitions (optional type safety)
+# TypedDict definitions for event handlers
+
+class SystemContextData(TypedDict):
+    """System context with runtime references."""
+    emit_event: NotRequired[Any]  # Event emitter function
+    shutdown_event: NotRequired[Any]  # Shutdown event object
+
+
+class SystemStartupData(TypedDict):
+    """System startup configuration."""
+    # No specific fields required for agent service
+    pass
+
+
+class SystemReadyData(TypedDict):
+    """System ready notification."""
+    # No specific fields for agent service
+    pass
+
+
+class SystemShutdownData(TypedDict):
+    """System shutdown notification."""
+    # No specific fields for shutdown
+    pass
+
+
+class ObservationReadyData(TypedDict):
+    """Observation system ready notification."""
+    status: NotRequired[str]  # Ready status
+    ephemeral: NotRequired[bool]  # Ephemeral subscriptions flag
+    message: NotRequired[str]  # Status message
+
+
+class ObservationRestoredData(TypedDict):
+    """Observation subscriptions restored from checkpoint."""
+    subscriptions_restored: NotRequired[int]  # Number of subscriptions restored
+    from_checkpoint: NotRequired[str]  # Checkpoint timestamp
+
+
+class CheckpointCollectData(TypedDict):
+    """Collect checkpoint data."""
+    # No specific fields - collects all agent state
+    pass
+
+
+class CheckpointRestoreData(TypedDict):
+    """Restore from checkpoint data."""
+    agents: NotRequired[Dict[str, Any]]  # Agent state to restore
+    identities: NotRequired[Dict[str, Any]]  # Agent identities to restore
+
+
+class AgentSpawnData(TypedDict):
+    """Spawn a new agent."""
+    profile: Required[str]  # Profile name
+    agent_id: NotRequired[str]  # Agent ID (auto-generated if not provided)
+    session_id: NotRequired[str]  # Session ID for conversation continuity
+    prompt: NotRequired[str]  # Initial prompt
+    context: NotRequired[Dict[str, Any]]  # Additional context
+    originator_agent_id: NotRequired[str]  # ID of spawning agent
+    purpose: NotRequired[str]  # Purpose description
+    composition: NotRequired[str]  # Composition name
+    model: NotRequired[str]  # Model to use
+    enable_tools: NotRequired[bool]  # Enable tool usage
+    agent_type: NotRequired[Literal["construct", "system", "user"]]  # Agent type
+    permission_profile: NotRequired[str]  # Permission profile name
+    sandbox_dir: NotRequired[str]  # Sandbox directory
+    mcp_config_path: NotRequired[str]  # MCP configuration path
+    conversation_id: NotRequired[str]  # Conversation ID
+
+
 class AgentTerminateData(TypedDict):
-    """Type-safe data for agent:terminate."""
-    agent_id: str
-    force: NotRequired[bool]
+    """Terminate an agent."""
+    agent_id: Required[str]  # Agent ID to terminate
+    force: NotRequired[bool]  # Force termination
+
+
+class AgentRestartData(TypedDict):
+    """Restart an agent."""
+    agent_id: Required[str]  # Agent ID to restart
+
+
+class AgentRegisterData(TypedDict):
+    """Register an external agent."""
+    agent_id: Required[str]  # Agent ID to register
+    profile: NotRequired[str]  # Agent profile
+    capabilities: NotRequired[List[str]]  # Agent capabilities
+
+
+class AgentUnregisterData(TypedDict):
+    """Unregister an agent."""
+    agent_id: Required[str]  # Agent ID to unregister
+
 
 class AgentListData(TypedDict):
-    """Type-safe data for agent:list."""
-    status: NotRequired[str]
+    """List agents."""
+    status: NotRequired[str]  # Filter by status
+
+
+class AgentListConstructsData(TypedDict):
+    """List construct agents for an originator."""
+    originator_id: Required[str]  # Originator agent ID
+    include_terminated: NotRequired[bool]  # Include terminated agents
+
+
+class AgentCreateIdentityData(TypedDict):
+    """Create a new agent identity."""
+    agent_id: Required[str]  # Agent ID
+    identity: Required[Dict[str, Any]]  # Identity information
+
+
+class AgentUpdateIdentityData(TypedDict):
+    """Update an agent identity."""
+    agent_id: Required[str]  # Agent ID
+    identity: Required[Dict[str, Any]]  # Updated identity information
+
+
+class AgentRemoveIdentityData(TypedDict):
+    """Remove an agent identity."""
+    agent_id: Required[str]  # Agent ID
+
+
+class AgentListIdentitiesData(TypedDict):
+    """List agent identities."""
+    # No specific fields - returns all identities
+    pass
+
+
+class AgentGetIdentityData(TypedDict):
+    """Get a specific agent identity."""
+    agent_id: Required[str]  # Agent ID
+
+
+class AgentRouteTaskData(TypedDict):
+    """Route a task to an appropriate agent."""
+    task: Required[Dict[str, Any]]  # Task to route
+    requirements: NotRequired[List[str]]  # Required capabilities
+    exclude_agents: NotRequired[List[str]]  # Agents to exclude
+
+
+class AgentGetCapabilitiesData(TypedDict):
+    """Get agent capabilities."""
+    agent_id: NotRequired[str]  # Specific agent ID (omit for all agents)
+
 
 class AgentSendMessageData(TypedDict):
-    """Type-safe data for agent:send_message."""
-    agent_id: str
-    message: Dict[str, Any]
+    """Send message to an agent."""
+    agent_id: Required[str]  # Target agent ID
+    message: Required[Dict[str, Any]]  # Message to send
+    wait_for_response: NotRequired[bool]  # Wait for response
+    timeout: NotRequired[float]  # Response timeout
+
+
+class AgentBroadcastData(TypedDict):
+    """Broadcast a message to all agents."""
+    message: Required[Dict[str, Any]]  # Message to broadcast
+    exclude_agents: NotRequired[List[str]]  # Agents to exclude
+    agent_types: NotRequired[List[str]]  # Filter by agent types
+
+
+class AgentUpdateCompositionData(TypedDict):
+    """Update agent composition."""
+    agent_id: Required[str]  # Agent ID
+    composition: Required[str]  # New composition name
+
+
+class AgentDiscoverPeersData(TypedDict):
+    """Discover other agents and their capabilities."""
+    agent_id: NotRequired[str]  # Requesting agent ID
+    capabilities: NotRequired[List[str]]  # Required capabilities
+    agent_types: NotRequired[List[str]]  # Filter by agent types
+
+
+class AgentNegotiateRolesData(TypedDict):
+    """Coordinate role negotiation between agents."""
+    agents: Required[List[str]]  # Agent IDs to negotiate
+    roles: Required[Dict[str, str]]  # Role assignments
+    context: NotRequired[Dict[str, Any]]  # Negotiation context
 
 
 # Helper functions
@@ -83,7 +246,7 @@ def save_identities():
 
 # System event handlers
 @event_handler("system:context")
-async def handle_context(context: Dict[str, Any]) -> None:
+async def handle_context(context: SystemContextData) -> None:
     """Receive module context with event emitter."""
     global event_emitter
     # Get router for event emission
@@ -93,7 +256,7 @@ async def handle_context(context: Dict[str, Any]) -> None:
 
 
 @event_handler("system:startup")
-async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_startup(config_data: SystemStartupData) -> Dict[str, Any]:
     """Initialize agent service on startup."""
     load_identities()
     
@@ -108,7 +271,7 @@ async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("system:ready")
-async def handle_ready(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_ready(data: SystemReadyData) -> Dict[str, Any]:
     """Load agents from graph database after all services are ready."""
     loaded_agents = 0
     
@@ -207,7 +370,7 @@ async def handle_ready(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @shutdown_handler("agent_service")
-async def handle_shutdown(data: Dict[str, Any]) -> None:
+async def handle_shutdown(data: SystemShutdownData) -> None:
     """Clean up on shutdown - update state before terminating."""
     # First, mark all agents as suspended in the graph
     if event_emitter:
@@ -250,13 +413,8 @@ async def handle_shutdown(data: Dict[str, Any]) -> None:
 
 
 @event_handler("observation:ready")
-async def reestablish_observations(data: Dict[str, Any]) -> None:
-    """Re-establish observations for all active agents after restart.
-    
-    This event only fires when observation subscriptions were NOT restored
-    from a checkpoint, indicating that agents need to re-establish their
-    subscriptions.
-    """
+async def reestablish_observations(data: ObservationReadyData) -> None:
+    """Re-establish observations for all active agents after restart."""
     if not event_emitter:
         logger.warning("Cannot re-establish observations - no event emitter")
         return
@@ -309,12 +467,8 @@ async def reestablish_observations(data: Dict[str, Any]) -> None:
 
 
 @event_handler("observation:restored")
-async def handle_observation_restored(data: Dict[str, Any]) -> None:
-    """Observations restored from checkpoint - no action needed.
-    
-    This event fires when subscriptions are restored from checkpoint,
-    so agents don't need to re-establish them.
-    """
+async def handle_observation_restored(data: ObservationRestoredData) -> None:
+    """Observations restored from checkpoint - no action needed."""
     restored_count = data.get("subscriptions_restored", 0)
     from_checkpoint = data.get("from_checkpoint", "unknown")
     
@@ -327,7 +481,7 @@ async def handle_observation_restored(data: Dict[str, Any]) -> None:
 
 
 @event_handler("checkpoint:collect")
-async def handle_checkpoint_collect(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_checkpoint_collect(data: CheckpointCollectData) -> Dict[str, Any]:
     """Collect agent state for checkpoint."""
     try:
         # Prepare agent state for checkpointing
@@ -376,7 +530,7 @@ async def handle_checkpoint_collect(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("checkpoint:restore")
-async def handle_checkpoint_restore(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_checkpoint_restore(data: CheckpointRestoreData) -> Dict[str, Any]:
     """Restore agent state from checkpoint."""
     try:
         # Extract agent data from checkpoint
@@ -461,7 +615,7 @@ async def handle_checkpoint_restore(data: Dict[str, Any]) -> Dict[str, Any]:
 
 # Agent lifecycle handlers
 @event_handler("agent:spawn")
-async def handle_spawn_agent(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_spawn_agent(data: AgentSpawnData) -> Dict[str, Any]:
     """Spawn a new agent thread with optional profile."""
     agent_id = data.get("agent_id") or f"agent_{uuid.uuid4().hex[:8]}"
     profile_name = data.get("profile") or data.get("profile_name")
@@ -926,7 +1080,7 @@ async def handle_terminate_agent(data: AgentTerminateData) -> Dict[str, Any]:
 
 
 @event_handler("agent:restart")
-async def handle_restart_agent(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_restart_agent(data: AgentRestartData) -> Dict[str, Any]:
     """Restart an agent."""
     agent_id = data.get("agent_id")
     
@@ -1131,7 +1285,7 @@ async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
 
 # Agent registry handlers
 @event_handler("agent:register")
-async def handle_register_agent(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_register_agent(data: AgentRegisterData) -> Dict[str, Any]:
     """Register an external agent."""
     agent_id = data.get("agent_id")
     agent_info = data.get("info", {})
@@ -1158,7 +1312,7 @@ async def handle_register_agent(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("agent:unregister")
-async def handle_unregister_agent(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_unregister_agent(data: AgentUnregisterData) -> Dict[str, Any]:
     """Unregister an agent."""
     agent_id = data.get("agent_id")
     
@@ -1206,7 +1360,7 @@ async def handle_list_agents(data: AgentListData) -> Dict[str, Any]:
 
 
 @event_handler("agent:list_constructs")
-async def handle_list_constructs(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_list_constructs(data: AgentListConstructsData) -> Dict[str, Any]:
     """List construct agents for a specific originator."""
     originator_id = data.get("originator_agent_id")
     
@@ -1267,7 +1421,7 @@ async def handle_list_constructs(data: Dict[str, Any]) -> Dict[str, Any]:
 
 # Identity handlers
 @event_handler("agent:create_identity")
-async def handle_create_identity(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_create_identity(data: AgentCreateIdentityData) -> Dict[str, Any]:
     """Create a new agent identity."""
     agent_id = data.get("agent_id") or f"agent_{uuid.uuid4().hex[:8]}"
     identity_data = data.get("identity", {})
@@ -1292,7 +1446,7 @@ async def handle_create_identity(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("agent:update_identity")
-async def handle_update_identity(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_update_identity(data: AgentUpdateIdentityData) -> Dict[str, Any]:
     """Update an agent identity."""
     agent_id = data.get("agent_id")
     updates = data.get("updates", {})
@@ -1318,7 +1472,7 @@ async def handle_update_identity(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("agent:remove_identity")
-async def handle_remove_identity(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_remove_identity(data: AgentRemoveIdentityData) -> Dict[str, Any]:
     """Remove an agent identity."""
     agent_id = data.get("agent_id")
     
@@ -1335,7 +1489,7 @@ async def handle_remove_identity(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("agent:list_identities")
-async def handle_list_identities(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_list_identities(data: AgentListIdentitiesData) -> Dict[str, Any]:
     """List agent identities."""
     identity_list = []
     
@@ -1354,7 +1508,7 @@ async def handle_list_identities(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("agent:get_identity")
-async def handle_get_identity(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_get_identity(data: AgentGetIdentityData) -> Dict[str, Any]:
     """Get a specific agent identity."""
     agent_id = data.get("agent_id")
     
@@ -1372,7 +1526,7 @@ async def handle_get_identity(data: Dict[str, Any]) -> Dict[str, Any]:
 
 # Task routing handlers
 @event_handler("agent:route_task")
-async def handle_route_task(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_route_task(data: AgentRouteTaskData) -> Dict[str, Any]:
     """Route a task to an appropriate agent."""
     # Simple routing: find first available agent
     for agent_id, info in agents.items():
@@ -1387,7 +1541,7 @@ async def handle_route_task(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("agent:get_capabilities")
-async def handle_get_capabilities(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_get_capabilities(data: AgentGetCapabilitiesData) -> Dict[str, Any]:
     """Get capabilities of an agent or all agents."""
     agent_id = data.get("agent_id")
     
@@ -1496,7 +1650,7 @@ async def handle_send_message(data: AgentSendMessageData) -> Dict[str, Any]:
 
 
 @event_handler("agent:broadcast")
-async def handle_broadcast(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_broadcast(data: AgentBroadcastData) -> Dict[str, Any]:
     """Broadcast a message to all agents."""
     message = data.get("message", {})
     sender = data.get("sender", "system")
@@ -1521,7 +1675,7 @@ async def handle_broadcast(data: Dict[str, Any]) -> Dict[str, Any]:
 
 # Dynamic composition handlers
 @event_handler("agent:update_composition")
-async def handle_update_composition(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_update_composition(data: AgentUpdateCompositionData) -> Dict[str, Any]:
     """Handle agent composition update request."""
     agent_id = data.get("agent_id")
     new_composition = data.get("new_composition")
@@ -1621,7 +1775,7 @@ async def handle_update_composition(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("agent:discover_peers")
-async def handle_discover_peers(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_discover_peers(data: AgentDiscoverPeersData) -> Dict[str, Any]:
     """Discover other agents and their capabilities."""
     requesting_agent = data.get("agent_id")
     capability_filter = data.get("capabilities", [])
@@ -1663,7 +1817,7 @@ async def handle_discover_peers(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("agent:negotiate_roles")
-async def handle_negotiate_roles(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_negotiate_roles(data: AgentNegotiateRolesData) -> Dict[str, Any]:
     """Coordinate role negotiation between agents."""
     participants = data.get("participants", [])
     negotiation_type = data.get("type", "collaborative")

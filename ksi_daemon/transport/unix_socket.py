@@ -9,7 +9,8 @@ import asyncio
 import json
 import os
 from pathlib import Path
-from typing import Dict, Any, Optional, Callable
+from typing import Dict, Any, Optional, Callable, TypedDict, Literal
+from typing_extensions import NotRequired, Required
 
 from ksi_daemon.event_system import event_handler, EventPriority, get_router
 from ksi_common.config import config
@@ -226,8 +227,14 @@ async def broadcast_event(event_message: Dict[str, Any]):
 
 # Event handlers
 
+class SystemStartupData(TypedDict):
+    """System startup configuration."""
+    # No specific fields required for this handler
+    pass
+
+
 @event_handler("system:startup")
-async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_startup(config_data: SystemStartupData) -> Dict[str, Any]:
     """Initialize transport on startup."""
     global transport_instance
     
@@ -239,8 +246,14 @@ async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
     return {"module.unix_socket_transport": {"loaded": True}}
 
 
+class SystemReadyData(TypedDict):
+    """System ready notification."""
+    # No specific fields for this handler
+    pass
+
+
 @event_handler("system:ready")
-async def handle_ready(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+async def handle_ready(data: SystemReadyData) -> Optional[Dict[str, Any]]:
     """Return long-running server task to keep daemon alive."""
     global transport_instance
     
@@ -273,8 +286,14 @@ async def handle_ready(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return None
 
 
+class SystemContextData(TypedDict):
+    """System context with runtime references."""
+    emit_event: NotRequired[Callable]  # Event emitter function
+    shutdown_event: NotRequired[Any]  # Shutdown event object
+
+
 @event_handler("system:context")
-async def handle_context(context: Dict[str, Any]) -> None:
+async def handle_context(context: SystemContextData) -> None:
     """Receive context including event emitter."""
     global transport_instance, event_emitter
     
@@ -284,8 +303,19 @@ async def handle_context(context: Dict[str, Any]) -> None:
         logger.info("Transport configured with event emitter")
 
 
+class TransportCreateConfig(TypedDict):
+    """Transport configuration."""
+    socket_dir: Required[str]  # Socket directory path
+
+
+class TransportCreateData(TypedDict):
+    """Create transport request."""
+    transport_type: Required[Literal['unix']]  # Transport type (must be 'unix')
+    config: Required[TransportCreateConfig]  # Transport configuration
+
+
 @event_handler("transport:create")
-async def handle_create_transport(data: Dict[str, Any]) -> Optional[UnixSocketTransport]:
+async def handle_create_transport(data: TransportCreateData) -> Optional[UnixSocketTransport]:
     """Create Unix socket transport if requested."""
     transport_type = data.get("transport_type")
     config_data = data.get("config", {})
@@ -303,11 +333,19 @@ async def handle_create_transport(data: Dict[str, Any]) -> Optional[UnixSocketTr
 
 
 # Broadcast handler for certain events
+class CompletionBroadcastData(TypedDict):
+    """Completion event data for broadcasting."""
+    request_id: NotRequired[str]  # Request ID
+    correlation_id: NotRequired[str]  # Correlation ID for tracking
+    timestamp: NotRequired[str]  # Event timestamp
+    # Additional fields vary by event type
+
+
 @event_handler("completion:result")
 @event_handler("completion:progress")
 @event_handler("completion:error")
 @event_handler("completion:cancelled")
-async def handle_broadcastable_event(data: Dict[str, Any]) -> None:
+async def handle_broadcastable_event(data: CompletionBroadcastData) -> None:
     """Broadcast certain events to all connected clients."""
     # Get event name from router context if available
     router = get_router()
@@ -329,8 +367,14 @@ async def handle_broadcastable_event(data: Dict[str, Any]) -> None:
     await broadcast_event(event_message)
 
 
+class SystemShutdownData(TypedDict):
+    """System shutdown notification."""
+    # No specific fields for shutdown
+    pass
+
+
 @event_handler("system:shutdown")
-async def handle_shutdown(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_shutdown(data: SystemShutdownData) -> Dict[str, Any]:
     """Clean up on shutdown."""
     global transport_instance, client_connections
     

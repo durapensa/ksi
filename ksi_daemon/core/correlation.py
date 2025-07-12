@@ -6,7 +6,8 @@ Provides correlation ID tracing functionality for debugging and monitoring
 complex event chains in the KSI daemon system.
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, TypedDict
+from typing_extensions import NotRequired, Required
 
 from ksi_daemon.event_system import event_handler
 from ksi_daemon import correlation
@@ -14,6 +15,52 @@ from ksi_common.logging import get_bound_logger
 
 # Module state
 logger = get_bound_logger("correlation", version="1.0.0")
+
+
+# TypedDict definitions for event handlers
+
+class SystemStartupData(TypedDict):
+    """System startup configuration."""
+    # No specific fields required for correlation module
+    pass
+
+
+class CorrelationTraceData(TypedDict):
+    """Get a specific correlation trace."""
+    correlation_id: Required[str]  # Correlation ID to retrieve trace for
+
+
+class CorrelationChainData(TypedDict):
+    """Get the full trace chain for a correlation ID."""
+    correlation_id: Required[str]  # Correlation ID to retrieve chain for
+
+
+class CorrelationTreeData(TypedDict):
+    """Get the full trace tree for a correlation ID."""
+    correlation_id: Required[str]  # Correlation ID to retrieve tree for
+
+
+class CorrelationStatsData(TypedDict):
+    """Get correlation tracking statistics."""
+    # No specific fields - returns all statistics
+    pass
+
+
+class CorrelationCleanupData(TypedDict):
+    """Clean up old correlation traces."""
+    max_age_hours: NotRequired[int]  # Maximum age in hours for traces to keep (default: 24)
+
+
+class CorrelationCurrentData(TypedDict):
+    """Get current correlation context."""
+    # No specific fields - returns current context
+    pass
+
+
+class SystemShutdownData(TypedDict):
+    """System shutdown notification."""
+    # No specific fields for shutdown
+    pass
 
 # Module info
 MODULE_INFO = {
@@ -24,22 +71,15 @@ MODULE_INFO = {
 
 
 @event_handler("system:startup")
-async def handle_startup(config: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_startup(config: SystemStartupData) -> Dict[str, Any]:
     """Initialize correlation plugin."""
     logger.info("Correlation tracing module started")
     return {"module.correlation": {"loaded": True}}
 
 
 @event_handler("correlation:trace")
-async def handle_get_trace(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Get a specific correlation trace.
-    
-    Parameters:
-        correlation_id: The correlation ID to retrieve trace for
-    
-    Returns:
-        Trace information including timing, data, and children
-    """
+async def handle_get_trace(data: CorrelationTraceData) -> Dict[str, Any]:
+    """Get a specific correlation trace."""
     correlation_id = data.get("correlation_id")
     
     if not correlation_id:
@@ -67,15 +107,8 @@ async def handle_get_trace(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("correlation:chain")
-async def handle_get_trace_chain(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Get the full trace chain for a correlation ID.
-    
-    Parameters:
-        correlation_id: The correlation ID to retrieve chain for
-    
-    Returns:
-        Full chain of traces from root to leaf
-    """
+async def handle_get_trace_chain(data: CorrelationChainData) -> Dict[str, Any]:
+    """Get the full trace chain for a correlation ID."""
     correlation_id = data.get("correlation_id")
     
     if not correlation_id:
@@ -105,15 +138,8 @@ async def handle_get_trace_chain(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("correlation:tree")
-async def handle_get_trace_tree(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Get the full trace tree for a correlation ID.
-    
-    Parameters:
-        correlation_id: The correlation ID to retrieve tree for
-    
-    Returns:
-        Hierarchical tree of all related traces
-    """
+async def handle_get_trace_tree(data: CorrelationTreeData) -> Dict[str, Any]:
+    """Get the full trace tree for a correlation ID."""
     correlation_id = data.get("correlation_id")
     
     if not correlation_id:
@@ -128,12 +154,8 @@ async def handle_get_trace_tree(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("correlation:stats")
-async def handle_get_stats(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Get correlation tracking statistics.
-    
-    Returns:
-        Statistics about active and completed traces
-    """
+async def handle_get_stats(data: CorrelationStatsData) -> Dict[str, Any]:
+    """Get correlation tracking statistics."""
     stats = correlation.get_correlation_stats()
     
     return {
@@ -142,15 +164,8 @@ async def handle_get_stats(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("correlation:cleanup")
-async def handle_cleanup(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Clean up old correlation traces.
-    
-    Parameters:
-        max_age_hours: Maximum age in hours for traces to keep (default: 24)
-    
-    Returns:
-        Number of traces cleaned up
-    """
+async def handle_cleanup(data: CorrelationCleanupData) -> Dict[str, Any]:
+    """Clean up old correlation traces."""
     max_age_hours = data.get("max_age_hours", 24)
     
     try:
@@ -164,12 +179,8 @@ async def handle_cleanup(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("correlation:current")
-async def handle_get_current(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Get current correlation context.
-    
-    Returns:
-        Current and parent correlation IDs
-    """
+async def handle_get_current(data: CorrelationCurrentData) -> Dict[str, Any]:
+    """Get current correlation context."""
     return {
         "current_correlation_id": correlation.get_current_correlation_id(),
         "parent_correlation_id": correlation.get_parent_correlation_id()
@@ -177,7 +188,7 @@ async def handle_get_current(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("system:shutdown")
-async def handle_shutdown(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_shutdown(data: SystemShutdownData) -> Dict[str, Any]:
     """Clean up on shutdown."""
     # Clean up old traces on shutdown
     try:

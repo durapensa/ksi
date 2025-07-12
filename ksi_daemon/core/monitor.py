@@ -7,7 +7,8 @@ Provides endpoints for querying the daemon event log without broadcast overhead.
 Supports filtering, pagination, and statistics.
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, TypedDict, Union
+from typing_extensions import NotRequired, Required
 import json
 import asyncio
 
@@ -43,16 +44,28 @@ async def _load_event_from_file(file_path: str, file_offset: int) -> Optional[Di
     return None
 
 
+class SystemStartupData(TypedDict):
+    """System startup configuration."""
+    # No specific fields required for this handler
+    pass
+
+
 @event_handler("system:startup")
-async def handle_startup(config: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_startup(config: SystemStartupData) -> Dict[str, Any]:
     """Initialize monitor module."""
     logger.debug("Monitor startup event received")
     logger.info("Monitor module started")
     return {"monitor_module": {"ready": True}}
 
 
+class SystemContextData(TypedDict):
+    """System context with runtime references."""
+    emit_event: NotRequired[Any]  # Event emitter function
+    shutdown_event: NotRequired[Any]  # Shutdown event object
+
+
 @event_handler("system:context")
-async def handle_context(context: Dict[str, Any]) -> None:
+async def handle_context(context: SystemContextData) -> None:
     """Receive module context with event router reference."""
     global event_router
     # Get router directly to avoid JSON serialization issues
@@ -61,8 +74,18 @@ async def handle_context(context: Dict[str, Any]) -> None:
     logger.info("Monitor module received event router context")
 
 
+class MonitorGetEventsData(TypedDict):
+    """Query event log with filtering and pagination."""
+    event_patterns: NotRequired[List[str]]  # Event name patterns (supports wildcards)
+    originator_id: NotRequired[str]  # Filter by specific originator
+    since: NotRequired[Union[str, float]]  # Start time (ISO string or timestamp)
+    until: NotRequired[Union[str, float]]  # End time (ISO string or timestamp)
+    limit: NotRequired[int]  # Maximum number of events to return (default: 100)
+    reverse: NotRequired[bool]  # Return newest first (default: True)
+
+
 @event_handler("monitor:get_events")
-async def handle_get_events(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_get_events(data: MonitorGetEventsData) -> Dict[str, Any]:
     """
     Query event log with filtering and pagination.
     
@@ -142,8 +165,14 @@ async def handle_get_events(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": f"Query failed: {str(e)}"}
 
 
+class MonitorGetStatsData(TypedDict):
+    """Get event statistics."""
+    # No specific fields - returns overall stats
+    pass
+
+
 @event_handler("monitor:get_stats")
-async def handle_get_stats(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_get_stats(data: MonitorGetStatsData) -> Dict[str, Any]:
     """
     Get event log statistics.
     
@@ -175,8 +204,14 @@ async def handle_get_stats(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": f"Stats failed: {str(e)}"}
 
 
+class MonitorClearLogData(TypedDict):
+    """Clear event log (admin operation)."""
+    # No specific fields - clears entire log
+    pass
+
+
 @event_handler("monitor:clear_log")
-async def handle_clear_log(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_clear_log(data: MonitorClearLogData) -> Dict[str, Any]:
     """
     Clear event log (admin operation).
     
@@ -189,8 +224,16 @@ async def handle_clear_log(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+class MonitorSubscribeData(TypedDict):
+    """Subscribe to real-time event stream."""
+    event_patterns: NotRequired[List[str]]  # Event name patterns (supports wildcards)
+    filter_fn: NotRequired[Any]  # Additional filter function
+    originator_id: NotRequired[str]  # Originator identifier
+    writer: NotRequired[Any]  # Transport writer reference
+
+
 @event_handler("monitor:subscribe")
-async def handle_subscribe(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_subscribe(data: MonitorSubscribeData) -> Dict[str, Any]:
     """
     Subscribe to real-time event stream.
     
@@ -212,8 +255,13 @@ async def handle_subscribe(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+class MonitorUnsubscribeData(TypedDict):
+    """Unsubscribe from event stream."""
+    originator_id: Required[str]  # Originator identifier
+
+
 @event_handler("monitor:unsubscribe")
-async def handle_unsubscribe(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_unsubscribe(data: MonitorUnsubscribeData) -> Dict[str, Any]:
     """
     Unsubscribe from event stream.
     
@@ -230,8 +278,15 @@ async def handle_unsubscribe(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+class MonitorQueryData(TypedDict):
+    """Execute custom SQL query against event database."""
+    query: Required[str]  # SQL query string
+    params: NotRequired[tuple]  # Query parameters
+    limit: NotRequired[int]  # Maximum results (default: 1000)
+
+
 @event_handler("monitor:query")
-async def handle_query(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_query(data: MonitorQueryData) -> Dict[str, Any]:
     """
     Execute custom SQL query against event database.
     
@@ -250,8 +305,15 @@ async def handle_query(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+class MonitorGetSessionEventsData(TypedDict):
+    """Get all events for a specific session."""
+    session_id: Required[str]  # Session ID to query
+    include_memory: NotRequired[bool]  # Include events from memory buffer (default: True)
+    reverse: NotRequired[bool]  # Sort newest first (default: True)
+
+
 @event_handler("monitor:get_session_events")
-async def handle_get_session_events(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_get_session_events(data: MonitorGetSessionEventsData) -> Dict[str, Any]:
     """
     Get all events for a specific session.
     
@@ -309,8 +371,14 @@ async def handle_get_session_events(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": f"Query failed: {str(e)}"}
 
 
+class MonitorGetCorrelationChainData(TypedDict):
+    """Get all events in a correlation chain."""
+    correlation_id: Required[str]  # Correlation ID to trace
+    include_memory: NotRequired[bool]  # Include events from memory buffer (default: True)
+
+
 @event_handler("monitor:get_correlation_chain")
-async def handle_get_correlation_chain(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_get_correlation_chain(data: MonitorGetCorrelationChainData) -> Dict[str, Any]:
     """
     Get all events in a correlation chain.
     
@@ -369,8 +437,14 @@ async def handle_get_correlation_chain(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": f"Query failed: {str(e)}"}
 
 
+class SystemShutdownData(TypedDict):
+    """System shutdown notification."""
+    # No specific fields for shutdown
+    pass
+
+
 @event_handler("system:shutdown")
-async def handle_shutdown(data: Dict[str, Any]) -> None:
+async def handle_shutdown(data: SystemShutdownData) -> None:
     """Clean up on shutdown."""
     logger.info("Monitor module shutting down")
 

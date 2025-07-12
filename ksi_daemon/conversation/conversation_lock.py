@@ -10,7 +10,8 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, Any, Optional, List, Set, Tuple
+from typing import Dict, Any, Optional, List, Set, Tuple, TypedDict
+from typing_extensions import NotRequired, Required
 
 from ksi_daemon.event_system import event_handler, get_router
 from ksi_common.timestamps import timestamp_utc
@@ -395,9 +396,59 @@ class ConversationLockManager:
 lock_manager = ConversationLockManager()
 
 
+# TypedDict definitions for event handlers
+
+class SystemContextData(TypedDict):
+    """System context with runtime references."""
+    emit_event: NotRequired[Any]  # Event emitter function
+    shutdown_event: NotRequired[Any]  # Shutdown event object
+
+
+class SystemStartupData(TypedDict):
+    """System startup configuration."""
+    # No specific fields required for conversation lock service
+    pass
+
+
+class SystemShutdownData(TypedDict):
+    """System shutdown notification."""
+    # No specific fields for shutdown
+    pass
+
+
+class ConversationAcquireLockData(TypedDict):
+    """Acquire lock for a conversation."""
+    request_id: Required[str]  # Request ID attempting to acquire lock
+    conversation_id: Required[str]  # Conversation ID to lock
+    metadata: NotRequired[Dict[str, Any]]  # Optional lock metadata
+
+
+class ConversationReleaseLockData(TypedDict):
+    """Release a conversation lock."""
+    request_id: Required[str]  # Request ID releasing the lock
+
+
+class ConversationForkDetectedData(TypedDict):
+    """Handle conversation fork detection."""
+    request_id: Required[str]  # Request ID that detected the fork
+    expected_conversation_id: Required[str]  # Expected conversation ID
+    actual_conversation_id: Required[str]  # Actual conversation ID returned
+
+
+class ConversationLockStatusData(TypedDict):
+    """Get lock status for conversations."""
+    conversation_id: NotRequired[str]  # Specific conversation ID (if omitted, returns all)
+
+
+class ConversationActiveData(TypedDict):
+    """Get all active (locked) conversations."""
+    # No specific fields - returns all active conversations
+    pass
+
+
 # System event handlers
 @event_handler("system:context")
-async def handle_context(context: Dict[str, Any]) -> None:
+async def handle_context(context: SystemContextData) -> None:
     """Store event emitter reference."""
     global event_emitter
     # Get router for event emission
@@ -407,21 +458,21 @@ async def handle_context(context: Dict[str, Any]) -> None:
 
 
 @event_handler("system:startup")
-async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_startup(config_data: SystemStartupData) -> Dict[str, Any]:
     """Initialize conversation lock service on startup."""
     logger.info("Conversation lock service started")
     return {"status": "conversation_lock_ready"}
 
 
 @event_handler("system:shutdown")
-async def handle_shutdown(data: Dict[str, Any]) -> None:
+async def handle_shutdown(data: SystemShutdownData) -> None:
     """Clean up on shutdown."""
     logger.info("Conversation lock service stopped")
 
 
 # Conversation lock event handlers
 @event_handler("conversation:acquire_lock")
-async def handle_acquire_lock(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_acquire_lock(data: ConversationAcquireLockData) -> Dict[str, Any]:
     """Acquire lock for a conversation."""
     request_id = data.get("request_id")
     conversation_id = data.get("conversation_id")
@@ -435,7 +486,7 @@ async def handle_acquire_lock(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("conversation:release_lock")
-async def handle_release_lock(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_release_lock(data: ConversationReleaseLockData) -> Dict[str, Any]:
     """Release a conversation lock."""
     request_id = data.get("request_id")
     
@@ -446,7 +497,7 @@ async def handle_release_lock(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("conversation:fork_detected")
-async def handle_fork_detected(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_fork_detected(data: ConversationForkDetectedData) -> Dict[str, Any]:
     """Handle fork detection."""
     request_id = data.get("request_id")
     expected_id = data.get("expected_conversation_id")
@@ -459,7 +510,7 @@ async def handle_fork_detected(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("conversation:lock_status")
-async def handle_lock_status(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_lock_status(data: ConversationLockStatusData) -> Dict[str, Any]:
     """Get lock status for a conversation."""
     conversation_id = data.get("conversation_id")
     
@@ -470,7 +521,7 @@ async def handle_lock_status(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("conversation:active")
-async def handle_active_conversations(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_active_conversations(data: ConversationActiveData) -> Dict[str, Any]:
     """Get all active (locked) conversations."""
     all_locks = await lock_manager.get_all_locks()
     active = {

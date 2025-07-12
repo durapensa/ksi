@@ -11,7 +11,8 @@ import asyncio
 import json
 import time
 import fnmatch
-from typing import Dict, List, Any, Optional, AsyncIterator
+from typing import Dict, List, Any, Optional, AsyncIterator, TypedDict, Literal
+from typing_extensions import NotRequired, Required
 from datetime import datetime, timedelta
 
 from ksi_common.logging import get_bound_logger
@@ -25,12 +26,64 @@ _event_emitter = None
 _event_router = None
 
 
+# TypedDict definitions for event handlers
+
+class SystemContextData(TypedDict):
+    """System context with runtime references."""
+    emit_event: NotRequired[Any]  # Event emitter function
+    shutdown_event: NotRequired[Any]  # Shutdown event object
+
+
+class ObserveBeginData(TypedDict):
+    """Record the beginning of an observed event."""
+    observation_id: NotRequired[str]  # Observation ID
+    original_event: NotRequired[str]  # Original event name
+    source: NotRequired[str]  # Source agent
+    observer: NotRequired[str]  # Observer agent
+    original_data: NotRequired[Dict[str, Any]]  # Original event data
+
+
+class ObserveEndData(TypedDict):
+    """Record the completion of an observed event."""
+    observation_id: NotRequired[str]  # Observation ID
+    original_event: NotRequired[str]  # Original event name
+    result: NotRequired[Any]  # Event result
+
+
+class ObservationQueryHistoryData(TypedDict):
+    """Query historical observation records."""
+    observer: NotRequired[str]  # Filter by observer (optional)
+    target: NotRequired[str]  # Filter by target (optional)
+    event_name: NotRequired[str]  # Filter by event name pattern (optional)
+    since: NotRequired[float]  # Start timestamp (optional)
+    until: NotRequired[float]  # End timestamp (optional)
+    limit: NotRequired[int]  # Maximum records to return (default 100)
+    include_data: NotRequired[bool]  # Include full event data (default False)
+
+
+class ObservationReplayData(TypedDict):
+    """Replay a sequence of events from the event log."""
+    event_patterns: NotRequired[List[str]]  # Event patterns to replay (default: ["*"])
+    filter: NotRequired[Dict[str, Any]]  # Additional filters
+    speed: NotRequired[float]  # Replay speed multiplier (default: 1.0)
+    target_agent: NotRequired[str]  # Agent to receive replayed events
+    as_new_events: NotRequired[bool]  # Emit as new events vs observe:replay events (default: False)
+
+
+class ObservationAnalyzePatternsData(TypedDict):
+    """Analyze patterns in event history."""
+    event_patterns: NotRequired[List[str]]  # Event patterns to analyze (default: ["*"])
+    filter: NotRequired[Dict[str, Any]]  # Additional filters
+    analysis_type: NotRequired[Literal["frequency", "sequence", "performance", "errors"]]  # Analysis type (default: "frequency")
+    limit: NotRequired[int]  # Maximum events to analyze (default: 1000)
+
+
 # Note: ObservationRecord removed - we now use the event log directly
 # which stores all events automatically without needing separate records
 
 
 @event_handler("system:context")
-async def handle_context(context: Dict[str, Any]) -> None:
+async def handle_context(context: SystemContextData) -> None:
     """Receive system context."""
     global _event_emitter, _event_router
     router = get_router()
@@ -40,48 +93,23 @@ async def handle_context(context: Dict[str, Any]) -> None:
 
 
 @event_handler("observe:begin")
-async def record_observation_begin(data: Dict[str, Any]) -> None:
-    """
-    Record the beginning of an observed event.
-    
-    This handler runs alongside the normal observation flow but since
-    all events are now logged, we don't need to store separately.
-    We just add observation metadata to help with queries.
-    """
+async def record_observation_begin(data: ObserveBeginData) -> None:
+    """Record the beginning of an observed event."""
     # No need to store - the event log already captured this
     # Just log for debugging
     logger.debug(f"Observation begin: {data.get('observation_id')} for event {data.get('original_event')}")
 
 
 @event_handler("observe:end")
-async def record_observation_end(data: Dict[str, Any]) -> None:
-    """
-    Record the completion of an observed event.
-    
-    The event log captures this automatically, we just log for debugging.
-    Duration calculation can be done during query time.
-    """
+async def record_observation_end(data: ObserveEndData) -> None:
+    """Record the completion of an observed event."""
     # No need to store - the event log already captured this
     logger.debug(f"Observation end: {data.get('observation_id')} for event {data.get('original_event')}")
 
 
 @event_handler("observation:query_history")
-async def query_observation_history(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Query historical observation records from the event log.
-    
-    Args:
-        observer (str): Filter by observer (optional)
-        target (str): Filter by target (optional)
-        event_name (str): Filter by event name pattern (optional)
-        since (float): Start timestamp (optional)
-        until (float): End timestamp (optional)
-        limit (int): Maximum records to return (default 100)
-        include_data (bool): Include full event data (default False)
-    
-    Returns:
-        Historical observation records with statistics
-    """
+async def query_observation_history(data: ObservationQueryHistoryData) -> Dict[str, Any]:
+    """Query historical observation records from the event log."""
     if not _event_emitter:
         return {"error": "Event system not initialized"}
     
@@ -156,23 +184,8 @@ async def query_observation_history(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("observation:replay")
-async def replay_observations(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Replay a sequence of events from the event log.
-    
-    Args:
-        event_patterns (list): Event patterns to replay (e.g. ["task:*", "data:*"])
-        filter: Additional filters
-            - originator_id: Filter by specific originator/agent
-            - since: Start timestamp
-            - until: End timestamp
-        speed (float): Replay speed multiplier (1.0 = real-time)
-        target_agent (str): Agent to receive replayed events
-        as_new_events (bool): Emit as new events vs observe:replay events
-    
-    Returns:
-        Replay session information
-    """
+async def replay_observations(data: ObservationReplayData) -> Dict[str, Any]:
+    """Replay a sequence of events from the event log."""
     if not _event_emitter:
         return {"error": "Event system not initialized"}
     
@@ -292,21 +305,8 @@ async def replay_events_from_log(session_id: str, events: List,
 
 
 @event_handler("observation:analyze_patterns")
-async def analyze_observation_patterns(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Analyze patterns in event history from the event log.
-    
-    Args:
-        event_patterns (list): Event patterns to analyze (default ["*"])
-        filter: Additional filters
-            - originator_id: Filter by specific originator/agent
-            - since: Start timestamp
-            - until: End timestamp
-        analysis_type: "frequency", "sequence", "performance", "errors"
-    
-    Returns:
-        Pattern analysis results
-    """
+async def analyze_observation_patterns(data: ObservationAnalyzePatternsData) -> Dict[str, Any]:
+    """Analyze patterns in event history from the event log."""
     if not _event_emitter:
         return {"error": "Event system not initialized"}
     

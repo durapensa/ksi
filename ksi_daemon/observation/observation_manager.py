@@ -14,7 +14,8 @@ import uuid
 import fnmatch
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Dict, List, Set, Optional, Any
+from typing import Dict, List, Set, Optional, Any, TypedDict, Literal
+from typing_extensions import NotRequired, Required
 
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc
@@ -41,8 +42,59 @@ _observer_circuit_open = {}  # observer_id -> circuit open until timestamp
 _subscriptions_restored_from_checkpoint = False
 
 
+# TypedDict definitions for event handlers
+
+class SystemContextData(TypedDict):
+    """System context with runtime references."""
+    emit_event: NotRequired[Any]  # Event emitter function
+    shutdown_event: NotRequired[Any]  # Shutdown event object
+
+
+class SystemReadyData(TypedDict):
+    """System ready notification."""
+    # No specific fields for observation manager
+    pass
+
+
+class AgentTerminatedData(TypedDict):
+    """Agent termination notification."""
+    agent_id: Required[str]  # Terminated agent ID
+
+
+class ObservationSubscribeData(TypedDict):
+    """Subscribe to observe events from a target agent."""
+    observer: Required[str]  # Observer agent ID
+    target: Required[str]  # Target agent ID to observe
+    events: Required[List[str]]  # Event patterns to observe
+    filter: NotRequired[Dict[str, Any]]  # Optional filters
+
+
+class ObservationUnsubscribeData(TypedDict):
+    """Unsubscribe from observing a target."""
+    subscription_id: NotRequired[str]  # Subscription ID to cancel
+    observer: NotRequired[str]  # Observer agent ID (required if no subscription_id)
+    target: NotRequired[str]  # Target agent ID (required if no subscription_id)
+
+
+class ObservationListData(TypedDict):
+    """List active observation subscriptions."""
+    observer: NotRequired[str]  # Filter by observer (optional)
+    target: NotRequired[str]  # Filter by target (optional)
+
+
+class CheckpointCollectData(TypedDict):
+    """Collect checkpoint data."""
+    # No specific fields - collects all observation state
+    pass
+
+
+class CheckpointRestoreData(TypedDict):
+    """Restore from checkpoint data."""
+    observation_subscriptions: NotRequired[Dict[str, Any]]  # Observation subscriptions to restore
+
+
 @event_handler("system:context")
-async def handle_context(context: Dict[str, Any]) -> None:
+async def handle_context(context: SystemContextData) -> None:
     """Receive system context with event emitter."""
     global _event_emitter
     router = get_router()
@@ -51,7 +103,7 @@ async def handle_context(context: Dict[str, Any]) -> None:
 
 
 @event_handler("system:ready")
-async def observation_system_ready(data: Dict[str, Any]) -> Dict[str, Any]:
+async def observation_system_ready(data: SystemReadyData) -> Dict[str, Any]:
     """Signal that observation system is ready for subscriptions.
     
     The daemon always checks for checkpoints on startup. We only emit
@@ -87,7 +139,7 @@ async def observation_system_ready(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("agent:terminated")
-async def cleanup_agent_subscriptions(data: Dict[str, Any]) -> Dict[str, Any]:
+async def cleanup_agent_subscriptions(data: AgentTerminatedData) -> Dict[str, Any]:
     """Remove all subscriptions for terminated agent."""
     agent_id = data.get("agent_id")
     if not agent_id:
@@ -147,34 +199,8 @@ async def cleanup_agent_subscriptions(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("observation:subscribe")
-async def handle_subscribe(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Subscribe to observe events from a target agent.
-    
-    Args:
-        observer (str): Observer agent ID (required)
-        target (str): Target agent ID to observe (required)
-        events (list): Event patterns to observe (required)
-        filter (dict): Optional filters:
-            - exclude (list): Patterns to exclude
-            - include_responses (bool): Include completion responses
-            - sampling_rate (float): 0.0-1.0, fraction of events to observe
-    
-    Returns:
-        Subscription details with ID
-    
-    Example:
-        {
-            "observer": "originator_1",
-            "target": "construct_1",
-            "events": ["message:*", "error:*"],
-            "filter": {
-                "exclude": ["system:health"],
-                "include_responses": true,
-                "sampling_rate": 1.0
-            }
-        }
-    """
+async def handle_subscribe(data: ObservationSubscribeData) -> Dict[str, Any]:
+    """Subscribe to observe events from a target agent."""
     observer_id = data.get("observer")
     target_id = data.get("target")
     event_patterns = data.get("events", [])
@@ -251,18 +277,8 @@ async def handle_subscribe(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("observation:unsubscribe")
-async def handle_unsubscribe(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Unsubscribe from observing a target.
-    
-    Args:
-        subscription_id (str): Subscription ID to cancel (if provided)
-        observer (str): Observer agent ID (required if no subscription_id)
-        target (str): Target agent ID (required if no subscription_id)
-    
-    Returns:
-        Unsubscribe status
-    """
+async def handle_unsubscribe(data: ObservationUnsubscribeData) -> Dict[str, Any]:
+    """Unsubscribe from observing a target."""
     subscription_id = data.get("subscription_id")
     observer_id = data.get("observer")
     target_id = data.get("target")
@@ -322,17 +338,8 @@ async def handle_unsubscribe(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("observation:list")
-async def handle_list_observations(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    List active observation subscriptions.
-    
-    Args:
-        observer (str): Filter by observer (optional)
-        target (str): Filter by target (optional)
-    
-    Returns:
-        List of active subscriptions
-    """
+async def handle_list_observations(data: ObservationListData) -> Dict[str, Any]:
+    """List active observation subscriptions."""
     observer_filter = data.get("observer")
     target_filter = data.get("target")
     
@@ -645,7 +652,7 @@ async def notify_observers_async(subscriptions: List[Dict[str, Any]], event_type
 
 
 @event_handler("checkpoint:collect")
-async def collect_observation_state(data: Dict[str, Any]) -> Dict[str, Any]:
+async def collect_observation_state(data: CheckpointCollectData) -> Dict[str, Any]:
     """Collect observation subscriptions for checkpoint.
     
     Only called during system checkpoint operations.
@@ -676,7 +683,7 @@ async def collect_observation_state(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("checkpoint:restore")
-async def restore_observation_state(data: Dict[str, Any]) -> Dict[str, Any]:
+async def restore_observation_state(data: CheckpointRestoreData) -> Dict[str, Any]:
     """Restore observation subscriptions from checkpoint.
     
     Only called during checkpoint restore operations.
