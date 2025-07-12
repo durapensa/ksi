@@ -23,6 +23,7 @@ from .discovery_utils import (
     format_event_info,
     generate_usage_example,
 )
+from .type_discovery import analyze_handler as type_analyze_handler
 
 logger = get_bound_logger("discovery", version="2.0.0")
 
@@ -73,9 +74,18 @@ async def handle_discover(data: Dict[str, Any]) -> Dict[str, Any]:
         }
 
         if include_detail:
-            # Extract implementation details via AST
-            analysis = analyze_handler(handler.func, event_name)
-            handler_info.update(analysis)
+            # Try type-based discovery first (handles cross-module TypedDict)
+            type_metadata = type_analyze_handler(handler.func)
+            if type_metadata and type_metadata.get('parameters'):
+                # Use type-based parameters
+                handler_info['parameters'] = type_metadata['parameters']
+                # Still get triggers from AST analysis
+                ast_analysis = analyze_handler(handler.func, event_name)
+                handler_info['triggers'] = ast_analysis.get('triggers', [])
+            else:
+                # Fall back to AST-based analysis
+                analysis = analyze_handler(handler.func, event_name)
+                handler_info.update(analysis)
 
         all_events[event_name] = handler_info
 
@@ -134,9 +144,18 @@ async def handle_help(data: Dict[str, Any]) -> Dict[str, Any]:
         "summary": extract_summary(handler.func),
     }
 
-    # Get detailed analysis
-    analysis = analyze_handler(handler.func, event_name)
-    handler_info.update(analysis)
+    # Try type-based discovery first
+    type_metadata = type_analyze_handler(handler.func)
+    if type_metadata and type_metadata.get('parameters'):
+        # Use type-based parameters
+        handler_info['parameters'] = type_metadata['parameters']
+        # Still get triggers from AST analysis
+        ast_analysis = analyze_handler(handler.func, event_name)
+        handler_info['triggers'] = ast_analysis.get('triggers', [])
+    else:
+        # Fall back to AST-based analysis
+        analysis = analyze_handler(handler.func, event_name)
+        handler_info.update(analysis)
 
     # Format based on style
     if format_style == FORMAT_MCP:

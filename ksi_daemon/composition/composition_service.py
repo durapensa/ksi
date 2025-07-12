@@ -8,8 +8,8 @@ import json
 import yaml
 import re
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Set, TypedDict, Tuple
-from typing_extensions import NotRequired
+from typing import Dict, Any, Optional, List, Set, TypedDict, Tuple, Union, Literal
+from typing_extensions import NotRequired, Required
 from dataclasses import dataclass
 
 from ksi_daemon.event_system import event_handler, get_router
@@ -32,12 +32,7 @@ from .evaluation_utils import (
     find_best_evaluation, summarize_evaluation_status,
     merge_evaluation_record
 )
-from ksi_common.event_types import (
-    CompositionCreateData, CompositionForkData, CompositionMergeData,
-    CompositionDiffData, CompositionTrackDecisionData, CompositionListData,
-    CompositionGetData, CompositionValidateData, CompositionEvaluateData,
-    CompositionComposeData, CompositionProfileData, CompositionResult
-)
+# TypedDict imports are now defined locally in this file
 
 # Module state
 logger = get_bound_logger("composition_service", version="2.0.0")
@@ -47,45 +42,7 @@ state_manager = None  # For shared state operations only
 _capability_schema_cache = None
 
 
-# TypedDict definitions
-class CompositionComposeData(TypedDict):
-    """Type-safe data for composition:compose."""
-    name: str
-    type: NotRequired[str]
-    variables: NotRequired[Dict[str, Any]]
-
-class CompositionProfileData(TypedDict):
-    """Type-safe data for composition:profile."""
-    name: str
-    variables: NotRequired[Dict[str, Any]]
-
-class CompositionPromptData(TypedDict):
-    """Type-safe data for composition:prompt."""
-    name: str
-    variables: NotRequired[Dict[str, Any]]
-
-class CompositionValidateData(TypedDict):
-    """Type-safe data for composition:validate."""
-    name: str
-    type: NotRequired[str]
-
-class CompositionEvaluateData(TypedDict):
-    """Type-safe data for composition:evaluate."""
-    name: str
-    type: NotRequired[str]
-    test_suite: str
-    model: NotRequired[str]
-    test_options: NotRequired[Dict[str, Any]]
-
-class CompositionListData(TypedDict):
-    """Type-safe data for composition:list."""
-    type: NotRequired[str]
-    include_validation: NotRequired[bool]
-
-class CompositionGetData(TypedDict):
-    """Type-safe data for composition:get."""
-    name: str
-    type: NotRequired[str]
+# We'll define TypedDict types close to their handlers below
 
 
 @dataclass
@@ -145,6 +102,13 @@ async def handle_shutdown(data: Dict[str, Any]) -> None:
     logger.info("Composition service shutting down")
 
 
+class CompositionComposeData(TypedDict):
+    """Compose a complete configuration from components."""
+    name: str  # Composition name to compose
+    type: NotRequired[str]  # Composition type (default: profile)
+    variables: NotRequired[Dict[str, Any]]  # Variables for substitution
+
+
 @event_handler("composition:compose")
 async def handle_compose(data: CompositionComposeData) -> Dict[str, Any]:
     """Compose a complete configuration from components."""
@@ -161,6 +125,12 @@ async def handle_compose(data: CompositionComposeData) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Composition failed: {e}")
         return {'error': str(e)}
+
+
+class CompositionProfileData(TypedDict):
+    """Compose a profile (returns full configuration)."""
+    name: str  # Profile name to compose
+    variables: NotRequired[Dict[str, Any]]  # Variables for substitution
 
 
 @event_handler("composition:profile")
@@ -180,8 +150,14 @@ async def handle_compose_profile(data: CompositionProfileData) -> Dict[str, Any]
         return {'error': str(e)}
 
 
+class CompositionPromptData(TypedDict):
+    """Compose a prompt (returns text)."""
+    name: str  # Prompt name to compose
+    variables: NotRequired[Dict[str, Any]]  # Variables for substitution
+
+
 @event_handler("composition:prompt")
-async def handle_compose_prompt(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_compose_prompt(data: CompositionPromptData) -> Dict[str, Any]:
     """Compose a prompt (returns text)."""
     name = data.get('name')
     variables = data.get('variables', {})
@@ -195,6 +171,12 @@ async def handle_compose_prompt(data: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Prompt composition failed: {e}")
         return {'error': str(e)}
+
+
+class CompositionValidateData(TypedDict):
+    """Validate a composition structure and syntax."""
+    name: str  # Composition name to validate
+    type: NotRequired[str]  # Composition type
 
 
 @event_handler("composition:validate")
@@ -246,6 +228,15 @@ async def handle_validate(data: CompositionValidateData) -> Dict[str, Any]:
             'valid': False,
             'error': str(e)
         }
+
+
+class CompositionEvaluateData(TypedDict):
+    """Process evaluation results for a composition."""
+    name: str  # Composition to evaluate
+    type: NotRequired[str]  # Composition type
+    test_suite: str  # Test suite that was run
+    model: NotRequired[str]  # Model used for testing
+    test_options: NotRequired[Dict[str, Any]]  # Test results and metrics
 
 
 @event_handler("composition:evaluate")
@@ -529,6 +520,14 @@ async def handle_discover(data: Dict[str, Any]) -> Dict[str, Any]:
         return {'error': str(e)}
 
 
+class CompositionListData(TypedDict):
+    """List compositions with filters."""
+    type: NotRequired[Literal['all', 'profile', 'prompt', 'orchestration', 'evaluation']]  # Filter by type
+    include_validation: NotRequired[bool]  # Include validation status
+    metadata_filter: NotRequired[Dict[str, Any]]  # Filter by metadata
+    evaluation_detail: NotRequired[Literal['none', 'minimal', 'summary', 'detailed']]  # Evaluation detail level
+
+
 @event_handler("composition:list")
 async def handle_list(data: CompositionListData) -> Dict[str, Any]:
     """List all compositions of a given type."""
@@ -612,6 +611,12 @@ def validate_core_composition(data: Dict[str, Any]) -> List[str]:
         errors.append("'name' must contain only alphanumeric, underscore, and hyphen characters")
     
     return errors
+
+
+class CompositionGetData(TypedDict):
+    """Get a composition definition."""
+    name: str  # Composition name to get
+    type: NotRequired[str]  # Composition type
 
 
 @event_handler("composition:get")
@@ -743,10 +748,63 @@ async def handle_select_composition(data: Dict[str, Any]) -> Dict[str, Any]:
         return {'error': str(e)}
 
 
+# TypedDict definitions for composition:create
+class CompositionCreateBase(TypedDict):
+    """Base parameters for composition creation."""
+    name: NotRequired[str]  # Auto-generated if not provided
+    type: NotRequired[Literal['profile', 'prompt', 'orchestration', 'evaluation']]
+    description: NotRequired[str]
+    author: NotRequired[str]
+    metadata: NotRequired[Dict[str, Any]]
+    overwrite: NotRequired[bool]  # For save operations
+
+
+class CompositionCreateWithContent(CompositionCreateBase):
+    """Create composition from full content."""
+    content: Required[Dict[str, Any]]  # Full composition structure
+
+
+class CompositionCreateProfile(CompositionCreateBase):
+    """Create profile composition with components."""
+    type: Required[Literal['profile']]
+    model: NotRequired[str]
+    capabilities: NotRequired[List[str]]
+    tools: NotRequired[List[str]]
+    role: NotRequired[str]
+    prompt: NotRequired[str]  # Optional prompt component
+
+
+class CompositionCreatePrompt(CompositionCreateBase):
+    """Create prompt composition."""
+    type: Required[Literal['prompt']]
+    content: Required[str]  # The prompt text
+    category: NotRequired[str]  # Categorization for prompts
+
+
+# Union type for all composition creation variants
+CompositionCreateData = Union[
+    CompositionCreateWithContent,
+    CompositionCreateProfile,
+    CompositionCreatePrompt,
+    CompositionCreateBase
+]
+
+
+class CompositionResult(TypedDict):
+    """Standard result for composition operations."""
+    status: str
+    name: NotRequired[str]
+    composition: NotRequired[Dict[str, Any]]
+    path: NotRequired[str]
+    message: NotRequired[str]
+    error: NotRequired[str]
+
+
 @event_handler("composition:create")
 async def handle_create_composition(data: CompositionCreateData) -> CompositionResult:
     """Create and save a composition."""
     try:
+        # TypedDict is still a dict at runtime
         name = data.get('name')  # Optional composition name (auto-generated if not provided)
         if not name:
             # Generate unique name
@@ -798,9 +856,22 @@ async def handle_create_composition(data: CompositionCreateData) -> CompositionR
             'parent_agent': data.get('agent_id')
         })
         
-        # Use provided content if available (for forking)
+        # Handle content based on composition type
         if 'content' in data:
-            composition = data['content']
+            if comp_type == 'prompt':
+                # For prompts, content is the prompt text
+                composition['content'] = data['content']
+                # Remove extends for prompt compositions
+                composition.pop('extends', None)
+            elif isinstance(data['content'], dict):
+                # For other types, content might be a full composition structure
+                composition = data['content']
+            else:
+                # If content is a string for non-prompt types, error
+                return {
+                    'status': 'error',
+                    'error': f"Invalid content type for {comp_type} composition"
+                }
             
         # Always save to disk (no more in-memory only compositions)
         # Create Composition object
@@ -1105,6 +1176,15 @@ async def compose_prompt(name: str, variables: Optional[Dict[str, Any]] = None) 
 
 # Pattern Evolution Event Handlers
 
+class CompositionForkData(TypedDict):
+    """Fork a composition to create a variant."""
+    parent: Required[str]  # Name of parent composition
+    name: Required[str]  # Name for forked composition
+    reason: Required[str]  # Reason for forking
+    modifications: NotRequired[Dict[str, Any]]  # Initial modifications
+    author: NotRequired[str]  # Defaults to agent_id
+
+
 @event_handler("composition:fork")
 async def handle_fork_composition(data: CompositionForkData) -> CompositionResult:
     """Fork a composition to create a variant with lineage tracking."""
@@ -1179,6 +1259,15 @@ async def handle_fork_composition(data: CompositionForkData) -> CompositionResul
     except Exception as e:
         logger.error(f"Fork failed: {e}")
         return {'error': str(e)}
+
+
+class CompositionMergeData(TypedDict):
+    """Merge improvements from fork back to parent."""
+    source: Required[str]  # Name of source (fork)
+    target: Required[str]  # Name of target (parent)
+    strategy: Required[Literal['selective', 'full', 'metadata_only']]
+    improvements: NotRequired[List[str]]  # List of improvements
+    validation_results: NotRequired[Dict[str, Any]]  # Evaluation results
 
 
 @event_handler("composition:merge")
@@ -1258,6 +1347,13 @@ async def handle_merge_composition(data: CompositionMergeData) -> CompositionRes
     except Exception as e:
         logger.error(f"Merge failed: {e}")
         return {'error': str(e)}
+
+
+class CompositionDiffData(TypedDict):
+    """Show differences between compositions."""
+    left: Required[str]  # First composition
+    right: Required[str]  # Second composition
+    detail_level: NotRequired[Literal['summary', 'detailed', 'full']]
 
 
 @event_handler("composition:diff")
@@ -1347,6 +1443,15 @@ async def handle_diff_composition(data: CompositionDiffData) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Diff failed: {e}")
         return {'error': str(e)}
+
+
+class CompositionTrackDecisionData(TypedDict):
+    """Track orchestrator decisions for learning."""
+    pattern: Required[str]  # Pattern name
+    decision: Required[str]  # Decision made
+    context: Required[Dict[str, Any]]  # Decision context
+    outcome: Required[str]  # Decision outcome
+    confidence: NotRequired[float]  # Confidence 0-1
 
 
 @event_handler("composition:track_decision")

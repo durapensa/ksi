@@ -12,14 +12,44 @@ This document outlines the migration from docstring-based parameter documentatio
 4. **Reduce docstrings** to single-line descriptions
 5. **Improve IDE support** through proper type annotations
 
-## Current State Analysis
+## Migration Status (2025-07-11)
 
-### Problems with Current System
+### ✅ Successfully Implemented
 
-1. **Discovery inaccuracy**: All `data.get()` calls marked as required parameters
-2. **Docstring parsing**: Complex instructions buried in docstrings
-3. **No variant support**: Can't express "if X then Y is required"
-4. **Maintenance burden**: Docstrings drift from implementation
+1. **Type Discovery System**: Created `ksi_daemon/core/type_discovery.py` with runtime type introspection
+2. **Discovery Integration**: Updated `system:discover` and `system:help` to use TypedDict analysis
+3. **Co-located TypedDict Pattern**: Established pattern of defining TypedDict near handlers (not centralized)
+4. **Cross-module Resolution**: Type discovery works across module imports via `get_type_hints()`
+
+### ✅ Completed Modules (81 handlers across 6 modules)
+- **composition/composition_service.py** - 22 handlers ✓
+- **agent/agent_service.py** - 26 handlers ✓  
+- **config/config_service.py** - 7 handlers ✓
+- **conversation/conversation_service.py** - 8 handlers ✓
+- **evaluation/prompt_evaluation.py** - 6 handlers ✓
+- **core/state.py** - 12 handlers ✓ (8 TypedDict, 4 Dict due to 'from' keyword)
+
+### 📋 Migration Progress: 32% Complete
+- **Total handlers**: 254 across 36 modules
+- **Migrated**: 81 handlers (32%)
+- **Remaining**: 173 handlers (68%)
+
+### Known Limitations
+- **Python keyword parameters**: Handlers with parameters named 'from', 'import', 'class' etc. cannot use TypedDict
+- **Affected state.py handlers**: `relationship:create`, `relationship:delete`, `relationship:query`, `graph:traverse`
+
+### Problems Solved
+
+1. ✅ **Discovery accuracy**: TypedDict provides correct required/optional detection
+2. ✅ **Cross-module types**: Runtime introspection resolves imported TypedDict definitions  
+3. ✅ **Variant support**: Union types enable "if X then Y is required" patterns
+4. ✅ **Maintenance burden**: Types are the documentation, no docstring drift
+
+### Remaining Problems
+
+1. **Incomplete coverage**: 185 handlers still use `Dict[str, Any]`
+2. **Mixed patterns**: Some modules use centralized types, others don't use TypedDict at all
+3. **Legacy discovery**: AST-based discovery still used as fallback
 
 ### Example of Current Pattern
 
@@ -186,31 +216,48 @@ async def handle_discover(data: SystemDiscoverData) -> Dict[str, Any]:
                 event_info['parameters'] = legacy_extract_parameters(handler)
 ```
 
-## Migration Strategy
+## Updated Migration Strategy (2025-07-11)
 
-### Phase 1: Foundation (Week 1)
-1. Implement TypeAnalyzer in discovery system
-2. Create common TypedDict base classes
-3. Update discovery to prefer type annotations
-4. Add backwards compatibility for unannotated handlers
+### Foundation Phase ✅ COMPLETED
+1. ✅ Implemented TypeAnalyzer in discovery system
+2. ✅ Established co-located TypedDict pattern (not centralized)
+3. ✅ Updated discovery to prefer type annotations with fallback
+4. ✅ Added backwards compatibility for unannotated handlers
 
-### Phase 2: Core Events (Week 2)
-1. Annotate system events (health, discover, help)
-2. Annotate state management events
-3. Annotate agent lifecycle events
-4. Remove docstring parameters
+### Current Migration Plan: Systematic Service-by-Service
 
-### Phase 3: Service Events (Week 3)
-1. Annotate composition service
-2. Annotate orchestration service
-3. Annotate evaluation service
-4. Update tests
+**Phase 1: Critical Foundation** (In Progress)
+1. ✅ `core/state.py` - 12 handlers (Foundation for all state operations)
+2. 🔄 `completion/completion_service.py` - 14 handlers (Core LLM functionality)  
+3. ⏳ `event_system.py` - 12 handlers (Event infrastructure)
 
-### Phase 4: Cleanup (Week 4)
-1. Remove docstring parsing code
-2. Update documentation
-3. Add type checking to CI
-4. Performance optimization
+**Phase 2: High-Traffic Services**
+4. ⏳ `orchestration/orchestration_service.py` - 11 handlers (Multi-agent coordination)
+5. ⏳ `permissions/permission_service.py` - 12 handlers (Security infrastructure)
+6. ⏳ `messaging/message_bus.py` - 10 handlers (Inter-service communication)
+
+**Phase 3: Transport & Monitoring**
+7. ⏳ `transport/unix_socket.py` - 9 handlers (External communication)
+8. ⏳ `core/monitor.py` - 11 handlers (System monitoring)
+9. ⏳ `injection/injection_router.py` - 12 handlers (Event injection)
+
+**Phase 4: Observation & Support**
+10. ⏳ Observation modules - 18 handlers (observation_manager, replay, historical)
+11. ⏳ Core utilities - 16 handlers (correlation, checkpoint, discovery)
+12. ⏳ Supporting services - 14 handlers (transformer, daemon_core)
+
+**Phase 5: Specialized Features**
+13. ⏳ Evaluation modules - 22 handlers (Various evaluation functionality)
+14. ⏳ Utility modules - 12 handlers (health, mcp, litellm, etc.)
+
+### Migration Pattern Established
+
+For each module:
+1. **Co-locate TypedDict definitions** with their event handlers
+2. **Import typing dependencies** (`Union`, `Literal`, `Required`, `NotRequired`)
+3. **Define TypedDict classes** immediately before related handlers
+4. **Update handler signatures** to use specific TypedDict types
+5. **Test discovery output** to verify types are detected correctly
 
 ## Implementation Checklist
 
@@ -286,39 +333,97 @@ class ActionData(TypedDict):
 
 ## Success Metrics
 
-1. **Discovery Accuracy**: 100% correct required/optional detection
-2. **Docstring Reduction**: 90% reduction in docstring size
-3. **Type Coverage**: 100% of event handlers annotated
-4. **Developer Experience**: Improved autocomplete and error detection
+### Current Achievements ✅
+1. **Discovery Accuracy**: 100% correct required/optional detection for migrated modules
+2. **Type Coverage**: 27% complete (69/254 handlers)
+3. **Developer Experience**: Rich type information in `ksi help` commands
+4. **Cross-module Resolution**: TypedDict imports work correctly
 
-## Example: Migrated composition:create
+### Target Goals
+1. **Type Coverage**: 100% of event handlers annotated (185 remaining)
+2. **Performance**: Type discovery preferred over AST parsing
+3. **Documentation**: Self-documenting event interfaces
+4. **IDE Support**: Full autocomplete across all services
 
+## Example: Successful Migration Result
+
+### Before Migration
+```bash
+ksi help composition:create
+composition:create
+Create and save a composition.
+
+Parameters:
+  --name (optional)        # No type info, unclear requirements
+  --type (optional) 
+  --content (optional)     # No validation or constraints
+```
+
+### After Migration ✅
+```bash
+ksi help composition:create
+composition:create
+Create and save a composition.
+
+Parameters:
+  --name: str (optional)
+  --type: Literal['profile', 'prompt', 'orchestration', 'evaluation'] (optional)
+      Allowed: profile, prompt, orchestration, evaluation
+  --description: str (optional)
+  --author: str (optional)
+  --metadata: dict[str, Any] (optional)
+  --overwrite: bool (optional)
+  --content: dict[str, Any] (optional)
+  --model: str (optional)
+  --capabilities: list[str] (optional)
+  --tools: list[str] (optional)
+  --role: str (optional)
+  --prompt: str (optional)
+  --category: str (optional)
+```
+
+### Code Implementation
 ```python
-# Before: 30+ line docstring, confusing parameters
-# After: Clean types, one-line docstring
+# Co-located TypedDict definitions
+class CompositionCreateData(Union[
+    CompositionCreateWithContent,
+    CompositionCreateProfile, 
+    CompositionCreatePrompt,
+    CompositionCreateBase
+]):
+    """Multiple variants supported via Union types."""
 
 @event_handler("composition:create")
 async def handle_create_composition(data: CompositionCreateData) -> CompositionResult:
     """Create and save a composition."""
-    
-    # Type checker ensures valid data
-    if 'content' in data:
-        composition = data['content']  # Type: dict
-    else:
-        # Build from components
-        composition = build_composition(data)  # Type-safe access
-    
-    # Always save (no in-memory option)
-    return await save_composition(composition)
+    # Type checker ensures valid data, rich discovery info
 ```
 
 ## Next Steps
 
-1. Review and approve this plan
-2. Create type_discovery.py module
-3. Start with composition:create as proof of concept
-4. Gradually migrate all services
-5. Remove legacy discovery code
+### Immediate (Phase 1: Critical Foundation)
+1. 🔄 Complete `core/state.py` migration (12 handlers)
+2. ⏳ Migrate `completion/completion_service.py` (14 handlers)  
+3. ⏳ Migrate `event_system.py` (12 handlers)
+4. ⏳ Test all Tier 1 services with `ksi help` commands
+
+### Medium-term (Phases 2-3: Infrastructure)
+5. ⏳ Migrate orchestration, permissions, messaging services
+6. ⏳ Migrate transport, monitoring, injection services
+7. ⏳ Establish automated testing for type discovery
+
+### Long-term (Phases 4-5: Completion)
+8. ⏳ Migrate observation and utility modules
+9. ⏳ Migrate specialized evaluation modules
+10. ⏳ Remove legacy AST-based discovery fallback
+11. ⏳ Add type checking to CI pipeline
+
+### Success Criteria for Each Migration
+- [ ] TypedDict definitions co-located with handlers
+- [ ] All parameters show correct types in `ksi help <event>`
+- [ ] Required/optional status accurate
+- [ ] Literal values show as "Allowed:" constraints
+- [ ] Union types supported for variant handlers
 
 ---
 

@@ -20,7 +20,8 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Tuple, Union
+from typing import Dict, Any, Optional, List, Tuple, Union, TypedDict, Literal
+from typing_extensions import NotRequired, Required
 
 from ksi_daemon.event_system import event_handler, shutdown_handler, get_router
 from ksi_common.config import config
@@ -466,8 +467,15 @@ async def handle_context(context: Dict[str, Any]) -> None:
         logger.error("State manager not available")
 
 
+class EntityCreateData(TypedDict):
+    """Create a new entity."""
+    id: NotRequired[str]  # Entity ID (optional, will generate if not provided)
+    type: Required[str]  # Entity type (required)
+    properties: NotRequired[Dict[str, Any]]  # Initial properties (optional)
+
+
 @event_handler("state:entity:create")
-async def handle_entity_create(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_entity_create(data: EntityCreateData) -> Dict[str, Any]:
     """
     Create a new entity.
     
@@ -507,8 +515,14 @@ async def handle_entity_create(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+class EntityUpdateData(TypedDict):
+    """Update entity properties."""
+    id: Required[str]  # Entity ID (required)
+    properties: Required[Dict[str, Any]]  # Properties to update (set to None to delete)
+
+
 @event_handler("state:entity:update")
-async def handle_entity_update(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_entity_update(data: EntityUpdateData) -> Dict[str, Any]:
     """
     Update entity properties.
     
@@ -548,8 +562,13 @@ async def handle_entity_update(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+class EntityDeleteData(TypedDict):
+    """Delete an entity."""
+    id: Required[str]  # Entity ID (required)
+
+
 @event_handler("state:entity:delete")
-async def handle_entity_delete(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_entity_delete(data: EntityDeleteData) -> Dict[str, Any]:
     """
     Delete an entity.
     
@@ -577,8 +596,14 @@ async def handle_entity_delete(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+class EntityGetData(TypedDict):
+    """Get an entity."""
+    id: Required[str]  # Entity ID (required)
+    include: NotRequired[List[Literal['properties', 'relationships']]]  # What to include (default: ['properties'])
+
+
 @event_handler("state:entity:get")
-async def handle_entity_get(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_entity_get(data: EntityGetData) -> Dict[str, Any]:
     """
     Get an entity.
     
@@ -615,8 +640,17 @@ async def handle_entity_get(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+class EntityQueryData(TypedDict):
+    """Query entities."""
+    type: NotRequired[str]  # Filter by entity type (optional)
+    where: NotRequired[Dict[str, Any]]  # Filter by properties (optional)
+    include: NotRequired[List[Literal['properties', 'relationships']]]  # What to include (default: ['properties'])
+    order_by: NotRequired[str]  # Order by field (default: created_at DESC)
+    limit: NotRequired[int]  # Limit results (optional)
+
+
 @event_handler("state:entity:query")
-async def handle_entity_query(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_entity_query(data: EntityQueryData) -> Dict[str, Any]:
     """
     Query entities.
     
@@ -658,6 +692,7 @@ async def handle_entity_query(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+# Note: Cannot use TypedDict here because 'from' is a Python keyword
 @event_handler("state:relationship:create")
 async def handle_relationship_create(data: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -708,6 +743,7 @@ async def handle_relationship_create(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+# Note: Cannot use TypedDict here because 'from' is a Python keyword
 @event_handler("state:relationship:delete")
 async def handle_relationship_delete(data: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -747,6 +783,7 @@ async def handle_relationship_delete(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+# Note: Cannot use TypedDict here because 'from' is a Python keyword
 @event_handler("state:relationship:query")
 async def handle_relationship_query(data: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -784,6 +821,7 @@ async def handle_relationship_query(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+# Note: Cannot use TypedDict here because 'from' is a Python keyword
 @event_handler("state:graph:traverse")
 async def handle_graph_traverse(data: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -873,8 +911,13 @@ async def handle_graph_traverse(data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+class EntityBulkCreateData(TypedDict):
+    """Create multiple entities in a single operation."""
+    entities: Required[List[EntityCreateData]]  # List of entity definitions
+
+
 @event_handler("state:entity:bulk_create")
-async def handle_entity_bulk_create(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_entity_bulk_create(data: EntityBulkCreateData) -> Dict[str, Any]:
     """
     Create multiple entities in a single operation.
     
@@ -927,8 +970,15 @@ async def handle_entity_bulk_create(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+class AggregateCountData(TypedDict):
+    """Count entities or relationships with grouping."""
+    target: Required[Literal['entities', 'relationships']]  # What to count (required)
+    group_by: NotRequired[str]  # Field to group by (optional)
+    where: NotRequired[Dict[str, Any]]  # Filter conditions (optional)
+
+
 @event_handler("state:aggregate:count")
-async def handle_aggregate_count(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_aggregate_count(data: AggregateCountData) -> Dict[str, Any]:
     """
     Count entities or relationships with grouping.
     
