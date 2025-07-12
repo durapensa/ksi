@@ -131,10 +131,45 @@ class KSICLI:
                 print(f"  --{name}: {param_type}{req}")
                 if desc:
                     print(f"      {desc}")
+                # Only show separate default if not already mentioned in description
                 if default := info.get('default'):
-                    print(f"      Default: {default}")
+                    if desc and "(default:" not in desc.lower():
+                        print(f"      Default: {default}")
                 if values := info.get('allowed_values'):
                     print(f"      Allowed: {', '.join(map(str, values))}")
+                # Show validation constraints
+                # Value constraints (for numeric types)
+                if 'min_value' in info or 'max_value' in info:
+                    min_val = info.get('min_value')
+                    max_val = info.get('max_value')
+                    if min_val is not None and max_val is not None:
+                        print(f"      Range: {min_val}-{max_val}")
+                    elif min_val is not None:
+                        print(f"      Min: {min_val}")
+                    elif max_val is not None:
+                        print(f"      Max: {max_val}")
+                
+                # Length constraints (for strings/lists)
+                if 'min_length' in info or 'max_length' in info or 'exact_length' in info:
+                    if exact_len := info.get('exact_length'):
+                        print(f"      Length: {exact_len}")
+                    else:
+                        min_len = info.get('min_length')
+                        max_len = info.get('max_length')
+                        if min_len is not None and max_len is not None:
+                            print(f"      Length: {min_len}-{max_len}")
+                        elif min_len is not None:
+                            print(f"      Min length: {min_len}")
+                        elif max_len is not None:
+                            print(f"      Max length: {max_len}")
+                
+                # Pattern constraints
+                if pattern := info.get('pattern'):
+                    print(f"      Pattern: {pattern}")
+                
+                # Type validation
+                if val_type := info.get('validation_type'):
+                    print(f"      Must be valid: {val_type}")
         
         # Examples
         if merged_help["examples"]:
