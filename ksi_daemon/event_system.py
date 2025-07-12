@@ -19,8 +19,20 @@ from collections import defaultdict
 from pathlib import Path
 
 from ksi_common.logging import get_bound_logger
+from ksi_common.error_handler import DiscoveryErrorHandler
+from ksi_common.config import config
 
 logger = get_bound_logger("event_system", version="2.0.0")
+
+# Import runtime config function (avoid circular import by importing lazily)
+def get_runtime_config(key: str, fallback=None):
+    """Lazy import to avoid circular dependency."""
+    try:
+        from ksi_daemon.config_manager import get_runtime_config as _get_runtime_config
+        return _get_runtime_config(key, fallback)
+    except ImportError:
+        # Fallback to static config if runtime config not available
+        return getattr(config, key, fallback)
 
 T = TypeVar('T')
 
@@ -130,6 +142,14 @@ class EventRouter:
         self._propagate_errors = os.environ.get("KSI_PROPAGATE_ERRORS", "false").lower() == "true"
         if self._propagate_errors:
             logger.warning("ERROR PROPAGATION ENABLED - Programming errors will crash handlers")
+        
+        # Enhanced error handling with discovery data
+        self._error_handler = DiscoveryErrorHandler(router=self)
+    
+    @property 
+    def error_verbosity(self) -> str:
+        """Get current error verbosity (runtime override or config default)."""
+        return get_runtime_config('error_verbosity', config.error_verbosity)
         
     def register_handler(self, event: str, handler: EventHandler):
         """Register an event handler."""
@@ -384,7 +404,14 @@ class EventRouter:
             if matching_subscriptions:
                 await notify_observers_async(matching_subscriptions, "end", event, 
                                            {"status": "no_handlers"}, source_agent)
-            return []
+            
+            # Unknown event - provide discovery guidance
+            unknown_event_response = await self._error_handler.handle_unknown_event(
+                event_name=event,
+                provided_params=data,
+                verbosity=self.error_verbosity
+            )
+            return [unknown_event_response]
             
         # Execute handlers concurrently
         if self._propagate_errors:
@@ -408,15 +435,27 @@ class EventRouter:
             for i, result in enumerate(results):
                 if isinstance(result, Exception):
                     logger.error(f"Handler {handlers[i].name} failed for {event}: {result}")
-                    errors.append({
+                    
+                    # Generate enhanced error using discovery data
+                    enhanced_error = await self._error_handler.enhance_error(
+                        event_name=event,
+                        provided_params=data,
+                        original_error=result,
+                        verbosity=self.error_verbosity
+                    )
+                    
+                    # Store enhanced error for return
+                    error_info = {
                         "handler": handlers[i].name,
-                        "error": str(result)
-                    })
-                    # Emit error event
+                        **enhanced_error
+                    }
+                    errors.append(error_info)
+                    
+                    # Emit enhanced error event
                     await self.emit("event:error", {
                         "event": event,
                         "handler": handlers[i].name,
-                        "error": str(result)
+                        **enhanced_error
                     })
                 elif result is not None:
                     valid_results.append(result)
@@ -430,6 +469,13 @@ class EventRouter:
             }
             await notify_observers_async(matching_subscriptions, "end", event, 
                                        observation_result, source_agent)
+        
+        # Return enhanced errors if all handlers failed
+        if not valid_results and errors:
+            # Return the first enhanced error (without handler info for client)
+            first_error = errors[0]
+            error_response = {k: v for k, v in first_error.items() if k != "handler"}
+            return [error_response]
                 
         return valid_results
         

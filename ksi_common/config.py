@@ -13,6 +13,7 @@ Environment Variables:
     KSI_STATE_DIR - State directory (default: var/state)
     KSI_SOCKET_TIMEOUT - Socket timeout in seconds (default: 5.0)
     KSI_DEBUG - Enable debug mode (default: false)
+    KSI_ERROR_VERBOSITY - Error message verbosity level: minimal, medium, verbose (default: medium)
     
     Event Log Configuration:
     KSI_EVENT_LOG_DIR - Event log directory (default: var/logs/events)
@@ -150,6 +151,9 @@ class KSIBaseConfig(BaseSettings):
     # Daemon-specific settings
     daemon_pid_file: Path = Path(DEFAULT_RUN_DIR) / DEFAULT_PID_FILE
     daemon_log_dir: Path = Path(DEFAULT_DAEMON_LOG_DIR)
+    
+    # Error handling configuration
+    error_verbosity: Literal["minimal", "medium", "verbose"] = "medium"
     
     @property
     def daemon_log_file(self) -> Path:

@@ -164,6 +164,7 @@ class EventDaemonCore:
         
         # Config modules
         import ksi_daemon.config.config_service
+        import ksi_daemon.config.runtime_config
         
         # MCP modules
         import ksi_daemon.mcp.mcp_service

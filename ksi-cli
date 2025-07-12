@@ -24,6 +24,7 @@ import os
 from ksi_client import EventClient
 from ksi_client.exceptions import KSIError
 from ksi_common.logging import configure_structlog
+from ksi_common.error_formatting import format_error_for_cli
 
 
 class KSICLIError(Exception):
@@ -37,6 +38,19 @@ class KSICLI:
     def __init__(self, socket_path: Optional[Path] = None):
         self.socket_path = socket_path
         self.client: Optional[EventClient] = None
+    
+    def display_error(self, error_response: Dict[str, Any]) -> None:
+        """Display enhanced error response."""
+        if isinstance(error_response, dict) and "error" in error_response:
+            # Check if this is an enhanced error (has additional fields)
+            if any(key in error_response for key in ["available", "similar", "help", "namespaces"]):
+                # Enhanced error - use formatting utility
+                print(format_error_for_cli(error_response))
+            else:
+                # Simple error - just show the error message
+                print(f"Error: {error_response['error']}")
+        else:
+            print(f"Error: {error_response}")
     
     async def setup(self):
         """Initialize client connection."""
@@ -411,7 +425,7 @@ Examples:
                 if isinstance(result, dict):
                     # Single response
                     if "error" in result:
-                        print(f"Error: {result['error']}")
+                        cli.display_error(result)
                     elif args.event == "completion:async":
                         print(f"Request ID: {result.get('request_id', 'unknown')}")
                         print(f"Status: {result.get('status', 'unknown')}")
@@ -434,7 +448,7 @@ Examples:
                         response = result[0]
                         if isinstance(response, dict):
                             if "error" in response:
-                                print(f"Error: {response['error']}")
+                                cli.display_error(response)
                             else:
                                 for key, value in response.items():
                                     if isinstance(value, (dict, list)):
