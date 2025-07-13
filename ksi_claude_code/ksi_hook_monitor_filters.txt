@@ -71,7 +71,7 @@ ksi_check
 #    - Settings changes require Claude Code restart
 
 # 3. OUTPUT FORMAT:
-#    - Hooks output JSON to stdout: {"decision": "block", "reason": "message"}
+#    - Hooks output JSON: {"reason": "message"} (omit "decision" to allow operation)
 #    - This allows Claude to see [KSI] messages with exit code 0
 #    - Empty output = silent execution (common pitfall)
 

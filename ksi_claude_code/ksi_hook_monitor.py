@@ -79,16 +79,15 @@ class HookConfig:
 class ExitStrategy:
     """Manage exit codes based on hook state"""
     SUCCESS = 0
-    STDERR_FEEDBACK = 2  # Legacy mode - kept for reference
     
     @staticmethod
     def exit_with_feedback(message: str, is_error: bool = False):
-        """Exit with JSON decision format for Claude Code feedback"""
-        # For PostToolUse: omit decision to allow, include reason for feedback
+        """Exit with JSON format for Claude Code feedback"""
+        # PostToolUse: omit "decision" field to allow operation
+        # Include "reason" field for user-visible feedback
         output = {
             "reason": message
         }
-        # Note: NOT including "decision" field allows the operation
         print(json.dumps(output), flush=True)
         sys.exit(ExitStrategy.SUCCESS)
     
@@ -738,7 +737,7 @@ def main():
         output = monitor.format_output(events, agent_status)
         
         if output:
-            logger.log_diagnostic(f"Stderr feedback output: {output}")
+            logger.log_diagnostic(f"JSON feedback output: {output}")
             ExitStrategy.exit_with_feedback(output)
         else:
             ExitStrategy.exit_silent()
