@@ -453,14 +453,16 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
         # Save to session log
         save_completion_response(standardized_response)
         
-        # Extract and emit JSON events from response (async)
+        # Extract and emit JSON events from response (non-blocking)
         if event_emitter:
             response_text = get_response_text(standardized_response)
             if response_text:
-                # Run extraction in background task to avoid blocking
-                async def extract_events():
+                agent_id = data.get('agent_id')
+                
+                # Run extraction in background to avoid blocking
+                async def extract_and_send_feedback():
                     try:
-                        extracted = await extract_and_emit_json_events(
+                        extraction_results = await extract_and_emit_json_events(
                             text=response_text,
                             event_emitter=event_emitter,
                             context={
@@ -469,20 +471,43 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
                                 'model': model,
                                 'provider': provider
                             },
-                            agent_id=data.get('agent_id')
+                            agent_id=agent_id
                         )
-                        if extracted:
-                            logger.info(f"Extracted {len(extracted)} events from completion response",
+                        
+                        if extraction_results:
+                            logger.info(f"Extracted {len(extraction_results)} events from completion response",
                                       request_id=request_id,
-                                      agent_id=data.get('agent_id'),
-                                      events=[e['event'] for e in extracted if e.get('status') == 'emitted'])
+                                      agent_id=agent_id,
+                                      events=[e['event'] for e in extraction_results])
+                            
+                            # Send feedback as separate completion:async if agent_id exists
+                            if agent_id and extraction_results:
+                                feedback_content = f"=== EVENT EMISSION RESULTS ===\n"
+                                feedback_content += json.dumps(extraction_results, indent=2)
+                                
+                                # Send via completion:async - maintains loose coupling
+                                await event_emitter("completion:async", {
+                                    "messages": [{
+                                        "role": "system",
+                                        "content": feedback_content
+                                    }],
+                                    "agent_id": agent_id,
+                                    "originator_id": agent_id,
+                                    "model": model,  # Use same model as original
+                                    "priority": "high",  # Feedback should be prompt
+                                    "is_feedback": True,  # Flag to indicate this is event feedback
+                                    "parent_request_id": request_id  # Link to original request
+                                })
+                                
+                                logger.debug(f"Queued event emission feedback for agent {agent_id}")
+                                
                     except Exception as e:
                         logger.error(f"Failed to extract JSON events: {e}",
                                    request_id=request_id,
                                    error=str(e))
                 
-                # Create task but don't await it
-                asyncio.create_task(extract_events())
+                # Create task but don't await - non-blocking!
+                asyncio.create_task(extract_and_send_feedback())
         
         # CRITICAL: Update session tracking with the NEW session_id from claude-cli
         if provider == "claude-cli":

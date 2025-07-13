@@ -132,13 +132,14 @@ async def extract_and_emit_json_events(
             if context:
                 event_data.setdefault('_context', {}).update(context)
             
-            # Emit the event
-            await event_emitter(event_name, event_data)
+            # Emit the event and capture raw result
+            emission_result = await event_emitter(event_name, event_data)
             
+            # Pass through raw emission result to agent
             emitted.append({
                 'event': event_name,
                 'data': event_data,
-                'status': 'emitted'
+                'emission_result': emission_result  # Raw passthrough
             })
             
             logger.info(f"Emitted {event_name} extracted from response", 
