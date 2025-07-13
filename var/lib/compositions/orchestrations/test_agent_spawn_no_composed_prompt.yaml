@@ -1,0 +1,94 @@
+name: test_agent_spawn_no_composed_prompt
+type: orchestration
+version: 1.0.0
+description: |
+  Test that agents spawn correctly without composed_prompt field.
+  Verifies the refactoring that moved prompt handling to composition system.
+author: ksi-system
+extends: null
+
+# Test coordinator agent
+agents:
+  test_coordinator:
+    profile: base_orchestrator
+    vars:
+      pattern_name: test_agent_spawn_no_composed_prompt
+      initial_prompt: |
+        You are testing that agents spawn without the composed_prompt field.
+        
+        Execute this test sequence:
+        1. Emit: {"event": "agent:spawn", "data": {"profile": "base_single_agent", "agent_id": "test_subject_001"}}
+        2. Wait 2 seconds for spawn to complete
+        3. Emit: {"event": "agent:info", "data": {"agent_id": "test_subject_001"}}
+        4. Check the response - it should NOT contain a "composed_prompt" field
+        5. Emit: {"event": "orchestration:track", "data": {"type": "test_result", "test": "no_composed_prompt", "passed": true/false, "details": "..."}}
+        6. Emit: {"event": "agent:terminate", "data": {"agent_id": "test_subject_001"}}
+        
+        Report the test result clearly.
+
+metadata:
+  tags:
+    - test
+    - refactoring
+    - agent-system
+    - composed-prompt
+  capabilities_required:
+    - agent:spawn
+    - agent:info
+    - agent:terminate
+    - orchestration:track
+  use_cases:
+    - Regression testing
+    - Refactoring validation
+    - Agent system verification
+
+# Test orchestration logic
+orchestration_logic:
+  description: |
+    Tests that the agent system no longer includes composed_prompt field,
+    verifying that prompt handling has been moved to the composition system.
+  
+  strategy: |
+    TEST agent_spawn_refactoring:
+      SPAWN test_agent WITH:
+        profile: "base_single_agent"
+        agent_id: "test_subject_{{run_id}}"
+      
+      WAIT 2 seconds  # Allow spawn to complete
+      
+      GET agent_info FROM agent:info WHERE agent_id = "test_subject_{{run_id}}"
+      
+      ASSERT "composed_prompt" NOT IN agent_info:
+        IF FOUND:
+          TRACK failure: "composed_prompt field still present"
+          FAIL test
+        ELSE:
+          TRACK success: "composed_prompt correctly removed"
+          PASS test
+      
+      TERMINATE test_agent
+      
+      REPORT test_result
+
+# Variables
+variables:
+  test_name: "Agent Spawn Refactoring Test"
+  expected_fields_absent: ["composed_prompt"]
+  run_id: "{{_timestamp}}"  # Unique ID for this test run
+
+# Performance tracking
+performance:
+  runs: 0
+  successes: 0
+  failures: 0
+  last_run: null
+  avg_duration: null
+
+# Learnings
+learnings:
+  - insight: "Removing unnecessary fields simplifies agent state"
+    confidence: 1.0
+    evidence: "Refactoring completed 2025-07-13"
+  - insight: "Composition system owns all prompt assembly"
+    confidence: 1.0
+    evidence: "Self-configuring agent architecture"

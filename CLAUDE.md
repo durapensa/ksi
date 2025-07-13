@@ -186,6 +186,94 @@ For intelligent multi-agent orchestration:
 - **Pattern Library**: See `var/lib/orchestration_patterns/` for shareable patterns
 - **Orchestrator Agents**: Use pattern-aware orchestrators for adaptive workflows
 
+## Test Compositions Pattern
+
+**CRITICAL**: Tests should be compositions, not Python scripts. This enables:
+- **Self-testing**: KSI tests itself using its own infrastructure
+- **Declarative tests**: Define expected behavior in YAML
+- **Reusable patterns**: Test compositions can be extended and evolved
+- **No external dependencies**: Tests run entirely within KSI
+
+### Creating Test Compositions
+
+```yaml
+# var/lib/compositions/orchestrations/test_feature_x.yaml
+name: test_feature_x
+type: orchestration
+description: Test that feature X works correctly
+
+agents:
+  tester:
+    profile: base_single_agent
+    vars:
+      initial_prompt: |
+        Test feature X by:
+        1. Emit event X with test data
+        2. Verify response matches expected format
+        3. Report success/failure via orchestration:track
+
+orchestration_logic:
+  strategy: |
+    GIVEN test_data
+    WHEN emit_event("feature:x", test_data)
+    THEN verify_response_format
+    TRACK test_result
+
+variables:
+  test_data: { "key": "test_value" }
+  expected_format: { "status": "success", "result": "..." }
+```
+
+### Running Test Compositions
+
+```bash
+# Run a test composition
+ksi send orchestration:start --pattern test_feature_x
+
+# Run all tests matching a pattern
+ksi send orchestration:start --pattern "test_*"
+
+# Check test results
+ksi send orchestration:query --pattern test_feature_x --field performance.test_results
+```
+
+### Test Composition Benefits
+
+1. **Infrastructure testing**: Test KSI features using KSI itself
+2. **Evolution**: Tests can evolve through pattern forking/merging
+3. **Observability**: All test runs are tracked in event log
+4. **Parallelism**: Run multiple test compositions concurrently
+5. **Self-documenting**: Test logic is readable in YAML
+
+### Example: Testing Agent Spawning
+
+Instead of `test_prompt_removal.py`, use:
+
+```yaml
+name: test_agent_spawn_no_composed_prompt
+type: orchestration
+description: Verify agents spawn without composed_prompt field
+
+agents:
+  test_coordinator:
+    profile: base_orchestrator
+    vars:
+      initial_prompt: |
+        1. Spawn a test agent
+        2. Check agent:info response
+        3. Verify no 'composed_prompt' field exists
+        4. Track success/failure
+        5. Terminate test agent
+
+orchestration_logic:
+  strategy: |
+    SPAWN test_agent WITH profile="base_single_agent"
+    GET agent_info = agent:info(agent_id=test_agent.id)
+    ASSERT "composed_prompt" NOT IN agent_info
+    TRACK result
+    TERMINATE test_agent
+```
+
 ## KSI Hook Monitor
 Claude Code has a hook that monitors KSI activity and provides real-time feedback:
 
