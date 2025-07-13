@@ -1174,6 +1174,163 @@ async def compose_prompt(name: str, variables: Optional[Dict[str, Any]] = None) 
         return str(prompt_parts)
 
 
+def apply_minimal_redaction(composition_dict: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
+    """Apply minimal redaction - only truly sensitive information.
+    
+    Philosophy: Give agents full context awareness, only remove genuine secrets.
+    
+    Args:
+        composition_dict: The composition data to redact
+    
+    Returns:
+        Tuple of (redacted_dict, list_of_redactions_applied)
+    """
+    import copy
+    redacted = copy.deepcopy(composition_dict)
+    redactions_applied = []
+    
+    # Only genuinely sensitive data
+    sensitive_keys = [
+        'password', 'secret', 'token', 'api_key', 'private_key',
+        'auth_token', 'session_token', 'bearer_token'
+    ]
+    
+    def redact_recursive(obj: Any, path: str = '') -> Any:
+        if isinstance(obj, dict):
+            result = {}
+            for key, value in obj.items():
+                current_path = f"{path}.{key}" if path else key
+                
+                # Only redact truly sensitive keys
+                if any(sensitive in key.lower() for sensitive in sensitive_keys):
+                    redactions_applied.append(f"Redacted sensitive key: {current_path}")
+                    result[key] = "[REDACTED]"
+                else:
+                    result[key] = redact_recursive(value, current_path)
+            return result
+            
+        elif isinstance(obj, list):
+            return [redact_recursive(item, f"{path}[{i}]") for i, item in enumerate(obj)]
+            
+        elif isinstance(obj, str):
+            # Only redact obvious secrets in string values
+            for sensitive in sensitive_keys:
+                if sensitive in obj.lower() and '=' in obj:
+                    # Looks like key=value pair with sensitive data
+                    parts = obj.split('=')
+                    if len(parts) == 2:
+                        redactions_applied.append(f"Redacted sensitive value in: {path}")
+                        return f"{parts[0]}=[REDACTED]"
+            return obj
+            
+        else:
+            return obj
+    
+    redacted_composition = redact_recursive(redacted)
+    return redacted_composition, redactions_applied
+
+
+async def compose_agent_context(
+    profile_name: str,
+    agent_id: str,
+    interaction_prompt: str = '',
+    orchestration_name: Optional[str] = None,
+    variables: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """Compose complete agent context for self-configuring agents.
+    
+    Philosophy: Full context awareness - give agents complete view with minimal redaction.
+    Let smart agents parse and understand their context rather than complex pre-processing.
+    
+    Args:
+        profile_name: Agent profile name
+        agent_id: Unique agent identifier
+        interaction_prompt: Initial task/prompt for the agent
+        orchestration_name: Name of orchestration if agent is part of one
+        variables: Variables for composition substitution
+    
+    Returns:
+        Dict with 'message', 'composition_context', 'redaction_applied'
+    """
+    if variables is None:
+        variables = {}
+    
+    try:
+        # Build complete agent context
+        context = {
+            'agent_id': agent_id,
+            'agent_profile': await load_composition_raw(profile_name, 'profile')
+        }
+        
+        # Add full orchestration context if available
+        if orchestration_name:
+            try:
+                context['orchestration'] = await load_composition_raw(orchestration_name, 'orchestration')
+            except FileNotFoundError:
+                logger.warning(f"Orchestration {orchestration_name} not found, proceeding without it")
+        
+        # Add variables if provided
+        if variables:
+            context['variables'] = variables
+        
+        # Add interaction prompt
+        if interaction_prompt:
+            context['interaction_prompt'] = interaction_prompt
+        
+        # Apply minimal redaction - only remove genuine secrets
+        redacted_context, redactions_applied = apply_minimal_redaction(context)
+        
+        # Create simple boilerplate
+        boilerplate = f"""You are agent {agent_id} in the KSI (Knowledge System Infrastructure) system.
+
+Your complete configuration context is provided below in YAML format.
+
+Please read and understand your configuration, then self-configure and begin operating:
+
+1. Parse your agent profile to understand your capabilities and role
+2. If part of an orchestration, understand the full workflow and your relationships with other agents
+3. Extract any initial tasks or prompts directed at you
+4. Begin autonomous operation according to your configuration
+
+"""
+        
+        if interaction_prompt:
+            boilerplate += f"Your initial task: {interaction_prompt}\n\n"
+        
+        # Format as YAML for agent consumption
+        import yaml
+        composition_yaml = yaml.dump(redacted_context, default_flow_style=False, sort_keys=False)
+        
+        # Combine boilerplate with full context
+        full_message = boilerplate + "=== YOUR COMPLETE CONTEXT ===\n```yaml\n" + composition_yaml + "\n```\n\nPlease proceed according to your configuration."
+        
+        return {
+            'message': full_message,
+            'composition_context': redacted_context,
+            'redaction_applied': redactions_applied,
+            'boilerplate': boilerplate,
+            'composition_yaml': composition_yaml
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to compose agent context for {profile_name}: {e}")
+        # Return minimal fallback
+        fallback_message = f"""You are agent {agent_id} in the KSI system.
+
+Error loading your configuration: {str(e)}
+
+{f"Your initial task: {interaction_prompt}" if interaction_prompt else "Please await further instructions."}
+
+Please proceed as a basic autonomous agent with full autonomy to execute tasks and emit JSON events."""
+        
+        return {
+            'message': fallback_message,
+            'composition_context': {},
+            'redaction_applied': [],
+            'error': str(e)
+        }
+
+
 # Pattern Evolution Event Handlers
 
 class CompositionForkData(TypedDict):
@@ -1349,6 +1506,44 @@ async def handle_merge_composition(data: CompositionMergeData) -> CompositionRes
         return {'error': str(e)}
 
 
+class CompositionAgentContextData(TypedDict):
+    """Compose agent context for self-configuring agents."""
+    profile: Required[str]  # Agent profile name
+    agent_id: Required[str]  # Agent ID for context
+    interaction_prompt: NotRequired[str]  # Initial interaction prompt
+    orchestration: NotRequired[str]  # Orchestration name if part of one
+    variables: NotRequired[Dict[str, Any]]  # Variables for composition
+
+
+@event_handler("composition:agent_context")
+async def handle_compose_agent_context(data: CompositionAgentContextData) -> Dict[str, Any]:
+    """Compose agent context for self-configuring agents."""
+    profile_name = data.get('profile')
+    agent_id = data.get('agent_id')
+    interaction_prompt = data.get('interaction_prompt', '')
+    orchestration_name = data.get('orchestration')
+    variables = data.get('variables', {})
+    
+    if not profile_name or not agent_id:
+        return {'status': 'error', 'error': 'Profile name and agent_id required'}
+    
+    try:
+        result = await compose_agent_context(
+            profile_name, agent_id, interaction_prompt, 
+            orchestration_name, variables
+        )
+        return {
+            'status': 'success',
+            'agent_context_message': result['message'],
+            'composition_context': result['composition_context'],
+            'redaction_applied': result['redaction_applied'],
+            'composition_yaml': result['composition_yaml']
+        }
+    except Exception as e:
+        logger.error(f"Agent context composition failed: {e}")
+        return {'status': 'error', 'error': str(e)}
+
+
 class CompositionDiffData(TypedDict):
     """Show differences between compositions."""
     left: Required[str]  # First composition
@@ -1445,6 +1640,14 @@ async def handle_diff_composition(data: CompositionDiffData) -> Dict[str, Any]:
         return {'error': str(e)}
 
 
+class CompositionInitialMessageData(TypedDict):
+    """Compose initial message for agent spawning."""
+    profile: Required[str]  # Agent profile name
+    interaction_prompt: NotRequired[str]  # Initial interaction prompt
+    variables: NotRequired[Dict[str, Any]]  # Variables for composition
+    format_style: NotRequired[Literal['concatenated', 'structured', 'custom']]  # Message format style
+
+
 class CompositionTrackDecisionData(TypedDict):
     """Track orchestrator decisions for learning."""
     pattern: Required[str]  # Pattern name
@@ -1452,6 +1655,31 @@ class CompositionTrackDecisionData(TypedDict):
     context: Required[Dict[str, Any]]  # Decision context
     outcome: Required[str]  # Decision outcome
     confidence: NotRequired[float]  # Confidence 0-1
+
+
+@event_handler("composition:initial_message")
+async def handle_compose_initial_message(data: CompositionInitialMessageData) -> Dict[str, Any]:
+    """Compose initial message for agent spawning using composition system."""
+    profile_name = data.get('profile')
+    interaction_prompt = data.get('interaction_prompt', '')
+    variables = data.get('variables', {})
+    format_style = data.get('format_style', 'concatenated')
+    
+    if not profile_name:
+        return {'status': 'error', 'error': 'Profile name required'}
+    
+    try:
+        result = await compose_initial_message(profile_name, interaction_prompt, variables, format_style)
+        return {
+            'status': 'success',
+            'initial_message': result['message'],
+            'agent_prompt': result['agent_prompt'],
+            'interaction_prompt': result['interaction_prompt'],
+            'format_style': result['format_style']
+        }
+    except Exception as e:
+        logger.error(f"Initial message composition failed: {e}")
+        return {'status': 'error', 'error': str(e)}
 
 
 @event_handler("composition:track_decision")

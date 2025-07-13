@@ -1004,34 +1004,63 @@ async def handle_spawn_agent(data: AgentSpawnData) -> Dict[str, Any]:
             else:
                 logger.warning(f"Observation system not ready for agent {agent_id} subscriptions")
     
-    # Send initial prompt if provided - construct complete first message
-    initial_prompt = data.get("prompt")
-    if initial_prompt and event_emitter:
+    # Send initial prompt if provided - use composition system for proper message construction
+    interaction_prompt = data.get("prompt")
+    if interaction_prompt and event_emitter:
         logger.info(f"Sending initial prompt to agent {agent_id}")
         
-        # Construct complete first message: agent prompt + initial user prompt
-        complete_first_message = ""
-        
-        # Add agent prompt if available
-        if composed_prompt:
-            complete_first_message += composed_prompt + "\n\n"
-        
-        # Add initial user prompt  
-        complete_first_message += initial_prompt
-        
-        # Send complete message through agent:send_message channel
-        initial_result = await event_emitter("agent:send_message", {
+        # Use composition service to create self-configuring agent context
+        compose_result = await event_emitter("composition:agent_context", {
+            "profile": compose_name,
             "agent_id": agent_id,
-            "message": {
-                "role": "user", 
-                "content": complete_first_message
-            }
+            "interaction_prompt": interaction_prompt,
+            "orchestration": data.get("orchestration"),  # Include orchestration context if available
+            "variables": data.get("variables", {})
         })
         
-        if initial_result and isinstance(initial_result, list):
-            initial_result = initial_result[0] if initial_result else {}
+        if compose_result and isinstance(compose_result, list):
+            compose_result = compose_result[0] if compose_result else {}
         
-        logger.info(f"Initial prompt sent to agent {agent_id}: {initial_result.get('status', 'unknown')}")
+        if compose_result and compose_result.get("status") == "success":
+            agent_context_message = compose_result["agent_context_message"]
+            
+            # Send self-configuring context message through agent:send_message channel
+            initial_result = await event_emitter("agent:send_message", {
+                "agent_id": agent_id,
+                "message": {
+                    "role": "user", 
+                    "content": agent_context_message
+                }
+            })
+            
+            if initial_result and isinstance(initial_result, list):
+                initial_result = initial_result[0] if initial_result else {}
+            
+            logger.info(f"Self-configuring context sent to agent {agent_id}: {initial_result.get('status', 'unknown')}")
+            logger.debug(f"Redactions applied: {compose_result.get('redaction_applied', [])}")
+        else:
+            logger.error(f"Failed to compose agent context for agent {agent_id}: {compose_result.get('error', 'Unknown error')}")
+            # Fallback to simple message with basic instructions
+            fallback_message = f"""You are agent {agent_id} in the KSI system.
+
+I encountered an error loading your composition configuration. 
+
+{f"Your initial task: {interaction_prompt}" if interaction_prompt else "Please await further instructions."}
+
+Please proceed as a basic autonomous agent with full autonomy to execute tasks and emit JSON events."""
+            
+            initial_result = await event_emitter("agent:send_message", {
+                "agent_id": agent_id,
+                "message": {
+                    "role": "user", 
+                    "content": fallback_message
+                }
+            })
+            
+            if initial_result and isinstance(initial_result, list):
+                initial_result = initial_result[0] if initial_result else {}
+            
+            logger.warning(f"Used fallback self-configuring message for agent {agent_id}")
     
     return {
         "agent_id": agent_id,
