@@ -1,0 +1,126 @@
+name: agent_hierarchy_pattern
+type: orchestration_pattern
+version: 1.0.0
+description: |
+  Implements parent-child agent relationships through orchestration.
+  Replaces hardcoded construct/originator logic from agent service.
+author: ksi-system
+extends: null
+
+metadata:
+  tags:
+    - infrastructure
+    - agent-management
+    - relationships
+  capabilities_required:
+    - state:relationship:create
+    - observation:subscribe
+    - agent:spawn
+
+# Transform agent spawning to track relationships
+transformers:
+  # Track parent-child relationships when spawning
+  - source: "agent:spawn"
+    target: "agent:spawn_with_tracking"
+    condition: "data.metadata.parent_id != null"
+    post_actions:
+      - event: "state:relationship:create"
+        mapping:
+          from: "{{data.metadata.parent_id}}"
+          to: "{{_response.agent_id}}"
+          type: "spawned"
+          metadata:
+            spawned_at: "{{_timestamp}}"
+            purpose: "{{data.metadata.purpose}}"
+
+  # Set up parent observation automatically
+  - source: "agent:spawn_complete"
+    target: "observation:subscribe"
+    condition: "data.metadata.parent_id != null"
+    mapping:
+      observer: "{{data.agent_id}}"
+      target: "{{data.metadata.parent_id}}"
+      events: ["directive:*", "task:assigned"]
+      filter: {}
+
+  # Set up child observation when configured
+  - source: "agent:spawn_complete"
+    target: "observation:subscribe"
+    condition: "data.metadata.observe_children == true"
+    mapping:
+      observer: "{{data.metadata.parent_id}}"
+      target: "{{data.agent_id}}"
+      events: ["task:completed", "error:*"]
+      filter: {}
+
+# Query patterns for hierarchy
+orchestration_logic:
+  patterns:
+    list_children:
+      description: "List all child agents of a parent"
+      implementation: |
+        QUERY relationships WHERE:
+          from: "{{parent_id}}"
+          type: "spawned"
+        
+        FOR EACH relationship:
+          GET agent entity WHERE id = relationship.to
+          COLLECT agent info
+        
+        RETURN collected agents
+
+    find_parent:
+      description: "Find parent of an agent"
+      implementation: |
+        QUERY relationships WHERE:
+          to: "{{agent_id}}"
+          type: "spawned"
+        
+        IF found:
+          RETURN relationship.from as parent_id
+        ELSE:
+          RETURN null
+
+    observe_hierarchy:
+      description: "Set up hierarchical observations"
+      implementation: |
+        IF observe_parent AND parent_id:
+          SUBSCRIBE observer=agent_id target=parent_id
+        
+        IF observe_children:
+          STORE flag for future child observations
+          ON child_spawn: SUBSCRIBE to child events
+
+variables:
+  relationship_type: "spawned"
+  parent_events: ["directive:*", "task:assigned"]
+  child_events: ["task:completed", "error:*", "status:changed"]
+
+# Usage examples
+examples:
+  - name: "Spawn child agent"
+    description: "Spawn an agent with parent tracking"
+    event: |
+      {
+        "event": "agent:spawn",
+        "data": {
+          "profile": "worker",
+          "metadata": {
+            "parent_id": "orchestrator_123",
+            "purpose": "Process data batch",
+            "observe_children": true
+          }
+        }
+      }
+
+  - name: "List child agents"
+    description: "Query all children of a parent"
+    implementation: |
+      // Use state:relationship:query directly
+      {
+        "event": "state:relationship:query",
+        "data": {
+          "from": "orchestrator_123",
+          "type": "spawned"
+        }
+      }

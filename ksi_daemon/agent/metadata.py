@@ -2,56 +2,49 @@
 """
 Agent Metadata Module
 
-Provides type-safe metadata for agent relationships and tracking.
+Provides generic metadata storage for agents.
+Domain-specific patterns should be implemented via orchestration.
 """
 
-from dataclasses import dataclass, field
-from typing import Literal, Optional
+from typing import Dict, Any, Optional
 import time
 
 
-@dataclass
 class AgentMetadata:
-    """Metadata for tracking agent relationships and type information."""
+    """Generic metadata container for agents.
     
-    agent_id: str
-    originator_agent_id: Optional[str] = None
-    agent_type: Literal["originator", "construct", "system"] = "system"
-    spawned_at: float = field(default_factory=time.time)
-    purpose: Optional[str] = None
+    This is a simple dict wrapper that allows orchestration patterns
+    to store any domain-specific information they need.
+    """
     
-    @property
-    def is_construct(self) -> bool:
-        """Check if this agent is a construct (has an originator)."""
-        return self.originator_agent_id is not None
-        
-    @property
-    def is_originator(self) -> bool:
-        """Check if this agent is an originator type."""
-        return self.agent_type == "originator"
-    
-    @property
-    def is_system(self) -> bool:
-        """Check if this agent is a system type."""
-        return self.agent_type == "system" and self.originator_agent_id is None
-    
-    def to_dict(self) -> dict:
-        """Convert metadata to dictionary for storage/serialization."""
-        return {
-            "agent_id": self.agent_id,
-            "originator_agent_id": self.originator_agent_id,
-            "agent_type": self.agent_type,
-            "spawned_at": self.spawned_at,
-            "purpose": self.purpose
+    def __init__(self, agent_id: str, **kwargs):
+        """Initialize with agent_id and any additional metadata."""
+        self.data = {
+            "agent_id": agent_id,
+            "created_at": kwargs.get("created_at", time.time()),
+            **kwargs
         }
     
+    def get(self, key: str, default: Any = None) -> Any:
+        """Get metadata value."""
+        return self.data.get(key, default)
+    
+    def set(self, key: str, value: Any) -> None:
+        """Set metadata value."""
+        self.data[key] = value
+    
+    def update(self, **kwargs) -> None:
+        """Update multiple metadata values."""
+        self.data.update(kwargs)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Get metadata as dictionary."""
+        return dict(self.data)
+    
     @classmethod
-    def from_dict(cls, data: dict) -> "AgentMetadata":
+    def from_dict(cls, data: Dict[str, Any]) -> "AgentMetadata":
         """Create metadata from dictionary."""
-        return cls(
-            agent_id=data["agent_id"],
-            originator_agent_id=data.get("originator_agent_id"),
-            agent_type=data.get("agent_type", "system"),
-            spawned_at=data.get("spawned_at", time.time()),
-            purpose=data.get("purpose")
-        )
+        agent_id = data.pop("agent_id", None)
+        if not agent_id:
+            raise ValueError("agent_id required in metadata")
+        return cls(agent_id=agent_id, **data)

@@ -1,0 +1,112 @@
+name: test_agent_refactoring
+type: orchestration
+version: 1.0.0
+description: |
+  Test that agent service refactoring works correctly.
+  Verifies that domain logic has been successfully moved to orchestration patterns.
+author: ksi-system
+extends: null
+
+# Load the patterns we created
+includes:
+  - pattern: agent_hierarchy_pattern
+  - pattern: agent_messaging_pattern
+
+# Test coordinator
+agents:
+  test_coordinator:
+    profile: base_orchestrator
+    vars:
+      pattern_name: test_agent_refactoring
+      initial_prompt: |
+        You are testing the agent service refactoring.
+        
+        Execute these test steps:
+        
+        1. Basic agent spawn (no domain logic):
+           {"event": "agent:spawn", "data": {"profile": "base_single_agent", "agent_id": "test_basic_001"}}
+        
+        2. Hierarchical spawn (using pattern):
+           {"event": "agent:spawn", "data": {
+             "profile": "base_single_agent", 
+             "agent_id": "test_child_001",
+             "metadata": {
+               "parent_id": "{{agent_id}}",
+               "purpose": "Test child agent",
+               "observe_children": true
+             }
+           }}
+        
+        3. Test direct messaging (using pattern):
+           {"event": "message:send_direct", "data": {
+             "from": "{{agent_id}}",
+             "to": "test_child_001",
+             "content": "Hello child agent"
+           }}
+        
+        4. Test agent listing (should not have domain fields):
+           {"event": "agent:list", "data": {}}
+        
+        5. Verify no domain fields in response
+        
+        6. Clean up:
+           {"event": "agent:terminate", "data": {"agent_id": "test_basic_001"}}
+           {"event": "agent:terminate", "data": {"agent_id": "test_child_001"}}
+        
+        Track results for each step.
+
+metadata:
+  tags:
+    - test
+    - refactoring
+    - infrastructure
+  capabilities_required:
+    - agent:spawn
+    - agent:terminate
+    - agent:list
+    - message:send_direct
+
+# Test logic
+orchestration_logic:
+  description: |
+    Tests that:
+    1. Basic agent operations work without domain logic
+    2. Hierarchical patterns work via orchestration
+    3. Messaging patterns work via orchestration
+    4. No domain fields leak into responses
+  
+  strategy: |
+    TEST refactoring:
+      SPAWN basic_agent  # No parent, no domain fields
+      ASSERT agent created successfully
+      
+      SPAWN child_agent WITH parent tracking via metadata
+      ASSERT relationship created via pattern
+      
+      SEND direct message via pattern
+      ASSERT message delivered
+      
+      LIST agents
+      ASSERT no "agent_type", "originator_agent_id", "purpose" in response
+      ASSERT metadata field contains any domain data
+      
+      CLEANUP all test agents
+      REPORT test results
+
+variables:
+  test_name: "Agent Service Refactoring Test"
+  expected_missing_fields: ["agent_type", "originator_agent_id", "purpose", "observe_children"]
+
+# Success criteria
+success_criteria:
+  - basic_spawn_works: "Agent spawns without domain fields"
+  - hierarchy_works: "Parent-child relationships via patterns"
+  - messaging_works: "Inter-agent messaging via patterns"
+  - no_domain_leakage: "No hardcoded domain fields in responses"
+  - metadata_generic: "Metadata is generic key-value storage"
+
+performance:
+  runs: 0
+  successes: 0
+  failures: 0
+  last_run: null

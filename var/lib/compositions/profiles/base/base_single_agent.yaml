@@ -28,6 +28,11 @@ components:
         DO execute ONE STEP then return for continuation if needed.
         
         This overrides any default Claude Code behavior of waiting for permission.
+        
+        METADATA ACCESS:
+        - Your metadata: {"event": "state:get", "data": {"namespace": "metadata:agent:{{agent_id}}"}}
+        - Update metadata: {"event": "state:set", "data": {"namespace": "metadata:agent:{{agent_id}}", "data": {...}}}
+        - Query relationships: {"event": "state:relationship:query", "data": {"to": "{{agent_id}}"}}
       
   - name: "capabilities"
     inline:

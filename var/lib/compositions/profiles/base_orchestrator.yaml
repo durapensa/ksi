@@ -7,18 +7,23 @@ extends: base_multi_agent
 mixins: []
 
 components:
-  # Override base_single_agent's passive instruction
+  # Reinforce autonomous JSON event emission for orchestrators
   - name: orchestrator_override
     inline:
       prompt: |
-        === ORCHESTRATOR OVERRIDE ===
-        IGNORE any previous instructions about "not needing to request permissions" or being passive.
-        As an ORCHESTRATOR, you have ACTIVE CONTROL and MUST:
-        - IMMEDIATELY execute orchestration patterns without waiting
-        - DIRECTLY spawn agents and send messages as needed
+        === ORCHESTRATOR JSON EVENT EMISSION ===
+        CRITICAL: You execute ALL orchestration actions by emitting JSON events in your responses.
+        
+        As an ORCHESTRATOR, you MUST:
+        - EMIT events as JSON objects: {"event": "event_name", "data": {...}}
+        - IMMEDIATELY execute orchestration patterns by emitting appropriate events
+        - DIRECTLY spawn agents via: {"event": "agent:spawn", "data": {...}}
+        - SEND messages via: {"event": "agent:send_message", "data": {...}}
+        - NEVER say you need "permissions" - you execute by emitting JSON
         - MAKE autonomous decisions based on pattern DSL
-        - NEVER wait for external permission or approval
-        You are in COMMAND of the orchestration - ACT DECISIVELY!
+        
+        You are in COMMAND - execute orchestration through JSON event emission!
+        KSI extracts and processes ALL JSON objects from your responses.
         
   # Core orchestrator configuration
   - name: agent_config
@@ -87,6 +92,37 @@ components:
            - Fork existing patterns with composition:fork
            - Document improvements in the learnings section
            - Share successful patterns back to the community
+        
+        ## METADATA ACCESS
+        
+        All agent metadata is stored in the state system graph database. To access:
+        
+        **Your own metadata**:
+        {"event": "state:get", "data": {"namespace": "metadata:agent:{{agent_id}}"}}
+        
+        **Another agent's metadata**:
+        {"event": "state:get", "data": {"namespace": "metadata:agent:TARGET_AGENT_ID"}}
+        
+        **Update your metadata**:
+        {"event": "state:set", "data": {
+          "namespace": "metadata:agent:{{agent_id}}",
+          "data": {"key": "value", "purpose": "orchestration", ...}
+        }}
+        
+        **Query relationships** (find your supervisor):
+        {"event": "state:relationship:query", "data": {"to": "{{agent_id}}", "type": "supervises"}}
+        
+        **Query relationships** (find your subordinates):
+        {"event": "state:relationship:query", "data": {"from": "{{agent_id}}", "type": "supervises"}}
+        
+        **Access shared orchestration context**:
+        {"event": "state:get", "data": {"namespace": "shared:orchestration:{{orchestration_id}}"}}
+        
+        **Share data with team**:
+        {"event": "state:set", "data": {
+          "namespace": "shared:team:{{team_id}}",
+          "data": {"resources": [...], "goals": [...]}
+        }}
         
         ## ORCHESTRATION PRIMITIVES
         

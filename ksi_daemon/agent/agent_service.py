@@ -23,8 +23,7 @@ from ksi_common.timestamps import timestamp_utc
 from ksi_daemon.capability_enforcer import get_capability_enforcer
 from ksi_daemon.event_system import event_handler, shutdown_handler, get_router
 from ksi_daemon.mcp import mcp_config_manager
-from ksi_daemon.agent.metadata import AgentMetadata
-from ksi_daemon.evaluation.tournament_evaluation import process_agent_tournament_message, extract_evaluation_from_response
+# AgentMetadata removed - using state system storage
 # NOTE: session_id is a completion system concept - agents have no awareness of sessions
 
 # Module state
@@ -98,12 +97,11 @@ class AgentSpawnData(TypedDict):
     # NOTE: session_id removed - managed entirely by completion system
     prompt: NotRequired[str]  # Initial prompt
     context: NotRequired[Dict[str, Any]]  # Additional context
-    originator_agent_id: NotRequired[str]  # ID of spawning agent
-    purpose: NotRequired[str]  # Purpose description
+    # Domain-specific fields removed - use metadata instead
     composition: NotRequired[str]  # Composition name
     model: NotRequired[str]  # Model to use
     enable_tools: NotRequired[bool]  # Enable tool usage
-    agent_type: NotRequired[Literal["construct", "system", "user"]]  # Agent type
+    # Agent types removed - handle via orchestration patterns
     permission_profile: NotRequired[str]  # Permission profile name
     sandbox_dir: NotRequired[str]  # Sandbox directory
     mcp_config_path: NotRequired[str]  # MCP configuration path
@@ -138,9 +136,7 @@ class AgentListData(TypedDict):
     status: NotRequired[str]  # Filter by status
 
 
-class AgentListConstructsData(TypedDict):
-    """List construct agents for an originator."""
-    originator_id: Required[str]  # Originator agent ID
+# Construct-specific handlers removed - use orchestration patterns instead
     include_terminated: NotRequired[bool]  # Include terminated agents
 
 
@@ -324,17 +320,9 @@ async def handle_ready(data: SystemReadyData) -> Dict[str, Any]:
                     "sandbox_dir": props.get("sandbox_dir"),
                     "mcp_config_path": props.get("mcp_config_path"),
                     "conversation_id": None,
-                    "originator_agent_id": None,
-                    "agent_type": props.get("agent_type", "system"),
-                    "purpose": props.get("purpose"),
                     "message_queue": asyncio.Queue(),
-                    "metadata": AgentMetadata(
-                        agent_id=agent_id,
-                        originator_agent_id=None,
-                        agent_type=props.get("agent_type", "system"),
-                        spawned_at=entity.get("created_at", time.time()),
-                        purpose=props.get("purpose")
-                    )
+                    # Metadata stored in state system
+                    "metadata_namespace": f"metadata:agent:{agent_id}"
                 }
                 
                 # Register agent
@@ -414,65 +402,10 @@ async def handle_shutdown(data: SystemShutdownData) -> None:
     await router.acknowledge_shutdown("agent_service")
 
 
-@event_handler("observation:ready")
-async def reestablish_observations(data: ObservationReadyData) -> None:
-    """Re-establish observations for all active agents after restart."""
-    if not event_emitter:
-        logger.warning("Cannot re-establish observations - no event emitter")
-        return
-        
-    active_agents = [agent for agent in agents.values() if agent.get("status") == "active"]
-    logger.info(f"Re-establishing observations for {len(active_agents)} active agents")
-    
-    for agent_info in active_agents:
-        agent_id = agent_info["agent_id"]
-        
-        # Get agent's profile to find observation config
-        # Observation config would come from profile if needed
-        # Currently handled by observation subscriptions during spawn
-            
-        # Check if agent should observe children
-        if agent_info.get("observe_children"):
-            # Find all children of this agent
-            rel_result = await event_emitter("state:relationships:query", {
-                "from": agent_id,
-                "type": "spawned"
-            })
-            
-            if rel_result and isinstance(rel_result, list):
-                rel_result = rel_result[0] if rel_result else {}
-                
-            relationships = rel_result.get("relationships", [])
-            for rel in relationships:
-                construct_id = rel.get("to")
-                if construct_id:
-                    await event_emitter("observation:subscribe", {
-                        "observer": agent_id,
-                        "target": construct_id,
-                        "events": ["task:completed", "error:*"],
-                        "filter": {}
-                    })
-                    logger.info(f"Re-established observation: {agent_id} -> {construct_id}")
-        
-        # Check if agent should observe parent
-        if agent_info.get("originator_agent_id"):
-            await event_emitter("observation:subscribe", {
-                "observer": agent_id,
-                "target": agent_info["originator_agent_id"],
-                "events": ["directive:*", "task:assigned"],
-                "filter": {}
-            })
-            logger.info(f"Re-established observation: {agent_id} -> {agent_info['originator_agent_id']}")
+# Observation patterns removed - orchestration handles agent relationships
 
 
-@event_handler("observation:restored")
-async def handle_observation_restored(data: ObservationRestoredData) -> None:
-    """Observations restored from checkpoint - no action needed."""
-    restored_count = data.get("subscriptions_restored", 0)
-    from_checkpoint = data.get("from_checkpoint", "unknown")
-    
-    logger.info(f"Observation subscriptions restored from checkpoint: {restored_count} subscriptions "
-                f"from checkpoint at {from_checkpoint}")
+# Observation handlers removed - orchestration patterns handle subscriptions
 
 
 # Session tracking is now handled by completion service ConversationTracker
@@ -504,11 +437,8 @@ async def handle_checkpoint_collect(data: CheckpointCollectData) -> Dict[str, An
                 "sandbox_dir": agent_info.get("sandbox_dir"),
                 "mcp_config_path": agent_info.get("mcp_config_path"),
                 "conversation_id": agent_info.get("conversation_id"),
-                "originator_agent_id": agent_info.get("originator_agent_id"),
-                "agent_type": agent_info.get("agent_type"),
-                "purpose": agent_info.get("purpose"),
-                # Convert metadata to dict if it exists
-                "metadata": agent_info.get("metadata").to_dict() if agent_info.get("metadata") else None
+                # Metadata stored in state system
+                "metadata_namespace": f"metadata:agent:{agent_id}"
             }
             
             agent_state[agent_id] = checkpoint_info
@@ -545,21 +475,12 @@ async def handle_checkpoint_restore(data: CheckpointRestoreData) -> Dict[str, An
         # Restore agents
         for agent_id, agent_info in checkpoint_agents.items():
             try:
-                # Recreate agent metadata if it exists
-                metadata = None
-                if agent_info.get("metadata"):
-                    metadata_dict = agent_info["metadata"]
-                    metadata = AgentMetadata(
-                        agent_id=metadata_dict.get("agent_id"),
-                        originator_agent_id=metadata_dict.get("originator_agent_id"),
-                        agent_type=metadata_dict.get("agent_type", "system"),
-                        purpose=metadata_dict.get("purpose")
-                    )
+                # Metadata will be restored from state system separately
                 
                 # Restore agent info
                 restored_info = dict(agent_info)
                 restored_info["message_queue"] = asyncio.Queue()
-                restored_info["metadata"] = metadata
+                # Metadata is in state system, not in memory
                 
                 # Register restored agent
                 agents[agent_id] = restored_info
@@ -585,10 +506,8 @@ async def handle_checkpoint_restore(data: CheckpointRestoreData) -> Dict[str, An
                         "properties": {
                             "status": agents[agent_id].get("status", "active"),
                             "profile": agents[agent_id].get("profile"),
-                            "agent_type": agents[agent_id].get("agent_type", "system"),
-                            "purpose": agents[agent_id].get("purpose"),
                             "capabilities": agents[agent_id].get("config", {}).get("expanded_capabilities", []),
-                            # session_id removed - completion system concept
+                            # Domain fields removed - use metadata
                             "permission_profile": agents[agent_id].get("permission_profile"),
                             "sandbox_dir": agents[agent_id].get("sandbox_dir"),
                             "mcp_config_path": agents[agent_id].get("mcp_config_path")
@@ -796,25 +715,8 @@ async def handle_spawn_agent(data: AgentSpawnData) -> Dict[str, Any]:
         else:
             logger.warning(f"Failed to create sandbox for agent {agent_id}")
     
-    # Extract originator information
-    originator_agent_id = data.get("originator_agent_id")
-    purpose = data.get("purpose")
-    
-    # Determine agent type
-    if originator_agent_id:
-        agent_type = "construct"
-    elif data.get("agent_type") == "originator":
-        agent_type = "originator"
-    else:
-        agent_type = "system"
-    
-    # Create agent metadata
-    metadata = AgentMetadata(
-        agent_id=agent_id,
-        originator_agent_id=originator_agent_id,
-        agent_type=agent_type,
-        purpose=purpose
-    )
+    # Extract metadata to store in state system
+    metadata = data.get("metadata", {})
     
     # Create MCP config for agent if MCP is enabled
     mcp_config_path = None
@@ -856,10 +758,8 @@ async def handle_spawn_agent(data: AgentSpawnData) -> Dict[str, Any]:
         "sandbox_dir": sandbox_dir,
         "mcp_config_path": str(mcp_config_path) if mcp_config_path else None,
         "conversation_id": conversation_id if 'conversation_id' in locals() else None,
-        "metadata": metadata,
-        "originator_agent_id": originator_agent_id,  # Quick access
-        "agent_type": agent_type,  # Quick access
-        "purpose": purpose  # Quick access
+        # Metadata will be stored in state system, not in memory
+        "metadata_namespace": f"metadata:agent:{agent_id}\""
     }
     
     # Register agent
@@ -868,13 +768,11 @@ async def handle_spawn_agent(data: AgentSpawnData) -> Dict[str, Any]:
     # Create agent entity in graph database
     if event_emitter:
         # Create agent entity
+        # Store core properties in entity
         entity_props = {
             "status": "active",
             "profile": profile_name or compose_name,
-            "agent_type": agent_type,
-            "purpose": purpose,
             "capabilities": expanded_capabilities,
-            # session_id intentionally omitted from entity - managed by completion system
             "permission_profile": permission_profile,
             "sandbox_dir": sandbox_dir,
             "mcp_config_path": str(mcp_config_path) if mcp_config_path else None
@@ -894,25 +792,21 @@ async def handle_spawn_agent(data: AgentSpawnData) -> Dict[str, Any]:
         else:
             logger.warning(f"Failed to create agent entity: {entity_result}")
         
-        # Create relationship if this is a construct
-        if originator_agent_id:
-            rel_result = await event_emitter("state:relationship:create", {
-                "from": originator_agent_id,
-                "to": agent_id,
-                "type": "spawned",
-                "metadata": {
-                    "purpose": purpose,
-                    "spawned_at": metadata.spawned_at
-                }
+        # Store metadata in state system namespace
+        if metadata:
+            metadata_result = await event_emitter("state:set", {
+                "namespace": f"metadata:agent:{agent_id}",
+                "data": metadata
             })
+            if metadata_result and isinstance(metadata_result, list):
+                metadata_result = metadata_result[0] if metadata_result else {}
             
-            if rel_result and isinstance(rel_result, list):
-                rel_result = rel_result[0] if rel_result else {}
-            
-            if rel_result and rel_result.get("status") == "created":
-                logger.info(f"Created spawned relationship: {originator_agent_id} -> {agent_id}")
+            if metadata_result.get("error"):
+                logger.warning(f"Failed to store agent metadata: {metadata_result}")
             else:
-                logger.warning(f"Failed to create relationship: {rel_result}")
+                logger.debug(f"Stored metadata for agent {agent_id}")
+        
+        # Relationship creation removed - handle via orchestration patterns
     
     # Start agent thread
     agent_task = asyncio.create_task(run_agent_thread(agent_id))
@@ -920,74 +814,7 @@ async def handle_spawn_agent(data: AgentSpawnData) -> Dict[str, Any]:
     
     logger.info(f"Created agent thread {agent_id} with composition {compose_name}")
     
-    # Set up observations based on agent profile
-    if event_emitter and compose_result and "profile" in compose_result:
-        observation_config = compose_result["profile"].get("observation_config", {})
-        subscriptions = observation_config.get("subscriptions", [])
-        
-        if subscriptions:
-            # Wait for observation system to be ready (with timeout)
-            max_retries = 5
-            observation_ready = False
-            for i in range(max_retries):
-                try:
-                    ready_check = await event_emitter("system:service:status", {"service": "observation"})
-                    if ready_check and isinstance(ready_check, list):
-                        ready_check = ready_check[0] if ready_check else {}
-                    if ready_check.get("status") == "ready":
-                        observation_ready = True
-                        break
-                except Exception:
-                    pass
-                await asyncio.sleep(0.5 * (i + 1))  # Exponential backoff
-            
-            if observation_ready:
-                # Set up each subscription
-                for sub_config in subscriptions:
-                    target_pattern = sub_config.get("target_pattern", "")
-                    
-                    # Resolve target pattern to actual agent IDs
-                    target_ids = []
-                    if "*" in target_pattern:
-                        # Special patterns
-                        if target_pattern == "parent":
-                            # Observe parent/originator
-                            if originator_agent_id:
-                                target_ids = [originator_agent_id]
-                        elif target_pattern == "children" or target_pattern == "child_*":
-                            # Will be set up when children are spawned
-                            # Store pattern for later use
-                            agent_info["observe_children"] = True
-                            continue
-                        else:
-                            # Query agents matching pattern
-                            agents_result = await event_emitter("agent:list", {"pattern": target_pattern})
-                            if agents_result and isinstance(agents_result, list):
-                                agents_result = agents_result[0] if agents_result else {}
-                            target_ids = [a["id"] for a in agents_result.get("agents", [])]
-                    else:
-                        # Specific agent ID
-                        target_ids = [target_pattern]
-                    
-                    # Subscribe to each target
-                    for target_id in target_ids:
-                        if target_id and target_id != agent_id:  # Don't observe self
-                            result = await event_emitter("observation:subscribe", {
-                                "observer": agent_id,
-                                "target": target_id,
-                                "events": sub_config.get("events", ["*"]),
-                                "filter": sub_config.get("filter", {})
-                            })
-                            
-                            if result and isinstance(result, list):
-                                result = result[0] if result else {}
-                                
-                            if result.get("error"):
-                                logger.warning(f"Failed to subscribe {agent_id} to {target_id}: {result['error']}")
-                            else:
-                                logger.info(f"Agent {agent_id} now observing {target_id}")
-            else:
-                logger.warning(f"Observation system not ready for agent {agent_id} subscriptions")
+    # Observation patterns removed - handle via orchestration
     
     # Send initial prompt if provided - use composition system for proper message construction
     interaction_prompt = data.get("prompt")
@@ -1054,10 +881,7 @@ Please proceed as a basic autonomous agent with full autonomy to execute tasks a
         "composition": compose_name,
         # session_id intentionally omitted - managed by completion system
         "config": agent_config,
-        "originator_agent_id": originator_agent_id,
-        "agent_type": agent_type,
-        "purpose": purpose,
-        "metadata": metadata.to_dict()
+        "metadata_namespace": f"metadata:agent:{agent_id}"
     }
 
 
@@ -1271,50 +1095,8 @@ async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
             # Session continuity is now handled automatically by completion service
             await event_emitter("completion:async", completion_data)
     
-    elif msg_type == "tournament_match":
-        # Handle tournament evaluation request
-        tournament_request = await process_agent_tournament_message(agent_id, message)
-        if tournament_request and event_emitter:
-            # Send completion request for tournament evaluation
-            match_id = tournament_request.get('match_id')
-            prompt = tournament_request.get('prompt')
-            
-            if prompt and match_id:
-                completion_data = {
-                    "messages": [{"role": "user", "content": prompt}],
-                    "agent_id": agent_id,
-                    "originator_id": agent_id,
-                    # session_id removed - not an agent concern
-                    "model": f"claude-cli/{agent_info.get('config', {}).get('model', 'sonnet')}",
-                    "priority": "normal",
-                    "request_id": f"tournament_{match_id}",
-                    "metadata": {
-                        "type": "tournament_evaluation",
-                        "match_id": match_id
-                    }
-                }
-                
-                # Add KSI parameters
-                ksi_body = {
-                    "agent_id": agent_id,
-                    "sandbox_dir": agent_info.get("sandbox_dir"),
-                    "permissions": {
-                        "allowed_tools": agent_info.get("config", {}).get("allowed_claude_tools", []),
-                        "profile": agent_info.get("permission_profile", "standard")
-                    },
-                    "allowed_events": agent_info.get("config", {}).get("allowed_events", [])
-                    # session_id removed - completion concept
-                }
-                
-                completion_data["extra_body"] = {"ksi": ksi_body}
-                logger.info(f"Agent {agent_id} processing tournament match {match_id}")
-                
-                # Session continuity is now handled automatically by completion service
-                # Send completion request
-                result = await event_emitter("completion:async", completion_data)
-                
-                # Store match_id in agent info for response handling
-                agent_info["pending_tournament_match"] = match_id
+    # Remove tournament-specific handling - this belongs in orchestration patterns
+    # Agents should be domain-agnostic infrastructure
     
     elif msg_type == "direct_message":
         # Inter-agent messaging
@@ -1392,6 +1174,7 @@ async def handle_unregister_agent(data: AgentUnregisterData) -> Dict[str, Any]:
 async def handle_list_agents(data: AgentListData) -> Dict[str, Any]:
     """List registered agents."""
     filter_status = data.get("status")
+    include_metadata = data.get("include_metadata", False)
     
     agent_list = []
     for agent_id, info in agents.items():
@@ -1403,14 +1186,19 @@ async def handle_list_agents(data: AgentListData) -> Dict[str, Any]:
             "status": info.get("status"),
             "profile": info.get("profile"),
             "created_at": info.get("created_at"),
-            "agent_type": info.get("agent_type", "system"),
-            "originator_agent_id": info.get("originator_agent_id"),
-            "purpose": info.get("purpose")
+            "metadata_namespace": f"metadata:agent:{agent_id}"
         }
         
-        # Include full metadata if available
-        if "metadata" in info and isinstance(info["metadata"], AgentMetadata):
-            agent_entry["metadata"] = info["metadata"].to_dict()
+        # Optionally fetch metadata from state system
+        if include_metadata and event_emitter:
+            metadata_result = await event_emitter("state:get", {
+                "namespace": f"metadata:agent:{agent_id}"
+            })
+            if metadata_result and isinstance(metadata_result, list):
+                metadata_result = metadata_result[0] if metadata_result else {}
+            
+            if metadata_result and "data" in metadata_result:
+                agent_entry["metadata"] = metadata_result["data"]
             
         agent_list.append(agent_entry)
     
@@ -1420,64 +1208,7 @@ async def handle_list_agents(data: AgentListData) -> Dict[str, Any]:
     }
 
 
-@event_handler("agent:list_constructs")
-async def handle_list_constructs(data: AgentListConstructsData) -> Dict[str, Any]:
-    """List construct agents for a specific originator."""
-    originator_id = data.get("originator_agent_id")
-    
-    if not originator_id:
-        return {"error": "originator_agent_id required"}
-    
-    if not event_emitter:
-        return {"error": "Event system not available"}
-    
-    # Query relationships to find constructs
-    rel_result = await event_emitter("state:relationship:query", {
-        "from": originator_id,
-        "type": "spawned"
-    })
-    
-    if rel_result and isinstance(rel_result, list):
-        rel_result = rel_result[0] if rel_result else {}
-    
-    if not rel_result or "error" in rel_result:
-        return {"error": "Failed to query relationships", "details": rel_result}
-    
-    relationships = rel_result.get("relationships", [])
-    constructs = []
-    
-    # Get details for each construct
-    for rel in relationships:
-        construct_id = rel["to"]
-        
-        # Get construct entity
-        entity_result = await event_emitter("state:entity:get", {
-            "id": construct_id,
-            "include": ["properties"]
-        })
-        
-        if entity_result and isinstance(entity_result, list):
-            entity_result = entity_result[0] if entity_result else {}
-        
-        if entity_result and "error" not in entity_result:
-            props = entity_result.get("properties", {})
-            construct_entry = {
-                "agent_id": construct_id,
-                "status": props.get("status", "unknown"),
-                "purpose": props.get("purpose") or rel.get("metadata", {}).get("purpose"),
-                "profile": props.get("profile"),
-                "created_at": entity_result.get("created_at"),
-                "created_at_iso": entity_result.get("created_at_iso"),
-                "spawned_at": rel.get("metadata", {}).get("spawned_at", entity_result.get("created_at")),
-                "spawned_at_iso": rel.get("created_at_iso")
-            }
-            constructs.append(construct_entry)
-    
-    return {
-        "originator_agent_id": originator_id,
-        "constructs": constructs,
-        "count": len(constructs)
-    }
+# Construct-specific handlers removed - use orchestration patterns
 
 
 # Identity handlers
