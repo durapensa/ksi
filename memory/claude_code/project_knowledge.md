@@ -263,6 +263,100 @@ The issue is systematic with multiple failure points:
 - Test different prompt engineering approaches at provider level
 - Implement proper step-wise execution with session management
 
+### Initial Prompt Mechanism for Agents (2025-07-13)
+**Status**: Initial prompt field defined but not implemented
+
+**Current Behavior**:
+1. **Spawn Parameter**: `agent:spawn` accepts an optional `prompt` field:
+   ```python
+   class AgentSpawnData(TypedDict):
+       prompt: NotRequired[str]  # Initial prompt (defined but NOT USED)
+   ```
+
+2. **Implementation Gap**: The `prompt` field is ignored in the spawn handler
+   - No automatic message sending after agent creation
+   - Agent thread starts and waits for external messages
+   - Requires manual `agent:send_message` after spawning
+
+3. **Manual Workflow Required**:
+   ```bash
+   # Step 1: Spawn agent
+   ksi send agent:spawn --profile base_single_agent --agent_id my_agent
+   
+   # Step 2: Send initial prompt manually
+   ksi send agent:send_message --agent_id my_agent \
+     --message '{"role": "user", "content": "Initial task..."}'
+   ```
+
+**Message Processing Flow**:
+- Messages sent via `agent:send_message` are queued in agent's message queue
+- Agent thread processes messages in `run_agent_thread()`
+- Completion messages (with role/content) trigger `completion:async`
+- System prompt from composed profile is prepended to messages
+- First completion uses `session_id=None` for new conversation
+- Claude CLI returns new session_id for future continuity
+
+**Proposed Enhancement**:
+To enable automatic initial prompts:
+1. Extract initial prompt from agent profile (new `initial_prompt` component)
+2. Queue initial message in spawn handler after thread creation
+3. Or send `agent:send_message` event immediately after spawn
+4. Consider adding `initial_context` for more complex initialization
+
+**Workaround**: Orchestrators can immediately send initial prompts:
+```python
+# In orchestration pattern
+agent_id = await spawn_agent(profile="worker")
+await send_message(agent_id, "Your initial task is...")
+```
+
+### Fixed: Async/Await Blocking Operations (2025-07-13)
+**Issue**: High-frequency blocking I/O operations degrading async performance
+**Solution**: Converted synchronous operations to true async using `aiofiles`
+
+**Fixed Operations**:
+1. **Message Bus Logging** (`ksi_daemon/messaging/message_bus.py`):
+   - Converted all `log_event()` calls to async tasks
+   - Replaced synchronous file writes with `aiofiles`
+   - All logging now non-blocking
+
+2. **Token Tracking** (`ksi_daemon/completion/token_tracker.py`):
+   - Converted file appends to async using `aiofiles`
+   - Token usage logging now non-blocking
+   - Preserved synchronous initial load (startup only)
+
+**Implementation Notes**:
+- Added `aiofiles>=23.2.0` to dependencies
+- Used `asyncio.create_task()` for fire-and-forget operations
+- True async I/O instead of `run_in_executor` thread pool
+
+### Fixed: Completion System Parallelism (2025-07-13)
+**Issue**: Understanding parallelism in completion processing
+**Solution**: Simplified to correct model - parallel across conversations, serial within
+
+**Key Insights**:
+1. Each agent has exactly ONE conversation (1:1 mapping)
+2. Different agents = different conversations = can process in parallel
+3. Same agent = same conversation = must process serially
+4. No need for "concurrent per agent" concept - it's always 1
+
+**Changes**:
+1. **Queue Manager** (`ksi_daemon/completion/queue_manager.py`):
+   - One processor per session/conversation
+   - Removed complex processor counting
+   - Simple active/inactive session tracking
+
+2. **Completion Service** (`ksi_daemon/completion/completion_service.py`):
+   - Made conversation locking mandatory for safety
+   - Always acquire/release locks
+   - Proper session continuity via conversation tracker
+
+**Benefits**:
+- Parallel processing across different agents/conversations
+- Serial processing within each conversation (correct model)
+- Simpler, more understandable architecture
+- Respects claude-cli session continuity requirements
+
 ### Tracked Issues
 - **EventClient Discovery** ([#6](https://github.com/durapensa/ksi/issues/6)): Format mismatch, use direct socket
 - **Parameter Documentation** ([#1](https://github.com/durapensa/ksi/issues/1)): Remove legacy docstring patterns

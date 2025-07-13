@@ -215,6 +215,31 @@ async def handle_ready(data: SystemReadyData) -> Optional[Dict[str, Any]]:
     }
 
 
+class ClearAgentSessionData(TypedDict):
+    """Clear agent session data."""
+    agent_id: Required[str]  # Agent ID to clear session for
+
+
+@event_handler("completion:clear_agent_session")
+async def handle_clear_agent_session(data: ClearAgentSessionData) -> Dict[str, Any]:
+    """Clear an agent's session mapping when the agent is terminated."""
+    if not conversation_tracker:
+        return {"error": "Conversation tracker not initialized"}
+    
+    agent_id = data.get("agent_id")
+    if not agent_id:
+        return {"error": "agent_id required"}
+    
+    # Clear the agent's session mapping
+    if agent_id in conversation_tracker._agent_sessions:
+        old_session = conversation_tracker._agent_sessions.pop(agent_id)
+        logger.info(f"Cleared session mapping for terminated agent {agent_id} (was: {old_session})")
+        return {"status": "cleared", "old_session": old_session}
+    else:
+        logger.debug(f"No session mapping found for agent {agent_id}")
+        return {"status": "not_found"}
+
+
 class CompletionAsyncData(TypedDict):
     """Async completion request."""
     request_id: NotRequired[str]  # Request ID (auto-generated if not provided)
@@ -301,7 +326,7 @@ async def handle_async_completion(data: CompletionAsyncData) -> Dict[str, Any]:
         "original_event": "completion:async"
     }
     
-    # Start processor if needed
+    # Start processor if needed - one processor per conversation
     if queue_manager.should_create_processor(queue_session_key):
         queue_manager.mark_session_active(queue_session_key)
         
@@ -313,6 +338,8 @@ async def handle_async_completion(data: CompletionAsyncData) -> Dict[str, Any]:
         
         if completion_task_group:
             completion_task_group.create_task(process_session())
+            logger.info(f"Created processor for session {queue_session_key}" + 
+                       (f" (agent: {agent_id})" if agent_id else ""))
         else:
             # Fallback: create task directly if task group not ready
             logger.warning(f"Task group not ready, creating processor task directly for session {queue_session_key}")
@@ -331,7 +358,7 @@ async def process_session_queue(session_id: str):
     while True:
         try:
             # Get next request
-            result = await queue_manager.dequeue(session_id, timeout=1.0)
+            result = await queue_manager.dequeue(session_id, timeout=queue_manager._queue_timeout)
             if not result:
                 # No requests, check if we should exit
                 if queue_manager.get_queue_status(session_id).get("is_empty", True):
@@ -360,17 +387,24 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
         if request_id in active_completions:
             active_completions[request_id]["status"] = "processing"
             active_completions[request_id]["started_at"] = timestamp_utc()
-        # Handle conversation lock if needed
-        conversation_lock = data.get("conversation_lock", {})
-        if conversation_lock.get("enabled", False):
+        # Acquire conversation lock for existing conversations (session_id != None)
+        # New conversations (session_id == None) don't need locking
+        session_id_for_lock = data.get("session_id")
+        if session_id_for_lock:
+            conversation_lock = data.get("conversation_lock", {})
+            lock_timeout = conversation_lock.get("timeout", 300)
+            
             lock_result = await conversation_tracker.acquire_conversation_lock(
-                data.get("session_id"),
+                session_id_for_lock,
                 data.get("agent_id"),
-                conversation_lock.get("timeout", 300)
+                lock_timeout
             )
             
             if not lock_result.get("success"):
                 raise Exception(f"Failed to acquire conversation lock: {lock_result.get('reason')}")
+        else:
+            # New conversation - no lock needed
+            logger.debug(f"New conversation (session_id=None) - skipping conversation lock")
         
         # Select provider - use config default if not specified
         model = data.get("model", config.completion_default_model)
@@ -530,10 +564,10 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
         except Exception as e:
             logger.error(f"Failed to emit completion:result event", request_id=request_id, error=str(e), exc_info=True)
         
-        # Unlock conversation
-        if conversation_lock.get("enabled", False):
+        # Unlock conversation if we acquired a lock
+        if session_id_for_lock:
             await conversation_tracker.release_conversation_lock(
-                data.get("session_id"),
+                session_id_for_lock,
                 data.get("agent_id")
             )
         
@@ -568,10 +602,10 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
             "session_id": data.get("session_id")
         })
         
-        # Unlock conversation on error
-        if conversation_lock.get("enabled", False):
+        # Unlock conversation on error if we acquired a lock
+        if 'session_id_for_lock' in locals() and session_id_for_lock:
             await conversation_tracker.release_conversation_lock(
-                data.get("session_id"),
+                session_id_for_lock,
                 data.get("agent_id")
             )
         

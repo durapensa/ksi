@@ -11,6 +11,8 @@ from typing import Dict, List, Set, Optional, Any, TypedDict, Literal
 from typing_extensions import NotRequired, Required
 from collections import defaultdict
 import time
+from functools import partial
+import aiofiles
 
 from ksi_daemon.event_system import event_handler, get_router, shutdown_handler
 from ksi_common.timestamps import timestamp_utc
@@ -46,15 +48,40 @@ class MessageBus:
         # Track background tasks for cleanup
         self._delivery_tasks: Set[asyncio.Task] = set()
         
+    async def _log_event_async(self, event_name: str, **event_data):
+        """Non-blocking async logging helper."""
+        try:
+            # log_event is synchronous, so run in executor to avoid blocking
+            loop = asyncio.get_event_loop()
+            # Use functools.partial to handle keyword arguments properly
+            log_func = partial(log_event, logger, event_name, **event_data)
+            await loop.run_in_executor(None, log_func)
+        except Exception as e:
+            # If logging fails, we don't want to crash the system
+            logger.error(f"Async logging failed: {e}")
+    
+    async def _write_history_to_file_async(self, message: dict):
+        """Non-blocking async file write helper."""
+        try:
+            log_file = str(config.response_log_dir / 'message_bus.jsonl')
+            
+            # Use aiofiles for true async file I/O
+            async with aiofiles.open(log_file, 'a') as f:
+                await f.write(json.dumps(message) + '\n')
+        except Exception as e:
+            logger.error(f"Failed to log message to file: {e}")
+        
     def connect_agent(self, agent_id: str, writer: asyncio.StreamWriter):
         """Register an agent connection"""
         self.connections[agent_id] = writer
         
-        log_event(logger, "message_bus.agent_connected",
-                 event="message_bus.agent_connected",
-                 agent_id=agent_id,
-                 total_connections=len(self.connections),
-                 has_queued_messages=agent_id in self.offline_queue)
+        # Non-blocking logging using asyncio task
+        asyncio.create_task(self._log_event_async(
+            "message_bus.agent_connected",
+            agent_id=agent_id,
+            total_connections=len(self.connections),
+            has_queued_messages=agent_id in self.offline_queue
+        ))
         
         # Deliver any queued messages
         if agent_id in self.offline_queue:
@@ -70,11 +97,13 @@ class MessageBus:
         if was_connected:
             del self.connections[agent_id]
             
-        log_event(logger, "message_bus.agent_disconnected",
-                 event="message_bus.agent_disconnected",
-                 agent_id=agent_id,
-                 was_connected=was_connected,
-                 remaining_connections=len(self.connections))
+        # Non-blocking logging using asyncio task
+        asyncio.create_task(self._log_event_async(
+            "message_bus.agent_disconnected",
+            agent_id=agent_id,
+            was_connected=was_connected,
+            remaining_connections=len(self.connections)
+        ))
             
         # Remove from all subscriptions
         for event_type, subscribers in self.subscriptions.items():
@@ -87,21 +116,25 @@ class MessageBus:
         """Subscribe an agent to event types"""
         writer = self.connections.get(agent_id)
         if not writer:
-            log_event(logger, "message_bus.subscription_failed",
-                     event="message_bus.subscription_failed",
-                     agent_id=agent_id,
-                     event_types=event_types,
-                     reason="agent_not_connected")
+            # Non-blocking logging using asyncio task
+            asyncio.create_task(self._log_event_async(
+                "message_bus.subscription_failed",
+                agent_id=agent_id,
+                event_types=event_types,
+                reason="agent_not_connected"
+            ))
             return False
         
         for event_type in event_types:
             self.subscriptions[event_type].add((agent_id, writer))
         
-        log_event(logger, "message_bus.subscribed",
-                 event="message_bus.subscribed",
-                 agent_id=agent_id,
-                 event_types=event_types,
-                 subscription_count=len(event_types))
+        # Non-blocking logging using asyncio task
+        asyncio.create_task(self._log_event_async(
+            "message_bus.subscribed",
+            agent_id=agent_id,
+            event_types=event_types,
+            subscription_count=len(event_types)
+        ))
         
         return True
     
@@ -110,11 +143,13 @@ class MessageBus:
         for event_type in event_types:
             self.subscriptions[event_type].discard((agent_id, self.connections.get(agent_id)))
         
-        log_event(logger, "message_bus.unsubscribed",
-                 event="message_bus.unsubscribed",
-                 agent_id=agent_id,
-                 event_types=event_types,
-                 unsubscription_count=len(event_types))
+        # Non-blocking logging using asyncio task
+        asyncio.create_task(self._log_event_async(
+            "message_bus.unsubscribed",
+            agent_id=agent_id,
+            event_types=event_types,
+            unsubscription_count=len(event_types)
+        ))
     
     async def publish(self, from_agent: str, event_type: str, payload: dict) -> dict:
         """Publish an event to all subscribers"""
@@ -130,13 +165,14 @@ class MessageBus:
         # Log to history
         self._add_to_history(message)
         
-        # Log publication event
-        log_event(logger, "message_bus.message_published",
-                 event="message_bus.message_published",
-                 agent_id=from_agent,
-                 event_type=event_type,
-                 message_id=message['id'],
-                 subscriber_count=len(self.subscriptions.get(event_type, [])))
+        # Non-blocking logging using asyncio task
+        asyncio.create_task(self._log_event_async(
+            "message_bus.message_published",
+            agent_id=from_agent,
+            event_type=event_type,
+            message_id=message['id'],
+            subscriber_count=len(self.subscriptions.get(event_type, []))
+        ))
         
         # Handle different event types
         if event_type == 'DIRECT_MESSAGE':
@@ -299,13 +335,8 @@ class MessageBus:
         if len(self.message_history) > self.max_history_size:
             self.message_history = self.message_history[-self.max_history_size:]
         
-        # Also log to file
-        try:
-            log_file = str(config.response_log_dir / 'message_bus.jsonl')
-            with open(log_file, 'a') as f:
-                f.write(json.dumps(message) + '\n')
-        except Exception as e:
-            logger.error(f"Failed to log message: {e}")
+        # Non-blocking file I/O using asyncio task
+        asyncio.create_task(self._write_history_to_file_async(message))
     
     def get_stats(self) -> dict:
         """Get message bus statistics"""

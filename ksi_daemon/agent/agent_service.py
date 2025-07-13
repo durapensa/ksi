@@ -12,6 +12,7 @@ import json
 import time
 import uuid
 from typing import Any, Dict, TypedDict, List, Literal
+import aiofiles
 
 from typing_extensions import NotRequired, Required
 
@@ -24,7 +25,7 @@ from ksi_daemon.event_system import event_handler, shutdown_handler, get_router
 from ksi_daemon.mcp import mcp_config_manager
 from ksi_daemon.agent.metadata import AgentMetadata
 from ksi_daemon.evaluation.tournament_evaluation import process_agent_tournament_message, extract_evaluation_from_response
-from ksi_common.completion_format import get_response_session_id
+# NOTE: session_id is a completion system concept - agents have no awareness of sessions
 
 # Module state
 logger = get_bound_logger("agent_service", version="2.0.0")
@@ -94,7 +95,7 @@ class AgentSpawnData(TypedDict):
     """Spawn a new agent."""
     profile: Required[str]  # Profile name
     agent_id: NotRequired[str]  # Agent ID (auto-generated if not provided)
-    session_id: NotRequired[str]  # Session ID for conversation continuity
+    # NOTE: session_id removed - managed entirely by completion system
     prompt: NotRequired[str]  # Initial prompt
     context: NotRequired[Dict[str, Any]]  # Additional context
     originator_agent_id: NotRequired[str]  # ID of spawning agent
@@ -219,12 +220,13 @@ class AgentNegotiateRolesData(TypedDict):
 
 
 # Helper functions
-def load_identities():
+async def load_identities():
     """Load agent identities from disk."""
     if identity_storage_path.exists():
         try:
-            with open(identity_storage_path, 'r') as f:
-                loaded_identities = json.load(f)
+            async with aiofiles.open(identity_storage_path, 'r') as f:
+                content = await f.read()
+                loaded_identities = json.loads(content)
             if loaded_identities:
                 identities.update(loaded_identities)
                 logger.info(f"Loaded {len(identities)} agent identities")
@@ -232,13 +234,14 @@ def load_identities():
             logger.error(f"Failed to load identities: {e}")
 
 
-def save_identities():
+async def save_identities():
     """Save agent identities to disk."""
     try:
         # Ensure parent directory exists
         identity_storage_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(identity_storage_path, 'w') as f:
-            json.dump(identities, f, indent=2)
+        content = json.dumps(identities, indent=2)
+        async with aiofiles.open(identity_storage_path, 'w') as f:
+            await f.write(content)
         logger.debug(f"Saved {len(identities)} identities")
     except Exception as e:
         logger.error(f"Failed to save identities: {e}")
@@ -258,7 +261,7 @@ async def handle_context(context: SystemContextData) -> None:
 @event_handler("system:startup")
 async def handle_startup(config_data: SystemStartupData) -> Dict[str, Any]:
     """Initialize agent service on startup."""
-    load_identities()
+    await load_identities()
     
     logger.info(f"Agent service started - agents: {len(agents)}, "
                 f"identities: {len(identities)}")
@@ -316,7 +319,7 @@ async def handle_ready(data: SystemReadyData) -> Dict[str, Any]:
                     },
                     "status": props.get("status", "ready"),
                     "created_at": entity.get("created_at_iso"),
-                    "session_id": props.get("session_id"),
+                    # NOTE: session_id removed - agents have no awareness of sessions
                     "permission_profile": props.get("permission_profile", "standard"),
                     "sandbox_dir": props.get("sandbox_dir"),
                     "mcp_config_path": props.get("mcp_config_path"),
@@ -402,7 +405,7 @@ async def handle_shutdown(data: SystemShutdownData) -> None:
         task.cancel()
     
     # Save identities
-    save_identities()
+    await save_identities()
     
     logger.info(f"Agent service stopped - {len(agents)} agents, "
                 f"{len(identities)} identities")
@@ -500,7 +503,7 @@ async def handle_checkpoint_collect(data: CheckpointCollectData) -> Dict[str, An
                 "config": agent_info.get("config", {}),
                 "status": agent_info.get("status"),
                 "created_at": agent_info.get("created_at"),
-                "session_id": agent_info.get("session_id"),
+                # session_id removed - managed by completion system
                 "permission_profile": agent_info.get("permission_profile"),
                 "sandbox_dir": agent_info.get("sandbox_dir"),
                 "mcp_config_path": agent_info.get("mcp_config_path"),
@@ -590,7 +593,7 @@ async def handle_checkpoint_restore(data: CheckpointRestoreData) -> Dict[str, An
                             "agent_type": agents[agent_id].get("agent_type", "system"),
                             "purpose": agents[agent_id].get("purpose"),
                             "capabilities": agents[agent_id].get("config", {}).get("expanded_capabilities", []),
-                            "session_id": agents[agent_id].get("session_id"),
+                            # session_id removed - completion system concept
                             "permission_profile": agents[agent_id].get("permission_profile"),
                             "sandbox_dir": agents[agent_id].get("sandbox_dir"),
                             "mcp_config_path": agents[agent_id].get("mcp_config_path")
@@ -620,7 +623,8 @@ async def handle_spawn_agent(data: AgentSpawnData) -> Dict[str, Any]:
     agent_id = data.get("agent_id") or f"agent_{uuid.uuid4().hex[:8]}"
     profile_name = data.get("profile") or data.get("profile_name")
     composition_name = data.get("composition")  # Direct composition reference
-    session_id = data.get("session_id")
+    # NOTE: session_id is intentionally NOT extracted from spawn data
+    # Session management is handled entirely by the completion system
     
     # Check for dynamic spawn mode
     spawn_mode = data.get("spawn_mode", "fixed")
@@ -732,7 +736,14 @@ async def handle_spawn_agent(data: AgentSpawnData) -> Dict[str, Any]:
                 "allowed_events": allowed_events,
                 "allowed_claude_tools": allowed_claude_tools
             }
-            composed_prompt = profile.get("composed_prompt")
+            # Extract system prompt from system_context component
+            composed_prompt = None
+            if "system_context" in profile and isinstance(profile["system_context"], dict):
+                composed_prompt = profile["system_context"].get("prompt")
+            
+            # Fallback to old location for backward compatibility
+            if not composed_prompt:
+                composed_prompt = profile.get("composed_prompt")
         else:
             # Fail fast - no fallbacks
             error_msg = compose_result.get("error", f"Failed to compose profile: {compose_name}")
@@ -853,7 +864,8 @@ async def handle_spawn_agent(data: AgentSpawnData) -> Dict[str, Any]:
         "composed_prompt": composed_prompt,
         "status": "initializing",
         "created_at": format_for_logging(),
-        "session_id": session_id,
+        # NOTE: session_id removed - agents have no awareness of sessions
+        # All session management is handled by the completion system
         "message_queue": asyncio.Queue(),
         "permission_profile": permission_profile,
         "sandbox_dir": sandbox_dir,
@@ -877,7 +889,7 @@ async def handle_spawn_agent(data: AgentSpawnData) -> Dict[str, Any]:
             "agent_type": agent_type,
             "purpose": purpose,
             "capabilities": expanded_capabilities,
-            "session_id": session_id,
+            # session_id intentionally omitted from entity - managed by completion system
             "permission_profile": permission_profile,
             "sandbox_dir": sandbox_dir,
             "mcp_config_path": str(mcp_config_path) if mcp_config_path else None
@@ -992,12 +1004,41 @@ async def handle_spawn_agent(data: AgentSpawnData) -> Dict[str, Any]:
             else:
                 logger.warning(f"Observation system not ready for agent {agent_id} subscriptions")
     
+    # Send initial prompt if provided - construct complete first message
+    initial_prompt = data.get("prompt")
+    if initial_prompt and event_emitter:
+        logger.info(f"Sending initial prompt to agent {agent_id}")
+        
+        # Construct complete first message: agent prompt + initial user prompt
+        complete_first_message = ""
+        
+        # Add agent prompt if available
+        if composed_prompt:
+            complete_first_message += composed_prompt + "\n\n"
+        
+        # Add initial user prompt  
+        complete_first_message += initial_prompt
+        
+        # Send complete message through agent:send_message channel
+        initial_result = await event_emitter("agent:send_message", {
+            "agent_id": agent_id,
+            "message": {
+                "role": "user", 
+                "content": complete_first_message
+            }
+        })
+        
+        if initial_result and isinstance(initial_result, list):
+            initial_result = initial_result[0] if initial_result else {}
+        
+        logger.info(f"Initial prompt sent to agent {agent_id}: {initial_result.get('status', 'unknown')}")
+    
     return {
         "agent_id": agent_id,
         "status": "created",
         "profile": profile_name,
         "composition": compose_name,
-        "session_id": session_id,
+        # session_id intentionally omitted - managed by completion system
         "config": agent_config,
         "originator_agent_id": originator_agent_id,
         "agent_type": agent_type,
@@ -1067,6 +1108,12 @@ async def handle_terminate_agent(data: AgentTerminateData) -> Dict[str, Any]:
             logger.debug(f"Updated agent entity {agent_id} to terminated")
         else:
             logger.warning(f"Failed to update agent entity status: {update_result}")
+        
+        # IMPORTANT: Clean up agent session in ConversationTracker
+        # This ensures new agents with the same ID start fresh
+        await event_emitter("completion:clear_agent_session", {
+            "agent_id": agent_id
+        })
     
     # Remove from active agents
     del agents[agent_id]
@@ -1099,11 +1146,11 @@ async def handle_restart_agent(data: AgentRestartData) -> Dict[str, Any]:
         return terminate_result
     
     # Spawn new with same config
+    # Only pass agent_id and profile - completion system handles session continuity
     spawn_data = {
         "agent_id": agent_id,
-        "profile": agent_info.get("profile"),
-        "config": agent_info.get("config", {}),
-        "session_id": agent_info.get("session_id")
+        "profile": agent_info.get("profile")
+        # config and session_id omitted - profile contains config, completion tracks sessions
     }
     
     return await handle_spawn_agent(spawn_data)
@@ -1183,7 +1230,7 @@ async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
                 "messages": [{"role": "user", "content": prompt}],
                 "agent_id": agent_id,
                 "originator_id": agent_id,  # Use agent_id as originator_id
-                "session_id": agent_info.get("session_id"),
+                # session_id removed - completion system tracks this
                 "model": f"claude-cli/{agent_info.get('config', {}).get('model', 'sonnet')}",
                 "priority": "normal",
                 "request_id": f"{agent_id}_{message.get('request_id', uuid.uuid4().hex[:8])}"
@@ -1195,8 +1242,8 @@ async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
                 "agent_id": agent_id,
                 "sandbox_dir": agent_info.get("sandbox_dir"),
                 "permissions": permissions,
-                "allowed_events": agent_config.get("allowed_events", []),  # Add resolved events
-                "session_id": agent_info.get("session_id")
+                "allowed_events": agent_config.get("allowed_events", [])  # Add resolved events
+                # session_id removed - completion system manages
             }
             
             # Only include mcp_config_path if it's actually set
@@ -1223,7 +1270,7 @@ async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
                     "messages": [{"role": "user", "content": prompt}],
                     "agent_id": agent_id,
                     "originator_id": agent_id,
-                    "session_id": agent_info.get("session_id"),
+                    # session_id removed - not an agent concern
                     "model": f"claude-cli/{agent_info.get('config', {}).get('model', 'sonnet')}",
                     "priority": "normal",
                     "request_id": f"tournament_{match_id}",
@@ -1241,8 +1288,8 @@ async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
                         "allowed_tools": agent_info.get("config", {}).get("allowed_claude_tools", []),
                         "profile": agent_info.get("permission_profile", "standard")
                     },
-                    "allowed_events": agent_info.get("config", {}).get("allowed_events", []),
-                    "session_id": agent_info.get("session_id")
+                    "allowed_events": agent_info.get("config", {}).get("allowed_events", [])
+                    # session_id removed - completion concept
                 }
                 
                 completion_data["extra_body"] = {"ksi": ksi_body}
@@ -1435,7 +1482,7 @@ async def handle_create_identity(data: AgentCreateIdentityData) -> Dict[str, Any
     }
     
     identities[agent_id] = identity
-    save_identities()
+    await save_identities()
     
     logger.info(f"Created identity for agent {agent_id}")
     
@@ -1461,7 +1508,7 @@ async def handle_update_identity(data: AgentUpdateIdentityData) -> Dict[str, Any
     identities[agent_id].update(updates)
     identities[agent_id]["updated_at"] = format_for_logging()
     
-    save_identities()
+    await save_identities()
     
     logger.info(f"Updated identity for agent {agent_id}")
     
@@ -1481,7 +1528,7 @@ async def handle_remove_identity(data: AgentRemoveIdentityData) -> Dict[str, Any
     
     if agent_id in identities:
         del identities[agent_id]
-        save_identities()
+        await save_identities()
         logger.info(f"Removed identity for agent {agent_id}")
         return {"status": "removed"}
     
@@ -1602,26 +1649,18 @@ async def handle_send_message(data: AgentSendMessageData) -> Dict[str, Any]:
         agent_info = agents[agent_id]
         agent_config = agent_info.get("config", {})
         
-        # Don't store session_id in agent - let ConversationTracker handle it
-        # The completion service will look up the agent's current session automatically
+        # Agents have no awareness of sessions - completion system handles all tracking
+        # All subsequent messages after spawn are just user content
+        # (Agent prompt was included only in initial message at spawn time)
         
-        # Build messages with system prompt from agent profile
-        messages = []
-        
-        # Add system prompt from composed profile if available
-        composed_prompt = agent_info.get("composed_prompt")
-        if composed_prompt:
-            messages.append({"role": "system", "content": composed_prompt})
-        
-        # Add user message
-        messages.append({"role": message.get("role", "user"), "content": prompt})
+        messages = [{"role": message.get("role", "user"), "content": prompt}]
         
         # Prepare completion request
         completion_data = {
             "messages": messages,
             "agent_id": agent_id,
             "originator_id": agent_id,
-            # session_id intentionally omitted - completion service handles continuity
+            # session_id not included - agents have no session awareness
             "model": f"claude-cli/{agent_config.get('model', 'sonnet')}",
             "priority": "normal",
             "request_id": f"{agent_id}_{message.get('request_id', uuid.uuid4().hex[:8])}"
@@ -1646,8 +1685,7 @@ async def handle_send_message(data: AgentSendMessageData) -> Dict[str, Any]:
         if result and isinstance(result, list):
             result = result[0] if result else {}
         
-        # Session tracking is handled by ConversationTracker in completion service
-        # Agents don't need to track session_id
+        # Agents have no awareness of sessions - completion system handles everything
         
         return {
             "status": "sent_to_completion", 

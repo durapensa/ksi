@@ -95,7 +95,10 @@ def build_cmd(
         from pathlib import Path
         mcp_config_abs = str(Path(mcp_config).absolute())
         cmd += ["--mcp-config", mcp_config_abs]
-    # Don't append prompt as argument when using -p flag - it should come from stdin
+    # CRITICAL: Don't append prompt as argument when using -p flag
+    # Prompts MUST be piped to claude-cli via stdin, NEVER passed as arguments
+    # This is a common source of errors - the -p flag tells claude to read from stdin
+    # Attempting to pass prompts as arguments will cause claude-cli to fail or misbehave
     return cmd
 
 

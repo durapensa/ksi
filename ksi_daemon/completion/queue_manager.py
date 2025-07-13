@@ -12,6 +12,7 @@ from typing import Dict, Set, Tuple, Any, Optional
 
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc
+from ksi_common.config import config
 
 
 logger = get_bound_logger("completion.queue_manager")
@@ -25,6 +26,7 @@ class CompletionQueueManager:
         self._session_queues: Dict[str, asyncio.Queue] = {}
         self._active_sessions: Set[str] = set()
         self._queue_sizes: Dict[str, int] = {}  # Track sizes for monitoring
+        self._queue_timeout = config.completion_queue_processor_timeout
         
     async def enqueue(self, session_id: str, request_id: str, 
                      request_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -107,6 +109,7 @@ class CompletionQueueManager:
         Determine if a new processor should be created for this session.
         
         Returns True if the session has a queue but no active processor.
+        One processor per conversation to maintain serial execution.
         """
         return (session_id in self._session_queues and 
                 session_id not in self._active_sessions)

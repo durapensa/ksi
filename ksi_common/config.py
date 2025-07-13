@@ -172,6 +172,9 @@ class KSIBaseConfig(BaseSettings):
     completion_timeout_min: int = 60       # 1 minute minimum
     completion_timeout_max: int = 1800     # 30 minutes maximum
     
+    # Completion queue settings
+    completion_queue_processor_timeout: float = 1.0  # Queue check timeout in seconds
+    
     # Model defaults for different purposes
     completion_default_model: str = f"claude-cli/{DEFAULT_MODEL}"
     summary_default_model: str = f"claude-cli/{DEFAULT_MODEL}"

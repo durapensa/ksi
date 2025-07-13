@@ -39,6 +39,7 @@ dependencies = [
     "aioinject>=0.30.0",
     "watchfiles>=0.21.0",
     "aiosqlite>=0.19.0",
+    "aiofiles>=23.2.0",
 ]
 
 [project.optional-dependencies]

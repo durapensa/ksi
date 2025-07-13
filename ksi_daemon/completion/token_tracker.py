@@ -6,11 +6,13 @@ Tracks token usage across providers, agents, and sessions for analytics
 and cost monitoring. Provides aggregated statistics and usage patterns.
 """
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from collections import defaultdict
+import aiofiles
 
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc
@@ -106,6 +108,8 @@ class TokenTracker:
     
     def _load_recent_history(self, hours: int = 24) -> None:
         """Load recent usage history from log file."""
+        # For initialization, we'll accept synchronous loading
+        # since it happens once at startup
         if not self._usage_log_path.exists():
             return
         
@@ -220,14 +224,20 @@ class TokenTracker:
     
     def _append_to_log(self, record: TokenUsageRecord) -> None:
         """Append usage record to log file."""
+        # Non-blocking file I/O using asyncio task
+        asyncio.create_task(self._append_to_log_async(record))
+    
+    async def _append_to_log_async(self, record: TokenUsageRecord) -> None:
+        """Async helper for non-blocking file write."""
         try:
             log_entry = {
                 "event": "token_usage",
                 **record.to_dict()
             }
             
-            with open(self._usage_log_path, 'a') as f:
-                f.write(json.dumps(log_entry) + '\n')
+            # Use aiofiles for true async file I/O
+            async with aiofiles.open(self._usage_log_path, 'a') as f:
+                await f.write(json.dumps(log_entry) + '\n')
         
         except Exception as e:
             logger.error(f"Failed to log token usage: {e}")
