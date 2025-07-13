@@ -237,6 +237,32 @@ tail -f var/logs/daemon/daemon.log
 
 ## Known Issues & Active Work
 
+### Critical: Agent Autonomous Execution (2025-07-13)
+**Issue**: Agents consistently fail to execute autonomously and emit JSON events
+**Symptoms**:
+- Agents ask for permission instead of executing instructions
+- Agents describe what they would do rather than emitting JSON events
+- Step-wise orchestration blocked by lack of event emission
+
+**Root Cause Analysis**:
+The issue is systematic with multiple failure points:
+
+1. **System Prompt Missing**: Fixed - `handle_send_message` now includes composed_prompt from agent profile
+2. **Claude-CLI Behavior**: Core issue - claude-cli's default "wait for permission" behavior not overridden
+3. **Event Extraction**: Working but agents don't emit proper JSON format
+4. **Session Continuity**: Session ID lifecycle issues between requests
+
+**Attempted Fixes**:
+- ✅ Added autonomous behavior system prompt to `base_single_agent.yaml`
+- ✅ Fixed agent service to include system prompt in completions
+- ❌ Agents still exhibit passive behavior despite explicit instructions
+
+**Next Steps Required**:
+- Investigate claude-cli provider configuration for autonomous mode
+- Consider alternative completion providers or custom wrapper
+- Test different prompt engineering approaches at provider level
+- Implement proper step-wise execution with session management
+
 ### Tracked Issues
 - **EventClient Discovery** ([#6](https://github.com/durapensa/ksi/issues/6)): Format mismatch, use direct socket
 - **Parameter Documentation** ([#1](https://github.com/durapensa/ksi/issues/1)): Remove legacy docstring patterns
@@ -578,14 +604,20 @@ Hybrid approach combining intelligent agents as orchestrators with shareable dec
 - ❌ Composition system strips `transformers` section from YAML patterns
 - 📋 **Next Step**: Implement `docs/GENERIC_COMPOSITION_SYSTEM_REDESIGN.md` to enable full pattern loading
 
-### Pattern Evolution System (NEW)
-Implemented comprehensive pattern evolution through the composition system:
+### Pattern Evolution System
+**Status**: Fully implemented and tested (2025-07-13)
 
 **Core Features**:
 - **Pattern Fork/Merge**: `composition:fork`, `composition:merge`, `composition:diff` - Evolution with lineage tracking
 - **Decision Tracking**: `composition:track_decision` - Records orchestration decisions for learning
-- **Universal Event Emission**: `event:emit` - Enables DSL implementation without tight coupling
+- **Automatic Crystallization**: Performance thresholds trigger new pattern creation
 - **Self-Contained Storage**: Patterns and decisions stored in composition files
+
+**Test Results**:
+- ✅ Fork chains working: evolution_test_base → evolution_test_improved → evolution_test_advanced
+- ✅ Crystallization tested: auto_crystallization_test → crystallized_high_performance_auto
+- ✅ Decision tracking scales: Handles high-volume events (500+ decisions)
+- ✅ Pattern library growth: 32+ orchestration patterns with clear lineages
 
 **Pattern Format**:
 - Enhanced orchestration compositions with DSL section for agent interpretation
@@ -599,11 +631,6 @@ Implemented comprehensive pattern evolution through the composition system:
 - Interpret DSL and implement using `event:emit`
 - Fork successful adaptations, merge improvements
 - Track decisions for continuous learning
-
-**Example Patterns Created**:
-- `adaptive_tournament_v2` - Tournament with intelligent matching
-- `adaptive_pipeline` - Multi-stage processing with dynamic adaptation
-- Demonstrated fork: `adaptive_tournament_ml` with ML-based test selection
 
 **Benefits**:
 - Natural adaptation to unexpected situations
@@ -717,5 +744,5 @@ Now I'll register the transformers defined in the pattern:
 This enables orchestrator agents to coordinate complex workflows naturally without needing explicit event emission tools.
 
 ---
-*Last updated: 2025-07-10*
+*Last updated: 2025-07-13*
 *For development practices, see `/Users/dp/projects/ksi/CLAUDE.md`*

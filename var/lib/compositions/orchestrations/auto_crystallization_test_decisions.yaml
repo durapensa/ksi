@@ -1,0 +1,7 @@
+- pattern: auto_crystallization_test
+  decision: manual_test_high_performance
+  context: {}
+  outcome: null
+  confidence: '0.85'
+  agent_id: unknown
+  timestamp: '2025-07-13T11:43:33.733566Z'

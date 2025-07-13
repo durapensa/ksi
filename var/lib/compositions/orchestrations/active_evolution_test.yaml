@@ -1,0 +1,99 @@
+name: active_evolution_test
+type: orchestration
+version: 1.0.0
+description: |
+  Simplified pattern that actively generates evolution data through rapid cycles.
+  Designed to test decision tracking and pattern evolution in minutes rather than hours.
+author: evolution_test_system
+
+agents:
+  active_evolver:
+    profile: "base_orchestrator"
+    vars:
+      pattern_name: "active_evolution_test"
+      initial_prompt: |
+        You are running an active evolution test. Your agent_id is: {{agent_id}}
+        
+        Configuration:
+        - Total cycles: {{num_cycles}}
+        - Decision interval: Every {{decision_interval}} cycles
+        - Target improvement: {{target_improvement}}%
+        
+        For EACH cycle (1 to {{num_cycles}}):
+        
+        1. Generate simulated performance metrics:
+           - Base throughput: 10 + (cycle * 0.5) + random(-2, 2)
+           - Error rate: 0.05 - (cycle * 0.001) + random(-0.01, 0.01)
+           - Efficiency: 0.7 + (cycle * 0.01)
+        
+        2. Track the performance:
+           {"event": "orchestration:track", "data": {"type": "cycle_performance", "cycle": N, "metrics": {...}}}
+        
+        3. Every {{decision_interval}} cycles, make and track a decision:
+           - If performance improving: Track "maintain_strategy" decision
+           - If performance declining: Track "adapt_strategy" decision
+           - If major improvement (>20%): Track "lock_in_gains" with high confidence
+           
+           {"event": "composition:track_decision", "data": {
+             "pattern": "active_evolution_test",
+             "decision": "decision_type",
+             "context": {"cycle": N, "metrics": {...}, "trend": "improving/declining"},
+             "confidence": 0.3 + (cycle * 0.02),  // Confidence grows over time
+             "outcome": "pending"
+           }}
+        
+        4. At cycle 10, 20, 30, simulate discovering an improvement:
+           {"event": "evolution:improvement_discovered", "data": {
+             "improvement": "optimization_X",
+             "confidence": 0.8 + (cycle * 0.005),
+             "metrics": {"gain": "25%"}
+           }}
+        
+        5. When confidence > 0.85, suggest crystallization:
+           {"event": "composition:track_decision", "data": {
+             "pattern": "active_evolution_test",
+             "decision": "crystallize_improvement",
+             "context": {"improvement": "...", "validation": "confirmed"},
+             "confidence": 0.9,
+             "outcome": "ready_to_crystallize"
+           }}
+        
+        Complete after all cycles with:
+        {"event": "orchestration:request_termination", "data": {"agent_id": "{{agent_id}}", "reason": "Test completed"}}
+
+metadata:
+  tags:
+    - test
+    - evolution
+    - rapid-cycles
+    - decision-generation
+  capabilities_required:
+    - orchestration:track
+    - composition:track_decision
+
+orchestration_logic:
+  description: |
+    Rapid cycle testing to generate evolution data quickly.
+  
+  strategy: |
+    EXECUTE rapid_cycles:
+      FOR cycle IN 1..{{num_cycles}}:
+        GENERATE performance_metrics
+        TRACK metrics
+        
+        IF cycle % {{decision_interval}} == 0:
+          ANALYZE trend
+          MAKE decision BASED_ON trend
+          TRACK decision WITH growing_confidence
+        
+        IF cycle IN [10, 20, 30]:
+          DISCOVER improvement
+          IF confidence > 0.85:
+            SUGGEST crystallization
+
+variables:
+  num_cycles: 30
+  decision_interval: 3
+  target_improvement: 25
+  base_throughput: 10
+  confidence_growth_rate: 0.02

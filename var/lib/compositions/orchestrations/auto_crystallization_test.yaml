@@ -1,0 +1,40 @@
+name: auto_crystallization_test
+type: orchestration
+version: 1.0.0
+description: Tests automatic crystallization triggers based on performance thresholds
+author: ksi-evolution-system
+mixins: []
+components: []
+variables:
+  performance_threshold:
+    type: float
+    default: 1.5
+    description: Performance improvement ratio required for crystallization
+  confidence_threshold:
+    type: float
+    default: 0.8
+    description: Confidence level required to trigger crystallization
+  observation_window:
+    type: integer
+    default: 300
+    description: Time window for performance observation (seconds)
+metadata:
+  tags:
+  - crystallization
+  - automation
+  - performance_triggers
+  orchestration_category: testing
+  expected_duration: 10-15 minutes
+  crystallization_thresholds:
+    performance_gain: 1.5
+    confidence_required: 0.8
+    observation_window: 300
+  decision_stats:
+    total_decisions: 1
+    common_adaptations:
+      manual_test_high_performance: 1
+  forks:
+  - name: crystallized_high_performance_auto
+    date: '2025-07-13T11:43:51.027413Z'
+    reason: 'Automatic crystallization triggered: 1.8x performance gain detected'
+    author: unknown

@@ -1,0 +1,89 @@
+name: "stress_test_decisions"
+type: "orchestration"
+version: "1.0.0"
+description: "High-volume decision tracking stress test for system performance"
+author: "ksi-evolution-system"
+
+metadata:
+  tags: ["stress_test", "decision_tracking", "performance"]
+  orchestration_category: "testing"
+  expected_duration: "15-30 minutes"
+  scale_factor: "high_volume"
+
+pattern:
+  strategy: |
+    INITIALIZE stress_test_environment WITH context:
+      SET target_decisions = 1000
+      SET batch_size = 50
+      SET decision_types = ["performance_tuning", "pattern_selection", "resource_allocation", "error_handling", "optimization"]
+      
+    FOR batch_index IN RANGE(0, target_decisions / batch_size):
+      BATCH_START:
+        EMIT event:orchestration:track WITH data:
+          type: "batch_start"
+          batch: batch_index
+          batch_size: batch_size
+          
+      FOR decision_index IN RANGE(0, batch_size):
+        CALCULATE decision_id = (batch_index * batch_size) + decision_index
+        SELECT decision_type = decision_types[decision_id % len(decision_types)]
+        GENERATE confidence = RANDOM(0.3, 0.9)
+        
+        EMIT event:composition:track_decision WITH data:
+          pattern: "stress_test_decisions"
+          decision: decision_type + "_" + decision_id
+          confidence: confidence
+          metadata:
+            batch: batch_index
+            sequence: decision_index
+            timestamp: NOW()
+            
+      BATCH_END:
+        EMIT event:orchestration:track WITH data:
+          type: "batch_complete"
+          batch: batch_index
+          decisions_created: batch_size
+          
+      PAUSE 100ms  # Brief pause between batches to avoid overwhelming
+      
+    FINALIZE:
+      EMIT event:orchestration:track WITH data:
+        type: "stress_test_complete"
+        total_decisions: target_decisions
+        total_batches: target_decisions / batch_size
+
+agents:
+  stress_coordinator:
+    profile: "base_single_agent"
+    model: "sonnet"
+    role: "assistant"
+    capabilities: ["state_write", "event_emission"]
+    
+variables:
+  target_decisions:
+    type: "integer"
+    default: 1000
+    description: "Total number of decisions to generate"
+    
+  batch_size:
+    type: "integer"
+    default: 50
+    description: "Number of decisions per batch"
+    
+  pause_duration:
+    type: "integer"
+    default: 100
+    description: "Milliseconds to pause between batches"
+
+initial_prompt: |
+  You are conducting a stress test of the decision tracking system. Your goal is to generate {{target_decisions}} decision events in batches of {{batch_size}} to test system performance and capacity.
+
+  CRITICAL: Execute autonomously and emit JSON events exactly as specified.
+
+  1. Start by tracking batch initialization
+  2. Generate decisions in batches with varying types and confidence levels
+  3. Track batch completion
+  4. Monitor system performance throughout
+  5. Report completion statistics
+
+  Begin immediately with batch 0.

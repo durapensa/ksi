@@ -519,7 +519,16 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
                 result_event_data["result"] = injection_result["result"]
         
         # Emit result
-        await emit_event("completion:result", result_event_data)
+        logger.info(f"About to emit completion:result event", 
+                   request_id=request_id,
+                   has_result=bool(result_event_data.get("result")),
+                   result_keys=list(result_event_data.get("result", {}).keys()) if isinstance(result_event_data.get("result"), dict) else None)
+        
+        try:
+            await emit_event("completion:result", result_event_data)
+            logger.info(f"Successfully emitted completion:result event", request_id=request_id)
+        except Exception as e:
+            logger.error(f"Failed to emit completion:result event", request_id=request_id, error=str(e), exc_info=True)
         
         # Unlock conversation
         if conversation_lock.get("enabled", False):

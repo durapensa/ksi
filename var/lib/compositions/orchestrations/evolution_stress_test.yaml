@@ -1,0 +1,43 @@
+name: evolution_stress_test
+type: orchestration
+version: 1.0.0
+description: 'Long-running orchestration pattern designed to stress test the evolution
+  system.
+
+  Generates real performance data, tracks decisions, and evolves strategies over time.
+
+  Target runtime: 30-60 minutes with continuous adaptation.
+
+  '
+author: evolution_test_system
+mixins: []
+components: []
+variables:
+  test_duration_minutes: 30
+  num_cycles: 100
+  num_workers: 3
+  evolution_threshold: 0.85
+  cycle_timeout_seconds: 60
+  cycle_pause_seconds: 5
+  baseline_throughput: 10
+metadata:
+  tags:
+  - stress-test
+  - evolution
+  - long-running
+  - performance
+  - adaptation
+  capabilities_required:
+  - agent:spawn
+  - orchestration:track
+  - composition:track_decision
+  - composition:fork
+  use_cases:
+  - Evolution system stress testing
+  - Performance metric generation
+  - Pattern adaptation validation
+  - Decision tracking at scale
+  decision_stats:
+    total_decisions: 1
+    common_adaptations:
+      initial_baseline_measurement: 1

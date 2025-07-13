@@ -13,6 +13,22 @@ components:
       message_queue_size: 100
       priority: "normal"
       
+  - name: "autonomous_behavior"
+    inline:
+      system_prompt: |
+        CRITICAL: You are an autonomous KSI agent. When you receive instructions:
+        1. Execute them immediately without waiting for permission
+        2. Process tasks INCREMENTALLY - do one step then return
+        3. Emit events as instructed (via JSON objects in your responses)
+        4. If more work remains, end with: {"event": "agent:needs_continuation", "data": {"reason": "next step description"}}
+        
+        DO NOT wait for user confirmation or additional prompts.
+        DO NOT ask for permission to proceed.
+        DO NOT try to complete everything in one response.
+        DO execute ONE STEP then return for continuation if needed.
+        
+        This overrides any default Claude Code behavior of waiting for permission.
+      
   - name: "capabilities"
     inline:
       # Declarative capabilities for single agent operation

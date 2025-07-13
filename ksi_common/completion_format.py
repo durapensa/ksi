@@ -143,9 +143,48 @@ def get_response_model(response: Dict[str, Any]) -> Optional[str]:
     return extract_model(provider, raw_response)
 
 
+def is_error_during_execution(response: Dict[str, Any]) -> bool:
+    """Check if response indicates error_during_execution."""
+    provider = get_provider(response)
+    raw_response = get_raw_response(response)
+    
+    if provider == "claude-cli":
+        return raw_response.get("subtype") == "error_during_execution"
+    
+    # Other providers don't have this specific error type
+    return False
+
+
+def get_response_error_info(response: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Extract error information from response if present."""
+    provider = get_provider(response)
+    raw_response = get_raw_response(response)
+    
+    if provider == "claude-cli":
+        if raw_response.get("subtype") == "error_during_execution":
+            return {
+                "type": "error_during_execution",
+                "is_error": raw_response.get("is_error", False),
+                "message": "Claude encountered an error during execution but did not provide details"
+            }
+        elif raw_response.get("is_error", False):
+            return {
+                "type": "error",
+                "is_error": True,
+                "message": raw_response.get("error", "Unknown error")
+            }
+    
+    return None
+
+
 def extract_text(provider: str, response: Dict[str, Any]) -> str:
     """Extract response text from provider response."""
     if provider == "claude-cli":
+        # Handle error_during_execution subtype which doesn't have a result field
+        if response.get("subtype") == "error_during_execution":
+            # Return empty string for error_during_execution
+            # The actual error should be handled by checking is_error or subtype
+            return ""
         return response.get("result", "")
     
     elif provider == "openai":
@@ -321,6 +360,19 @@ def parse_completion_result_event(event_data: Dict[str, Any]) -> Dict[str, Any]:
     
     # Use existing utility functions to parse the standardized response
     try:
+        # Check for error_during_execution first
+        error_info = get_response_error_info(standardized_response)
+        if error_info:
+            return {
+                "status": "error",
+                "error": error_info["message"],
+                "error_type": error_info["type"],
+                "request_id": request_id,
+                "session_id": get_response_session_id(standardized_response),  # Still try to get session_id
+                "usage": get_response_usage(standardized_response),  # Still get usage for cost tracking
+                "cost": get_response_cost(standardized_response)
+            }
+        
         session_id = get_response_session_id(standardized_response)
         response_text = get_response_text(standardized_response)
         usage = get_response_usage(standardized_response)
@@ -333,7 +385,7 @@ def parse_completion_result_event(event_data: Dict[str, Any]) -> Dict[str, Any]:
                 "status": "completed",
                 "session_id": session_id,
                 "response": response_text,
-                "request_id": event_data.get("request_id"),
+                "request_id": request_id,
                 "provider": provider,
                 "model": model,
                 "usage": usage,
@@ -343,13 +395,13 @@ def parse_completion_result_event(event_data: Dict[str, Any]) -> Dict[str, Any]:
             return {
                 "status": "error",
                 "error": "Completed but no session_id",
-                "request_id": event_data.get("request_id")
+                "request_id": request_id
             }
     except Exception as e:
         return {
             "status": "error",
             "error": f"Failed to parse completion result: {e}",
-            "request_id": event_data.get("request_id")
+            "request_id": request_id
         }
 
 
@@ -373,6 +425,8 @@ __all__ = [
     "get_response_usage",
     "get_response_cost",
     "get_response_model",
+    "is_error_during_execution",
+    "get_response_error_info",
     
     # Provider extraction functions
     "extract_text",

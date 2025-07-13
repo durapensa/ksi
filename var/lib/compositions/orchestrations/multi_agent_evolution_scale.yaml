@@ -1,0 +1,102 @@
+name: "multi_agent_evolution_scale"
+type: "orchestration"
+version: "1.0.0"
+description: "Tests pattern evolution system with multiple concurrent agents generating decisions"
+author: "ksi-evolution-system"
+
+metadata:
+  tags: ["multi_agent", "scale_test", "concurrent_evolution"]
+  orchestration_category: "testing"
+  expected_duration: "20-30 minutes"
+  scale_metrics:
+    target_agents: 5
+    decisions_per_agent: 20
+    concurrent_operations: true
+
+pattern:
+  strategy: |
+    INITIALIZE multi_agent_scale_test WITH context:
+      SET agent_count = 5
+      SET decisions_per_agent = 20
+      SET pattern_variants = ["optimization", "analysis", "synthesis", "evaluation", "discovery"]
+      
+    SPAWN_PHASE:
+      FOR agent_index IN RANGE(1, agent_count):
+        SPAWN agent_worker WITH profile:
+          name: "scale_worker_" + agent_index
+          variant: pattern_variants[agent_index - 1]
+          target_decisions: decisions_per_agent
+          
+    COORDINATION_PHASE:
+      COORDINATE agents to generate decisions concurrently:
+        EACH agent executes their variant pattern
+        EACH agent tracks their own decisions independently
+        MONITOR for conflicts and race conditions
+        TRACK overall system performance
+        
+    EVOLUTION_MONITORING:
+      MONITOR decision patterns across all agents
+      DETECT high-confidence patterns for crystallization
+      TRACK resource utilization and bottlenecks
+      MEASURE system stability under concurrent load
+      
+    SCALE_METRICS:
+      MEASURE total decisions generated
+      MEASURE average response time per decision
+      MEASURE system memory and CPU usage
+      DETECT any pattern corruption or conflicts
+      
+    FINALIZE:
+      COLLECT results from all agents
+      GENERATE scale test report
+      TRIGGER any warranted crystallizations
+
+agents:
+  scale_coordinator:
+    profile: "base_orchestrator"
+    model: "sonnet"
+    role: "assistant"
+    capabilities: ["agent_spawn", "multi_agent_coordination", "performance_monitoring"]
+    
+  worker_template:
+    profile: "base_single_agent"
+    model: "sonnet"
+    role: "assistant" 
+    capabilities: ["decision_tracking", "pattern_execution"]
+    
+variables:
+  agent_count:
+    type: "integer"
+    default: 5
+    description: "Number of worker agents to spawn"
+    
+  decisions_per_agent:
+    type: "integer"
+    default: 20
+    description: "Target decisions each agent should generate"
+    
+  concurrent_execution:
+    type: "boolean"
+    default: true
+    description: "Whether agents execute concurrently or sequentially"
+
+initial_prompt: |
+  You are coordinating a multi-agent scale test of the pattern evolution system.
+
+  Your mission:
+  1. Spawn {{agent_count}} worker agents with different pattern variants
+  2. Coordinate them to generate {{decisions_per_agent}} decisions each
+  3. Monitor system performance under concurrent load
+  4. Track decision quality and pattern evolution
+  5. Detect any bottlenecks or conflicts
+
+  Pattern variants to test:
+  - optimization (focus on performance improvements)  
+  - analysis (focus on analytical depth)
+  - synthesis (focus on combining approaches)
+  - evaluation (focus on quality assessment)
+  - discovery (focus on novel approaches)
+
+  CRITICAL: Execute autonomously and coordinate all agents systematically.
+
+  Begin by spawning the worker agents.

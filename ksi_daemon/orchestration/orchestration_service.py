@@ -439,31 +439,72 @@ class OrchestrationModule:
                 except Exception as e:
                     logger.error(f"Failed to send initial message to {agent_id}: {e}")
             
-            # Also check for initial_prompt in vars
-            agent_vars = agent_config.get('vars', {})
-            initial_prompt = agent_vars.get('initial_prompt')
-            if initial_prompt:
+            # Check if this is an orchestrator agent and send the DSL strategy
+            agent_profile = agent_config.get('profile', '')
+            if 'orchestrator' in agent_profile.lower() and 'orchestration_logic' in pattern:
                 try:
-                    # Substitute variables in the prompt
-                    # Combine instance vars with agent-specific vars
-                    all_vars = {**instance.vars, **agent_vars}
+                    # Build orchestration instruction with the DSL
+                    orchestration_logic = pattern.get('orchestration_logic', {})
+                    strategy = orchestration_logic.get('strategy', '')
+                    description = orchestration_logic.get('description', '')
                     
-                    # Simple variable substitution for {{var}} patterns
-                    prompt_content = initial_prompt
-                    for var_name, var_value in all_vars.items():
-                        prompt_content = prompt_content.replace(f"{{{{{var_name}}}}}", str(var_value))
+                    # Build the orchestration message
+                    orchestration_message = f"""## ORCHESTRATION PATTERN: {instance.pattern_name}
+
+{description}
+
+## YOUR ORCHESTRATION STRATEGY (EXECUTE THIS NOW):
+
+{strategy}
+
+## VARIABLES:
+{instance.vars}
+
+## YOUR ROLE:
+You are the orchestrator for pattern '{instance.pattern_name}'. 
+IMMEDIATELY begin executing the strategy above. 
+DO NOT wait for further instructions.
+START the orchestration NOW by following the DSL strategy."""
                     
-                    # Send the initial prompt as a user message
+                    # Send the orchestration strategy
                     await event_emitter("agent:send_message", {
                         "agent_id": agent_id,
                         "message": {
                             "role": "user",
-                            "content": prompt_content
+                            "content": orchestration_message
                         }
                     })
-                    logger.info(f"Sent initial prompt to {agent_id}")
+                    logger.info(f"Sent orchestration strategy to {agent_id}")
+                    
                 except Exception as e:
-                    logger.error(f"Failed to send initial prompt to {agent_id}: {e}")
+                    logger.error(f"Failed to send orchestration strategy to {agent_id}: {e}")
+            
+            # Also check for initial_prompt in vars
+            else:
+                agent_vars = agent_config.get('vars', {})
+                initial_prompt = agent_vars.get('initial_prompt')
+                if initial_prompt:
+                    try:
+                        # Substitute variables in the prompt
+                        # Combine instance vars with agent-specific vars
+                        all_vars = {**instance.vars, **agent_vars}
+                        
+                        # Simple variable substitution for {{var}} patterns
+                        prompt_content = initial_prompt
+                        for var_name, var_value in all_vars.items():
+                            prompt_content = prompt_content.replace(f"{{{{{var_name}}}}}", str(var_value))
+                        
+                        # Send the initial prompt as a user message
+                        await event_emitter("agent:send_message", {
+                            "agent_id": agent_id,
+                            "message": {
+                                "role": "user",
+                                "content": prompt_content
+                            }
+                        })
+                        logger.info(f"Sent initial prompt to {agent_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to send initial prompt to {agent_id}: {e}")
     
     async def route_message(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Route a message according to orchestration rules."""

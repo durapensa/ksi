@@ -1605,9 +1605,20 @@ async def handle_send_message(data: AgentSendMessageData) -> Dict[str, Any]:
         # Don't store session_id in agent - let ConversationTracker handle it
         # The completion service will look up the agent's current session automatically
         
+        # Build messages with system prompt from agent profile
+        messages = []
+        
+        # Add system prompt from composed profile if available
+        composed_prompt = agent_info.get("composed_prompt")
+        if composed_prompt:
+            messages.append({"role": "system", "content": composed_prompt})
+        
+        # Add user message
+        messages.append({"role": message.get("role", "user"), "content": prompt})
+        
         # Prepare completion request
         completion_data = {
-            "messages": [{"role": message.get("role", "user"), "content": prompt}],
+            "messages": messages,
             "agent_id": agent_id,
             "originator_id": agent_id,
             # session_id intentionally omitted - completion service handles continuity
@@ -1860,6 +1871,41 @@ async def handle_negotiate_roles(data: AgentNegotiateRolesData) -> Dict[str, Any
         "negotiation_id": negotiation_id,
         "participants": participants,
         "type": negotiation_type
+    }
+
+
+@event_handler("agent:needs_continuation")
+async def handle_agent_needs_continuation(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle agent continuation requests for step-wise execution."""
+    # Extract agent_id from event metadata
+    agent_id = data.get("_agent_id")  # This is set by event extraction
+    if not agent_id:
+        return {"error": "No agent_id in continuation request"}
+    
+    if agent_id not in agents:
+        return {"error": f"Agent {agent_id} not found"}
+    
+    agent_info = agents[agent_id]
+    queue = agent_info.get("message_queue")
+    
+    if not queue:
+        return {"error": f"No message queue for agent {agent_id}"}
+    
+    # Queue a continuation message
+    reason = data.get("reason", "Continue with next step")
+    await queue.put({
+        "type": "completion",
+        "prompt": f"Continue with: {reason}",
+        "request_id": f"cont_{uuid.uuid4().hex[:8]}",
+        "timestamp": timestamp_utc()
+    })
+    
+    logger.info(f"Queued continuation for agent {agent_id}: {reason}")
+    
+    return {
+        "status": "queued",
+        "agent_id": agent_id,
+        "reason": reason
     }
 
 
