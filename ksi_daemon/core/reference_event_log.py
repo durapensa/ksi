@@ -60,7 +60,6 @@ class ReferenceEventLog:
         "prompt",            # Large prompts
         "messages",          # Chat histories
         "system_prompt",     # Agent system prompts
-        "composed_prompt",   # Composed agent prompts
         "profile",           # Agent profiles
         "composition",       # Composition definitions
         "pattern",           # Orchestration patterns

@@ -235,80 +235,64 @@ tail -f var/logs/daemon/daemon.log
 - **Roleplay Triggers Protection**: Identity assertions prevent roleplay
 - **File Watching Works**: Monitor response files for agent outputs
 
-## Known Issues & Active Work
+## Active Systems & Architecture
 
-### Critical: Agent Autonomous Execution (2025-07-13)
-**Issue**: Agents consistently fail to execute autonomously and emit JSON events
-**Symptoms**:
-- Agents ask for permission instead of executing instructions
-- Agents describe what they would do rather than emitting JSON events
-- Step-wise orchestration blocked by lack of event emission
+### Self-Configuring Agent Architecture (2025-07-13)
+**Status**: Fully implemented and operational
 
-**Root Cause Analysis**:
-The issue is systematic with multiple failure points:
+**Overview**: Agents receive complete YAML context at spawn time for self-configuration, enabling full structural awareness without hardcoded initialization logic.
 
-1. **System Prompt Missing**: Fixed - `handle_send_message` now includes composed_prompt from agent profile
-2. **Claude-CLI Behavior**: Core issue - claude-cli's default "wait for permission" behavior not overridden
-3. **Event Extraction**: Working but agents don't emit proper JSON format
-4. **Session Continuity**: Session ID lifecycle issues between requests
+**Implementation**:
+- **Context Assembly**: `composition:agent_context` event constructs complete agent context
+- **Minimal Redaction**: Only genuine secrets removed (API keys, tokens)
+- **Full Context**: Agents receive their profile, orchestration context, and variables
+- **Boilerplate Generation**: Simple introduction explaining the agent's role and configuration
 
-**Attempted Fixes**:
-- ✅ Added autonomous behavior system prompt to `base_single_agent.yaml`
-- ✅ Fixed agent service to include system prompt in completions
-- ❌ Agents still exhibit passive behavior despite explicit instructions
+**Architecture Benefits**:
+- Agents understand their place in larger systems
+- No hidden configuration or implicit behavior
+- Natural adaptation based on complete context
+- Supports complex multi-agent orchestration patterns
 
-**Next Steps Required**:
-- Investigate claude-cli provider configuration for autonomous mode
-- Consider alternative completion providers or custom wrapper
-- Test different prompt engineering approaches at provider level
-- Implement proper step-wise execution with session management
-
-### Initial Prompt Mechanism for Agents (2025-07-13)
-**Status**: Initial prompt field defined but not implemented
-
-**Current Behavior**:
-1. **Spawn Parameter**: `agent:spawn` accepts an optional `prompt` field:
-   ```python
-   class AgentSpawnData(TypedDict):
-       prompt: NotRequired[str]  # Initial prompt (defined but NOT USED)
-   ```
-
-2. **Implementation Gap**: The `prompt` field is ignored in the spawn handler
-   - No automatic message sending after agent creation
-   - Agent thread starts and waits for external messages
-   - Requires manual `agent:send_message` after spawning
-
-3. **Manual Workflow Required**:
-   ```bash
-   # Step 1: Spawn agent
-   ksi send agent:spawn --profile base_single_agent --agent_id my_agent
-   
-   # Step 2: Send initial prompt manually
-   ksi send agent:send_message --agent_id my_agent \
-     --message '{"role": "user", "content": "Initial task..."}'
-   ```
-
-**Message Processing Flow**:
-- Messages sent via `agent:send_message` are queued in agent's message queue
-- Agent thread processes messages in `run_agent_thread()`
-- Completion messages (with role/content) trigger `completion:async`
-- System prompt from composed profile is prepended to messages
-- First completion uses `session_id=None` for new conversation
-- Claude CLI returns new session_id for future continuity
-
-**Proposed Enhancement**:
-To enable automatic initial prompts:
-1. Extract initial prompt from agent profile (new `initial_prompt` component)
-2. Queue initial message in spawn handler after thread creation
-3. Or send `agent:send_message` event immediately after spawn
-4. Consider adding `initial_context` for more complex initialization
-
-**Workaround**: Orchestrators can immediately send initial prompts:
-```python
-# In orchestration pattern
-agent_id = await spawn_agent(profile="worker")
-await send_message(agent_id, "Your initial task is...")
+**Usage Example**:
+```bash
+# Spawn self-configuring agent with orchestration context
+ksi send agent:spawn --profile worker --orchestration distributed_analysis \
+  --variables '{"task": "analyze_data", "priority": "high"}'
 ```
+
+### Event Feedback System (2025-07-13)
+**Status**: Fully implemented with non-blocking architecture
+
+**Overview**: Agents receive raw emission results when they emit JSON events, enabling them to react to success/failure and adapt behavior accordingly.
+
+**Implementation**:
+- **JSON Extraction**: `ksi_common.json_extraction` extracts events from agent responses
+- **Non-blocking**: Event extraction runs in background tasks
+- **Raw Passthrough**: Complete emission results sent back to agents
+- **Delivery Channel**: Feedback sent via `completion:async` for loose coupling
+- **No Session Awareness**: Feedback system operates without session_id knowledge
+
+**Feedback Format**:
+```json
+{
+  "event": "completion:async",
+  "data": {
+    "messages": [{
+      "role": "system",
+      "content": "=== EVENT EMISSION RESULTS ===\n{\"event\": \"state:get\", \"emission_result\": {\"status\": \"success\", \"value\": \"test_data\"}}"
+    }],
+    "agent_id": "agent_123",
+    "is_feedback": true
+  }
+}
+```
+
+**Benefits**:
+- Agents learn from event outcomes
+- Natural error handling without explicit retry logic
+- Maintains clean separation between agent and completion systems
+- Enables sophisticated agent behaviors based on system feedback
 
 ### Fixed: Async/Await Blocking Operations (2025-07-13)
 **Issue**: High-frequency blocking I/O operations degrading async performance

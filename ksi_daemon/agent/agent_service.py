@@ -327,7 +327,6 @@ async def handle_ready(data: SystemReadyData) -> Dict[str, Any]:
                     "originator_agent_id": None,
                     "agent_type": props.get("agent_type", "system"),
                     "purpose": props.get("purpose"),
-                    "composed_prompt": None,
                     "message_queue": asyncio.Queue(),
                     "metadata": AgentMetadata(
                         agent_id=agent_id,
@@ -429,11 +428,8 @@ async def reestablish_observations(data: ObservationReadyData) -> None:
         agent_id = agent_info["agent_id"]
         
         # Get agent's profile to find observation config
-        if "composed_prompt" in agent_info:
-            # Try to get observation config from the original profile
-            # For now, we'll skip this as we don't store the full profile
-            # In production, you'd want to store observation config in agent_info
-            pass
+        # Observation config would come from profile if needed
+        # Currently handled by observation subscriptions during spawn
             
         # Check if agent should observe children
         if agent_info.get("observe_children"):
@@ -511,7 +507,6 @@ async def handle_checkpoint_collect(data: CheckpointCollectData) -> Dict[str, An
                 "originator_agent_id": agent_info.get("originator_agent_id"),
                 "agent_type": agent_info.get("agent_type"),
                 "purpose": agent_info.get("purpose"),
-                "composed_prompt": agent_info.get("composed_prompt"),
                 # Convert metadata to dict if it exists
                 "metadata": agent_info.get("metadata").to_dict() if agent_info.get("metadata") else None
             }
@@ -680,7 +675,6 @@ async def handle_spawn_agent(data: AgentSpawnData) -> Dict[str, Any]:
     
     # Compose profile using composition service
     agent_config = {}
-    composed_prompt = None
     
     if event_emitter:
         logger.debug(f"Using composition service to compose profile: {compose_name}")
@@ -736,14 +730,6 @@ async def handle_spawn_agent(data: AgentSpawnData) -> Dict[str, Any]:
                 "allowed_events": allowed_events,
                 "allowed_claude_tools": allowed_claude_tools
             }
-            # Extract system prompt from system_context component
-            composed_prompt = None
-            if "system_context" in profile and isinstance(profile["system_context"], dict):
-                composed_prompt = profile["system_context"].get("prompt")
-            
-            # Fallback to old location for backward compatibility
-            if not composed_prompt:
-                composed_prompt = profile.get("composed_prompt")
         else:
             # Fail fast - no fallbacks
             error_msg = compose_result.get("error", f"Failed to compose profile: {compose_name}")
@@ -861,7 +847,6 @@ async def handle_spawn_agent(data: AgentSpawnData) -> Dict[str, Any]:
         "profile": profile_name or compose_name,
         "composition": composition_name or compose_name,
         "config": agent_config,
-        "composed_prompt": composed_prompt,
         "status": "initializing",
         "created_at": format_for_logging(),
         # NOTE: session_id removed - agents have no awareness of sessions
@@ -1838,7 +1823,7 @@ async def handle_update_composition(data: AgentUpdateCompositionData) -> Dict[st
                 "type": "composition_updated",
                 "new_composition": new_composition,
                 "new_config": agent_info["config"],
-                "prompt": new_profile.get("composed_prompt")
+                # Agent prompt now handled by composition:agent_context
             })
         
         logger.info(f"Agent {agent_id} updated composition to {new_composition}")
