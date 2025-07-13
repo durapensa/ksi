@@ -311,7 +311,12 @@ async def handle_async_completion(data: CompletionAsyncData) -> Dict[str, Any]:
             finally:
                 queue_manager.mark_session_inactive(queue_session_key)
         
-        completion_task_group.create_task(process_session())
+        if completion_task_group:
+            completion_task_group.create_task(process_session())
+        else:
+            # Fallback: create task directly if task group not ready
+            logger.warning(f"Task group not ready, creating processor task directly for session {queue_session_key}")
+            asyncio.create_task(process_session())
     
     return {
         "request_id": request_id,

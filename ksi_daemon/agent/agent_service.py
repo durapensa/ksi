@@ -1631,13 +1631,17 @@ async def handle_send_message(data: AgentSendMessageData) -> Dict[str, Any]:
         # Emit completion event directly
         result = await event_emitter("completion:async", completion_data)
         
+        # Handle list response format
+        if result and isinstance(result, list):
+            result = result[0] if result else {}
+        
         # Session tracking is handled by ConversationTracker in completion service
         # Agents don't need to track session_id
         
         return {
             "status": "sent_to_completion", 
             "agent_id": agent_id,
-            "request_id": result.get("request_id")
+            "request_id": result.get("request_id") if result else None
         }
     
     # For non-completion messages, use the queue as before

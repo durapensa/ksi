@@ -175,8 +175,18 @@ class OrchestrationModule:
         errors = []
         
         # Check if agents are defined
-        if 'agents' not in pattern or not pattern['agents']:
-            errors.append("Pattern must define at least one agent in 'agents' section")
+        if 'agents' not in pattern:
+            # Check if this might be an evaluation pattern with orchestration_logic
+            if 'orchestration_logic' in pattern:
+                errors.append("This appears to be an evaluation pattern with 'orchestration_logic' DSL. "
+                            "Orchestration patterns require an 'agents' section with concrete agent definitions. "
+                            "Example: agents: { agent1: { profile: 'base_multi_agent' } }")
+            else:
+                errors.append("Pattern must define at least one agent in 'agents' section. "
+                            "Example: agents: { hello: { profile: 'hello_agent' } }")
+        elif not pattern['agents']:
+            errors.append("The 'agents' section is empty. At least one agent must be defined. "
+                        "Example: agents: { agent1: { profile: 'base_multi_agent' } }")
         
         # Get available profiles for validation
         available_profiles = set()
@@ -192,37 +202,57 @@ class OrchestrationModule:
         # Validate agent profiles
         agents = pattern.get('agents', {})
         for agent_name, agent_config in agents.items():
+            if not isinstance(agent_config, dict):
+                errors.append(f"Agent '{agent_name}' must be a dictionary with at least a 'profile' field")
+                continue
+                
             profile = agent_config.get('profile')
             if not profile:
-                errors.append(f"Agent '{agent_name}' missing required 'profile' field")
+                errors.append(f"Agent '{agent_name}' missing required 'profile' field. "
+                            f"Available profiles include: base_multi_agent, hello_agent, goodbye_agent, debater, etc.")
             elif available_profiles and profile not in available_profiles:
-                errors.append(f"Agent '{agent_name}' references unknown profile: '{profile}'")
+                # Find similar profiles
+                similar = [p for p in available_profiles if profile.lower() in p.lower() or p.lower() in profile.lower()]
+                if similar:
+                    errors.append(f"Agent '{agent_name}' references unknown profile: '{profile}'. "
+                                f"Did you mean one of these? {', '.join(sorted(similar)[:5])}")
+                else:
+                    errors.append(f"Agent '{agent_name}' references unknown profile: '{profile}'. "
+                                f"Available profiles include: {', '.join(sorted(list(available_profiles))[:10])}...")
         
         # Validate routing rules
         routing = pattern.get('routing', {})
-        for i, rule in enumerate(routing.get('rules', [])):
-            to_agent = rule.get('to')
-            from_agent = rule.get('from', '*')
-            
-            # Check if target agent exists
-            if to_agent and to_agent != '*' and to_agent not in agents:
-                errors.append(f"Routing rule {i} targets undefined agent: '{to_agent}'")
-            
-            # Check if source agent exists
-            if from_agent and from_agent != '*' and from_agent not in agents:
-                errors.append(f"Routing rule {i} from undefined agent: '{from_agent}'")
+        if routing and 'rules' in routing:
+            for i, rule in enumerate(routing['rules']):
+                if not isinstance(rule, dict):
+                    errors.append(f"Routing rule {i} must be a dictionary with 'pattern', 'from', and 'to' fields")
+                    continue
+                    
+                to_agent = rule.get('to')
+                from_agent = rule.get('from', '*')
+                
+                # Check if target agent exists
+                if to_agent and to_agent != '*' and not to_agent.startswith('!') and to_agent not in agents:
+                    errors.append(f"Routing rule {i} targets undefined agent: '{to_agent}'. "
+                                f"Available agents: {', '.join(agents.keys())}")
+                
+                # Check if source agent exists
+                if from_agent and from_agent != '*' and from_agent not in agents:
+                    errors.append(f"Routing rule {i} from undefined agent: '{from_agent}'. "
+                                f"Available agents: {', '.join(agents.keys())}")
         
         # Check default routing target if specified
         default_target = routing.get('default')
         if default_target and default_target not in agents:
-            errors.append(f"Default routing target '{default_target}' not found in agents")
+            errors.append(f"Default routing target '{default_target}' not found in agents. "
+                        f"Available agents: {', '.join(agents.keys())}")
         
-        # Warn about unreachable agents
+        # Warn about unreachable agents (but not an error)
         if agents and routing.get('rules'):
             agents_with_incoming = set()
             for rule in routing['rules']:
                 to_agent = rule.get('to')
-                if to_agent and to_agent != '*':
+                if to_agent and to_agent != '*' and not to_agent.startswith('!'):
                     agents_with_incoming.add(to_agent)
             
             # Add default target to reachable agents
@@ -369,7 +399,7 @@ class OrchestrationModule:
         await self._send_initial_messages(instance)
     
     async def _send_initial_messages(self, instance: OrchestrationInstance):
-        """Send initial messages to agents that have initial_message defined."""
+        """Send initial messages to agents that have initial_message defined or initial_prompt in vars."""
         if not event_emitter:
             return
         
@@ -408,6 +438,32 @@ class OrchestrationModule:
                         
                 except Exception as e:
                     logger.error(f"Failed to send initial message to {agent_id}: {e}")
+            
+            # Also check for initial_prompt in vars
+            agent_vars = agent_config.get('vars', {})
+            initial_prompt = agent_vars.get('initial_prompt')
+            if initial_prompt:
+                try:
+                    # Substitute variables in the prompt
+                    # Combine instance vars with agent-specific vars
+                    all_vars = {**instance.vars, **agent_vars}
+                    
+                    # Simple variable substitution for {{var}} patterns
+                    prompt_content = initial_prompt
+                    for var_name, var_value in all_vars.items():
+                        prompt_content = prompt_content.replace(f"{{{{{var_name}}}}}", str(var_value))
+                    
+                    # Send the initial prompt as a user message
+                    await event_emitter("agent:send_message", {
+                        "agent_id": agent_id,
+                        "message": {
+                            "role": "user",
+                            "content": prompt_content
+                        }
+                    })
+                    logger.info(f"Sent initial prompt to {agent_id}")
+                except Exception as e:
+                    logger.error(f"Failed to send initial prompt to {agent_id}: {e}")
     
     async def route_message(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Route a message according to orchestration rules."""
