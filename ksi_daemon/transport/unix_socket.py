@@ -20,8 +20,7 @@ from ksi_common.logging import get_bound_logger
 logger = get_bound_logger("unix_socket_transport", version="2.0.0")
 server = None
 event_emitter: Optional[Callable] = None
-client_connections = {}
-client_subscriptions = {}  # client_id -> set of event patterns they're subscribed to
+client_connections = {}  # Keep for transport layer connection tracking
 transport_instance = None
 
 # Module info
@@ -30,6 +29,8 @@ MODULE_INFO = {
     "version": "2.0.0",
     "description": "Unix domain socket transport layer"
 }
+
+
 
 
 class UnixSocketTransport:
@@ -44,7 +45,7 @@ class UnixSocketTransport:
         """Set the event emitter function."""
         global event_emitter
         event_emitter = emitter
-        logger.info("Event emitter configured")
+        logger.info("Event emitter configured for transport")
     
     async def start(self):
         """Start the Unix socket server."""
@@ -108,6 +109,16 @@ async def handle_client(reader, writer):
                 await send_response(writer, {"error": f"Invalid JSON: {e}"})
                 continue
             
+            # Check for monitor:subscribe to register with monitor module
+            if message.get("event") == "monitor:subscribe":
+                data = message.get("data", {})
+                str_client_id = data.get("client_id")
+                if str_client_id:
+                    # Register client writer with monitor module
+                    from ksi_daemon.core import monitor
+                    monitor.register_client_writer(str_client_id, writer)
+                    logger.debug(f"Registered client {str_client_id} with monitor module")
+            
             # Handle the message
             response = await handle_message(message)
             
@@ -123,11 +134,17 @@ async def handle_client(reader, writer):
     except Exception as e:
         logger.error(f"Error handling client: {e}", exc_info=True)
     finally:
-        # Clean up
+        # Clean up transport connection
         del client_connections[client_id]
-        # Clean up subscriptions
-        if client_id in client_subscriptions:
-            del client_subscriptions[client_id]
+        
+        # Unregister from monitor module
+        from ksi_daemon.core import monitor
+        # Find any client IDs that map to this writer and unregister them
+        for str_client_id in list(monitor.client_writers.keys()):
+            if monitor.client_writers[str_client_id] == writer:
+                monitor.unregister_client_writer(str_client_id)
+                logger.debug(f"Unregistered client {str_client_id} from monitor module")
+        
         writer.close()
         await writer.wait_closed()
         logger.debug(f"Client disconnected: {client_addr}")
@@ -332,39 +349,6 @@ async def handle_create_transport(data: TransportCreateData) -> Optional[UnixSoc
     return UnixSocketTransport(socket_path)
 
 
-# Broadcast handler for certain events
-class CompletionBroadcastData(TypedDict):
-    """Completion event data for broadcasting."""
-    request_id: NotRequired[str]  # Request ID
-    correlation_id: NotRequired[str]  # Correlation ID for tracking
-    timestamp: NotRequired[str]  # Event timestamp
-    # Additional fields vary by event type
-
-
-@event_handler("completion:result")
-@event_handler("completion:progress")
-@event_handler("completion:error")
-@event_handler("completion:cancelled")
-async def handle_broadcastable_event(data: CompletionBroadcastData) -> None:
-    """Broadcast certain events to all connected clients."""
-    # Get event name from router context if available
-    router = get_router()
-    event_name = "completion:result"  # Default, will be overridden by context
-    
-    # Create event message to broadcast
-    event_message = {
-        "event": event_name,
-        "data": data,
-        "timestamp": data.get("timestamp", "")
-    }
-    
-    # Add correlation_id if present
-    correlation_id = data.get("correlation_id")
-    if correlation_id:
-        event_message["correlation_id"] = correlation_id
-    
-    # Broadcast to all connected clients
-    await broadcast_event(event_message)
 
 
 class SystemShutdownData(TypedDict):
@@ -403,7 +387,12 @@ async def handle_shutdown(data: SystemShutdownData) -> Dict[str, Any]:
 
 @event_handler("system:shutdown_complete")
 async def handle_shutdown_complete(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Send final shutdown_complete event to clients and close socket."""
+    """Send final shutdown_complete event to clients and close socket.
+    
+    NOTE: This manual broadcast is intentional - the event system has completed 
+    its shutdown sequence and this transport layer delivers the final notification
+    to clients (like daemon_control.py) before closing the socket.
+    """
     global transport_instance, client_connections
     
     # Send shutdown_complete notification to all remaining connected clients

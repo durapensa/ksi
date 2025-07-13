@@ -178,6 +178,7 @@ Essential utilities available throughout the codebase:
 - **json_utils.py**: Safe JSON operations with error handling
 - **logging_utils.py**: Structured logging configuration
 - **time_utils.py**: Timestamp formatting and parsing
+- **timestamps.py**: Standard timestamp utilities (numeric_to_iso, parse_iso_timestamp)
 
 ## Orchestration Patterns
 
@@ -352,6 +353,25 @@ ksi send orchestration:start --pattern simple_echo_test --vars '{"num_messages":
 # Use --health flag for verbose output with connection status
 ksi --health discover              # Shows daemon health and discovery results
 ```
+
+## WebSocket Bridge & Visualization
+
+Real-time KSI system visualization:
+```bash
+# Terminal 1: Start daemon
+./daemon_control.py start
+
+# Terminal 2: WebSocket bridge
+python websocket_bridge.py
+
+# Terminal 3: Web UI
+cd ksi_web_ui && python -m http.server 8080
+```
+
+Then open http://localhost:8080 to see:
+- **Agent Ecosystem**: Real-time agent nodes and relationships
+- **State System**: Graph database entities
+- **Event Stream**: All KSI events with timestamps
 
 ## Available Tools
 Task, Bash, Glob, Grep, LS, Read, Edit, MultiEdit, Write, WebFetch, WebSearch

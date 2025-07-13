@@ -8,6 +8,12 @@ DEFAULT_SOCKET_PATH = "var/run/daemon.sock"
 DEFAULT_SOCKET_TIMEOUT = 5.0
 DEFAULT_SOCKET_BUFFER_SIZE = 65536
 
+# WebSocket Bridge configuration
+DEFAULT_WEBSOCKET_HOST = "localhost"
+DEFAULT_WEBSOCKET_PORT = 8765
+# Default CORS origins for ksi_web_ui development
+DEFAULT_WEBSOCKET_CORS_ORIGINS = ["http://localhost:8080", "http://localhost:3000", "file://"]
+
 # Timeout defaults
 DEFAULT_COMPLETION_TIMEOUT = 300.0  # 5 minutes for completions
 DEFAULT_REQUEST_TIMEOUT = 30.0      # 30 seconds for normal requests

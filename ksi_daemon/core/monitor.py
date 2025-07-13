@@ -11,6 +11,8 @@ from typing import Dict, Any, List, Optional, TypedDict, Union
 from typing_extensions import NotRequired, Required
 import json
 import asyncio
+import fnmatch
+import time
 
 from ksi_daemon.event_system import event_handler
 from ksi_common.logging import get_bound_logger
@@ -18,6 +20,82 @@ from ksi_common.logging import get_bound_logger
 # Module state
 logger = get_bound_logger("monitor", version="1.0.0")
 event_router = None  # Set during startup
+
+# Subscription management (moved from unix_socket transport)
+client_subscriptions = {}  # client_id -> set of event patterns
+client_writers = {}  # client_id -> writer mapping for broadcasting
+
+
+async def broadcast_to_subscribed_clients(event_name: str, data: Any):
+    """Broadcast event to clients that have subscribed to matching patterns."""
+    logger.debug(f"broadcast_to_subscribed_clients called with event: {event_name}, subscriptions: {len(client_subscriptions)}")
+    
+    if not client_subscriptions:
+        logger.debug("No client subscriptions, skipping broadcast")
+        return
+    
+    # Skip internal transport events to avoid loops
+    if event_name.startswith('transport:') or event_name == 'monitor:subscribe':
+        logger.debug(f"Skipping internal event: {event_name}")
+        return
+    
+    # Build event message in KSI format
+    event_message = {
+        "event_name": event_name,
+        "data": data,
+        "timestamp": time.time()
+    }
+    
+    # Send to clients with matching subscription patterns
+    disconnect_clients = []
+    for str_client_id, patterns in client_subscriptions.items():
+        if patterns:
+            # Check if any of this client's patterns match the event
+            matches = any(
+                pattern == "*" or fnmatch.fnmatch(event_name, pattern) 
+                for pattern in patterns
+            )
+            if matches:
+                # Find the writer for this client
+                writer = client_writers.get(str_client_id)
+                if writer:
+                    try:
+                        message_str = json.dumps(event_message) + '\n'
+                        writer.write(message_str.encode())
+                        await writer.drain()
+                        logger.debug(f"Broadcasted {event_name} to client {str_client_id} (matched patterns: {patterns})")
+                    except Exception as e:
+                        logger.warning(f"Failed to broadcast to client {str_client_id}: {e}")
+                        disconnect_clients.append(str_client_id)
+                else:
+                    logger.debug(f"No writer found for subscribed client {str_client_id}")
+            else:
+                logger.debug(f"Event {event_name} doesn't match client {str_client_id} patterns: {patterns}")
+        else:
+            logger.debug(f"Client {str_client_id} has no subscription patterns")
+    
+    # Clean up disconnected clients
+    for str_client_id in disconnect_clients:
+        if str_client_id in client_subscriptions:
+            del client_subscriptions[str_client_id]
+        if str_client_id in client_writers:
+            del client_writers[str_client_id]
+
+
+def register_client_writer(client_id: str, writer: Any):
+    """Register a client writer for broadcasting."""
+    client_writers[client_id] = writer
+    logger.debug(f"Registered writer for client {client_id}")
+
+
+def unregister_client_writer(client_id: str):
+    """Unregister a client writer."""
+    if client_id in client_writers:
+        del client_writers[client_id]
+    if client_id in client_subscriptions:
+        del client_subscriptions[client_id]
+    logger.debug(f"Unregistered writer for client {client_id}")
+
 
 # Module info
 MODULE_INFO = {
@@ -249,9 +327,29 @@ async def handle_subscribe(data: MonitorSubscribeData) -> Dict[str, Any]:
     Returns:
         Subscription confirmation
     """
+    # Get client_id from data
+    client_id = data.get("client_id") or data.get("originator_id")
+    if not client_id:
+        return {"error": "client_id required"}
+    
+    event_patterns = data.get("event_patterns", ["*"])
+    
+    # Import unix_socket module to access subscriptions
+    from ksi_daemon.transport import unix_socket
+    
+    # Store subscription patterns in monitor module
+    if client_id not in client_subscriptions:
+        client_subscriptions[client_id] = set()
+    
+    client_subscriptions[client_id].update(event_patterns)
+    
+    logger.info(f"Client {client_id} subscribed to patterns: {event_patterns}")
+    logger.debug(f"Total subscriptions now: {dict(client_subscriptions)}")
+    
     return {
-        "error": "Real-time subscription not yet implemented for reference event log",
-        "message": "Use polling with monitor:get_events or implement file tailing"
+        "status": "subscribed",
+        "client_id": client_id,
+        "patterns": list(client_subscriptions[client_id])
     }
 
 
@@ -447,5 +545,33 @@ class SystemShutdownData(TypedDict):
 async def handle_shutdown(data: SystemShutdownData) -> None:
     """Clean up on shutdown."""
     logger.info("Monitor module shutting down")
+
+
+# Universal event handler for broadcasting (moved from unix_socket)
+from typing_extensions import Any as AnyData
+
+@event_handler("*")  # Match ALL events
+async def handle_universal_broadcast(data: AnyData, context: Optional[Dict[str, Any]] = None) -> None:
+    """Universal event handler that broadcasts all events to subscribed clients.
+    
+    This is the proper place for broadcasting logic - in the monitor module,
+    not in the transport layer.
+    """
+    logger.debug(f"Universal event handler called with context: {context}")
+    
+    if not context:
+        logger.debug("No context provided to universal event handler")
+        return
+        
+    # Get the event name from context
+    event_name = context.get("event")
+    if not event_name:
+        logger.debug("No event name in context")
+        return
+    
+    logger.debug(f"Universal event handler processing event: {event_name}")
+    
+    # Broadcast to clients with matching subscription patterns
+    await broadcast_to_subscribed_clients(event_name, data)
 
 

@@ -11,7 +11,9 @@ import asyncio
 import json
 import time
 import uuid
+import fnmatch
 from typing import Any, Dict, TypedDict, List, Literal
+from datetime import datetime, timezone
 import aiofiles
 
 from typing_extensions import NotRequired, Required
@@ -109,9 +111,15 @@ class AgentSpawnData(TypedDict):
 
 
 class AgentTerminateData(TypedDict):
-    """Terminate an agent."""
-    agent_id: Required[str]  # Agent ID to terminate
+    """Terminate agents - supports both single and bulk operations."""
+    agent_id: NotRequired[str]  # Single agent ID to terminate
+    agent_ids: NotRequired[List[str]]  # Multiple agent IDs to terminate
+    pattern: NotRequired[str]  # Terminate agents matching pattern (e.g., "test_*")
+    older_than_hours: NotRequired[float]  # Terminate agents older than X hours
+    profile: NotRequired[str]  # Terminate agents with specific profile
+    all: NotRequired[bool]  # Terminate all agents (use with caution)
     force: NotRequired[bool]  # Force termination
+    dry_run: NotRequired[bool]  # Show what would be terminated without doing it
 
 
 class AgentRestartData(TypedDict):
@@ -887,12 +895,114 @@ Please proceed as a basic autonomous agent with full autonomy to execute tasks a
 
 @event_handler("agent:terminate")
 async def handle_terminate_agent(data: AgentTerminateData) -> Dict[str, Any]:
-    """Terminate an agent thread."""
-    agent_id = data.get("agent_id")
+    """Terminate agents - supports both single and bulk operations."""
     
-    if not agent_id:
-        return {"error": "agent_id required"}
+    # Determine which agents to terminate
+    target_agent_ids = await _resolve_target_agents(data)
     
+    if not target_agent_ids:
+        return {"error": "No agents found matching criteria"}
+    
+    dry_run = data.get("dry_run", False)
+    force = data.get("force", False)
+    
+    if dry_run:
+        return {
+            "dry_run": True,
+            "agents_to_terminate": target_agent_ids,
+            "count": len(target_agent_ids)
+        }
+    
+    # Terminate each agent
+    terminated_agents = []
+    failed_agents = []
+    
+    for agent_id in target_agent_ids:
+        try:
+            result = await _terminate_single_agent(agent_id, force)
+            if result["status"] == "terminated":
+                terminated_agents.append(agent_id)
+            else:
+                failed_agents.append({"agent_id": agent_id, "error": result.get("error")})
+        except Exception as e:
+            logger.error(f"Failed to terminate agent {agent_id}: {e}")
+            failed_agents.append({"agent_id": agent_id, "error": str(e)})
+    
+    logger.info(f"Bulk termination complete: {len(terminated_agents)} terminated, {len(failed_agents)} failed")
+    
+    # Return single agent format for backward compatibility
+    if len(target_agent_ids) == 1 and not data.get("agent_ids") and not data.get("pattern") and not data.get("older_than_hours") and not data.get("profile") and not data.get("all"):
+        if terminated_agents:
+            return {"agent_id": terminated_agents[0], "status": "terminated"}
+        elif failed_agents:
+            return failed_agents[0]
+    
+    # Return bulk format
+    return {
+        "terminated": terminated_agents,
+        "failed": failed_agents,
+        "count_terminated": len(terminated_agents),
+        "count_failed": len(failed_agents)
+    }
+
+
+async def _resolve_target_agents(data: AgentTerminateData) -> List[str]:
+    """Resolve which agents to terminate based on criteria."""
+    target_agent_ids = []
+    
+    # Single agent
+    if "agent_id" in data:
+        agent_id = data["agent_id"]
+        if agent_id in agents:
+            target_agent_ids.append(agent_id)
+    
+    # Multiple agents
+    if "agent_ids" in data:
+        for agent_id in data["agent_ids"]:
+            if agent_id in agents:
+                target_agent_ids.append(agent_id)
+    
+    # Pattern matching
+    if "pattern" in data:
+        pattern = data["pattern"]
+        for agent_id in agents:
+            if fnmatch.fnmatch(agent_id, pattern):
+                target_agent_ids.append(agent_id)
+    
+    # Age-based termination
+    if "older_than_hours" in data:
+        hours = float(data["older_than_hours"])  # Ensure it's a float
+        cutoff_time = time.time() - (hours * 3600)
+        
+        for agent_id, agent_info in agents.items():
+            created_at_str = agent_info.get("created_at")
+            if created_at_str:
+                try:
+                    # Parse ISO timestamp
+                    created_at = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+                    created_timestamp = created_at.timestamp()
+                    if created_timestamp < cutoff_time:
+                        target_agent_ids.append(agent_id)
+                except Exception as e:
+                    logger.warning(f"Failed to parse timestamp for agent {agent_id}: {e}")
+    
+    # Profile-based termination
+    if "profile" in data:
+        target_profile = data["profile"]
+        for agent_id, agent_info in agents.items():
+            if agent_info.get("profile") == target_profile:
+                target_agent_ids.append(agent_id)
+    
+    # All agents (dangerous!)
+    if data.get("all"):
+        target_agent_ids.extend(list(agents.keys()))
+    
+    # Remove duplicates while preserving order
+    return list(dict.fromkeys(target_agent_ids))
+
+
+async def _terminate_single_agent(agent_id: str, force: bool = False) -> Dict[str, Any]:
+    """Terminate a single agent."""
     if agent_id not in agents:
         return {"error": f"Agent {agent_id} not found"}
     
@@ -912,7 +1022,7 @@ async def handle_terminate_agent(data: AgentTerminateData) -> Dict[str, Any]:
         # Remove sandbox
         await event_emitter("sandbox:remove", {
             "agent_id": agent_id,
-            "force": data.get("force", False)
+            "force": force
         })
         
         # Remove permissions
@@ -956,7 +1066,7 @@ async def handle_terminate_agent(data: AgentTerminateData) -> Dict[str, Any]:
     # Remove from active agents
     del agents[agent_id]
     
-    logger.info(f"Terminated agent {agent_id}")
+    logger.debug(f"Terminated agent {agent_id}")
     
     return {
         "agent_id": agent_id,

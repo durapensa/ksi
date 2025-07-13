@@ -7,10 +7,14 @@ Modules auto-register their handlers at import time via decorators.
 """
 
 import asyncio
+import shutil
+from datetime import datetime
+from pathlib import Path
 from typing import Dict, Any, Optional, TypedDict
 from typing_extensions import NotRequired, Required
 
 from ksi_common.logging import get_bound_logger
+from ksi_common.config import config
 from .event_system import EventRouter, get_router
 from ksi_daemon.core.reference_event_log import ReferenceEventLog
 
@@ -221,11 +225,39 @@ class EventDaemonCore:
             
             # Reference event log is file-based and doesn't need explicit cleanup
             
+            # Rotate daemon log on shutdown for cleaner log management
+            await self._rotate_daemon_log()
+            
             self.running = False
             logger.info("Daemon core shutdown complete")
             
         except Exception as e:
             logger.error(f"Error during shutdown: {e}", exc_info=True)
+    
+    async def _rotate_daemon_log(self):
+        """Rotate the daemon log file on shutdown."""
+        try:
+            # Get current daemon log path
+            daemon_log_path = Path(config.daemon_log_dir) / "daemon.log"
+            
+            if not daemon_log_path.exists():
+                logger.debug("No daemon.log file to rotate")
+                return
+            
+            # Create timestamp for rotated log
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            rotated_log_path = daemon_log_path.parent / f"daemon_{timestamp}.log"
+            
+            # Copy the current log to the rotated name
+            shutil.copy2(daemon_log_path, rotated_log_path)
+            
+            logger.info(f"Rotated daemon log to {rotated_log_path}")
+            
+            # Note: We don't truncate the original log here because the logging system
+            # may still write to it during shutdown. The next startup will create a fresh log.
+            
+        except Exception as e:
+            logger.error(f"Failed to rotate daemon log: {e}")
     
     # Discovery/Introspection API
     
@@ -399,3 +431,81 @@ async def handle_system_health(data: SystemHealthData) -> Dict[str, Any]:
         "background_tasks": len(router._tasks),
         "modules": list(modules.keys())
     }
+
+
+class ConfigChangedData(TypedDict):
+    """Configuration change notification."""
+    config_type: Required[str]  # Type of config changed
+    file_path: Required[str]  # Path to config file
+    key: Required[str]  # Configuration key that changed
+    value: Required[Any]  # New value
+
+
+@event_handler("config:changed")
+async def handle_config_changed(data: ConfigChangedData) -> None:
+    """Handle configuration changes by applying them immediately.
+    
+    This eliminates the need for config:reload - changes apply immediately.
+    """
+    config_type = data.get("config_type")
+    key = data.get("key")
+    value = data.get("value")
+    
+    logger.info(f"Configuration changed: {config_type}.{key} = {value}")
+    
+    # Handle specific configuration changes that need immediate application
+    if config_type == "daemon":
+        if key == "debug_logging":
+            # Apply debug logging change immediately
+            await _apply_debug_logging_change(value)
+        elif key.startswith("log_level"):
+            # Apply log level changes immediately
+            await _apply_log_level_change(key, value)
+        # Add more immediate config applications as needed
+    
+    logger.debug(f"Applied configuration change: {key} = {value}")
+
+
+async def _apply_debug_logging_change(debug_enabled: bool):
+    """Apply debug logging configuration change immediately."""
+    try:
+        import logging
+        
+        # Update the root logger level based on debug setting
+        root_logger = logging.getLogger()
+        
+        if debug_enabled:
+            root_logger.setLevel(logging.DEBUG)
+            logger.info("Debug logging enabled immediately")
+        else:
+            root_logger.setLevel(logging.INFO)
+            logger.info("Debug logging disabled immediately")
+            
+    except Exception as e:
+        logger.error(f"Failed to apply debug logging change: {e}")
+
+
+async def _apply_log_level_change(key: str, level: str):
+    """Apply log level configuration change immediately."""
+    try:
+        import logging
+        
+        # Convert string level to logging constant
+        level_map = {
+            "DEBUG": logging.DEBUG,
+            "INFO": logging.INFO, 
+            "WARNING": logging.WARNING,
+            "ERROR": logging.ERROR,
+            "CRITICAL": logging.CRITICAL
+        }
+        
+        log_level = level_map.get(level.upper())
+        if log_level:
+            root_logger = logging.getLogger()
+            root_logger.setLevel(log_level)
+            logger.info(f"Log level changed to {level} immediately")
+        else:
+            logger.warning(f"Unknown log level: {level}")
+            
+    except Exception as e:
+        logger.error(f"Failed to apply log level change: {e}")

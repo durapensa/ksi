@@ -15,6 +15,11 @@ Environment Variables:
     KSI_DEBUG - Enable debug mode (default: false)
     KSI_ERROR_VERBOSITY - Error message verbosity level: minimal, medium, verbose (default: medium)
     
+    WebSocket Bridge Configuration:
+    KSI_WEBSOCKET_BRIDGE_HOST - WebSocket host (default: localhost)
+    KSI_WEBSOCKET_BRIDGE_PORT - WebSocket port (default: 8765)
+    KSI_WEBSOCKET_BRIDGE_CORS_ORIGINS - Comma-separated CORS origins (default: http://localhost:8080,http://localhost:3000,file://)
+    
     Event Log Configuration:
     KSI_EVENT_LOG_DIR - Event log directory (default: var/logs/events)
     KSI_EVENT_REFERENCE_THRESHOLD - Size threshold for payload references in bytes (default: 5120)
@@ -41,8 +46,10 @@ Example:
 """
 
 from pydantic_settings import BaseSettings
+from pydantic import field_validator, Field
 from pathlib import Path
-from typing import Optional, Literal, List, Dict
+from typing import Optional, Literal, List, Dict, Any, Union
+import json
 # Note: Removed stdlib logging import - using pure structlog
 
 from .paths import KSIPaths
@@ -62,6 +69,9 @@ from .constants import (
     DEFAULT_SOCKET_TIMEOUT,
     DEFAULT_LOG_LEVEL,
     DEFAULT_PID_FILE,
+    DEFAULT_WEBSOCKET_HOST,
+    DEFAULT_WEBSOCKET_PORT,
+    DEFAULT_WEBSOCKET_CORS_ORIGINS,
 )
 
 
@@ -144,6 +154,26 @@ class KSIBaseConfig(BaseSettings):
     
     # Network settings
     socket_timeout: float = DEFAULT_SOCKET_TIMEOUT
+    
+    # WebSocket Bridge Configuration
+    websocket_bridge_host: str = DEFAULT_WEBSOCKET_HOST
+    websocket_bridge_port: int = DEFAULT_WEBSOCKET_PORT
+    websocket_bridge_cors_origins: Union[str, List[str]] = Field(
+        default=DEFAULT_WEBSOCKET_CORS_ORIGINS,
+        description="Comma-separated CORS origins or JSON array"
+    )
+    
+    @field_validator('websocket_bridge_cors_origins', mode='after')
+    @classmethod
+    def parse_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
+        """Parse CORS origins from comma-separated string or list."""
+        if isinstance(v, str):
+            # Parse comma-separated string
+            return [origin.strip() for origin in v.split(',') if origin.strip()]
+        elif isinstance(v, list):
+            return v
+        else:
+            return DEFAULT_WEBSOCKET_CORS_ORIGINS
     
     # Debug mode
     debug: bool = False

@@ -173,13 +173,17 @@ def run_as_daemon():
         try:
             # Run the async daemon
             asyncio.run(daemon_wrapper())
+            # If we get here, shutdown completed successfully
+            daemon_logger.info("KSI daemon stopped successfully")
+            sys.exit(0)
         except KeyboardInterrupt:
             daemon_logger.info("Daemon interrupted")
+            sys.exit(0)
         except Exception as e:
             daemon_logger.error(f"Daemon failed: {e}", exc_info=True)
             sys.exit(1)
         finally:
-            daemon_logger.info("KSI daemon stopped")
+            daemon_logger.info("KSI daemon process terminating")
 
 def run_in_foreground():
     """Run KSI daemon in foreground (development mode)"""
@@ -207,8 +211,11 @@ def run_in_foreground():
             await daemon_instance.shutdown()
         
         asyncio.run(run_daemon())
+        logger.info("Daemon stopped successfully")
+        sys.exit(0)
     except KeyboardInterrupt:
         logger.info("Daemon interrupted by user")
+        sys.exit(0)
     except Exception as e:
         logger.error(f"Daemon error: {e}", exc_info=True)
         sys.exit(1)
