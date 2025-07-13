@@ -1,0 +1,33 @@
+name: crystallization_test
+type: orchestration
+version: 1.0.0
+description: 'Orchestration pattern that discovers and crystallizes new strategies.
+
+  Demonstrates the pattern evolution through high-confidence discoveries.
+
+  '
+author: test_system
+mixins: []
+components: []
+variables:
+  scenario: optimization
+  target: performance
+  confidence_threshold: 0.85
+metadata:
+  tags:
+  - discovery
+  - crystallization
+  - evolution
+  capabilities_required:
+  - composition:track_decision
+  - composition:fork
+  decision_stats:
+    total_decisions: 1
+    common_adaptations:
+      discovered_async_optimization: 1
+  forks:
+  - name: async_optimization_pattern
+    date: '2025-07-13T02:02:11.162428Z'
+    reason: Crystallizing discovered parallel async execution strategy with 2.3x performance
+      gain
+    author: unknown
