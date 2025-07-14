@@ -27,6 +27,8 @@ from ksi_daemon.event_system import event_handler, shutdown_handler, get_router
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc, numeric_to_iso
+from ksi_common.event_parser import extract_system_handler_data
+from ksi_common.event_response_builder import event_response_builder, success_response, error_response, list_response
 
 
 logger = get_bound_logger("graph_state", version="2.0.0")
@@ -271,8 +273,8 @@ class GraphStateManager:
                 ) as cursor:
                     async for rel_row in cursor:
                         rel = {
-                            "to": rel_row['to_id'],
-                            "type": rel_row['relation_type'],
+                            "to_id": rel_row['to_id'],
+                            "relation_type": rel_row['relation_type'],
                             "created_at": rel_row['created_at'],
                             "created_at_iso": numeric_to_iso(rel_row['created_at'])
                         }
@@ -287,8 +289,8 @@ class GraphStateManager:
                 ) as cursor:
                     async for rel_row in cursor:
                         rel = {
-                            "from": rel_row['from_id'],
-                            "type": rel_row['relation_type'],
+                            "from_id": rel_row['from_id'],
+                            "relation_type": rel_row['relation_type'],
                             "created_at": rel_row['created_at'],
                             "created_at_iso": numeric_to_iso(rel_row['created_at'])
                         }
@@ -423,9 +425,9 @@ class GraphStateManager:
                 results = []
                 async for row in cursor:
                     rel = {
-                        "from": row['from_id'],
-                        "to": row['to_id'],
-                        "type": row['relation_type'],
+                        "from_id": row['from_id'],
+                        "to_id": row['to_id'],
+                        "relation_type": row['relation_type'],
                         "created_at": row['created_at'],
                         "created_at_iso": numeric_to_iso(row['created_at'])
                     }
@@ -459,7 +461,7 @@ def initialize_state() -> GraphStateManager:
 # Event Handlers - Clean graph database API
 
 @event_handler("system:context")
-async def handle_context(context: Dict[str, Any]) -> None:
+async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Receive infrastructure context."""
     if state_manager:
         logger.info("Graph state manager connected to event system")
@@ -475,44 +477,39 @@ class EntityCreateData(TypedDict):
 
 
 @event_handler("state:entity:create")
-async def handle_entity_create(data: EntityCreateData) -> Dict[str, Any]:
-    """
-    Create a new entity.
-    
-    Args:
-        id (str): Entity ID (optional, will generate if not provided)
-        type (str): Entity type (required)
-        properties (dict): Initial properties (optional)
-    
-    Returns:
-        The created entity
-    
-    Example:
-        {
-            "type": "agent",
-            "id": "agent_123",  # Optional
-            "properties": {
-                "status": "active",
-                "model": "sonnet"
-            }
-        }
-    """
+async def handle_entity_create(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Create a new entity."""
     if not state_manager:
-        return {"error": "State infrastructure not available"}
+        return error_response(
+            "State infrastructure not available",
+            context=context
+        )
     
-    entity_type = data.get("type")
+    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    
+    entity_type = clean_data.get("type")
     if not entity_type:
-        return {"error": "Entity type is required"}
+        return error_response(
+            "Entity type is required",
+            context=context
+        )
     
-    entity_id = data.get("id") or f"{entity_type}_{uuid.uuid4().hex[:8]}"
-    properties = data.get("properties", {})
+    entity_id = clean_data.get("id") or f"{entity_type}_{uuid.uuid4().hex[:8]}"
+    properties = clean_data.get("properties", {})
     
     try:
         entity = await state_manager.create_entity(entity_id, entity_type, properties)
-        return entity
+        return event_response_builder(
+            entity,
+            context=context
+        )
     except Exception as e:
         logger.error(f"Error creating entity: {e}")
-        return {"error": str(e)}
+        return error_response(
+            str(e),
+            context=context
+        )
 
 
 class EntityUpdateData(TypedDict):
@@ -522,41 +519,40 @@ class EntityUpdateData(TypedDict):
 
 
 @event_handler("state:entity:update")
-async def handle_entity_update(data: EntityUpdateData) -> Dict[str, Any]:
-    """
-    Update entity properties.
-    
-    Args:
-        id (str): Entity ID (required)
-        properties (dict): Properties to update (set to None to delete)
-    
-    Returns:
-        Success status
-    
-    Example:
-        {
-            "id": "agent_123",
-            "properties": {
-                "status": "terminated",
-                "old_property": None  # This deletes the property
-            }
-        }
-    """
+async def handle_entity_update(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Update entity properties."""
     if not state_manager:
-        return {"error": "State infrastructure not available"}
+        return error_response(
+            "State infrastructure not available",
+            context=context
+        )
     
-    entity_id = data.get("id")
+    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    
+    entity_id = clean_data.get("id")
     if not entity_id:
-        return {"error": "Entity ID is required"}
+        return error_response(
+            "Entity ID is required",
+            context=context
+        )
     
-    properties = data.get("properties", {})
+    properties = clean_data.get("properties", {})
     
     try:
         success = await state_manager.update_entity(entity_id, properties)
         if success:
-            return {"status": "updated", "id": entity_id}
+            return success_response(
+                {"id": entity_id},
+                context=context,
+                message="Entity updated successfully"
+            )
         else:
-            return {"error": "Entity not found", "id": entity_id}
+            return error_response(
+                "Entity not found",
+                context=context,
+                details={"id": entity_id}
+            )
     except Exception as e:
         logger.error(f"Error updating entity: {e}")
         return {"error": str(e)}
@@ -568,32 +564,44 @@ class EntityDeleteData(TypedDict):
 
 
 @event_handler("state:entity:delete")
-async def handle_entity_delete(data: EntityDeleteData) -> Dict[str, Any]:
-    """
-    Delete an entity.
-    
-    Args:
-        id (str): Entity ID (required)
-    
-    Returns:
-        Success status
-    """
+async def handle_entity_delete(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Delete an entity."""
     if not state_manager:
-        return {"error": "State infrastructure not available"}
+        return error_response(
+            "State infrastructure not available",
+            context=context
+        )
     
-    entity_id = data.get("id")
+    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    
+    entity_id = clean_data.get("id")
     if not entity_id:
-        return {"error": "Entity ID is required"}
+        return error_response(
+            "Entity ID is required",
+            context=context
+        )
     
     try:
         success = await state_manager.delete_entity(entity_id)
         if success:
-            return {"status": "deleted", "id": entity_id}
+            return success_response(
+                {"id": entity_id},
+                context=context,
+                message="Entity deleted successfully"
+            )
         else:
-            return {"error": "Entity not found", "id": entity_id}
+            return error_response(
+                "Entity not found",
+                context=context,
+                details={"id": entity_id}
+            )
     except Exception as e:
         logger.error(f"Error deleting entity: {e}")
-        return {"error": str(e)}
+        return error_response(
+            str(e),
+            context=context
+        )
 
 
 class EntityGetData(TypedDict):
@@ -603,41 +611,45 @@ class EntityGetData(TypedDict):
 
 
 @event_handler("state:entity:get")
-async def handle_entity_get(data: EntityGetData) -> Dict[str, Any]:
-    """
-    Get an entity.
-    
-    Args:
-        id (str): Entity ID (required)
-        include (list): What to include - properties, relationships (default: ['properties'])
-    
-    Returns:
-        The entity or None
-    
-    Example:
-        {
-            "id": "agent_123",
-            "include": ["properties", "relationships"]
-        }
-    """
+async def handle_entity_get(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Get an entity."""
     if not state_manager:
-        return {"error": "State infrastructure not available"}
+        return error_response(
+            "State infrastructure not available",
+            context=context
+        )
     
-    entity_id = data.get("id")
+    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    
+    entity_id = clean_data.get("id")
     if not entity_id:
-        return {"error": "Entity ID is required"}
+        return error_response(
+            "Entity ID is required",
+            context=context
+        )
     
-    include = data.get("include", ["properties"])
+    include = clean_data.get("include", ["properties"])
     
     try:
         entity = await state_manager.get_entity(entity_id, include=include)
         if entity:
-            return entity
+            return event_response_builder(
+                entity,
+                context=context
+            )
         else:
-            return {"error": "Entity not found", "id": entity_id}
+            return error_response(
+                "Entity not found",
+                context=context,
+                details={"id": entity_id}
+            )
     except Exception as e:
         logger.error(f"Error getting entity: {e}")
-        return {"error": str(e)}
+        return error_response(
+            str(e),
+            context=context
+        )
 
 
 class EntityQueryData(TypedDict):
@@ -650,213 +662,221 @@ class EntityQueryData(TypedDict):
 
 
 @event_handler("state:entity:query")
-async def handle_entity_query(data: EntityQueryData) -> Dict[str, Any]:
-    """
-    Query entities.
-    
-    Args:
-        type (str): Filter by entity type (optional)
-        where (dict): Filter by properties (optional)
-        include (list): What to include (default: ['properties'])
-        order_by (str): Order by field (default: created_at DESC)
-        limit (int): Limit results (optional)
-    
-    Returns:
-        List of matching entities
-    
-    Example:
-        {
-            "type": "agent",
-            "where": {"status": "active"},
-            "include": ["properties", "relationships"],
-            "limit": 10
-        }
-    """
+async def handle_entity_query(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Query entities."""
     if not state_manager:
-        return {"error": "State infrastructure not available"}
+        return error_response(
+            "State infrastructure not available",
+            context=context
+        )
+    
+    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
     
     try:
         entities = await state_manager.query_entities(
-            entity_type=data.get("type"),
-            where=data.get("where"),
-            include=data.get("include", ["properties"]),
-            order_by=data.get("order_by"),
-            limit=data.get("limit")
+            entity_type=clean_data.get("type"),
+            where=clean_data.get("where"),
+            include=clean_data.get("include", ["properties"]),
+            order_by=clean_data.get("order_by"),
+            limit=clean_data.get("limit")
         )
-        return {
-            "entities": entities,
-            "count": len(entities)
-        }
+        return list_response(
+            entities,
+            context=context,
+            count_field="count",
+            items_field="entities"
+        )
     except Exception as e:
         logger.error(f"Error querying entities: {e}")
-        return {"error": str(e)}
+        return error_response(
+            str(e),
+            context=context
+        )
 
 
-# Note: Cannot use TypedDict here because 'from' is a Python keyword
+class RelationshipCreateData(TypedDict):
+    """Create a relationship between entities."""
+    from_id: Required[str]  # Source entity ID (required)
+    to_id: Required[str]  # Target entity ID (required) 
+    relation_type: Required[str]  # Relationship type (required)
+    metadata: NotRequired[Dict[str, Any]]  # Additional metadata (optional)
+
+
 @event_handler("state:relationship:create")
-async def handle_relationship_create(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Create a relationship between entities.
-    
-    Args:
-        from (str): Source entity ID (required)
-        to (str): Target entity ID (required)
-        type (str): Relationship type (required)
-        metadata (dict): Additional metadata (optional)
-    
-    Returns:
-        Success status
-    
-    Example:
-        {
-            "from": "originator_1",
-            "to": "construct_1",
-            "type": "spawned",
-            "metadata": {"purpose": "observer"}
-        }
-    """
+async def handle_relationship_create(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Create a relationship between entities."""
     if not state_manager:
-        return {"error": "State infrastructure not available"}
+        return error_response(
+            "State infrastructure not available",
+            context=context
+        )
     
-    from_id = data.get("from")
-    to_id = data.get("to")
-    relation_type = data.get("type")
+    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    
+    from_id = clean_data.get("from_id")
+    to_id = clean_data.get("to_id")
+    relation_type = clean_data.get("relation_type")
     
     if not all([from_id, to_id, relation_type]):
-        return {"error": "from, to, and type are required"}
+        return error_response(
+            "from, to, and type are required",
+            context=context
+        )
     
-    metadata = data.get("metadata")
+    metadata = clean_data.get("metadata")
     
     try:
         success = await state_manager.create_relationship(from_id, to_id, relation_type, metadata)
         if success:
-            return {
-                "status": "created",
-                "from": from_id,
-                "to": to_id,
-                "type": relation_type
-            }
+            return event_response_builder(
+                {
+                    "status": "created",
+                    "from_id": from_id,
+                    "to_id": to_id,
+                    "relation_type": relation_type
+                },
+                context=context
+            )
         else:
-            return {"error": "Failed to create relationship (already exists or entities not found)"}
+            return error_response(
+                "Failed to create relationship (already exists or entities not found)",
+                context=context
+            )
     except Exception as e:
         logger.error(f"Error creating relationship: {e}")
-        return {"error": str(e)}
+        return error_response(
+            str(e),
+            context=context
+        )
 
 
-# Note: Cannot use TypedDict here because 'from' is a Python keyword
+class RelationshipDeleteData(TypedDict):
+    """Delete a relationship."""
+    from_id: Required[str]  # Source entity ID (required)
+    to_id: Required[str]  # Target entity ID (required)
+    relation_type: Required[str]  # Relationship type (required)
+
+
 @event_handler("state:relationship:delete")
-async def handle_relationship_delete(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Delete a relationship.
-    
-    Args:
-        from (str): Source entity ID (required)
-        to (str): Target entity ID (required)
-        type (str): Relationship type (required)
-    
-    Returns:
-        Success status
-    """
+async def handle_relationship_delete(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Delete a relationship."""
     if not state_manager:
-        return {"error": "State infrastructure not available"}
+        return error_response(
+            "State infrastructure not available",
+            context=context
+        )
     
-    from_id = data.get("from")
-    to_id = data.get("to")
-    relation_type = data.get("type")
+    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    
+    from_id = clean_data.get("from_id")
+    to_id = clean_data.get("to_id")
+    relation_type = clean_data.get("relation_type")
     
     if not all([from_id, to_id, relation_type]):
-        return {"error": "from, to, and type are required"}
+        return error_response(
+            "from, to, and type are required",
+            context=context
+        )
     
     try:
         success = await state_manager.delete_relationship(from_id, to_id, relation_type)
         if success:
-            return {
-                "status": "deleted",
-                "from": from_id,
-                "to": to_id,
-                "type": relation_type
-            }
+            return event_response_builder(
+                {
+                    "status": "deleted",
+                    "from_id": from_id,
+                    "to_id": to_id,
+                    "relation_type": relation_type
+                },
+                context=context
+            )
         else:
-            return {"error": "Relationship not found"}
+            return error_response(
+                "Relationship not found",
+                context=context
+            )
     except Exception as e:
         logger.error(f"Error deleting relationship: {e}")
-        return {"error": str(e)}
+        return error_response(
+            str(e),
+            context=context
+        )
 
 
-# Note: Cannot use TypedDict here because 'from' is a Python keyword
+class RelationshipQueryData(TypedDict):
+    """Query relationships."""
+    from_id: NotRequired[str]  # Filter by source entity (optional)
+    to_id: NotRequired[str]  # Filter by target entity (optional)
+    relation_type: NotRequired[str]  # Filter by relationship type (optional)
+
+
 @event_handler("state:relationship:query")
-async def handle_relationship_query(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Query relationships.
-    
-    Args:
-        from (str): Filter by source entity (optional)
-        to (str): Filter by target entity (optional)
-        type (str): Filter by relationship type (optional)
-    
-    Returns:
-        List of matching relationships
-    
-    Example:
-        {
-            "from": "originator_1",
-            "type": "spawned"
-        }
-    """
+async def handle_relationship_query(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Query relationships."""
     if not state_manager:
-        return {"error": "State infrastructure not available"}
+        return error_response(
+            "State infrastructure not available",
+            context=context
+        )
+    
+    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
     
     try:
         relationships = await state_manager.query_relationships(
-            from_id=data.get("from"),
-            to_id=data.get("to"),
-            relation_type=data.get("type")
+            from_id=clean_data.get("from_id"),
+            to_id=clean_data.get("to_id"),
+            relation_type=clean_data.get("relation_type")
         )
-        return {
-            "relationships": relationships,
-            "count": len(relationships)
-        }
+        return list_response(
+            relationships,
+            context=context,
+            count_field="count",
+            items_field="relationships"
+        )
     except Exception as e:
         logger.error(f"Error querying relationships: {e}")
-        return {"error": str(e)}
+        return error_response(
+            str(e),
+            context=context
+        )
 
 
-# Note: Cannot use TypedDict here because 'from' is a Python keyword
+class GraphTraverseData(TypedDict):
+    """Traverse the graph from an entity following relationships."""
+    from_id: Required[str]  # Starting entity ID (required)
+    direction: NotRequired[Literal['outgoing', 'incoming', 'both']]  # Traversal direction (default: 'outgoing')
+    types: NotRequired[List[str]]  # Filter by relationship types (optional)
+    depth: NotRequired[int]  # Maximum traversal depth (default: 1, max: 5)
+    include_entities: NotRequired[bool]  # Include full entity data (default: False)
+
+
 @event_handler("state:graph:traverse")
-async def handle_graph_traverse(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Traverse the graph from an entity following relationships.
-    
-    Args:
-        from (str): Starting entity ID (required)
-        direction (str): "outgoing", "incoming", or "both" (default: "outgoing")
-        types (list): Filter by relationship types (optional)
-        depth (int): Maximum traversal depth (default: 1)
-        include_entities (bool): Include full entity data (default: False)
-    
-    Returns:
-        Graph traversal results with entities and relationships
-    
-    Example:
-        {
-            "from": "originator_1",
-            "direction": "outgoing",
-            "types": ["spawned"],
-            "depth": 2,
-            "include_entities": true
-        }
-    """
+async def handle_graph_traverse(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Traverse the graph from an entity following relationships."""
     if not state_manager:
-        return {"error": "State infrastructure not available"}
+        return error_response(
+            "State infrastructure not available",
+            context=context
+        )
     
-    from_id = data.get("from")
+    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    
+    from_id = clean_data.get("from_id")
     if not from_id:
-        return {"error": "from entity ID is required"}
+        return error_response(
+            "from entity ID is required",
+            context=context
+        )
     
-    direction = data.get("direction", "outgoing")
-    rel_types = data.get("types", [])
-    depth = min(data.get("depth", 1), 5)  # Limit depth to prevent runaway queries
-    include_entities = data.get("include_entities", False)
+    direction = clean_data.get("direction", "outgoing")
+    rel_types = clean_data.get("types", [])
+    depth = min(clean_data.get("depth", 1), 5)  # Limit depth to prevent runaway queries
+    include_entities = clean_data.get("include_entities", False)
     
     try:
         visited = set()
@@ -890,25 +910,31 @@ async def handle_graph_traverse(data: Dict[str, Any]) -> Dict[str, Any]:
                 if direction in ["outgoing", "both"]:
                     rels = await state_manager.query_relationships(from_id=current_id)
                     for rel in rels:
-                        if not rel_types or rel["type"] in rel_types:
+                        if not rel_types or rel["relation_type"] in rel_types:
                             result["edges"].append(rel)
-                            queue.append((rel["to"], current_depth + 1))
+                            queue.append((rel["to_id"], current_depth + 1))
                 
                 if direction in ["incoming", "both"]:
                     rels = await state_manager.query_relationships(to_id=current_id)
                     for rel in rels:
-                        if not rel_types or rel["type"] in rel_types:
+                        if not rel_types or rel["relation_type"] in rel_types:
                             result["edges"].append(rel)
-                            queue.append((rel["from"], current_depth + 1))
+                            queue.append((rel["from_id"], current_depth + 1))
         
         result["node_count"] = len(result["nodes"])
         result["edge_count"] = len(result["edges"])
         
-        return result
+        return event_response_builder(
+            result,
+            context=context
+        )
         
     except Exception as e:
         logger.error(f"Error traversing graph: {e}")
-        return {"error": str(e)}
+        return error_response(
+            str(e),
+            context=context
+        )
 
 
 class EntityBulkCreateData(TypedDict):
@@ -917,30 +943,23 @@ class EntityBulkCreateData(TypedDict):
 
 
 @event_handler("state:entity:bulk_create")
-async def handle_entity_bulk_create(data: EntityBulkCreateData) -> Dict[str, Any]:
-    """
-    Create multiple entities in a single operation.
-    
-    Args:
-        entities (list): List of entity definitions
-    
-    Returns:
-        Results for each entity creation
-    
-    Example:
-        {
-            "entities": [
-                {"type": "agent", "id": "agent_1", "properties": {...}},
-                {"type": "agent", "id": "agent_2", "properties": {...}}
-            ]
-        }
-    """
+async def handle_entity_bulk_create(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Create multiple entities in a single operation."""
     if not state_manager:
-        return {"error": "State infrastructure not available"}
+        return error_response(
+            "State infrastructure not available",
+            context=context
+        )
     
-    entities = data.get("entities", [])
+    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    
+    entities = clean_data.get("entities", [])
     if not entities:
-        return {"error": "entities list is required"}
+        return error_response(
+            "entities list is required",
+            context=context
+        )
     
     results = []
     success_count = 0
@@ -962,12 +981,15 @@ async def handle_entity_bulk_create(data: EntityBulkCreateData) -> Dict[str, Any
         except Exception as e:
             results.append({"error": str(e)})
     
-    return {
-        "results": results,
-        "total": len(entities),
-        "success": success_count,
-        "failed": len(entities) - success_count
-    }
+    return event_response_builder(
+        {
+            "results": results,
+            "total": len(entities),
+            "success": success_count,
+            "failed": len(entities) - success_count
+        },
+        context=context
+    )
 
 
 class AggregateCountData(TypedDict):
@@ -978,34 +1000,26 @@ class AggregateCountData(TypedDict):
 
 
 @event_handler("state:aggregate:count")
-async def handle_aggregate_count(data: AggregateCountData) -> Dict[str, Any]:
-    """
-    Count entities or relationships with grouping.
-    
-    Args:
-        target (str): "entities" or "relationships" (required)
-        group_by (str): Field to group by (optional)
-        where (dict): Filter conditions (optional)
-    
-    Returns:
-        Count results, optionally grouped
-    
-    Example:
-        {
-            "target": "entities",
-            "group_by": "type",
-            "where": {"status": "active"}
-        }
-    """
+async def handle_aggregate_count(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Count entities or relationships with grouping."""
     if not state_manager:
-        return {"error": "State infrastructure not available"}
+        return error_response(
+            "State infrastructure not available",
+            context=context
+        )
     
-    target = data.get("target")
+    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    
+    target = clean_data.get("target")
     if target not in ["entities", "relationships"]:
-        return {"error": "target must be 'entities' or 'relationships'"}
+        return error_response(
+            "target must be 'entities' or 'relationships'",
+            context=context
+        )
     
-    group_by = data.get("group_by")
-    where = data.get("where", {})
+    group_by = clean_data.get("group_by")
+    where = clean_data.get("where", {})
     
     try:
         async with state_manager._get_db() as conn:
@@ -1026,10 +1040,16 @@ async def handle_aggregate_count(data: AggregateCountData) -> Dict[str, Any]:
                         results = {}
                         async for row in cursor:
                             results[row[0]] = row[1]
-                        return {"counts": results, "grouped_by": group_by}
+                        return event_response_builder(
+                            {"counts": results, "grouped_by": group_by},
+                            context=context
+                        )
                     else:
                         row = await cursor.fetchone()
-                        return {"total": row[0]}
+                        return event_response_builder(
+                            {"total": row[0]},
+                            context=context
+                        )
                     
             else:  # relationships
                 if group_by == "type":
@@ -1043,14 +1063,23 @@ async def handle_aggregate_count(data: AggregateCountData) -> Dict[str, Any]:
                         results = {}
                         async for row in cursor:
                             results[row[0]] = row[1]
-                        return {"counts": results, "grouped_by": "relation_type"}
+                        return event_response_builder(
+                            {"counts": results, "grouped_by": "relation_type"},
+                            context=context
+                        )
                     else:
                         row = await cursor.fetchone()
-                        return {"total": row[0]}
+                        return event_response_builder(
+                            {"total": row[0]},
+                            context=context
+                        )
                     
     except Exception as e:
         logger.error(f"Error in aggregate count: {e}")
-        return {"error": str(e)}
+        return error_response(
+            str(e),
+            context=context
+        )
 
 
 @shutdown_handler("state_service")

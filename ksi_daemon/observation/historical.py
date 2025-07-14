@@ -12,6 +12,8 @@ from typing_extensions import NotRequired, Required
 from datetime import datetime, timezone
 
 from ksi_common.logging import get_bound_logger
+from ksi_common.event_parser import event_format_linter
+from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_daemon.event_system import event_handler, get_router
 
 logger = get_bound_logger("observation.historical")
@@ -54,12 +56,16 @@ class ObservationAnalyzeData(TypedDict):
 
 
 @event_handler("system:context")
-async def handle_context(context: SystemContextData) -> None:
+async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Receive system context with event emitter."""
+    data = event_format_linter(raw_data, dict)
+    
     global event_emitter
     router = get_router()
     event_emitter = router.emit
     logger.info("Historical observation service initialized")
+    
+    return event_response_builder({"status": "initialized"}, context)
 
 
 @event_handler("observation:query")

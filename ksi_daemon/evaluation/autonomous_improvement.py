@@ -6,12 +6,15 @@ from dataclasses import dataclass, field
 from datetime import datetime
 import asyncio
 import json
+import yaml
 from pathlib import Path
 
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import utc_now, timestamp_utc, filename_timestamp
 from ksi_common.file_utils import save_yaml_file, load_yaml_file, ensure_directory
+from ksi_common.event_parser import event_format_linter
+from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_daemon.event_system import event_handler
 from ksi_daemon.agent.agent_service import spawn_agent
 from .prompt_iteration import PromptIterationEngine
@@ -367,7 +370,7 @@ Run the evaluation and return scores."""
 
 
 @event_handler("evaluation:autonomous_improve")
-async def handle_autonomous_improve(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_autonomous_improve(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Start autonomous improvement for a test.
     
@@ -378,21 +381,26 @@ async def handle_autonomous_improve(data: Dict[str, Any]) -> Dict[str, Any]:
         human_breakpoints: List of breakpoint conditions
         max_iterations: Override default iteration limit
     """
+    data = event_format_linter(raw_data, dict)
+    
     test_name = data.get('test_name')
     test_file = data.get('test_file')
     composition_name = data.get('composition_name', 'base-single-agent')
     human_breakpoints = data.get('human_breakpoints', [])
     
     if not test_name or not test_file:
-        return {"status": "error", "error": "test_name and test_file required"}
+        return error_response("test_name and test_file required", context)
     
     # Load test configuration
     test_path = Path(test_file)
     if not test_path.is_absolute():
         test_path = config.evaluations_dir / "test_suites" / test_file
     
-    with open(test_path) as f:
-        test_data = yaml.safe_load(f)
+    try:
+        with open(test_path) as f:
+            test_data = yaml.safe_load(f)
+    except Exception as e:
+        return error_response(f"Failed to load test file: {str(e)}", context)
     
     # Find specific test
     test_config = None
@@ -402,22 +410,24 @@ async def handle_autonomous_improve(data: Dict[str, Any]) -> Dict[str, Any]:
             break
     
     if not test_config:
-        return {"status": "error", "error": f"Test {test_name} not found"}
+        return error_response(f"Test {test_name} not found", context)
     
     # Start autonomous improvement
-    system = AutonomousImprovementSystem()
-    cycle_id = await system.start_improvement_cycle(
-        test_name,
-        test_config,
-        composition_name,
-        human_breakpoints
-    )
-    
-    return {
-        "status": "success",
-        "cycle_id": cycle_id,
-        "message": f"Started autonomous improvement cycle {cycle_id}"
-    }
+    try:
+        system = AutonomousImprovementSystem()
+        cycle_id = await system.start_improvement_cycle(
+            test_name,
+            test_config,
+            composition_name,
+            human_breakpoints
+        )
+        
+        return event_response_builder({
+            "cycle_id": cycle_id,
+            "message": f"Started autonomous improvement cycle {cycle_id}"
+        }, context)
+    except Exception as e:
+        return error_response(f"Failed to start improvement cycle: {str(e)}", context)
 
 
 @event_handler("evaluation:cycle_status")

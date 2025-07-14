@@ -17,6 +17,8 @@ from ksi_daemon.event_system import event_handler, get_router
 from ksi_common.config import config
 from ksi_common import timestamp_utc
 from ksi_common.completion_format import parse_completion_result_event
+from ksi_common.event_parser import event_format_linter
+from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_daemon.injection.injection_types import (
     InjectionRequest,
     InjectionMode,
@@ -115,8 +117,9 @@ class SystemContextData(TypedDict):
 
 # System event handlers
 @event_handler("system:context")
-async def handle_context(context: SystemContextData) -> None:
+async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Store event emitter reference."""
+    data = event_format_linter(raw_data, SystemContextData)
     global event_emitter
     # Get router for event emission
     router = get_router()
@@ -131,10 +134,11 @@ class SystemStartupData(TypedDict):
 
 
 @event_handler("system:startup")
-async def handle_startup(config_data: SystemStartupData) -> Dict[str, Any]:
+async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize injection router."""
+    data = event_format_linter(raw_data, SystemStartupData)
     logger.info("Injection router started")
-    return {"status": "injection_router_ready"}
+    return event_response_builder({"status": "injection_router_ready"}, context)
 
 
 class SystemReadyData(TypedDict):
@@ -144,8 +148,9 @@ class SystemReadyData(TypedDict):
 
 
 @event_handler("system:ready")
-async def handle_ready(data: SystemReadyData) -> Dict[str, Any]:
+async def handle_ready(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Return async task to process injection queue."""
+    data = event_format_linter(raw_data, SystemReadyData)
     global injection_queue
     
     # Initialize asyncio.Queue now that event loop is available
@@ -185,7 +190,7 @@ async def handle_ready(data: SystemReadyData) -> Dict[str, Any]:
         
         logger.info("Injection queue processor stopped")
     
-    return {
+    return event_response_builder({
         "service": "injection_router",
         "tasks": [
             {
@@ -193,7 +198,7 @@ async def handle_ready(data: SystemReadyData) -> Dict[str, Any]:
                 "coroutine": process_injection_queue()
             }
         ]
-    }
+    }, context)
 
 
 class SystemShutdownData(TypedDict):
@@ -203,8 +208,9 @@ class SystemShutdownData(TypedDict):
 
 
 @event_handler("system:shutdown")
-async def handle_shutdown(data: SystemShutdownData) -> None:
+async def handle_shutdown(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Clean up on shutdown."""
+    data = event_format_linter(raw_data, SystemShutdownData)
     # Signal queue processor to stop
     if injection_queue:
         try:
@@ -223,14 +229,15 @@ class InjectionStatusData(TypedDict):
 
 
 @event_handler("injection:status")
-async def handle_injection_status(data: InjectionStatusData) -> Dict[str, Any]:
+async def handle_injection_status(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get injection router status."""
-    return {
+    data = event_format_linter(raw_data, InjectionStatusData)
+    return event_response_builder({
         "queued_count": injection_queue.qsize() if injection_queue else 0,
         "metadata_count": len(injection_metadata_store),
         "blocked_count": len(circuit_breaker.blocked_requests),
         "event_emitter_available": event_emitter is not None
-    }
+    }, context)
 
 
 class InjectionInjectData(TypedDict):
@@ -244,8 +251,9 @@ class InjectionInjectData(TypedDict):
 
 
 @event_handler("injection:inject")
-async def handle_injection_inject(data: InjectionInjectData) -> Dict[str, Any]:
+async def handle_injection_inject(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle unified injection request."""
+    data = event_format_linter(raw_data, InjectionInjectData)
     # Unified injection handler - convert to typed interface
     try:
         # Parse mode and position enums
@@ -264,9 +272,9 @@ async def handle_injection_inject(data: InjectionInjectData) -> Dict[str, Any]:
         
         # Process using typed interface
         result = await process_injection(request)
-        return result.to_dict()
+        return event_response_builder(result.to_dict(), context)
     except ValueError as e:
-        return {"status": "error", "error": str(e)}
+        return error_response(str(e), context)
 
 
 class InjectionQueueData(TypedDict):
@@ -277,11 +285,12 @@ class InjectionQueueData(TypedDict):
 
 
 @event_handler("injection:queue")
-async def handle_injection_queue(data: InjectionQueueData) -> Dict[str, Any]:
+async def handle_injection_queue(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle queue injection metadata request from completion service."""
+    data = event_format_linter(raw_data, InjectionQueueData)
     # This replaces the direct function call from completion service
     request_id = _queue_completion_with_injection(data)
-    return {"request_id": request_id}
+    return event_response_builder({"request_id": request_id}, context)
 
 
 class InjectionBatchData(TypedDict):
@@ -290,11 +299,12 @@ class InjectionBatchData(TypedDict):
 
 
 @event_handler("injection:batch")
-async def handle_injection_batch(data: InjectionBatchData) -> Dict[str, Any]:
+async def handle_injection_batch(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle batch injection request."""
+    data = event_format_linter(raw_data, InjectionBatchData)
     injections = data.get("injections", [])
     result = await inject_batch(injections)
-    return result
+    return event_response_builder(result, context)
 
 
 class InjectionListData(TypedDict):
@@ -303,11 +313,12 @@ class InjectionListData(TypedDict):
 
 
 @event_handler("injection:list")
-async def handle_injection_list(data: InjectionListData) -> Dict[str, Any]:
+async def handle_injection_list(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle list injections request."""
+    data = event_format_linter(raw_data, InjectionListData)
     session_id = data.get("session_id")
     result = await list_pending_injections(session_id)
-    return result
+    return event_response_builder(result, context)
 
 
 class InjectionClearData(TypedDict):
@@ -317,12 +328,13 @@ class InjectionClearData(TypedDict):
 
 
 @event_handler("injection:clear")
-async def handle_injection_clear(data: InjectionClearData) -> Dict[str, Any]:
+async def handle_injection_clear(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle clear injections request."""
+    data = event_format_linter(raw_data, InjectionClearData)
     session_id = data.get("session_id")
     mode = data.get("mode")
     result = await clear_injections(session_id, mode)
-    return result
+    return event_response_builder(result, context)
 
 
 class InjectionProcessResultData(TypedDict):
@@ -333,8 +345,9 @@ class InjectionProcessResultData(TypedDict):
 
 
 @event_handler("injection:process_result")
-async def handle_injection_process_result(data: InjectionProcessResultData) -> Optional[Dict[str, Any]]:
+async def handle_injection_process_result(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """Process a completion result for injection - explicitly called by completion service."""
+    data = event_format_linter(raw_data, InjectionProcessResultData)
     
     request_id = data.get('request_id')
     result_data = data.get('result', {})
@@ -347,25 +360,25 @@ async def handle_injection_process_result(data: InjectionProcessResultData) -> O
     # Check for error responses using standardized parsing
     if parsed_result["status"] == "error":
         logger.warning(f"Completion error for {request_id}: {parsed_result.get('error', 'Unknown error')}, skipping injection")
-        return {"status": "skipped", "reason": "completion_error"}
+        return event_response_builder({"status": "skipped", "reason": "completion_error"}, context)
     
     # Extract completion text from parsed result
     completion_text = parsed_result.get("response", "")
     
     if not injection_metadata:
         logger.error(f"No injection metadata provided for {request_id}")
-        return {"status": "error", "error": "Missing injection metadata"}
+        return error_response("Missing injection metadata", context)
     
     injection_config = injection_metadata.get('injection_config', {})
     
     if not injection_config.get('enabled'):
         logger.debug(f"Injection not enabled for {request_id}")
-        return {"status": "skipped", "reason": "not_enabled"}
+        return event_response_builder({"status": "skipped", "reason": "not_enabled"}, context)
     
     # Check if this is already an injection (prevent recursion)
     if injection_metadata.get('is_injection'):
         logger.debug(f"Skipping injection for injected completion {request_id}")
-        return {"status": "skipped", "reason": "is_injection"}
+        return event_response_builder({"status": "skipped", "reason": "is_injection"}, context)
     
     # Store metadata for circuit breaker
     store_injection_metadata(request_id, injection_metadata)
@@ -381,7 +394,7 @@ async def handle_injection_process_result(data: InjectionProcessResultData) -> O
                 "reason": "circuit_breaker"
             })
         
-        return {"status": "blocked", "reason": "circuit_breaker", "request_id": request_id}
+        return event_response_builder({"status": "blocked", "reason": "circuit_breaker", "request_id": request_id}, context)
     
     # Compose injection content
     try:
@@ -390,7 +403,7 @@ async def handle_injection_process_result(data: InjectionProcessResultData) -> O
         )
     except Exception as e:
         logger.error(f"Failed to compose injection for {request_id}: {e}")
-        return {"status": "error", "error": f"Injection composition failed: {e}"}
+        return error_response(f"Injection composition failed: {e}", context)
     
     # Determine injection mode
     injection_mode = injection_config.get('mode', 'next')  # Default to "next" mode
@@ -424,12 +437,12 @@ async def handle_injection_process_result(data: InjectionProcessResultData) -> O
         
         logger.info(f"Queued {queued_count} direct injections for request {request_id}")
         
-        return {
+        return event_response_builder({
             "status": "queued",
             "request_id": request_id,
             "target_count": queued_count,
             "mode": "direct"
-        }
+        }, context)
     
     else:  # next mode
         # Next mode: Store in async state for next request
@@ -470,12 +483,12 @@ async def handle_injection_process_result(data: InjectionProcessResultData) -> O
         
         logger.info(f"Stored {stored_count} next-mode injections for request {request_id}")
         
-        return {
+        return event_response_builder({
             "status": "stored",
             "request_id": request_id,
             "target_count": stored_count,
             "mode": "next"
-        }
+        }, context)
 
 
 class InjectionExecuteData(TypedDict):
@@ -490,8 +503,9 @@ class InjectionExecuteData(TypedDict):
 
 
 @event_handler("injection:execute")
-async def execute_injection(data: InjectionExecuteData) -> Dict[str, Any]:
+async def execute_injection(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Execute a queued injection by creating a new completion request."""
+    data = event_format_linter(raw_data, InjectionExecuteData)
     
     session_id = data.get('session_id')
     content = data.get('content')
@@ -500,11 +514,11 @@ async def execute_injection(data: InjectionExecuteData) -> Dict[str, Any]:
     
     if not content:
         logger.error("No content provided for injection")
-        return {"status": "error", "error": "No content provided"}
+        return error_response("No content provided", context)
     
     if not event_emitter:
         logger.error("Event emitter not available for injection")
-        return {"status": "error", "error": "Event emitter not available"}
+        return error_response("Event emitter not available", context)
     
     logger.info(f"Executing injection for session {session_id}")
     
@@ -546,11 +560,11 @@ async def execute_injection(data: InjectionExecuteData) -> Dict[str, Any]:
                 "error": str(e)
             })
     
-    return {
+    return event_response_builder({
         "status": "injection_executed",
         "target_count": len(target_sessions),
         "results": results
-    }
+    }, context)
 
 
 # Unified injection helper functions

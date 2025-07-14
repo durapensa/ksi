@@ -648,8 +648,10 @@ class SystemContextData(TypedDict):
 
 
 @event_handler("system:context")
-async def handle_context(context: SystemContextData) -> None:
+async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Store event emitter reference."""
+    from ksi_common.event_parser import event_format_linter
+    data = event_format_linter(raw_data, SystemContextData)
     global event_emitter
     # Get router for event emission
     router = get_router()
@@ -664,8 +666,11 @@ class SystemStartupData(TypedDict):
 
 
 @event_handler("system:startup")
-async def handle_startup(config_data: SystemStartupData) -> Dict[str, Any]:
+async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize orchestration service on startup."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, SystemStartupData)
     
     # Ensure orchestration patterns directory exists
     patterns_dir = orchestration_module.patterns_dir
@@ -673,10 +678,10 @@ async def handle_startup(config_data: SystemStartupData) -> Dict[str, Any]:
     
     logger.info(f"Orchestration service started - patterns dir: {patterns_dir}")
     
-    return {
+    return event_response_builder({
         "status": "orchestration_ready",
         "patterns_dir": str(patterns_dir)
-    }
+    }, context)
 
 
 class SystemShutdownData(TypedDict):
@@ -686,8 +691,10 @@ class SystemShutdownData(TypedDict):
 
 
 @event_handler("system:shutdown")
-async def handle_shutdown(data: SystemShutdownData) -> None:
+async def handle_shutdown(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Clean up on shutdown."""
+    from ksi_common.event_parser import event_format_linter
+    data = event_format_linter(raw_data, SystemShutdownData)
     # Terminate all active orchestrations
     for instance in list(orchestrations.values()):
         await orchestration_module._terminate_orchestration(instance, "shutdown")
@@ -703,13 +710,17 @@ class OrchestrationStartData(TypedDict):
 
 
 @event_handler("orchestration:start")
-async def handle_orchestration_start(data: OrchestrationStartData) -> Dict[str, Any]:
+async def handle_orchestration_start(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Start a new orchestration."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, OrchestrationStartData)
     pattern = data.get("pattern")
     vars = data.get("vars", {})
     
     if not pattern:
-        return {"error": "pattern required"}
+        return error_response("pattern required", context)
     
     # Execute async orchestration start
     return await orchestration_module.start_orchestration(pattern, vars)
@@ -724,8 +735,12 @@ class OrchestrationMessageData(TypedDict):
 
 
 @event_handler("orchestration:message")
-async def handle_orchestration_message(data: OrchestrationMessageData) -> Dict[str, Any]:
+async def handle_orchestration_message(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Route a message within an orchestration."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, OrchestrationMessageData)
     return await orchestration_module.route_message(data)
 
 
@@ -735,14 +750,18 @@ class OrchestrationStatusData(TypedDict):
 
 
 @event_handler("orchestration:status")
-async def handle_orchestration_status(data: OrchestrationStatusData) -> Dict[str, Any]:
+async def handle_orchestration_status(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get orchestration status."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, OrchestrationStatusData)
     orchestration_id = data.get("orchestration_id")
     
     if orchestration_id:
         if orchestration_id in orchestrations:
             instance = orchestrations[orchestration_id]
-            return {
+            return event_response_builder({
                 "orchestration_id": orchestration_id,
                 "state": instance.state,
                 "pattern": instance.pattern_name,
@@ -752,12 +771,12 @@ async def handle_orchestration_status(data: OrchestrationStatusData) -> Dict[str
                 },
                 "message_count": instance.message_count,
                 "duration": time.time() - instance.start_time
-            }
+            }, context)
         else:
-            return {"error": "Orchestration not found"}
+            return error_response("Orchestration not found", context)
     else:
         # Return all orchestrations
-        return {
+        return event_response_builder({
             "orchestrations": {
                 oid: {
                     "state": inst.state,
@@ -767,7 +786,7 @@ async def handle_orchestration_status(data: OrchestrationStatusData) -> Dict[str
                 }
                 for oid, inst in orchestrations.items()
             }
-        }
+        }, context)
 
 
 class OrchestrationTerminateData(TypedDict):
@@ -776,18 +795,22 @@ class OrchestrationTerminateData(TypedDict):
 
 
 @event_handler("orchestration:terminate")
-async def handle_orchestration_terminate(data: OrchestrationTerminateData) -> Dict[str, Any]:
+async def handle_orchestration_terminate(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Manually terminate an orchestration."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, OrchestrationTerminateData)
     orchestration_id = data.get("orchestration_id")
     
     if not orchestration_id or orchestration_id not in orchestrations:
-        return {"error": "Orchestration not found"}
+        return error_response("Orchestration not found", context)
     
     instance = orchestrations[orchestration_id]
     
     # Terminate orchestration
     await orchestration_module._terminate_orchestration(instance, "manual")
-    return {"status": "terminated"}
+    return event_response_builder({"status": "terminated"}, context)
 
 
 class OrchestrationRequestTerminationData(TypedDict):
@@ -797,13 +820,17 @@ class OrchestrationRequestTerminationData(TypedDict):
 
 
 @event_handler("orchestration:request_termination")
-async def handle_orchestration_request_termination(data: OrchestrationRequestTerminationData) -> Dict[str, Any]:
+async def handle_orchestration_request_termination(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Allow an agent within an orchestration to request termination."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, OrchestrationRequestTerminationData)
     agent_id = data.get("agent_id")
     reason = data.get("reason", "completed")
     
     if not agent_id:
-        return {"error": "No agent_id provided"}
+        return error_response("No agent_id provided", context)
     
     # Find the orchestration this agent belongs to
     orchestration_id = None
@@ -816,7 +843,7 @@ async def handle_orchestration_request_termination(data: OrchestrationRequestTer
             break
     
     if not instance:
-        return {"error": f"Agent {agent_id} not found in any orchestration"}
+        return error_response(f"Agent {agent_id} not found in any orchestration", context)
     
     # Verify the agent is an orchestrator (has orchestration capabilities)
     agent_info = instance.agents.get(agent_id)
@@ -824,9 +851,9 @@ async def handle_orchestration_request_termination(data: OrchestrationRequestTer
         # Allow termination
         logger.info(f"Agent {agent_id} requested termination of orchestration {orchestration_id}: {reason}")
         await orchestration_module._terminate_orchestration(instance, f"agent_requested: {reason}")
-        return {"status": "terminated", "orchestration_id": orchestration_id}
+        return event_response_builder({"status": "terminated", "orchestration_id": orchestration_id}, context)
     else:
-        return {"error": "Only orchestrator agents can request termination"}
+        return error_response("Only orchestrator agents can request termination", context)
 
 
 class OrchestrationListPatternsData(TypedDict):
@@ -836,8 +863,12 @@ class OrchestrationListPatternsData(TypedDict):
 
 
 @event_handler("orchestration:list_patterns")
-async def handle_list_patterns(data: OrchestrationListPatternsData) -> Dict[str, Any]:
+async def handle_list_patterns(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """List available orchestration patterns."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    
+    data = event_format_linter(raw_data, OrchestrationListPatternsData)
     patterns_dir = orchestration_module.patterns_dir
     patterns = []
     
@@ -848,10 +879,10 @@ async def handle_list_patterns(data: OrchestrationListPatternsData) -> Dict[str,
             if pattern_file.stem not in patterns:  # Avoid duplicates
                 patterns.append(pattern_file.stem)
     
-    return {
+    return event_response_builder({
         "patterns": sorted(patterns),
         "patterns_dir": str(patterns_dir)
-    }
+    }, context)
 
 
 class OrchestrationLoadPatternData(TypedDict):
@@ -860,25 +891,29 @@ class OrchestrationLoadPatternData(TypedDict):
 
 
 @event_handler("orchestration:load_pattern")
-async def handle_load_pattern(data: OrchestrationLoadPatternData) -> Dict[str, Any]:
+async def handle_load_pattern(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Load and validate an orchestration pattern."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, OrchestrationLoadPatternData)
     pattern_name = data.get("pattern")
     
     if not pattern_name:
-        return {"error": "pattern name required"}
+        return error_response("pattern name required", context)
     
     try:
         pattern = await orchestration_module.load_pattern(pattern_name)
-        return {
+        return event_response_builder({
             "status": "loaded",
             "pattern": pattern
-        }
+        }, context)
     except FileNotFoundError as e:
-        return {"error": f"Pattern not found: {str(e)}"}
+        return error_response(f"Pattern not found: {str(e)}", context)
     except ValueError as e:
-        return {"error": f"Invalid pattern: {str(e)}"}
+        return error_response(f"Invalid pattern: {str(e)}", context)
     except Exception as e:
-        return {"error": f"Failed to load pattern: {str(e)}"}
+        return error_response(f"Failed to load pattern: {str(e)}", context)
 
 
 class OrchestrationGetInstanceData(TypedDict):
@@ -887,19 +922,23 @@ class OrchestrationGetInstanceData(TypedDict):
 
 
 @event_handler("orchestration:get_instance")
-async def handle_get_instance(data: OrchestrationGetInstanceData) -> Dict[str, Any]:
+async def handle_get_instance(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get detailed information about an orchestration instance."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, OrchestrationGetInstanceData)
     orchestration_id = data.get("orchestration_id")
     
     if not orchestration_id:
-        return {"error": "orchestration_id required"}
+        return error_response("orchestration_id required", context)
     
     if orchestration_id not in orchestrations:
-        return {"error": "Orchestration not found"}
+        return error_response("Orchestration not found", context)
     
     instance = orchestrations[orchestration_id]
     
-    return {
+    return event_response_builder({
         "orchestration_id": orchestration_id,
         "pattern_name": instance.pattern_name,
         "state": instance.state,
@@ -935,6 +974,6 @@ async def handle_get_instance(data: OrchestrationGetInstanceData) -> Dict[str, A
             "turn_agent": instance.turn_order[instance.current_turn] if instance.turn_order else None
         },
         "termination_conditions": instance.termination_conditions
-    }
+    }, context)
 
 

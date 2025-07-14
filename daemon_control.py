@@ -154,13 +154,10 @@ class DaemonController:
                     
                     sock.close()
                     
-                    # Check what messages we received
+                    # Check if we received shutdown notification
                     got_notification = any(msg.get("event") == "system:shutdown_notification" for msg in messages)
-                    got_complete = any(msg.get("event") == "system:shutdown_complete" for msg in messages)
                     
-                    if got_complete:
-                        return {"status": "shutdown_complete_confirmed"}
-                    elif got_notification:
+                    if got_notification:
                         return {"status": "shutdown_confirmed"}
                     else:
                         return {"status": "sent"}
@@ -286,17 +283,13 @@ class DaemonController:
         # Try graceful shutdown via socket first
         result = self._send_socket_event("system:shutdown")
         if result:
-            if result.get("status") == "shutdown_complete_confirmed":
-                # We received both shutdown_notification and shutdown_complete events
-                print("✓ Daemon shutdown complete (full sequence)")
-                return 0
-            elif result.get("status") == "shutdown_confirmed":
+            if result.get("status") == "shutdown_confirmed":
                 # We received the shutdown_notification event
-                print("✓ Daemon shutdown complete")
-                return 0
+                print("✓ Daemon shutdown confirmed")
+                # Socket closure is the definitive shutdown signal
             else:
                 # Shutdown command was sent but we didn't get the notification
-                # This could mean the socket closed before sending notification
+                # Socket may have closed before sending notification
                 print("Shutdown command sent")
                 # Check if process is still running
                 if not self._is_process_running(pid):

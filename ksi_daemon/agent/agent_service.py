@@ -253,8 +253,10 @@ async def save_identities():
 
 # System event handlers
 @event_handler("system:context")
-async def handle_context(context: SystemContextData) -> None:
+async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Receive module context with event emitter."""
+    from ksi_common.event_parser import event_format_linter
+    data = event_format_linter(raw_data, SystemContextData)
     global event_emitter
     # Get router for event emission
     router = get_router()
@@ -263,28 +265,40 @@ async def handle_context(context: SystemContextData) -> None:
 
 
 @event_handler("system:startup")
-async def handle_startup(config_data: SystemStartupData) -> Dict[str, Any]:
+async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize agent service on startup."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, SystemStartupData)
     await load_identities()
     
     logger.info(f"Agent service started - agents: {len(agents)}, "
                 f"identities: {len(identities)}")
     
-    return {
-        "status": "agent_service_ready",
-        "agents": len(agents),
-        "identities": len(identities)
-    }
+    return event_response_builder(
+        {
+            "status": "agent_service_ready",
+            "agents": len(agents),
+            "identities": len(identities)
+        },
+        context=context
+    )
 
 
 @event_handler("system:ready")
-async def handle_ready(data: SystemReadyData) -> Dict[str, Any]:
+async def handle_ready(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Load agents from graph database after all services are ready."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, SystemReadyData)
     loaded_agents = 0
     
     if not event_emitter:
         logger.error("Event emitter not available, cannot load agents from state")
-        return {"loaded_agents": 0}
+        return event_response_builder(
+            {"loaded_agents": 0},
+            context=context
+        )
     
     try:
         # Query all suspended agents from graph database
@@ -361,10 +375,13 @@ async def handle_ready(data: SystemReadyData) -> Dict[str, Any]:
     if loaded_agents > 0:
         await reestablish_observations({})
     
-    return {
-        "agents_loaded": loaded_agents,
-        "total_agents": len(agents)
-    }
+    return event_response_builder(
+        {
+            "agents_loaded": loaded_agents,
+            "total_agents": len(agents)
+        },
+        context=context
+    )
 
 
 @shutdown_handler("agent_service")
@@ -421,8 +438,11 @@ async def handle_shutdown(data: SystemShutdownData) -> None:
 
 
 @event_handler("checkpoint:collect")
-async def handle_checkpoint_collect(data: CheckpointCollectData) -> Dict[str, Any]:
+async def handle_checkpoint_collect(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Collect agent state for checkpoint."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, CheckpointCollectData)
     try:
         # Prepare agent state for checkpointing
         agent_state = {}
@@ -458,16 +478,25 @@ async def handle_checkpoint_collect(data: CheckpointCollectData) -> Dict[str, An
         }
         
         logger.info(f"Collected agent state for checkpoint: {len(agent_state)} agents")
-        return checkpoint_data
+        return event_response_builder(
+            checkpoint_data,
+            context=context
+        )
         
     except Exception as e:
         logger.error(f"Failed to collect agent state for checkpoint: {e}")
-        return {"error": str(e)}
+        return error_response(
+            str(e),
+            context=context
+        )
 
 
 @event_handler("checkpoint:restore")
-async def handle_checkpoint_restore(data: CheckpointRestoreData) -> Dict[str, Any]:
+async def handle_checkpoint_restore(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Restore agent state from checkpoint."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, CheckpointRestoreData)
     try:
         # Extract agent data from checkpoint
         checkpoint_agents = data.get("agents", {})
@@ -531,17 +560,26 @@ async def handle_checkpoint_restore(data: CheckpointRestoreData) -> Dict[str, An
         }
         
         logger.info(f"Agent checkpoint restore complete: {restored_agents} agents restored")
-        return result
+        return event_response_builder(
+            result,
+            context=context
+        )
         
     except Exception as e:
         logger.error(f"Failed to restore agent checkpoint: {e}")
-        return {"error": str(e)}
+        return error_response(
+            str(e),
+            context=context
+        )
 
 
 # Agent lifecycle handlers
 @event_handler("agent:spawn")
-async def handle_spawn_agent(data: AgentSpawnData) -> Dict[str, Any]:
+async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Spawn a new agent thread with optional profile."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, AgentSpawnData)
     agent_id = data.get("agent_id") or f"agent_{uuid.uuid4().hex[:8]}"
     profile_name = data.get("profile") or data.get("profile_name")
     composition_name = data.get("composition")  # Direct composition reference
@@ -582,10 +620,10 @@ async def handle_spawn_agent(data: AgentSpawnData) -> Dict[str, Any]:
                 "suggestions": select_result.get("suggestions", [])
             }
         else:
-            return {
-                "error": f"Dynamic composition selection failed: {select_result.get('error', 'Unknown error')}",
-                "status": "failed"
-            }
+            return error_response(
+                f"Dynamic composition selection failed: {select_result.get('error', 'Unknown error')}",
+                context=context
+            )
             
     elif composition_name:
         # Direct composition reference (hint mode)
@@ -595,10 +633,10 @@ async def handle_spawn_agent(data: AgentSpawnData) -> Dict[str, Any]:
         compose_name = profile_name
     else:
         # No profile specified - fail fast
-        return {
-            "error": "No profile or composition specified",
-            "status": "failed"
-        }
+        return error_response(
+            "No profile or composition specified",
+            context=context
+        )
     
     # Compose profile using composition service
     agent_config = {}
@@ -661,18 +699,17 @@ async def handle_spawn_agent(data: AgentSpawnData) -> Dict[str, Any]:
             # Fail fast - no fallbacks
             error_msg = compose_result.get("error", f"Failed to compose profile: {compose_name}")
             logger.error(error_msg)
-            return {
-                "error": error_msg,
-                "status": "failed",
-                "requested_profile": compose_name
-            }
+            return error_response(
+                error_msg,
+                context=context
+            )
     else:
         # No composition service available
         logger.error("Composition service not available - event_emitter is None")
-        return {
-            "error": "Composition service not available - event system not initialized",
-            "status": "failed"
-        }
+        return error_response(
+            "Composition service not available - event system not initialized",
+            context=context
+        )
     
     # Override with provided config
     if "config" in data:
@@ -882,36 +919,48 @@ Please proceed as a basic autonomous agent with full autonomy to execute tasks a
             
             logger.warning(f"Used fallback self-configuring message for agent {agent_id}")
     
-    return {
-        "agent_id": agent_id,
-        "status": "created",
-        "profile": profile_name,
-        "composition": compose_name,
-        # session_id intentionally omitted - managed by completion system
-        "config": agent_config,
-        "metadata_namespace": f"metadata:agent:{agent_id}"
-    }
+    return event_response_builder(
+        {
+            "agent_id": agent_id,
+            "status": "created",
+            "profile": profile_name,
+            "composition": compose_name,
+            # session_id intentionally omitted - managed by completion system
+            "config": agent_config,
+            "metadata_namespace": f"metadata:agent:{agent_id}"
+        },
+        context=context
+    )
 
 
 @event_handler("agent:terminate")
-async def handle_terminate_agent(data: AgentTerminateData) -> Dict[str, Any]:
+async def handle_terminate_agent(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Terminate agents - supports both single and bulk operations."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, AgentTerminateData)
     
     # Determine which agents to terminate
     target_agent_ids = await _resolve_target_agents(data)
     
     if not target_agent_ids:
-        return {"error": "No agents found matching criteria"}
+        return error_response(
+            "No agents found matching criteria",
+            context=context
+        )
     
     dry_run = data.get("dry_run", False)
     force = data.get("force", False)
     
     if dry_run:
-        return {
-            "dry_run": True,
-            "agents_to_terminate": target_agent_ids,
-            "count": len(target_agent_ids)
-        }
+        return event_response_builder(
+            {
+                "dry_run": True,
+                "agents_to_terminate": target_agent_ids,
+                "count": len(target_agent_ids)
+            },
+            context=context
+        )
     
     # Terminate each agent
     terminated_agents = []
@@ -933,17 +982,26 @@ async def handle_terminate_agent(data: AgentTerminateData) -> Dict[str, Any]:
     # Return single agent format for backward compatibility
     if len(target_agent_ids) == 1 and not data.get("agent_ids") and not data.get("pattern") and not data.get("older_than_hours") and not data.get("profile") and not data.get("all"):
         if terminated_agents:
-            return {"agent_id": terminated_agents[0], "status": "terminated"}
+            return event_response_builder(
+                {"agent_id": terminated_agents[0], "status": "terminated"},
+                context=context
+            )
         elif failed_agents:
-            return failed_agents[0]
+            return error_response(
+                failed_agents[0].get("error", "Termination failed"),
+                context=context
+            )
     
     # Return bulk format
-    return {
-        "terminated": terminated_agents,
-        "failed": failed_agents,
-        "count_terminated": len(terminated_agents),
-        "count_failed": len(failed_agents)
-    }
+    return event_response_builder(
+        {
+            "terminated": terminated_agents,
+            "failed": failed_agents,
+            "count_terminated": len(terminated_agents),
+            "count_failed": len(failed_agents)
+        },
+        context=context
+    )
 
 
 async def _resolve_target_agents(data: AgentTerminateData) -> List[str]:
@@ -1075,21 +1133,30 @@ async def _terminate_single_agent(agent_id: str, force: bool = False) -> Dict[st
 
 
 @event_handler("agent:restart")
-async def handle_restart_agent(data: AgentRestartData) -> Dict[str, Any]:
+async def handle_restart_agent(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Restart an agent."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, AgentRestartData)
     agent_id = data.get("agent_id")
     
     if not agent_id:
-        return {"error": "agent_id required"}
+        return error_response(
+            "agent_id required",
+            context=context
+        )
     
     if agent_id not in agents:
-        return {"error": f"Agent {agent_id} not found"}
+        return error_response(
+            f"Agent {agent_id} not found",
+            context=context
+        )
     
     # Get current agent info
     agent_info = agents[agent_id].copy()
     
     # Terminate existing
-    terminate_result = await handle_terminate_agent({"agent_id": agent_id})
+    terminate_result = await handle_terminate_agent({"agent_id": agent_id}, context)
     if "error" in terminate_result:
         return terminate_result
     
@@ -1101,7 +1168,7 @@ async def handle_restart_agent(data: AgentRestartData) -> Dict[str, Any]:
         # config and session_id omitted - profile contains config, completion tracks sessions
     }
     
-    return await handle_spawn_agent(spawn_data)
+    return await handle_spawn_agent(spawn_data, context)
 
 
 async def run_agent_thread(agent_id: str):
@@ -1238,13 +1305,17 @@ async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
 
 # Agent registry handlers
 @event_handler("agent:register")
-async def handle_register_agent(data: AgentRegisterData) -> Dict[str, Any]:
+async def handle_register_agent(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Register an external agent."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, AgentRegisterData)
     agent_id = data.get("agent_id")
     agent_info = data.get("info", {})
     
     if not agent_id:
-        return {"error": "agent_id required"}
+        return error_response("agent_id required", context)
     
     # Create registration info
     registration = {
@@ -1258,31 +1329,38 @@ async def handle_register_agent(data: AgentRegisterData) -> Dict[str, Any]:
     
     logger.info(f"Registered agent {agent_id}")
     
-    return {
+    return event_response_builder({
         "agent_id": agent_id,
         "status": "registered"
-    }
+    }, context)
 
 
 @event_handler("agent:unregister")
-async def handle_unregister_agent(data: AgentUnregisterData) -> Dict[str, Any]:
+async def handle_unregister_agent(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Unregister an agent."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, AgentUnregisterData)
     agent_id = data.get("agent_id")
     
     if not agent_id:
-        return {"error": "agent_id required"}
+        return error_response("agent_id required", context)
     
     if agent_id in agents:
         del agents[agent_id]
         logger.info(f"Unregistered agent {agent_id}")
-        return {"status": "unregistered"}
+        return event_response_builder({"status": "unregistered"}, context)
     
-    return {"error": f"Agent {agent_id} not found"}
+    return error_response(f"Agent {agent_id} not found", context)
 
 
 @event_handler("agent:list")
-async def handle_list_agents(data: AgentListData) -> Dict[str, Any]:
+async def handle_list_agents(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """List registered agents."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, AgentListData)
     filter_status = data.get("status")
     include_metadata = data.get("include_metadata", False)
     
@@ -1312,10 +1390,13 @@ async def handle_list_agents(data: AgentListData) -> Dict[str, Any]:
             
         agent_list.append(agent_entry)
     
-    return {
-        "agents": agent_list,
-        "count": len(agent_list)
-    }
+    return event_response_builder(
+        {
+            "agents": agent_list,
+            "count": len(agent_list)
+        },
+        context=context
+    )
 
 
 # Construct-specific handlers removed - use orchestration patterns
@@ -1323,8 +1404,11 @@ async def handle_list_agents(data: AgentListData) -> Dict[str, Any]:
 
 # Identity handlers
 @event_handler("agent:create_identity")
-async def handle_create_identity(data: AgentCreateIdentityData) -> Dict[str, Any]:
+async def handle_create_identity(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Create a new agent identity."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, AgentCreateIdentityData)
     agent_id = data.get("agent_id") or f"agent_{uuid.uuid4().hex[:8]}"
     identity_data = data.get("identity", {})
     
@@ -1341,23 +1425,35 @@ async def handle_create_identity(data: AgentCreateIdentityData) -> Dict[str, Any
     
     logger.info(f"Created identity for agent {agent_id}")
     
-    return {
-        "agent_id": agent_id,
-        "status": "created"
-    }
+    return event_response_builder(
+        {
+            "agent_id": agent_id,
+            "status": "created"
+        },
+        context=context
+    )
 
 
 @event_handler("agent:update_identity")
-async def handle_update_identity(data: AgentUpdateIdentityData) -> Dict[str, Any]:
+async def handle_update_identity(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Update an agent identity."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, AgentUpdateIdentityData)
     agent_id = data.get("agent_id")
     updates = data.get("updates", {})
     
     if not agent_id:
-        return {"error": "agent_id required"}
+        return error_response(
+            "agent_id required",
+            context=context
+        )
     
     if agent_id not in identities:
-        return {"error": f"Identity for {agent_id} not found"}
+        return error_response(
+            f"Identity for {agent_id} not found",
+            context=context
+        )
     
     # Update identity
     identities[agent_id].update(updates)
@@ -1367,32 +1463,50 @@ async def handle_update_identity(data: AgentUpdateIdentityData) -> Dict[str, Any
     
     logger.info(f"Updated identity for agent {agent_id}")
     
-    return {
-        "agent_id": agent_id,
-        "status": "updated"
-    }
+    return event_response_builder(
+        {
+            "agent_id": agent_id,
+            "status": "updated"
+        },
+        context=context
+    )
 
 
 @event_handler("agent:remove_identity")
-async def handle_remove_identity(data: AgentRemoveIdentityData) -> Dict[str, Any]:
+async def handle_remove_identity(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Remove an agent identity."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, AgentRemoveIdentityData)
     agent_id = data.get("agent_id")
     
     if not agent_id:
-        return {"error": "agent_id required"}
+        return error_response(
+            "agent_id required",
+            context=context
+        )
     
     if agent_id in identities:
         del identities[agent_id]
         await save_identities()
         logger.info(f"Removed identity for agent {agent_id}")
-        return {"status": "removed"}
+        return event_response_builder(
+            {"status": "removed"},
+            context=context
+        )
     
-    return {"error": f"Identity for {agent_id} not found"}
+    return error_response(
+        f"Identity for {agent_id} not found",
+        context=context
+    )
 
 
 @event_handler("agent:list_identities")
-async def handle_list_identities(data: AgentListIdentitiesData) -> Dict[str, Any]:
+async def handle_list_identities(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """List agent identities."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, AgentListIdentitiesData)
     identity_list = []
     
     for agent_id, identity in identities.items():
@@ -1403,63 +1517,86 @@ async def handle_list_identities(data: AgentListIdentitiesData) -> Dict[str, Any
             "created_at": identity.get("created_at")
         })
     
-    return {
-        "identities": identity_list,
-        "count": len(identity_list)
-    }
+    return event_response_builder(
+        {
+            "identities": identity_list,
+            "count": len(identity_list)
+        },
+        context=context
+    )
 
 
 @event_handler("agent:get_identity")
-async def handle_get_identity(data: AgentGetIdentityData) -> Dict[str, Any]:
+async def handle_get_identity(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get a specific agent identity."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, AgentGetIdentityData)
     agent_id = data.get("agent_id")
     
     if not agent_id:
-        return {"error": "agent_id required"}
+        return error_response(
+            "agent_id required",
+            context=context
+        )
     
     if agent_id in identities:
-        return {
-            "agent_id": agent_id,
-            "identity": identities[agent_id]
-        }
+        return event_response_builder(
+            {
+                "agent_id": agent_id,
+                "identity": identities[agent_id]
+            },
+            context=context
+        )
     
-    return {"error": f"Identity for {agent_id} not found"}
+    return error_response(
+        f"Identity for {agent_id} not found",
+        context=context
+    )
 
 
 # Task routing handlers
 @event_handler("agent:route_task")
-async def handle_route_task(data: AgentRouteTaskData) -> Dict[str, Any]:
+async def handle_route_task(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Route a task to an appropriate agent."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, AgentRouteTaskData)
     # Simple routing: find first available agent
     for agent_id, info in agents.items():
         if info.get("status") == "ready":
             logger.info(f"Routing task to agent {agent_id}")
-            return {
+            return event_response_builder({
                 "agent_id": agent_id,
                 "status": "routed"
-            }
+            }, context)
     
-    return {"error": "No available agents"}
+    return error_response("No available agents", context)
 
 
 @event_handler("agent:get_capabilities")
-async def handle_get_capabilities(data: AgentGetCapabilitiesData) -> Dict[str, Any]:
+async def handle_get_capabilities(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get capabilities of an agent or all agents."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, AgentGetCapabilitiesData)
     agent_id = data.get("agent_id")
     
     if agent_id:
         if agent_id not in agents:
-            return {"error": f"Agent {agent_id} not found"}
+            return error_response(f"Agent {agent_id} not found", context)
         
         agent_info = agents[agent_id]
         
         # Get capabilities from agent config (composed at spawn time)
         capabilities = agent_info.get("config", {}).get("capabilities", [])
         
-        return {
+        return event_response_builder({
             "agent_id": agent_id,
             "capabilities": capabilities
-        }
+        }, context)
     
     # Return all agent capabilities
     all_capabilities = {}
@@ -1467,23 +1604,27 @@ async def handle_get_capabilities(data: AgentGetCapabilitiesData) -> Dict[str, A
         # Get capabilities from agent config (composed at spawn time)
         all_capabilities[aid] = info.get("config", {}).get("capabilities", [])
     
-    return {"capabilities": all_capabilities}
+    return event_response_builder({"capabilities": all_capabilities}, context)
 
 
 # Message handling functions
 @event_handler(
     "agent:send_message",
 )
-async def handle_send_message(data: AgentSendMessageData) -> Dict[str, Any]:
+async def handle_send_message(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Send a message to an agent."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, AgentSendMessageData)
     agent_id = data.get("agent_id")
     message = data.get("message", {})
     
     if not agent_id:
-        return {"error": "agent_id required"}
+        return error_response("agent_id required", context)
     
     if agent_id not in agents:
-        return {"error": f"Agent {agent_id} not found"}
+        return error_response(f"Agent {agent_id} not found", context)
     
     # Check if this is a completion message (either format)
     is_completion = False
@@ -1542,24 +1683,28 @@ async def handle_send_message(data: AgentSendMessageData) -> Dict[str, Any]:
         
         # Agents have no awareness of sessions - completion system handles everything
         
-        return {
+        return event_response_builder({
             "status": "sent_to_completion", 
             "agent_id": agent_id,
             "request_id": result.get("request_id") if result else None
-        }
+        }, context)
     
     # For non-completion messages, use the queue as before
     queue = agents[agent_id].get("message_queue")
     if queue:
         await queue.put(message)
-        return {"status": "sent", "agent_id": agent_id}
+        return event_response_builder({"status": "sent", "agent_id": agent_id}, context)
     
-    return {"error": "Agent message queue not available"}
+    return error_response("Agent message queue not available", context)
 
 
 @event_handler("agent:broadcast")
-async def handle_broadcast(data: AgentBroadcastData) -> Dict[str, Any]:
+async def handle_broadcast(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Broadcast a message to all agents."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    
+    data = event_format_linter(raw_data, AgentBroadcastData)
     message = data.get("message", {})
     sender = data.get("sender", "system")
     
@@ -1574,36 +1719,40 @@ async def handle_broadcast(data: AgentBroadcastData) -> Dict[str, Any]:
             })
             sent_count += 1
     
-    return {
+    return event_response_builder({
         "status": "broadcast",
         "agents_reached": sent_count,
         "total_agents": len(agents)
-    }
+    }, context)
 
 
 # Dynamic composition handlers
 @event_handler("agent:update_composition")
-async def handle_update_composition(data: AgentUpdateCompositionData) -> Dict[str, Any]:
+async def handle_update_composition(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle agent composition update request."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, AgentUpdateCompositionData)
     agent_id = data.get("agent_id")
     new_composition = data.get("new_composition")
     reason = data.get("reason", "Adaptation required")
     
     if not agent_id:
-        return {"error": "agent_id required"}
+        return error_response("agent_id required", context)
     
     if not new_composition:
-        return {"error": "new_composition required"}
+        return error_response("new_composition required", context)
     
     if agent_id not in agents:
-        return {"error": f"Agent {agent_id} not found"}
+        return error_response(f"Agent {agent_id} not found", context)
     
     # Check if agent can self-modify
     agent_info = agents[agent_id]
     current_config = agent_info.get("config", {})
     
     if not event_emitter:
-        return {"error": "Event emitter not available"}
+        return error_response("Event emitter not available", context)
     
     # First, check if current composition allows modification
     current_comp = agent_info.get("composition", agent_info.get("profile"))
@@ -1619,10 +1768,7 @@ async def handle_update_composition(data: AgentUpdateCompositionData) -> Dict[st
         if comp_result and comp_result.get("status") == "success":
             metadata = comp_result["composition"].get("metadata", {})
             if not metadata.get("self_modifiable", False):
-                return {
-                    "error": "Current composition does not allow self-modification",
-                    "status": "denied"
-                }
+                return error_response("Current composition does not allow self-modification", context, {"status": "denied"})
     
     # Compose new profile
     compose_result = await event_emitter("composition:profile", {
@@ -1669,22 +1815,23 @@ async def handle_update_composition(data: AgentUpdateCompositionData) -> Dict[st
         
         logger.info(f"Agent {agent_id} updated composition to {new_composition}")
         
-        return {
+        return event_response_builder({
             "status": "updated",
             "agent_id": agent_id,
             "new_composition": new_composition,
             "new_capabilities": agent_info["config"]["capabilities"]
-        }
+        }, context)
     else:
-        return {
-            "error": f"Failed to compose new profile: {compose_result.get('error', 'Unknown error')}",
-            "status": "failed"
-        }
+        return error_response(f"Failed to compose new profile: {compose_result.get('error', 'Unknown error')}", context, {"status": "failed"})
 
 
 @event_handler("agent:discover_peers")
-async def handle_discover_peers(data: AgentDiscoverPeersData) -> Dict[str, Any]:
+async def handle_discover_peers(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Discover other agents and their capabilities."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    
+    data = event_format_linter(raw_data, AgentDiscoverPeersData)
     requesting_agent = data.get("agent_id")
     capability_filter = data.get("capabilities", [])
     role_filter = data.get("roles", [])
@@ -1716,28 +1863,32 @@ async def handle_discover_peers(data: AgentDiscoverPeersData) -> Dict[str, Any]:
             "status": agent_info.get("status", "active")
         })
     
-    return {
+    return event_response_builder({
         "status": "success",
         "requesting_agent": requesting_agent,
         "discovered_count": len(discovered),
         "peers": discovered
-    }
+    }, context)
 
 
 @event_handler("agent:negotiate_roles")
-async def handle_negotiate_roles(data: AgentNegotiateRolesData) -> Dict[str, Any]:
+async def handle_negotiate_roles(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Coordinate role negotiation between agents."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, AgentNegotiateRolesData)
     participants = data.get("participants", [])
     negotiation_type = data.get("type", "collaborative")
-    context = data.get("context", {})
+    negotiation_context = data.get("context", {})  # Renamed to avoid conflict
     
     if not participants or len(participants) < 2:
-        return {"error": "At least 2 participants required for negotiation"}
+        return error_response("At least 2 participants required for negotiation", context)
     
     # Verify all participants exist
     for agent_id in participants:
         if agent_id not in agents:
-            return {"error": f"Agent {agent_id} not found"}
+            return error_response(f"Agent {agent_id} not found", context)
     
     # Create negotiation session
     negotiation_id = f"neg_{uuid.uuid4().hex[:8]}"
@@ -1752,37 +1903,41 @@ async def handle_negotiate_roles(data: AgentNegotiateRolesData) -> Dict[str, Any
                 "negotiation_id": negotiation_id,
                 "participants": participants,
                 "negotiation_type": negotiation_type,
-                "context": context,
+                "context": negotiation_context,
                 "your_current_role": agent_info.get("config", {}).get("role"),
                 "your_capabilities": agent_info.get("config", {}).get("capabilities", [])
             })
     
     logger.info(f"Started role negotiation {negotiation_id} with {len(participants)} agents")
     
-    return {
+    return event_response_builder({
         "status": "initiated",
         "negotiation_id": negotiation_id,
         "participants": participants,
         "type": negotiation_type
-    }
+    }, context)
 
 
 @event_handler("agent:needs_continuation")
-async def handle_agent_needs_continuation(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_agent_needs_continuation(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle agent continuation requests for step-wise execution."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, dict)  # Simple dict for this handler
     # Extract agent_id from event metadata
     agent_id = data.get("_agent_id")  # This is set by event extraction
     if not agent_id:
-        return {"error": "No agent_id in continuation request"}
+        return error_response("No agent_id in continuation request", context)
     
     if agent_id not in agents:
-        return {"error": f"Agent {agent_id} not found"}
+        return error_response(f"Agent {agent_id} not found", context)
     
     agent_info = agents[agent_id]
     queue = agent_info.get("message_queue")
     
     if not queue:
-        return {"error": f"No message queue for agent {agent_id}"}
+        return error_response(f"No message queue for agent {agent_id}", context)
     
     # Queue a continuation message
     reason = data.get("reason", "Continue with next step")
@@ -1795,10 +1950,10 @@ async def handle_agent_needs_continuation(data: Dict[str, Any]) -> Dict[str, Any
     
     logger.info(f"Queued continuation for agent {agent_id}: {reason}")
     
-    return {
+    return event_response_builder({
         "status": "queued",
         "agent_id": agent_id,
         "reason": reason
-    }
+    }, context)
 
 

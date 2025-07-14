@@ -15,6 +15,8 @@ import hashlib
 
 from ksi_common.config import config
 from ksi_common import parse_iso_timestamp, filename_timestamp, display_timestamp, utc_to_local
+from ksi_common.event_parser import event_format_linter
+from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_daemon.event_system import event_handler
 from ksi_common.logging import get_bound_logger
 
@@ -697,8 +699,10 @@ async def handle_conversation_stats(data: ConversationStatsData) -> Dict[str, An
 
 
 @event_handler("conversation:active")
-async def handle_active_conversations(data: ConversationActiveData) -> Dict[str, Any]:
+async def handle_active_conversations(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Find active conversations from recent COMPLETION_RESULT messages."""
+    data = event_format_linter(raw_data, dict)
+    
     try:
         # Parameters
         max_lines = data.get('max_lines', 100)
@@ -706,7 +710,7 @@ async def handle_active_conversations(data: ConversationActiveData) -> Dict[str,
         
         message_bus_file = responses_dir_path / 'message_bus.jsonl'
         if not message_bus_file.exists():
-            return {"active_sessions": []}
+            return event_response_builder({"active_sessions": []}, context)
         
         active_sessions = {}
         cutoff_time = datetime.now(timezone.utc).timestamp() - (max_age_hours * 3600)
@@ -721,7 +725,7 @@ async def handle_active_conversations(data: ConversationActiveData) -> Dict[str,
                 recent_lines = [line for line in lines if line.strip()]
         except Exception as e:
             logger.warning(f"Error reading message bus: {e}")
-            return {"active_sessions": []}
+            return event_response_builder({"active_sessions": []}, context)
         
         # Process recent COMPLETION_RESULT messages
         for line in reversed(recent_lines):  # Most recent first
@@ -777,14 +781,14 @@ async def handle_active_conversations(data: ConversationActiveData) -> Dict[str,
         sessions_list = list(active_sessions.values())
         sessions_list.sort(key=lambda s: s['last_activity'], reverse=True)
         
-        return {
+        return event_response_builder({
             'active_sessions': sessions_list,
             'total_active': len(sessions_list),
             'scanned_lines': len(recent_lines)
-        }
+        }, context)
         
     except Exception as e:
         logger.error(f"Error getting active conversations: {e}", exc_info=True)
-        return {"error": f"Failed to get active conversations: {str(e)}"}
+        return error_response(f"Failed to get active conversations: {str(e)}", context)
 
 

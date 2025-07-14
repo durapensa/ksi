@@ -8,6 +8,7 @@ Handles Unix domain socket communication using pure event system.
 import asyncio
 import json
 import os
+import time
 from pathlib import Path
 from typing import Dict, Any, Optional, Callable, TypedDict, Literal
 from typing_extensions import NotRequired, Required
@@ -159,25 +160,22 @@ async def handle_message(message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     # Extract event info
     event_name = message.get("event")
     data = message.get("data", {})
-    correlation_id = message.get("correlation_id")
     
     if not event_name:
         return {"error": "Missing event name"}
     
     # Build context from message metadata
+    from ksi_common.event_parser import SYSTEM_METADATA_FIELDS
+    
     context = {}
-    if "originator_id" in message:
-        context["originator_id"] = message["originator_id"]
-    if "agent_id" in message:
-        context["agent_id"] = message["agent_id"]
-    if "session_id" in message:
-        context["session_id"] = message["session_id"]
-    if "construct_id" in message:
-        context["construct_id"] = message["construct_id"]
-    if "event_id" in message:
-        context["event_id"] = message["event_id"]
-    if correlation_id:
-        context["correlation_id"] = correlation_id
+    
+    # Extract all system metadata fields if present
+    for field in SYSTEM_METADATA_FIELDS:
+        if field in message:
+            context[field] = message[field]
+    
+    # Extract correlation_id for response envelope
+    correlation_id = message.get("correlation_id") or context.get("_correlation_id")
     
     try:
         # Emit the event and get response (event system always returns list)
@@ -207,7 +205,7 @@ async def handle_message(message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             "data": data_payload,
             "count": len(response_data),
             "correlation_id": correlation_id,
-            "timestamp": asyncio.get_event_loop().time()
+            "timestamp": time.time()
         }
         
         return envelope
@@ -218,7 +216,7 @@ async def handle_message(message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             "event": event_name,
             "error": str(e),
             "correlation_id": correlation_id,
-            "timestamp": asyncio.get_event_loop().time()
+            "timestamp": time.time()
         }
 
 
@@ -270,8 +268,12 @@ class SystemStartupData(TypedDict):
 
 
 @event_handler("system:startup")
-async def handle_startup(config_data: SystemStartupData) -> Dict[str, Any]:
+async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize transport on startup."""
+    from ksi_common.event_parser import extract_system_handler_data
+    from ksi_common.event_response_builder import event_response_builder
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    
     global transport_instance
     
     # Create transport instance - use imported config
@@ -279,7 +281,10 @@ async def handle_startup(config_data: SystemStartupData) -> Dict[str, Any]:
     transport_instance = UnixSocketTransport(socket_path)
     
     logger.info("Unix socket transport module starting")
-    return {"module.unix_socket_transport": {"loaded": True}}
+    return event_response_builder(
+        {"module.unix_socket_transport": {"loaded": True}},
+        context=context
+    )
 
 
 class SystemReadyData(TypedDict):
@@ -289,8 +294,12 @@ class SystemReadyData(TypedDict):
 
 
 @event_handler("system:ready")
-async def handle_ready(data: SystemReadyData) -> Optional[Dict[str, Any]]:
+async def handle_ready(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """Return long-running server task to keep daemon alive."""
+    from ksi_common.event_parser import extract_system_handler_data
+    from ksi_common.event_response_builder import event_response_builder
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    
     global transport_instance
     
     if transport_instance:
@@ -309,15 +318,18 @@ async def handle_ready(data: SystemReadyData) -> Optional[Dict[str, Any]]:
                 await transport_instance.stop()
                 raise
         
-        return {
-            "service": "unix_socket_transport",
-            "tasks": [
-                {
-                    "name": "socket_server", 
-                    "coroutine": run_server()
-                }
-            ]
-        }
+        return event_response_builder(
+            {
+                "service": "unix_socket_transport",
+                "tasks": [
+                    {
+                        "name": "socket_server", 
+                        "coroutine": run_server()
+                    }
+                ]
+            },
+            context=context
+        )
     
     return None
 
@@ -329,25 +341,33 @@ class SystemContextData(TypedDict):
 
 
 @event_handler("system:context")
-async def handle_context(context: SystemContextData) -> Dict[str, Any]:
+async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Receive context including event emitter."""
+    from ksi_common.event_parser import extract_system_handler_data
+    from ksi_common.event_response_builder import event_response_builder
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    
     global transport_instance, event_emitter
     
-    event_emitter = context.get("emit_event")
+    event_emitter = clean_data.get("emit_event")
     if transport_instance and event_emitter:
         transport_instance.set_event_emitter(event_emitter)
         logger.info("Transport configured with event emitter")
-        return {
+        return event_response_builder(
+            {
+                "event_processed": True,
+                "module": "unix_socket_transport"
+            },
+            context=context
+        )
+    return event_response_builder(
+        {
             "event_processed": True,
-            "handler": "unix_socket.handle_context",
-            "module": "unix_socket_transport"
-        }
-    return {
-        "event_processed": True,
-        "handler": "unix_socket.handle_context",
-        "module": "unix_socket_transport",
-        "warning": "no_transport_instance_or_emitter"
-    }
+            "module": "unix_socket_transport",
+            "warning": "no_transport_instance_or_emitter"
+        },
+        context=context
+    )
 
 
 class TransportCreateConfig(TypedDict):
@@ -362,13 +382,20 @@ class TransportCreateData(TypedDict):
 
 
 @event_handler("transport:create")
-async def handle_create_transport(data: TransportCreateData) -> Optional[UnixSocketTransport]:
+async def handle_create_transport(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Create Unix socket transport if requested."""
-    transport_type = data.get("transport_type")
-    config_data = data.get("config", {})
+    from ksi_common.event_parser import extract_system_handler_data
+    from ksi_common.event_response_builder import event_response_builder
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    
+    transport_type = clean_data.get("transport_type")
+    config_data = clean_data.get("config", {})
     
     if transport_type != "unix":
-        return None
+        return event_response_builder(
+            {"created": False, "reason": "not_unix_transport"},
+            context=context
+        )
     
     logger.info(f"Creating unix socket transport with config: {config_data}")
     
@@ -376,7 +403,16 @@ async def handle_create_transport(data: TransportCreateData) -> Optional[UnixSoc
     socket_dir = config_data["socket_dir"]
     socket_path = os.path.join(socket_dir, "daemon.sock")
     
-    return UnixSocketTransport(socket_path)
+    transport = UnixSocketTransport(socket_path)
+    
+    return event_response_builder(
+        {
+            "created": True,
+            "transport": transport,
+            "socket_path": socket_path
+        },
+        context=context
+    )
 
 
 
@@ -388,9 +424,13 @@ class SystemShutdownData(TypedDict):
 
 
 @event_handler("system:shutdown")
-async def handle_shutdown(data: SystemShutdownData) -> Dict[str, Any]:
-    """Begin shutdown sequence - send notification but keep socket open for completion event."""
-    global client_connections
+async def handle_shutdown(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Handle shutdown - notify clients and then close socket."""
+    from ksi_common.event_parser import extract_system_handler_data
+    from ksi_common.event_response_builder import event_response_builder
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    
+    global transport_instance, client_connections
     
     # First, broadcast shutdown notification to all connected clients
     if client_connections:
@@ -399,7 +439,7 @@ async def handle_shutdown(data: SystemShutdownData) -> Dict[str, Any]:
             "event": "system:shutdown_notification",
             "data": {
                 "reason": "daemon_shutdown",
-                "timestamp": asyncio.get_event_loop().time()
+                "timestamp": time.time()
             }
         }
         
@@ -407,50 +447,21 @@ async def handle_shutdown(data: SystemShutdownData) -> Dict[str, Any]:
         for client_id, writer in list(client_connections.items()):
             try:
                 await send_response(writer, shutdown_msg)
+                # Ensure the message is sent before closing
+                await writer.drain()
             except Exception as e:
                 logger.debug(f"Failed to send shutdown notification to client {client_id}: {e}")
     
-    # Don't stop the transport yet - wait for shutdown_complete event
-    logger.info("Unix socket transport shutdown notification sent, awaiting completion")
-    return {"status": "unix_socket_transport_shutdown_initiated"}
-
-
-@event_handler("system:shutdown_complete")
-async def handle_shutdown_complete(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Send final shutdown_complete event to clients and close socket.
-    
-    NOTE: This manual broadcast is intentional - the event system has completed 
-    its shutdown sequence and this transport layer delivers the final notification
-    to clients (like daemon_control.py) before closing the socket.
-    """
-    global transport_instance, client_connections
-    
-    # Send shutdown_complete notification to all remaining connected clients
-    if client_connections:
-        logger.info(f"Broadcasting shutdown_complete to {len(client_connections)} connected clients")
-        shutdown_complete_msg = {
-            "event": "system:shutdown_complete",
-            "data": {
-                "reason": "daemon_shutdown_complete",
-                "timestamp": asyncio.get_event_loop().time(),
-                "services": data.get("services", [])
-            }
-        }
-        
-        # Send to all clients - this is the final message before socket closure
-        for client_id, writer in list(client_connections.items()):
-            try:
-                await send_response(writer, shutdown_complete_msg)
-                # Ensure the message is sent
-                await writer.drain()
-            except Exception as e:
-                logger.debug(f"Failed to send shutdown_complete notification to client {client_id}: {e}")
-    
-    # Now stop the transport after sending the final message
+    # Now stop the transport - socket closure signals shutdown complete
     if transport_instance:
         await transport_instance.stop()
     
     logger.info("Unix socket transport shutdown complete - socket closed")
-    return {"status": "unix_socket_transport_stopped"}
+    return event_response_builder(
+        {"status": "unix_socket_transport_stopped"},
+        context=context
+    )
+
+
 
 

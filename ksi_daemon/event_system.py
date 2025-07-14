@@ -313,7 +313,7 @@ class EventRouter:
         
         # During shutdown, only allow shutdown-related events and critical state updates
         if self._shutdown_in_progress:
-            allowed_events = {"system:shutdown", "shutdown:acknowledge", "system:shutdown_complete",
+            allowed_events = {"system:shutdown", "shutdown:acknowledge",
                             "event:error", "log:*", "state:entity:update"}  # Allow state updates during shutdown
             if not any(event == allowed or (allowed.endswith('*') and event.startswith(allowed[:-1])) 
                       for allowed in allowed_events):
@@ -391,22 +391,30 @@ class EventRouter:
         for mw in self._middleware:
             data = await mw(event, data, context)
             
-        # Enrich event data with originator information
-        # This is core KSI functionality - all events carry their full context
-        # for complete traceability and system-wide context awareness
+        # Enrich event data with system metadata
+        # This is core KSI functionality - all events carry context for complete traceability
         if context and isinstance(data, dict):
-            # Create enriched data with originator fields
+            # Create enriched data with system metadata fields
             enhanced_data = data.copy()
             
-            # Add system context fields
-            originator_fields = [
-                "originator_id", "agent_id", "session_id", 
-                "correlation_id", "construct_id", "event_id", "source_agent"
-            ]
+            # Add simplified system context fields using underscore prefix
+            # NOTE: session_id is NOT included - it's private to completion system
+            # NOTE: Orchestration lineage handled at orchestration layer, not here
             
-            for field in originator_fields:
-                if field in context and field not in enhanced_data:
+            # Generate unique event ID if not present
+            if "_event_id" not in enhanced_data:
+                enhanced_data["_event_id"] = f"evt_{uuid.uuid4().hex[:8]}"
+            
+            # Add timestamp
+            enhanced_data["_event_timestamp"] = time.time()
+            
+            # Copy system metadata fields from context if present
+            # These are already prefixed with underscore from clients
+            from ksi_common.event_parser import SYSTEM_METADATA_FIELDS
+            for field in SYSTEM_METADATA_FIELDS:
+                if field in context:
                     enhanced_data[field] = context[field]
+                
         else:
             # Non-dict data or no context - use as-is
             enhanced_data = data
@@ -666,10 +674,6 @@ class EventRouter:
         if self._shutdown_acknowledgments == set(self._shutdown_handlers.keys()):
             logger.info("All critical services have acknowledged shutdown")
             self._shutdown_event.set()
-            # Emit completion event
-            await self.emit("system:shutdown_complete", {
-                "services": list(self._shutdown_acknowledgments)
-            })
     
     async def wait_for_shutdown_acknowledgments(self, timeout: Optional[float] = None) -> bool:
         """Wait for all critical services to acknowledge shutdown.
@@ -1168,26 +1172,36 @@ class RouterRegisterTransformerData(TypedDict):
 
 
 @event_handler("router:register_transformer")
-async def handle_register_transformer(data: RouterRegisterTransformerData) -> Dict[str, Any]:
-    """Register a dynamic transformer from pattern.
+async def handle_register_transformer(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Register a dynamic transformer from pattern."""
+    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
+    from ksi_common.event_parser import extract_system_handler_data
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
     
-    Parameters:
-        transformer: Dict - Transformer definition with source, target, mapping, etc.
-    """
-    transformer = data.get('transformer')
+    transformer = clean_data.get('transformer')
     if not transformer:
-        return {"error": "Missing transformer definition"}
+        return error_response(
+            "Missing transformer definition",
+            context=context
+        )
     
     try:
         router = get_router()
         router.register_transformer_from_yaml(transformer)
-        return {
-            "status": "registered",
-            "source": transformer.get('source'),
-            "target": transformer.get('target')
-        }
+        return event_response_builder(
+            {
+                "status": "registered",
+                "source": transformer.get('source'),
+                "target": transformer.get('target')
+            },
+            context=context
+        )
     except Exception as e:
-        return {"error": str(e)}
+        return error_response(
+            str(e),
+            context=context
+        )
 
 class RouterUnregisterTransformerData(TypedDict):
     """Unregister a dynamic transformer."""
@@ -1195,19 +1209,26 @@ class RouterUnregisterTransformerData(TypedDict):
 
 
 @event_handler("router:unregister_transformer")
-async def handle_unregister_transformer(data: RouterUnregisterTransformerData) -> Dict[str, Any]:
-    """Unregister a dynamic transformer.
+async def handle_unregister_transformer(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Unregister a dynamic transformer."""
+    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
+    from ksi_common.event_parser import extract_system_handler_data
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
     
-    Parameters:
-        source: str - Source event pattern to unregister
-    """
-    source = data.get('source')
+    source = clean_data.get('source')
     if not source:
-        return {"error": "Missing source event"}
+        return error_response(
+            "Missing source event",
+            context=context
+        )
     
     router = get_router()
     router.unregister_transformer(source)
-    return {"status": "unregistered", "source": source}
+    return event_response_builder(
+        {"status": "unregistered", "source": source},
+        context=context
+    )
 
 class RouterListTransformersData(TypedDict):
     """List all registered transformers."""
@@ -1216,8 +1237,10 @@ class RouterListTransformersData(TypedDict):
 
 
 @event_handler("router:list_transformers")
-async def handle_list_transformers(data: RouterListTransformersData) -> Dict[str, Any]:
+async def handle_list_transformers(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """List all registered transformers."""
+    from ksi_common.event_response_builder import event_response_builder, list_response
+    
     router = get_router()
     transformers = []
     
@@ -1230,10 +1253,12 @@ async def handle_list_transformers(data: RouterListTransformersData) -> Dict[str
             "has_response_route": 'response_route' in config
         })
     
-    return {
-        "transformers": transformers,
-        "count": len(transformers)
-    }
+    return list_response(
+        transformers,
+        context=context,
+        count_field="count",
+        items_field="transformers"
+    )
 
 
 class SystemErrorPropagationData(TypedDict):
@@ -1242,29 +1267,33 @@ class SystemErrorPropagationData(TypedDict):
 
 
 @event_handler("system:error_propagation")
-async def handle_error_propagation(data: SystemErrorPropagationData) -> Dict[str, Any]:
-    """Control error propagation mode.
+async def handle_error_propagation(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Control error propagation mode."""
+    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
+    from ksi_common.event_parser import extract_system_handler_data
+    from ksi_common.event_response_builder import event_response_builder
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
     
-    Args:
-        data: Dict with 'enabled' (bool) to set mode, or empty to query
-        
-    Returns:
-        Current and previous error propagation state
-    """
     router = get_router()
     
-    if "enabled" in data:
-        previous = router.set_error_propagation(data["enabled"])
-        return {
-            "enabled": router._propagate_errors,
-            "previous": previous,
-            "changed": previous != router._propagate_errors
-        }
+    if "enabled" in clean_data:
+        previous = router.set_error_propagation(clean_data["enabled"])
+        return event_response_builder(
+            {
+                "enabled": router._propagate_errors,
+                "previous": previous,
+                "changed": previous != router._propagate_errors
+            },
+            context=context
+        )
     else:
-        return {
-            "enabled": router._propagate_errors,
-            "mode": "propagate" if router._propagate_errors else "catch"
-        }
+        return event_response_builder(
+            {
+                "enabled": router._propagate_errors,
+                "mode": "propagate" if router._propagate_errors else "catch"
+            },
+            context=context
+        )
 
 
 class EventEmitData(TypedDict):
@@ -1276,38 +1305,33 @@ class EventEmitData(TypedDict):
 
 
 @event_handler("event:emit")
-async def handle_emit_event(data: EventEmitData) -> Any:
-    """
-    Generic event emission - allows any module to emit any event.
-    Perfect for orchestrators implementing DSL actions without tight coupling.
+async def handle_emit_event(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Any:
+    """Generic event emission - allows any module to emit any event."""
+    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
+    from ksi_common.event_parser import extract_system_handler_data
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
     
-    Parameters:
-        event: str - Target event name (required)
-        data: Dict - Event data to pass (optional)
-        delay: float - Delay in seconds before emitting (optional)
-        condition: str - Only emit if condition evaluates true (optional)
-        
-    Returns:
-        The result(s) from the event emission
-        
-    Examples:
-        {"event": "agent:spawn", "data": {"profile": "test"}}
-        {"event": "monitoring:alert", "data": {"severity": "high"}, "delay": 5.0}
-    """
-    target_event = data.get('event')
-    event_data = data.get('data', {})
-    delay = data.get('delay', 0)
-    condition = data.get('condition')
+    target_event = clean_data.get('event')
+    event_data = clean_data.get('data', {})
+    delay = clean_data.get('delay', 0)
+    condition = clean_data.get('condition')
     
     if not target_event:
-        return {'error': 'Target event name required'}
+        return error_response(
+            'Target event name required',
+            context=context
+        )
     
     # Check condition if provided (simple evaluation for now)
     if condition:
         # For now, just check if condition is "true" or "false" string
         # In future, could add more sophisticated condition evaluation
         if str(condition).lower() == 'false':
-            return {'status': 'skipped', 'reason': 'Condition evaluated to false'}
+            return event_response_builder(
+                {'status': 'skipped', 'reason': 'Condition evaluated to false'},
+                context=context
+            )
     
     # Handle delay if specified
     if delay > 0:
@@ -1319,11 +1343,24 @@ async def handle_emit_event(data: EventEmitData) -> Any:
     
     # Return results based on what we got back
     if not results:
-        return {'status': 'success', 'results': [], 'message': f'Event {target_event} emitted with no handlers'}
+        return event_response_builder(
+            {'results': [], 'message': f'Event {target_event} emitted with no handlers'},
+            context=context
+        )
     elif len(results) == 1:
-        return results[0]  # Single result, return it directly
+        # For single result, check if it's already a properly formatted response
+        result = results[0]
+        if isinstance(result, dict) and any(key in result for key in ['status', '_timestamp', '_response_id']):
+            # Already formatted, return as-is
+            return result
+        else:
+            # Wrap in response builder
+            return event_response_builder(result, context=context)
     else:
-        return {'status': 'success', 'results': results, 'count': len(results)}
+        return event_response_builder(
+            {'results': results, 'count': len(results)},
+            context=context
+        )
 
 
 async def emit_event(event: str, data: Any = None) -> List[Any]:

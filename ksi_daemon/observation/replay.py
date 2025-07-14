@@ -17,6 +17,8 @@ from datetime import datetime, timedelta
 
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc, numeric_to_iso
+from ksi_common.event_parser import event_format_linter
+from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_daemon.event_system import event_handler, get_router
 
 logger = get_bound_logger("observation_replay")
@@ -83,13 +85,17 @@ class ObservationAnalyzePatternsData(TypedDict):
 
 
 @event_handler("system:context")
-async def handle_context(context: SystemContextData) -> None:
+async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Receive system context."""
+    data = event_format_linter(raw_data, dict)
+    
     global _event_emitter, _event_router
     router = get_router()
     _event_emitter = router.emit
     _event_router = router
     logger.info("Observation replay system initialized")
+    
+    return event_response_builder({"status": "initialized"}, context)
 
 
 @event_handler("observe:begin")

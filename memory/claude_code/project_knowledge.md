@@ -127,6 +127,109 @@ from ksi_common.config import config
 
 ## Development Patterns
 
+### Event Enrichment and Response Standardization (2025-07-14)
+
+**Core System Functionality**: All events are automatically enriched with context metadata before handler execution. This is fundamental KSI behavior providing complete event traceability.
+
+#### Event Enrichment (Simplified)
+```python
+# The event system automatically injects these fields into ALL events:
+{
+  "_agent_id": "agent_123",           # Agent that emitted this event (if from agent)
+  "_client_id": "ksi-cli",            # Client that emitted this event (if from client)
+  "_event_id": "evt_abc123",          # Unique event identifier
+  "_correlation_id": "corr_xyz789",   # Request correlation (if available)
+  "_event_timestamp": "2025-07-14T..." # System timestamp
+}
+# NOTE: session_id is NOT enriched - it's private to completion system
+# NOTE: Orchestration lineage is handled at orchestration layer, not event system
+```
+
+#### Handler Categories and Patterns
+
+**Two distinct handler types with different requirements:**
+
+##### Business Logic Handlers (Most handlers)
+```python
+from ksi_common.event_parser import event_format_linter
+from ksi_common.event_response_builder import event_response_builder
+
+@event_handler("your:event")
+async def your_handler(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None):
+    # REQUIRED: Strip system metadata to get clean handler data
+    data = event_format_linter(raw_data, YourEventType)  # YourEventType is TypedDict
+    
+    # Process with clean, type-safe data
+    result = your_processing_logic(data)
+    
+    # REQUIRED: Return standardized response
+    return event_response_builder(result, "your_handler", "your:event", context)
+```
+
+##### System Infrastructure Handlers (monitor, event_system, transport)
+```python
+from ksi_common.event_parser import extract_system_handler_data
+from ksi_common.event_response_builder import event_response_builder
+
+@event_handler("system:event")
+async def system_handler(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None):
+    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    
+    # Access business data
+    handler_field = clean_data.get("your_field")
+    
+    # Use system metadata dict directly when needed
+    if system_metadata.get("_agent_id"):
+        # Filter or process based on agent
+        pass
+    
+    # Process with clean data and metadata dict
+    result = system_processing_logic(clean_data, system_metadata)
+    
+    # REQUIRED: Return standardized response
+    return event_response_builder(result, "system_handler", "system:event", context)
+```
+
+#### Response Standardization
+**All handlers return standardized responses via `event_response_builder()`:**
+```python
+# Standard response format for ALL handlers:
+{
+  "status": "success",           # or "error", "pending"
+  "result": {...},              # Handler-specific result data
+  "handler": "your_handler",    # Handler identifier
+  "event": "your:event",        # Source event name
+  "_agent_id": "agent_123",     # Preserved from enriched context
+  "_timestamp": "2025-07-14T...", # Response timestamp
+  "_response_id": "resp_abc123"   # Unique response ID
+}
+```
+
+#### Universal Utilities
+- **event_format_linter()**: Strips system metadata from incoming events (REQUIRED for ALL handlers)
+- **event_response_builder()**: Creates standardized responses (REQUIRED for ALL handlers)
+- **Benefits**: System-wide observability, consistent tooling, clean separation of concerns
+
+#### Architectural Evolution: Evaluation System Modernization (2025-07-14)
+
+**Key Insight**: Many specialized evaluation sub-modules are now **obsoleted by the declarative composition system**. The orchestration and composition layers provide superior pattern-based evaluation capabilities.
+
+**Obsoleted Modules** (skip in Phase 2B migration):
+- `evaluation/judge_bootstrap_v2.py` (1 handler) - Replaced by composition patterns
+- `evaluation/tournament_evaluation.py` (2 handlers) - Replaced by orchestration patterns  
+- `evaluation/judge_tournament.py` (3 handlers) - Replaced by orchestration coordination
+- `evaluation/tournament_bootstrap_integration.py` (2 handlers) - Integrated into composition system
+- `evaluation/prompt_iteration.py` (2 handlers) - Pattern evolution handles this
+- `evaluation/llm_judge.py` (2 handlers) - Judge patterns now declarative
+
+**Core Evaluation System** (continue to maintain):
+- `evaluation/prompt_evaluation.py` (6 handlers) - Core evaluation infrastructure
+- Declarative test suites in `var/lib/evaluations/test_suites/`
+- Composition-based judge patterns in `var/lib/compositions/prompts/evaluation/judges/`
+
+**Migration Strategy**: Focus Phase 2B updates on **core infrastructure modules only**, skip obsoleted evaluation sub-modules that are superseded by the modern declarative composition system.
+
 ### Module Communication
 - **Events Only**: No direct imports between service modules
 - **Context Access**: Use `context["emit_event"]` from system:context

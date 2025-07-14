@@ -313,12 +313,12 @@ class KSIVisualizer {
         if (data.originator) {
             // From broadcast format
             const orig = data.originator;
-            if (orig.originator_id || orig.agent_id) {
-                originatorStr = `[${orig.originator_id || orig.agent_id}]`;
+            if (orig._agent_id) {
+                originatorStr = `[${orig._agent_id}]`;
             }
-        } else if (data.originator_id || data.agent_id) {
-            // Direct fields
-            originatorStr = `[${data.originator_id || data.agent_id}]`;
+        } else if (data._agent_id) {
+            // Direct system metadata field
+            originatorStr = `[${data._agent_id}]`;
         }
         
         // Build entry content

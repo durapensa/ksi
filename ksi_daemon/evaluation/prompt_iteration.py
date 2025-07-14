@@ -11,6 +11,8 @@ from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import utc_now, timestamp_utc, filename_timestamp
 from ksi_common.file_utils import save_yaml_file, load_yaml_file, ensure_directory
+from ksi_common.event_parser import event_format_linter
+from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_daemon.event_system import event_handler
 from .completion_utils import send_completion_and_wait
 from .evaluators import create_evaluator
@@ -314,7 +316,7 @@ async def handle_iterate_prompt(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("evaluation:prompt_patterns")
-async def handle_prompt_patterns(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_prompt_patterns(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Analyze all iteration results to extract successful prompt patterns.
     
@@ -322,56 +324,64 @@ async def handle_prompt_patterns(data: Dict[str, Any]) -> Dict[str, Any]:
         test_name: Optional specific test to analyze
         min_success_rate: Minimum success rate to consider (default: 0.7)
     """
+    data = event_format_linter(raw_data, dict)
+    
     test_name = data.get('test_name')
     min_success_rate = data.get('min_success_rate', 0.7)
     
-    engine = PromptIterationEngine()
-    results_dir = engine.results_dir
-    
-    # Load all or specific iteration results
-    pattern_data = {
-        "techniques": {},
-        "successful_patterns": [],
-        "improvement_techniques": []
-    }
-    
-    for result_file in results_dir.glob("*_iteration_*.yaml"):
-        result_data = load_yaml_file(result_file)
+    try:
+        engine = PromptIterationEngine()
+        results_dir = engine.results_dir
         
-        if test_name and result_data['test_name'] != test_name:
-            continue
+        # Load all or specific iteration results
+        pattern_data = {
+            "techniques": {},
+            "successful_patterns": [],
+            "improvement_techniques": []
+        }
         
-        analysis = result_data.get('analysis', {})
-        if analysis.get('success_rate', 0) >= min_success_rate:
-            # Extract successful techniques
-            techniques = analysis.get('technique_patterns', {}).get('successful_techniques', {})
-            for technique, count in techniques.items():
-                pattern_data['techniques'][technique] = pattern_data['techniques'].get(technique, 0) + count
-            
-            # Track improvement patterns
-            if analysis.get('improvement_over_base', 0) > 0.1:
-                pattern_data['improvement_techniques'].append({
-                    "test": result_data['test_name'],
-                    "best_version": analysis['best_version']['version'],
-                    "improvement": analysis['improvement_over_base']
-                })
-    
-    # Sort techniques by effectiveness
-    sorted_techniques = sorted(
-        pattern_data['techniques'].items(), 
-        key=lambda x: x[1], 
-        reverse=True
-    )
-    
-    return {
-        "status": "success",
-        "most_effective_techniques": sorted_techniques[:10],
-        "total_tests_analyzed": len(pattern_data['improvement_techniques']),
-        "average_improvement": sum(t['improvement'] for t in pattern_data['improvement_techniques']) / len(pattern_data['improvement_techniques'])
-            if pattern_data['improvement_techniques'] else 0,
-        "top_improvements": sorted(
-            pattern_data['improvement_techniques'], 
-            key=lambda x: x['improvement'], 
+        for result_file in results_dir.glob("*_iteration_*.yaml"):
+            try:
+                result_data = load_yaml_file(result_file)
+                
+                if test_name and result_data['test_name'] != test_name:
+                    continue
+                
+                analysis = result_data.get('analysis', {})
+                if analysis.get('success_rate', 0) >= min_success_rate:
+                    # Extract successful techniques
+                    techniques = analysis.get('technique_patterns', {}).get('successful_techniques', {})
+                    for technique, count in techniques.items():
+                        pattern_data['techniques'][technique] = pattern_data['techniques'].get(technique, 0) + count
+                    
+                    # Track improvement patterns
+                    if analysis.get('improvement_over_base', 0) > 0.1:
+                        pattern_data['improvement_techniques'].append({
+                            "test": result_data['test_name'],
+                            "best_version": analysis['best_version']['version'],
+                            "improvement": analysis['improvement_over_base']
+                        })
+            except Exception as e:
+                logger.warning(f"Error processing result file {result_file}: {e}")
+                continue
+        
+        # Sort techniques by effectiveness
+        sorted_techniques = sorted(
+            pattern_data['techniques'].items(), 
+            key=lambda x: x[1], 
             reverse=True
-        )[:5]
-    }
+        )
+        
+        return event_response_builder({
+            "most_effective_techniques": sorted_techniques[:10],
+            "total_tests_analyzed": len(pattern_data['improvement_techniques']),
+            "average_improvement": sum(t['improvement'] for t in pattern_data['improvement_techniques']) / len(pattern_data['improvement_techniques'])
+                if pattern_data['improvement_techniques'] else 0,
+            "top_improvements": sorted(
+                pattern_data['improvement_techniques'], 
+                key=lambda x: x['improvement'], 
+                reverse=True
+            )[:5]
+        }, context)
+    except Exception as e:
+        return error_response(f"Failed to analyze prompt patterns: {str(e)}", context)

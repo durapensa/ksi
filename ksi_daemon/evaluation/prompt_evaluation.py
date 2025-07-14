@@ -146,15 +146,26 @@ def save_evaluation_result(composition_type: str, composition_name: str,
 
 
 @event_handler("system:startup")
-async def handle_startup(data: SystemStartupData) -> Dict[str, Any]:
+async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize prompt evaluation module."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, SystemStartupData)
+    
     logger.info("Prompt evaluation module started")
-    return {"status": "prompt_evaluation_ready"}
+    return event_response_builder(
+        {"status": "prompt_evaluation_ready"},
+        context=context
+    )
 
 
 @event_handler("evaluation:prompt")
-async def handle_prompt_evaluate(data: PromptEvaluationData) -> Dict[str, Any]:
+async def handle_prompt_evaluate(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Run prompt evaluation tests for a composition."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, PromptEvaluationData)
+    
     composition_name = data['composition_name']  # Composition/profile to test
     composition_type = data.get('composition_type', 'profile')  # Type of composition
     test_suite_name = data.get('test_suite', 'basic_effectiveness')  # Which test suite to run
@@ -170,11 +181,10 @@ async def handle_prompt_evaluate(data: PromptEvaluationData) -> Dict[str, Any]:
         # Load test suite from YAML
         test_suite = load_test_suite(test_suite_name)
         if not test_suite:
-            return {
-                "status": "error",
-                "error": f"Test suite '{test_suite_name}' not found",
-                "composition": composition_name
-            }
+            return error_response(
+                f"Test suite '{test_suite_name}' not found",
+                context=context
+            )
         test_prompts = test_suite.get('tests', [])
         contamination_patterns = test_suite.get('contamination_patterns', [])
     
@@ -267,29 +277,31 @@ async def handle_prompt_evaluate(data: PromptEvaluationData) -> Dict[str, Any]:
             logger.error(f"Failed to save evaluation: {e}")
         
         # Return combined result
-        return {
-            "status": "success",
-            "composition": composition_name,
-            "test_suite": test_suite_name,
-            "model": model,
-            "summary": {
-                "total_tests": len(test_results),
-                "successful": successful_tests,
-                "contamination_rate": contamination_rate,
-                "avg_response_time": avg_response_time
+        return event_response_builder(
+            {
+                "status": "success",
+                "composition": composition_name,
+                "test_suite": test_suite_name,
+                "model": model,
+                "summary": {
+                    "total_tests": len(test_results),
+                    "successful": successful_tests,
+                    "contamination_rate": contamination_rate,
+                    "avg_response_time": avg_response_time
+                },
+                "evaluation_saved": evaluation_saved,
+                "saved_filename": saved_filename,
+                "detailed_results": test_results
             },
-            "evaluation_saved": evaluation_saved,
-            "saved_filename": saved_filename,
-            "detailed_results": test_results
-        }
+            context=context
+        )
         
     except Exception as e:
         logger.error(f"Prompt evaluation failed: {e}")
-        return {
-            "status": "error",
-            "error": str(e),
-            "composition": composition_name
-        }
+        return error_response(
+            str(e),
+            context=context
+        )
 
 
 async def _run_single_test(composition_name: str, 
@@ -382,8 +394,12 @@ async def _run_single_test(composition_name: str,
 
 
 @event_handler("evaluation:list_suites")
-async def handle_list_suites(data: EvaluationListSuitesData) -> Dict[str, Any]:
+async def handle_list_suites(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """List available test suites."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, EvaluationListSuitesData)
+    
     available_suites = list_available_test_suites()
     
     # Load details for each suite
@@ -400,16 +416,23 @@ async def handle_list_suites(data: EvaluationListSuitesData) -> Dict[str, Any]:
                 "author": test_suite.get('author', 'unknown')
             }
     
-    return {
-        "status": "success",
-        "test_suites": available_suites,
-        "suite_details": suite_details
-    }
+    return event_response_builder(
+        {
+            "status": "success",
+            "test_suites": available_suites,
+            "suite_details": suite_details
+        },
+        context=context
+    )
 
 
 @event_handler("evaluation:compare")
-async def handle_compare_compositions(data: EvaluationCompareData) -> Dict[str, Any]:
+async def handle_compare_compositions(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Compare multiple compositions by running evaluations on each."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, EvaluationCompareData)
     compositions = data.get('compositions', [])  # List of composition names to compare
     test_suite = data.get('test_suite', 'basic_effectiveness')  # Test suite to use
     model = data.get('model', 'claude-cli/sonnet')  # Model for testing
@@ -417,10 +440,7 @@ async def handle_compare_compositions(data: EvaluationCompareData) -> Dict[str, 
     format_type = data.get('format', 'summary')  # Output format: 'summary' (default), 'rankings', 'detailed' - summary shows key insights, rankings shows sorted results, detailed includes all data
     
     if not compositions:
-        return {
-            "status": "error",
-            "error": "No compositions provided for comparison"
-        }
+        return error_response("No compositions provided for comparison", context)
     
     logger.info(f"Starting composition comparison for {len(compositions)} compositions")
     
@@ -451,14 +471,14 @@ async def handle_compare_compositions(data: EvaluationCompareData) -> Dict[str, 
     elif format_type == 'rankings':
         return _format_rankings_response(results, comparison_report, test_suite, model)
     else:  # 'detailed' or fallback
-        return {
+        return event_response_builder({
             "status": "success",
             "compositions_tested": len(compositions),
             "test_suite": test_suite,
             "model": model,
             "individual_results": results,
             "comparison": comparison_report
-        }
+        }, context)
 
 
 def _generate_comparison_report(results: Dict[str, Dict[str, Any]], test_suite: str) -> Dict[str, Any]:
@@ -698,17 +718,18 @@ def _format_rankings_response(results: Dict[str, Dict[str, Any]], comparison: Di
 
 
 @event_handler("evaluation:list")
-async def handle_list_evaluations(data: EvaluationListData) -> Dict[str, Any]:
+async def handle_list_evaluations(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """List evaluations for a specific composition."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, EvaluationListData)
     composition_name = data.get('composition_name')  # Required
     composition_type = data.get('composition_type', 'profile')  # Type of composition
     detail_level = data.get('detail_level', 'detailed')  # Level of detail
     
     if not composition_name:
-        return {
-            "status": "error",
-            "error": "composition_name is required"
-        }
+        return error_response("composition_name is required", context)
     
     try:
         eval_info = evaluation_index.get_evaluation_info(
@@ -717,34 +738,32 @@ async def handle_list_evaluations(data: EvaluationListData) -> Dict[str, Any]:
             detail_level
         )
         
-        return {
+        return event_response_builder({
             "status": "success",
             "composition": {
                 "name": composition_name,
                 "type": composition_type
             },
             **eval_info
-        }
+        }, context)
     except Exception as e:
         logger.error(f"Failed to list evaluations: {e}")
-        return {
-            "status": "error",
-            "error": str(e)
-        }
+        return error_response(e, context)
 
 
 @event_handler("evaluation:refresh_index")
-async def handle_refresh_index(data: EvaluationRefreshIndexData) -> Dict[str, Any]:
+async def handle_refresh_index(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Refresh the evaluation index."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, EvaluationRefreshIndexData)
     try:
         evaluation_index.refresh()
-        return {
+        return event_response_builder({
             "status": "success",
             "message": "Evaluation index refreshed"
-        }
+        }, context)
     except Exception as e:
         logger.error(f"Failed to refresh evaluation index: {e}")
-        return {
-            "status": "error",
-            "error": str(e)
-        }
+        return error_response(e, context)

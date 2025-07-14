@@ -98,11 +98,20 @@ CONFIG_TYPES = {
 
 
 @event_handler("system:context")
-async def handle_context(context: Dict[str, Any]) -> None:
+async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Receive infrastructure from daemon context."""
+    from ksi_common.event_parser import extract_system_handler_data
+    from ksi_common.event_response_builder import event_response_builder
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    
     # Ensure backup directory exists
     CONFIG_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     logger.info(f"Config service module initialized with backup dir: {CONFIG_BACKUP_DIR}")
+    
+    return event_response_builder(
+        {"config_service_initialized": True, "backup_dir": str(CONFIG_BACKUP_DIR)},
+        context=context
+    )
 
 
 def _resolve_config_file(config_type: str, file_path: Optional[str] = None) -> Dict[str, Any]:
@@ -228,27 +237,20 @@ def _create_config_backup(file_path: Path, backup_name: Optional[str] = None) ->
 
 
 @event_handler("config:get")
-async def handle_get(data: ConfigGetData) -> Dict[str, Any]:
-    """
-    Get configuration value or entire config file.
-    
-    Args:
-        key (str): Configuration key path (e.g., 'daemon.log_level') (required)
-        config_type (str): Type of config ('daemon', 'composition', 'schema', 'capabilities')
-        file_path (str): Specific config file path (optional)
-    
-    Returns:
-        Dictionary with configuration value and metadata
-    
-    Example:
-        {"key": "daemon.log_level", "config_type": "daemon"}
-    """
+async def handle_get(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Get configuration value or entire config file."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, ConfigGetData)
     key = data.get("key", "")
     config_type = data.get("config_type", "daemon")
     file_path = data.get("file_path")
     
     if not key:
-        return {"error": "Key is required"}
+        return error_response(
+            "Key is required",
+            context=context
+        )
     
     # Resolve configuration file
     resolution = _resolve_config_file(config_type, file_path)
@@ -274,38 +276,35 @@ async def handle_get(data: ConfigGetData) -> Dict[str, Any]:
                 if isinstance(value, dict) and part in value:
                     value = value[part]
                 else:
-                    return {"error": f"Key not found: {key}"}
+                    return error_response(
+            f"Key not found: {key}",
+            context=context
+        )
         
-        return {
-            "key": key,
-            "value": value,
-            "config_type": config_type,
-            "file_path": str(file_path),
-            "format": format
-        }
+        return event_response_builder(
+            {
+                "key": key,
+                "value": value,
+                "config_type": config_type,
+                "file_path": str(file_path),
+                "format": format
+            },
+            context=context
+        )
     except Exception as e:
         logger.error(f"Error getting config key {key}: {e}")
-        return {"error": f"Get failed: {str(e)}"}
+        return error_response(
+            f"Get failed: {str(e)}",
+            context=context
+        )
 
 
 @event_handler("config:set")
-async def handle_set(data: ConfigSetData) -> Dict[str, Any]:
-    """
-    Set configuration value with automatic backup.
-    
-    Args:
-        key (str): Configuration key path (e.g., 'daemon.log_level') (required)
-        value (any): Value to set (required)
-        config_type (str): Type of config ('daemon', 'composition', 'schema', 'capabilities')
-        file_path (str): Specific config file path (optional)
-        create_backup (bool): Create backup before modification (default: true)
-    
-    Returns:
-        Dictionary with status and backup info
-    
-    Example:
-        {"key": "daemon.log_level", "value": "DEBUG", "config_type": "daemon"}
-    """
+async def handle_set(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Set configuration value with automatic backup."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, ConfigSetData)
     key = data.get("key", "")
     value = data.get("value")
     config_type = data.get("config_type", "daemon")
@@ -313,15 +312,24 @@ async def handle_set(data: ConfigSetData) -> Dict[str, Any]:
     create_backup = data.get("create_backup", True)
     
     if not key:
-        return {"error": "Key is required"}
+        return error_response(
+            "Key is required",
+            context=context
+        )
     
     if value is None:
-        return {"error": "Value is required"}
+        return error_response(
+            "Value is required",
+            context=context
+        )
     
     # Resolve configuration file
     resolution = _resolve_config_file(config_type, file_path)
     if "error" in resolution:
-        return resolution
+        return error_response(
+            resolution["error"],
+            context=context
+        )
     
     file_path = resolution["path"]
     format = resolution["format"]
@@ -333,7 +341,10 @@ async def handle_set(data: ConfigSetData) -> Dict[str, Any]:
         if "does not exist" in load_result["error"]:
             config_content = {}
         else:
-            return load_result
+            return error_response(
+                load_result["error"],
+                context=context
+            )
     else:
         config_content = load_result["content"]
     
@@ -343,14 +354,20 @@ async def handle_set(data: ConfigSetData) -> Dict[str, Any]:
         if file_path.exists() and create_backup:
             backup_result = _create_config_backup(file_path)
             if "error" in backup_result:
-                return backup_result
+                return error_response(
+                    backup_result["error"],
+                    context=context
+                )
             backup_info = backup_result
         
         # Set value using dot notation
         if key == "*":
             # Replace entire config
             if not isinstance(value, dict):
-                return {"error": "Value must be dict when setting entire config"}
+                return error_response(
+                    "Value must be dict when setting entire config",
+                    context=context
+                )
             config_content = value
         else:
             # Navigate and set specific key
@@ -360,20 +377,29 @@ async def handle_set(data: ConfigSetData) -> Dict[str, Any]:
             # Navigate to parent of target key
             for part in key_parts[:-1]:
                 if not isinstance(current, dict):
-                    return {"error": f"Cannot set nested key in non-dict value at {part}"}
+                    return error_response(
+                        f"Cannot set nested key in non-dict value at {part}",
+                        context=context
+                    )
                 if part not in current:
                     current[part] = {}
                 current = current[part]
             
             # Set the final key
             if not isinstance(current, dict):
-                return {"error": f"Cannot set key in non-dict value"}
+                return error_response(
+                    "Cannot set key in non-dict value",
+                    context=context
+                )
             current[key_parts[-1]] = value
         
         # Save configuration
         save_result = _save_config_file(file_path, config_content, format)
         if "error" in save_result:
-            return save_result
+            return error_response(
+                save_result["error"],
+                context=context
+            )
         
         result = {
             "status": "set",
@@ -394,28 +420,24 @@ async def handle_set(data: ConfigSetData) -> Dict[str, Any]:
             "value": value
         })
         
-        return result
+        return event_response_builder(
+            result,
+            context=context
+        )
     except Exception as e:
         logger.error(f"Error setting config key {key}: {e}")
-        return {"error": f"Set failed: {str(e)}"}
+        return error_response(
+            f"Set failed: {str(e)}",
+            context=context
+        )
 
 
 @event_handler("config:validate")
-async def handle_validate(data: ConfigValidateData) -> Dict[str, Any]:
-    """
-    Validate configuration file syntax and schema.
-    
-    Args:
-        config_type (str): Type of config to validate ('daemon', 'composition', 'schema', 'capabilities')
-        file_path (str): Specific config file path (optional)
-        schema_path (str): Path to validation schema (optional)
-    
-    Returns:
-        Dictionary with validation results
-    
-    Example:
-        {"config_type": "composition", "file_path": "profiles/developer.yaml"}
-    """
+async def handle_validate(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Validate configuration file syntax and schema."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, ConfigValidateData)
     config_type = data.get("config_type", "daemon")
     file_path = data.get("file_path")
     schema_path = data.get("schema_path")
@@ -423,7 +445,10 @@ async def handle_validate(data: ConfigValidateData) -> Dict[str, Any]:
     # Resolve configuration file
     resolution = _resolve_config_file(config_type, file_path)
     if "error" in resolution:
-        return resolution
+        return error_response(
+            resolution["error"],
+            context=context
+        )
     
     file_path = resolution["path"]
     format = resolution["format"]
@@ -432,12 +457,15 @@ async def handle_validate(data: ConfigValidateData) -> Dict[str, Any]:
         # Basic syntax validation
         load_result = _load_config_file(file_path, format)
         if "error" in load_result:
-            return {
-                "valid": False,
-                "syntax_valid": False,
-                "error": load_result["error"],
-                "file_path": str(file_path)
-            }
+            return event_response_builder(
+                {
+                    "valid": False,
+                    "syntax_valid": False,
+                    "error": load_result["error"],
+                    "file_path": str(file_path)
+                },
+                context=context
+            )
         
         config_content = load_result["content"]
         
@@ -482,26 +510,24 @@ async def handle_validate(data: ConfigValidateData) -> Dict[str, Any]:
             else:
                 validation_result["composition_valid"] = True
         
-        return validation_result
+        return event_response_builder(
+            validation_result,
+            context=context
+        )
     except Exception as e:
         logger.error(f"Error validating config: {e}")
-        return {"error": f"Validation failed: {str(e)}"}
+        return error_response(
+            f"Validation failed: {str(e)}",
+            context=context
+        )
 
 
 @event_handler("config:reload")
-async def handle_reload(data: ConfigReloadData) -> Dict[str, Any]:
-    """
-    Reload configuration components.
-    
-    Args:
-        component (str): Component to reload ('daemon', 'plugins', 'compositions', 'all')
-    
-    Returns:
-        Dictionary with reload status
-    
-    Example:
-        {"component": "compositions"}
-    """
+async def handle_reload(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Reload configuration components."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, ConfigReloadData)
     component = data.get("component", "all")
     
     try:
@@ -522,76 +548,84 @@ async def handle_reload(data: ConfigReloadData) -> Dict[str, Any]:
             await router.emit("composition:reload", {})
             results["reloaded"].append("compositions")
         
-        return {
-            "status": "reloaded",
-            "component": component,
-            "reloaded_components": results["reloaded"]
-        }
+        return event_response_builder(
+            {
+                "status": "reloaded",
+                "component": component,
+                "reloaded_components": results["reloaded"]
+            },
+            context=context
+        )
     except Exception as e:
         logger.error(f"Error reloading config: {e}")
-        return {"error": f"Reload failed: {str(e)}"}
+        return error_response(
+            f"Reload failed: {str(e)}",
+            context=context
+        )
 
 
 @event_handler("config:backup")
-async def handle_backup(data: ConfigBackupData) -> Dict[str, Any]:
-    """
-    Create manual backup of configuration.
-    
-    Args:
-        config_type (str): Type of config to backup (required)
-        file_path (str): Specific config file path (optional)
-        backup_name (str): Custom backup name (optional)
-    
-    Returns:
-        Dictionary with backup status and metadata
-    
-    Example:
-        {"config_type": "daemon", "backup_name": "before_update"}
-    """
+async def handle_backup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Create manual backup of configuration."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, ConfigBackupData)
     config_type = data.get("config_type", "")
     file_path = data.get("file_path")
     backup_name = data.get("backup_name")
     
     if not config_type:
-        return {"error": "config_type is required"}
+        return error_response(
+            "config_type is required",
+            context=context
+        )
     
     # Resolve configuration file
     resolution = _resolve_config_file(config_type, file_path)
     if "error" in resolution:
-        return resolution
+        return error_response(
+            resolution["error"],
+            context=context
+        )
     
     file_path = resolution["path"]
     
-    return _create_config_backup(file_path, backup_name)
+    backup_result = _create_config_backup(file_path, backup_name)
+    if "error" in backup_result:
+        return error_response(
+            backup_result["error"],
+            context=context
+        )
+    
+    return event_response_builder(
+        backup_result,
+        context=context
+    )
 
 
 @event_handler("config:rollback")
-async def handle_rollback(data: ConfigRollbackData) -> Dict[str, Any]:
-    """
-    Rollback configuration to previous backup.
-    
-    Args:
-        config_type (str): Type of config to rollback (required)
-        file_path (str): Specific config file path (optional)
-        backup_name (str): Specific backup to restore (optional, uses latest if not provided)
-    
-    Returns:
-        Dictionary with rollback status and metadata
-    
-    Example:
-        {"config_type": "daemon", "backup_name": "before_update"}
-    """
+async def handle_rollback(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Rollback configuration to previous backup."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, ConfigRollbackData)
     config_type = data.get("config_type", "")
     file_path = data.get("file_path")
     backup_name = data.get("backup_name")
     
     if not config_type:
-        return {"error": "config_type is required"}
+        return error_response(
+            "config_type is required",
+            context=context
+        )
     
     # Resolve configuration file
     resolution = _resolve_config_file(config_type, file_path)
     if "error" in resolution:
-        return resolution
+        return error_response(
+            resolution["error"],
+            context=context
+        )
     
     file_path = resolution["path"]
     
@@ -613,7 +647,10 @@ async def handle_rollback(data: ConfigRollbackData) -> Dict[str, Any]:
                     continue
             
             if not backup_files:
-                return {"error": "No backups found for this config file"}
+                return error_response(
+                    "No backups found for this config file",
+                    context=context
+                )
             
             # Sort by timestamp and get latest
             backup_files.sort(key=lambda x: x[1]["timestamp"], reverse=True)
@@ -623,10 +660,16 @@ async def handle_rollback(data: ConfigRollbackData) -> Dict[str, Any]:
         
         # Verify backup exists
         if not backup_path.exists():
-            return {"error": f"Backup file not found: {backup_name}"}
+            return error_response(
+                f"Backup file not found: {backup_name}",
+                context=context
+            )
         
         if not metadata_path.exists():
-            return {"error": f"Backup metadata not found: {backup_name}"}
+            return error_response(
+                f"Backup metadata not found: {backup_name}",
+                context=context
+            )
         
         # Load metadata
         with open(metadata_path, 'r') as f:
@@ -661,9 +704,15 @@ async def handle_rollback(data: ConfigRollbackData) -> Dict[str, Any]:
             "backup_name": backup_name
         })
         
-        return result
+        return event_response_builder(
+            result,
+            context=context
+        )
     except Exception as e:
         logger.error(f"Error rolling back config: {e}")
-        return {"error": f"Rollback failed: {str(e)}"}
+        return error_response(
+            f"Rollback failed: {str(e)}",
+            context=context
+        )
 
 

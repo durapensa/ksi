@@ -278,7 +278,8 @@ class EventClient:
         request = {
             "event": event_name,
             "data": data,
-            "correlation_id": correlation_id
+            "correlation_id": correlation_id,
+            "_client_id": self.client_id  # Include client identifier with underscore prefix
         }
         
         # Create future for response

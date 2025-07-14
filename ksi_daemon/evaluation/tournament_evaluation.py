@@ -8,6 +8,8 @@ from datetime import timedelta
 
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import utc_now
+from ksi_common.event_parser import event_format_linter
+from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_daemon.event_system import event_handler, emit_event
 from ksi_common.event_utils import get_nested_value
 
@@ -274,13 +276,15 @@ def extract_evaluation_from_response(
 
 
 @event_handler("completion:result")
-async def handle_completion_result(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_completion_result(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Monitor completion results for tournament evaluations.
     
     Since metadata isn't preserved through completion flow,
     we check all completion results for tournament evaluation patterns.
     """
+    data = event_format_linter(raw_data, dict)
+    
     # Get the response content
     response_text = get_nested_value(data, 'result.response.result', '')
     if not response_text:
@@ -316,4 +320,4 @@ async def handle_completion_result(data: Dict[str, Any]) -> Dict[str, Any]:
                 logger.debug(f"Found evaluation for match {match_id} but it's not pending")
     
     # Always return success - we're just monitoring
-    return {"status": "success"}
+    return event_response_builder({"status": "success"}, context)

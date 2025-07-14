@@ -383,89 +383,139 @@ class SystemShutdownData(TypedDict):
 
 # Event handlers
 @event_handler("transformer:load_pattern")
-async def handle_load_pattern(data: TransformerLoadPatternData) -> Dict[str, Any]:
-    """Load transformers from a pattern file.
+async def handle_load_pattern(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Load transformers from a pattern file."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, TransformerLoadPatternData)
     
-    Parameters:
-        pattern: str - Name of the pattern to load
-        source: str - System requesting the load (e.g., "orchestration")
-        force_reload: bool - Force reload even if already loaded (optional)
-    """
     pattern_name = data.get('pattern')
     source_system = data.get('source', 'unknown')
     force_reload = data.get('force_reload', False)
     
     if not pattern_name:
-        return {"error": "pattern name required"}
+        return error_response(
+            "pattern name required",
+            context=context
+        )
     
-    return await transformer_service.load_pattern_transformers(pattern_name, source_system, force_reload)
+    result = await transformer_service.load_pattern_transformers(pattern_name, source_system, force_reload)
+    return event_response_builder(
+        result,
+        context=context
+    )
 
 
 @event_handler("transformer:unload_pattern") 
-async def handle_unload_pattern(data: TransformerUnloadPatternData) -> Dict[str, Any]:
-    """Unload transformers from a pattern.
+async def handle_unload_pattern(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Unload transformers from a pattern."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, TransformerUnloadPatternData)
     
-    Parameters:
-        pattern: str - Name of the pattern to unload
-        source: str - System requesting the unload
-    """
     pattern_name = data.get('pattern')
     source_system = data.get('source', 'unknown')
     
     if not pattern_name:
-        return {"error": "pattern name required"}
+        return error_response(
+            "pattern name required",
+            context=context
+        )
     
-    return await transformer_service.unload_pattern_transformers(pattern_name, source_system)
+    result = await transformer_service.unload_pattern_transformers(pattern_name, source_system)
+    return event_response_builder(
+        result,
+        context=context
+    )
 
 
 @event_handler("transformer:reload_pattern")
-async def handle_reload_pattern(data: TransformerReloadPatternData) -> Dict[str, Any]:
-    """Reload transformers from a pattern file.
+async def handle_reload_pattern(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Reload transformers from a pattern file."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, TransformerReloadPatternData)
     
-    Parameters:
-        pattern: str - Name of the pattern to reload
-    """
     pattern_name = data.get('pattern')
     
     if not pattern_name:
-        return {"error": "pattern name required"}
+        return error_response(
+            "pattern name required",
+            context=context
+        )
     
-    return await transformer_service.reload_pattern_transformers(pattern_name)
+    result = await transformer_service.reload_pattern_transformers(pattern_name)
+    return event_response_builder(
+        result,
+        context=context
+    )
 
 
 @event_handler("transformer:list_by_pattern")
-async def handle_list_by_pattern(data: TransformerListByPatternData) -> Dict[str, Any]:
+async def handle_list_by_pattern(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """List all loaded patterns and their transformers."""
-    return transformer_service.list_loaded_patterns()
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, TransformerListByPatternData)
+    
+    result = transformer_service.list_loaded_patterns()
+    return event_response_builder(
+        result,
+        context=context
+    )
 
 
 @event_handler("transformer:get_usage")
-async def handle_get_usage(data: TransformerGetUsageData) -> Dict[str, Any]:
+async def handle_get_usage(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get usage information - which systems use which patterns."""
-    return transformer_service.get_usage_info()
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, TransformerGetUsageData)
+    
+    result = transformer_service.get_usage_info()
+    return event_response_builder(
+        result,
+        context=context
+    )
 
 
 @event_handler("system:startup")
-async def handle_startup(data: SystemStartupData) -> Dict[str, Any]:
+async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize transformer service on startup."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, SystemStartupData)
+    
     logger.info("Transformer service started - ready for pattern-based transformer loading")
     
-    return {
-        "status": "transformer_service_ready",
-        "features": [
-            "pattern_loading",
-            "reference_counting", 
-            "hot_reload",
-            "usage_tracking"
-        ]
-    }
+    return event_response_builder(
+        {
+            "status": "transformer_service_ready",
+            "features": [
+                "pattern_loading",
+                "reference_counting", 
+                "hot_reload",
+                "usage_tracking"
+            ]
+        },
+        context=context
+    )
 
 
 @event_handler("system:shutdown")
-async def handle_shutdown(data: SystemShutdownData) -> None:
+async def handle_shutdown(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Clean up on shutdown."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, SystemShutdownData)
+    
     # Unload all patterns
     for pattern_name in list(transformer_service._loaded_patterns.keys()):
         await transformer_service._unload_pattern_transformers_internal(pattern_name)
     
     logger.info("Transformer service shutdown - all patterns unloaded")
+    
+    return event_response_builder(
+        {"transformer_service_shutdown": True, "patterns_unloaded": True},
+        context=context
+    )

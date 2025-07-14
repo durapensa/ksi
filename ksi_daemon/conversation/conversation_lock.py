@@ -16,6 +16,8 @@ from typing_extensions import NotRequired, Required
 from ksi_daemon.event_system import event_handler, get_router
 from ksi_common.timestamps import timestamp_utc
 from ksi_common.logging import get_bound_logger
+from ksi_common.event_parser import event_format_linter
+from ksi_common.event_response_builder import event_response_builder, error_response
 
 logger = get_bound_logger("conversation_lock", version="1.0.0")
 
@@ -448,8 +450,9 @@ class ConversationActiveData(TypedDict):
 
 # System event handlers
 @event_handler("system:context")
-async def handle_context(context: SystemContextData) -> None:
+async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Store event emitter reference."""
+    data = event_format_linter(raw_data, SystemContextData)
     global event_emitter
     # Get router for event emission
     router = get_router()
@@ -458,80 +461,93 @@ async def handle_context(context: SystemContextData) -> None:
 
 
 @event_handler("system:startup")
-async def handle_startup(config_data: SystemStartupData) -> Dict[str, Any]:
+async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize conversation lock service on startup."""
+    data = event_format_linter(raw_data, SystemStartupData)
     logger.info("Conversation lock service started")
-    return {"status": "conversation_lock_ready"}
+    return event_response_builder({"status": "conversation_lock_ready"}, context)
 
 
 @event_handler("system:shutdown")
-async def handle_shutdown(data: SystemShutdownData) -> None:
+async def handle_shutdown(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Clean up on shutdown."""
+    data = event_format_linter(raw_data, SystemShutdownData)
     logger.info("Conversation lock service stopped")
 
 
 # Conversation lock event handlers
 @event_handler("conversation:acquire_lock")
-async def handle_acquire_lock(data: ConversationAcquireLockData) -> Dict[str, Any]:
+async def handle_acquire_lock(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Acquire lock for a conversation."""
+    data = event_format_linter(raw_data, ConversationAcquireLockData)
     request_id = data.get("request_id")
     conversation_id = data.get("conversation_id")
     metadata = data.get("metadata", {})
     
     if not request_id or not conversation_id:
-        return {"error": "request_id and conversation_id required"}
+        return error_response("request_id and conversation_id required", context)
     
     # Execute async lock acquisition
-    return await lock_manager.acquire_lock(request_id, conversation_id, metadata)
+    result = await lock_manager.acquire_lock(request_id, conversation_id, metadata)
+    return event_response_builder(result, context)
 
 
 @event_handler("conversation:release_lock")
-async def handle_release_lock(data: ConversationReleaseLockData) -> Dict[str, Any]:
+async def handle_release_lock(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Release a conversation lock."""
+    data = event_format_linter(raw_data, ConversationReleaseLockData)
     request_id = data.get("request_id")
     
     if not request_id:
-        return {"error": "request_id required"}
+        return error_response("request_id required", context)
     
-    return await lock_manager.release_lock(request_id)
+    result = await lock_manager.release_lock(request_id)
+    return event_response_builder(result, context)
 
 
 @event_handler("conversation:fork_detected")
-async def handle_fork_detected(data: ConversationForkDetectedData) -> Dict[str, Any]:
+async def handle_fork_detected(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle fork detection."""
+    data = event_format_linter(raw_data, ConversationForkDetectedData)
     request_id = data.get("request_id")
     expected_id = data.get("expected_conversation_id")
     actual_id = data.get("actual_conversation_id")
     
     if not all([request_id, expected_id, actual_id]):
-        return {"error": "request_id, expected_conversation_id, and actual_conversation_id required"}
+        return error_response("request_id, expected_conversation_id, and actual_conversation_id required", context)
     
-    return await lock_manager.detect_fork(request_id, expected_id, actual_id)
+    result = await lock_manager.detect_fork(request_id, expected_id, actual_id)
+    return event_response_builder(result, context)
 
 
 @event_handler("conversation:lock_status")
-async def handle_lock_status(data: ConversationLockStatusData) -> Dict[str, Any]:
+async def handle_lock_status(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get lock status for a conversation."""
+    data = event_format_linter(raw_data, ConversationLockStatusData)
     conversation_id = data.get("conversation_id")
     
     if conversation_id:
-        return await lock_manager.get_lock_status(conversation_id)
+        result = await lock_manager.get_lock_status(conversation_id)
     else:
-        return await lock_manager.get_all_locks()
+        result = await lock_manager.get_all_locks()
+    
+    return event_response_builder(result, context)
 
 
 @event_handler("conversation:active")
-async def handle_active_conversations(data: ConversationActiveData) -> Dict[str, Any]:
+async def handle_active_conversations(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get all active (locked) conversations."""
+    data = event_format_linter(raw_data, ConversationActiveData)
     all_locks = await lock_manager.get_all_locks()
     active = {
         conv_id: info for conv_id, info in all_locks['locks'].items()
         if info['state'] == LockState.LOCKED.value
     }
     
-    return {
+    result = {
         'active_count': len(active),
         'active_conversations': active
     }
+    return event_response_builder(result, context)
 
 

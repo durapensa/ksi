@@ -69,19 +69,24 @@ class SelectionResult:
 # Event Handlers
 
 @event_handler("system:context")
-async def handle_context(context: Dict[str, Any]) -> None:
+async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Receive infrastructure from daemon context."""
+    from ksi_common.event_parser import event_format_linter
+    data = event_format_linter(raw_data, dict)  # Simple dict for context handler
     global state_manager
     
-    state_manager = context.get("state_manager")
+    state_manager = data.get("state_manager")
     
     if state_manager:
         logger.info("Composition service connected to state manager")
 
 
 @event_handler("system:startup")
-async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize composition service on startup."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, dict)  # Simple dict for startup
     logger.info("Composition service starting up...")
     
     # Ensure directories exist
@@ -93,11 +98,14 @@ async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
     indexed_count = await composition_index.rebuild()
     
     logger.info(f"Composition service started - indexed {indexed_count} compositions")
-    return {"status": "composition_service_ready", "indexed": indexed_count}
+    return event_response_builder(
+        {"status": "composition_service_ready", "indexed": indexed_count},
+        context=context
+    )
 
 
 @event_handler("system:shutdown")
-async def handle_shutdown(data: Dict[str, Any]) -> None:
+async def handle_shutdown(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Clean up on shutdown."""
     logger.info("Composition service shutting down")
 
@@ -110,21 +118,30 @@ class CompositionComposeData(TypedDict):
 
 
 @event_handler("composition:compose")
-async def handle_compose(data: CompositionComposeData) -> Dict[str, Any]:
+async def handle_compose(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Compose a complete configuration from components."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, CompositionComposeData)
     name = data.get('name')
     comp_type = data.get('type', 'profile')
     variables = data.get('variables', {})
     
     try:
         composition = await resolve_composition(name, comp_type, variables)
-        return {
-            'status': 'success',
-            'composition': composition
-        }
+        return event_response_builder(
+            {
+                'status': 'success',
+                'composition': composition
+            },
+            context=context
+        )
     except Exception as e:
         logger.error(f"Composition failed: {e}")
-        return {'error': str(e)}
+        return error_response(
+            str(e),
+            context=context
+        )
 
 
 class CompositionProfileData(TypedDict):
@@ -134,20 +151,29 @@ class CompositionProfileData(TypedDict):
 
 
 @event_handler("composition:profile")
-async def handle_compose_profile(data: CompositionProfileData) -> Dict[str, Any]:
+async def handle_compose_profile(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Compose a profile (returns full configuration)."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, CompositionProfileData)
     name = data.get('name')
     variables = data.get('variables', {})
     
     try:
         result = await compose_profile(name, variables)
-        return {
-            'status': 'success',
-            'profile': result
-        }
+        return event_response_builder(
+            {
+                'status': 'success',
+                'profile': result
+            },
+            context=context
+        )
     except Exception as e:
         logger.error(f"Profile composition failed: {e}")
-        return {'error': str(e)}
+        return error_response(
+            str(e),
+            context=context
+        )
 
 
 class CompositionPromptData(TypedDict):
@@ -157,20 +183,29 @@ class CompositionPromptData(TypedDict):
 
 
 @event_handler("composition:prompt")
-async def handle_compose_prompt(data: CompositionPromptData) -> Dict[str, Any]:
+async def handle_compose_prompt(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Compose a prompt (returns text)."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, CompositionPromptData)
     name = data.get('name')
     variables = data.get('variables', {})
     
     try:
         result = await compose_prompt(name, variables)
-        return {
-            'status': 'success',
-            'prompt': result
-        }
+        return event_response_builder(
+            {
+                'status': 'success',
+                'prompt': result
+            },
+            context=context
+        )
     except Exception as e:
         logger.error(f"Prompt composition failed: {e}")
-        return {'error': str(e)}
+        return error_response(
+            str(e),
+            context=context
+        )
 
 
 class CompositionValidateData(TypedDict):
@@ -180,8 +215,11 @@ class CompositionValidateData(TypedDict):
 
 
 @event_handler("composition:validate")
-async def handle_validate(data: CompositionValidateData) -> Dict[str, Any]:
+async def handle_validate(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Validate a composition structure and syntax (like a linter)."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, CompositionValidateData)
     name = data.get('name')
     comp_type = data.get('type')
     
@@ -211,23 +249,25 @@ async def handle_validate(data: CompositionValidateData) -> Dict[str, Any]:
             if not any(sources):
                 issues.append(f"Component '{component.name}' has no content source")
         
-        return {
-            'status': 'success',
-            'valid': len(issues) == 0,
-            'issues': issues,
-            'composition': {
-                'name': composition.name,
-                'type': composition.type,
-                'version': composition.version
-            }
-        }
+        return event_response_builder(
+            {
+                'status': 'success',
+                'valid': len(issues) == 0,
+                'issues': issues,
+                'composition': {
+                    'name': composition.name,
+                    'type': composition.type,
+                    'version': composition.version
+                }
+            },
+            context=context
+        )
         
     except Exception as e:
-        return {
-            'status': 'error',
-            'valid': False,
-            'error': str(e)
-        }
+        return error_response(
+            str(e),
+            context=context
+        )
 
 
 class CompositionEvaluateData(TypedDict):
@@ -240,8 +280,11 @@ class CompositionEvaluateData(TypedDict):
 
 
 @event_handler("composition:evaluate")
-async def handle_evaluate(data: CompositionEvaluateData) -> Dict[str, Any]:
+async def handle_evaluate(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Process evaluation results for a composition (in-memory only)."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, CompositionEvaluateData)
     name = data['name']  # Composition to evaluate
     comp_type = data.get('type')  # Composition type
     test_suite = data['test_suite']  # Test suite that was run
@@ -271,23 +314,26 @@ async def handle_evaluate(data: CompositionEvaluateData) -> Dict[str, Any]:
         )
         
         # Return evaluation results (without saving)
-        return {
-            'status': 'success',
-            'composition': {
-                'name': composition.name,
-                'type': composition.type,
-                'version': composition.version
+        return event_response_builder(
+            {
+                'status': 'success',
+                'composition': {
+                    'name': composition.name,
+                    'type': composition.type,
+                    'version': composition.version
+                },
+                'evaluation': evaluation_record,
+                'metadata': composition.metadata
             },
-            'evaluation': evaluation_record,
-            'metadata': composition.metadata
-        }
+            context=context
+        )
         
     except Exception as e:
         logger.error(f"Error evaluating composition: {e}")
-        return {
-            'status': 'error',
-            'error': str(e)
-        }
+        return error_response(
+            str(e),
+            context=context
+        )
 
 
 async def _save_composition_to_disk(composition: Composition, overwrite: bool = False) -> Dict[str, Any]:
@@ -345,12 +391,18 @@ async def _save_composition_to_disk(composition: Composition, overwrite: bool = 
 
 
 @event_handler("composition:save")
-async def handle_save_composition(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_save_composition(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Save a composition to disk."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, dict)  # Using dict for flexible save operations
     try:
         comp_data = data.get('composition')  # Complete composition object or dict
         if not comp_data:
-            return {'status': 'error', 'error': 'No composition data provided'}
+            return error_response(
+                'No composition data provided',
+                context=context
+            )
             
         overwrite = data.get('overwrite', False)  # Replace existing file if True
         
@@ -364,31 +416,43 @@ async def handle_save_composition(data: Dict[str, Any]) -> Dict[str, Any]:
         save_result = await _save_composition_to_disk(composition, overwrite)
         
         if save_result['status'] == 'success':
-            return {
-                'status': 'success',
-                'name': composition.name,
-                'type': composition.type,
-                'path': save_result['path'],
-                'message': f'Composition saved to {save_result["path"]}'
-            }
+            return event_response_builder(
+                {
+                    'status': 'success',
+                    'name': composition.name,
+                    'type': composition.type,
+                    'path': save_result['path'],
+                    'message': f'Composition saved to {save_result["path"]}'
+                },
+                context=context
+            )
         else:
-            return save_result
+            return error_response(
+                save_result.get('error', 'Save failed'),
+                context=context
+            )
         
     except Exception as e:
         logger.error(f"Failed to save composition: {e}")
-        return {
-            'status': 'error',
-            'error': str(e)
-        }
+        return error_response(
+            str(e),
+            context=context
+        )
 
 
 @event_handler("composition:update")
-async def handle_update_composition(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_update_composition(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Update an existing composition's properties or metadata."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, dict)  # Using dict for flexible update operations
     try:
         name = data.get('name')  # Composition name to update
         if not name:
-            return {'status': 'error', 'error': 'Composition name required'}
+            return error_response(
+                'Composition name required',
+                context=context
+            )
             
         comp_type = data.get('type', 'profile')  # Composition type
         updates = data.get('updates', {})  # Properties to update (metadata, version, etc)
@@ -423,28 +487,37 @@ async def handle_update_composition(data: Dict[str, Any]) -> Dict[str, Any]:
         save_result = await _save_composition_to_disk(composition, overwrite=True)
         
         if save_result['status'] != 'success':
-            return save_result
+            return error_response(
+                save_result.get('error', 'Update failed'),
+                context=context
+            )
             
-        return {
-            'status': 'success',
-            'name': composition.name,
-            'type': composition.type,
-            'version': composition.version,
-            'updates_applied': list(updates.keys()),
-            'message': f'Updated composition {name}'
-        }
+        return event_response_builder(
+            {
+                'status': 'success',
+                'name': composition.name,
+                'type': composition.type,
+                'version': composition.version,
+                'updates_applied': list(updates.keys()),
+                'message': f'Updated composition {name}'
+            },
+            context=context
+        )
         
     except Exception as e:
         logger.error(f"Failed to update composition: {e}")
-        return {
-            'status': 'error',
-            'error': str(e)
-        }
+        return error_response(
+            str(e),
+            context=context
+        )
 
 
 @event_handler("composition:discover")
-async def handle_discover(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_discover(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Discover available compositions using index."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, dict)  # Simple dict for discovery operations
     try:
         # Use index for fast discovery
         discovered = await composition_index.discover(data)
@@ -509,15 +582,21 @@ async def handle_discover(data: Dict[str, Any]) -> Dict[str, Any]:
             discovered = filtered_compositions
             logger.debug(f"Filtered compositions by metadata: {len(discovered)} matches")
         
-        return {
-            'status': 'success',
-            'compositions': discovered,
-            'count': len(discovered),
-            'filtered': metadata_filter is not None
-        }
+        return event_response_builder(
+            {
+                'status': 'success',
+                'compositions': discovered,
+                'count': len(discovered),
+                'filtered': metadata_filter is not None
+            },
+            context=context
+        )
     except Exception as e:
         logger.error(f"Discovery failed: {e}")
-        return {'error': str(e)}
+        return error_response(
+            str(e),
+            context=context
+        )
 
 
 class CompositionListData(TypedDict):
@@ -529,8 +608,11 @@ class CompositionListData(TypedDict):
 
 
 @event_handler("composition:list")
-async def handle_list(data: CompositionListData) -> Dict[str, Any]:
+async def handle_list(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """List all compositions of a given type."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, CompositionListData)
     comp_type = data.get('type', 'all')
     include_validation = data.get('include_validation', False)
     
@@ -545,14 +627,17 @@ async def handle_list(data: CompositionListData) -> Dict[str, Any]:
         discovered = await handle_discover({
             'type': t,
             'include_validation': include_validation
-        })
+        }, context)
         compositions.extend(discovered.get('compositions', []))
     
-    return {
-        'status': 'success',
-        'compositions': compositions,
-        'count': len(compositions)
-    }
+    return event_response_builder(
+        {
+            'status': 'success',
+            'compositions': compositions,
+            'count': len(compositions)
+        },
+        context=context
+    )
 
 
 async def load_composition_raw(name: str, comp_type: Optional[str] = None) -> Dict[str, Any]:
@@ -620,13 +705,19 @@ class CompositionGetData(TypedDict):
 
 
 @event_handler("composition:get")
-async def handle_get(data: CompositionGetData) -> Dict[str, Any]:
+async def handle_get(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get a composition definition with all sections preserved."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, CompositionGetData)
     name = data.get('name')
     comp_type = data.get('type')
     
     if not name:
-        return {'error': 'Composition name required'}
+        return error_response(
+            'Composition name required',
+            context=context
+        )
     
     try:
         # Load raw YAML data to preserve all sections
@@ -635,27 +726,32 @@ async def handle_get(data: CompositionGetData) -> Dict[str, Any]:
         # Validate core fields
         validation_errors = validate_core_composition(composition_data)
         if validation_errors:
-            return {
-                'status': 'error',
-                'error': 'Invalid composition structure',
-                'validation_errors': validation_errors
-            }
+            return error_response(
+                'Invalid composition structure',
+                context=context
+            )
         
-        return {
-            'status': 'success',
-            'composition': composition_data  # Return ALL sections, not just core fields
-        }
+        return event_response_builder(
+            {
+                'status': 'success',
+                'composition': composition_data  # Return ALL sections, not just core fields
+            },
+            context=context
+        )
         
     except Exception as e:
         logger.error(f"Failed to get composition: {e}")
-        return {'error': str(e)}
+        return error_response(
+            str(e),
+            context=context
+        )
 
 
 
 
 @event_handler("composition:rebuild_index")
 @event_handler("composition:reload")  # Alias for backward compatibility
-async def handle_rebuild_index(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_rebuild_index(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Rebuild the composition index by scanning all composition files.
     
     This performs a full rebuild:
@@ -669,43 +765,67 @@ async def handle_rebuild_index(data: Dict[str, Any]) -> Dict[str, Any]:
     - Recovering from index corruption
     - Bulk imports of composition files
     """
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, dict)  # Simple dict for rebuild operations
     try:
         indexed_count = await composition_index.rebuild()
-        return {
-            'status': 'success',
-            'indexed_count': indexed_count,
-            'message': f'Indexed {indexed_count} compositions'
-        }
+        return event_response_builder(
+            {
+                'status': 'success',
+                'indexed_count': indexed_count,
+                'message': f'Indexed {indexed_count} compositions'
+            },
+            context=context
+        )
     except Exception as e:
         logger.error(f"Index rebuild failed: {e}")
-        return {'error': str(e)}
+        return error_response(
+            str(e),
+            context=context
+        )
 
 
 @event_handler("composition:index_file")
-async def handle_index_file(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_index_file(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Index a specific composition file."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, dict)  # Simple dict for file operations
     file_path = data.get('file_path')
     if not file_path:
-        return {'error': 'file_path required'}
+        return error_response(
+            'file_path required',
+            context=context
+        )
     
     try:
         success = await composition_index.index_file(Path(file_path))
-        return {
-            'status': 'success' if success else 'failed',
-            'file_path': file_path,
-            'indexed': success
-        }
+        return event_response_builder(
+            {
+                'status': 'success' if success else 'failed',
+                'file_path': file_path,
+                'indexed': success
+            },
+            context=context
+        )
     except Exception as e:
         logger.error(f"File indexing failed: {e}")
-        return {'error': str(e)}
+        return error_response(
+            str(e),
+            context=context
+        )
 
 
 @event_handler("composition:select")
-async def handle_select_composition(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_select_composition(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Select the best composition for given context using intelligent scoring."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, dict)  # Simple dict for selection operations
     try:
         # Build selection context from request data
-        context = SelectionContext(
+        selection_context = SelectionContext(
             agent_id=data.get('agent_id', 'unknown'),
             role=data.get('role'),
             capabilities=data.get('capabilities', []),
@@ -716,7 +836,7 @@ async def handle_select_composition(data: Dict[str, Any]) -> Dict[str, Any]:
         )
         
         # Get best composition
-        result = await _select_composition_for_context(context)
+        result = await _select_composition_for_context(selection_context)
         
         # Get additional suggestions if requested
         max_suggestions = data.get('max_suggestions', 1)
@@ -724,7 +844,7 @@ async def handle_select_composition(data: Dict[str, Any]) -> Dict[str, Any]:
         
         if max_suggestions > 1:
             # Get all scored compositions
-            all_scored = await _get_scored_compositions(context)
+            all_scored = await _get_scored_compositions(selection_context)
             suggestions = [
                 {
                     'name': name,
@@ -734,18 +854,24 @@ async def handle_select_composition(data: Dict[str, Any]) -> Dict[str, Any]:
                 for name, score, reasons in all_scored[:max_suggestions]
             ]
         
-        return {
-            'status': 'success',
-            'selected': result.composition_name,
-            'score': result.score,
-            'reasons': result.reasons,
-            'suggestions': suggestions,
-            'fallback_used': result.fallback_used
-        }
+        return event_response_builder(
+            {
+                'status': 'success',
+                'selected': result.composition_name,
+                'score': result.score,
+                'reasons': result.reasons,
+                'suggestions': suggestions,
+                'fallback_used': result.fallback_used
+            },
+            context=context
+        )
         
     except Exception as e:
         logger.error(f"Composition selection failed: {e}")
-        return {'error': str(e)}
+        return error_response(
+            str(e),
+            context=context
+        )
 
 
 # TypedDict definitions for composition:create
@@ -801,9 +927,13 @@ class CompositionResult(TypedDict):
 
 
 @event_handler("composition:create")
-async def handle_create_composition(data: CompositionCreateData) -> CompositionResult:
+async def handle_create_composition(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Create and save a composition."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
     try:
+        data = event_format_linter(raw_data, CompositionCreateData)
         # TypedDict is still a dict at runtime
         name = data.get('name')  # Optional composition name (auto-generated if not provided)
         if not name:
@@ -868,10 +998,7 @@ async def handle_create_composition(data: CompositionCreateData) -> CompositionR
                 composition = data['content']
             else:
                 # If content is a string for non-prompt types, error
-                return {
-                    'status': 'error',
-                    'error': f"Invalid content type for {comp_type} composition"
-                }
+                return error_response(f"Invalid content type for {comp_type} composition", context)
             
         # Always save to disk (no more in-memory only compositions)
         # Create Composition object
@@ -883,17 +1010,17 @@ async def handle_create_composition(data: CompositionCreateData) -> CompositionR
             
         logger.info(f"Created and saved composition: {name}")
         
-        return {
+        return event_response_builder({
             'status': 'success',
             'name': name,
             'composition': composition,
             'path': save_result['path'],
             'message': f'Created and saved composition: {name}'
-        }
+        }, context)
         
     except Exception as e:
         logger.error(f"Dynamic composition creation failed: {e}")
-        return {'error': str(e)}
+        return error_response(e, context)
 
 
 # Core Composition Functions
@@ -1343,8 +1470,12 @@ class CompositionForkData(TypedDict):
 
 
 @event_handler("composition:fork")
-async def handle_fork_composition(data: CompositionForkData) -> CompositionResult:
+async def handle_fork_composition(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Fork a composition to create a variant with lineage tracking."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, CompositionForkData)
     parent_name = data.get('parent')
     new_name = data.get('name')
     fork_reason = data.get('reason', 'Experimental variant')
@@ -1352,7 +1483,7 @@ async def handle_fork_composition(data: CompositionForkData) -> CompositionResul
     author = data.get('author', data.get('agent_id', 'unknown'))
     
     if not parent_name or not new_name:
-        return {'error': 'Both parent and name required for fork'}
+        return error_response('Both parent and name required for fork', context)
     
     try:
         # Load parent composition
@@ -1415,7 +1546,7 @@ async def handle_fork_composition(data: CompositionForkData) -> CompositionResul
         
     except Exception as e:
         logger.error(f"Fork failed: {e}")
-        return {'error': str(e)}
+        return error_response(e, context)
 
 
 class CompositionMergeData(TypedDict):
@@ -1428,8 +1559,12 @@ class CompositionMergeData(TypedDict):
 
 
 @event_handler("composition:merge")
-async def handle_merge_composition(data: CompositionMergeData) -> CompositionResult:
+async def handle_merge_composition(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Merge improvements from a forked composition back to parent."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, CompositionMergeData)
     source_name = data.get('source')
     target_name = data.get('target')
     strategy = data.get('strategy', 'selective')
@@ -1437,7 +1572,7 @@ async def handle_merge_composition(data: CompositionMergeData) -> CompositionRes
     validation_results = data.get('validation_results', {})
     
     if not source_name or not target_name:
-        return {'error': 'Both source and target required for merge'}
+        return error_response('Both source and target required for merge', context)
     
     try:
         # Load both compositions
@@ -1447,7 +1582,7 @@ async def handle_merge_composition(data: CompositionMergeData) -> CompositionRes
         # Verify lineage - source should be fork of target
         lineage = source.metadata.get('lineage', {})
         if not lineage.get('parent', '').startswith(target_name):
-            return {'error': f'{source_name} is not a fork of {target_name}'}
+            return error_response(f'{source_name} is not a fork of {target_name}', context)
         
         # Prepare merge based on strategy
         updates = {}
@@ -1503,7 +1638,7 @@ async def handle_merge_composition(data: CompositionMergeData) -> CompositionRes
         
     except Exception as e:
         logger.error(f"Merge failed: {e}")
-        return {'error': str(e)}
+        return error_response(e, context)
 
 
 class CompositionAgentContextData(TypedDict):
@@ -1516,8 +1651,12 @@ class CompositionAgentContextData(TypedDict):
 
 
 @event_handler("composition:agent_context")
-async def handle_compose_agent_context(data: CompositionAgentContextData) -> Dict[str, Any]:
+async def handle_compose_agent_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Compose agent context for self-configuring agents."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, CompositionAgentContextData)
     profile_name = data.get('profile')
     agent_id = data.get('agent_id')
     interaction_prompt = data.get('interaction_prompt', '')
@@ -1525,23 +1664,23 @@ async def handle_compose_agent_context(data: CompositionAgentContextData) -> Dic
     variables = data.get('variables', {})
     
     if not profile_name or not agent_id:
-        return {'status': 'error', 'error': 'Profile name and agent_id required'}
+        return error_response('Profile name and agent_id required', context)
     
     try:
         result = await compose_agent_context(
             profile_name, agent_id, interaction_prompt, 
             orchestration_name, variables
         )
-        return {
+        return event_response_builder({
             'status': 'success',
             'agent_context_message': result['message'],
             'composition_context': result['composition_context'],
             'redaction_applied': result['redaction_applied'],
             'composition_yaml': result['composition_yaml']
-        }
+        }, context)
     except Exception as e:
         logger.error(f"Agent context composition failed: {e}")
-        return {'status': 'error', 'error': str(e)}
+        return error_response(e, context)
 
 
 class CompositionDiffData(TypedDict):
@@ -1552,14 +1691,18 @@ class CompositionDiffData(TypedDict):
 
 
 @event_handler("composition:diff")
-async def handle_diff_composition(data: CompositionDiffData) -> Dict[str, Any]:
+async def handle_diff_composition(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Show differences between two compositions."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, CompositionDiffData)
     left_name = data.get('left')
     right_name = data.get('right')
     detail_level = data.get('detail_level', 'summary')
     
     if not left_name or not right_name:
-        return {'error': 'Both left and right compositions required'}
+        return error_response('Both left and right compositions required', context)
     
     try:
         # Load both compositions
@@ -1630,14 +1773,14 @@ async def handle_diff_composition(data: CompositionDiffData) -> Dict[str, Any]:
         else:
             differences['relationship'] = "No direct lineage relationship"
         
-        return {
+        return event_response_builder({
             'status': 'success',
             'differences': differences
-        }
+        }, context)
         
     except Exception as e:
         logger.error(f"Diff failed: {e}")
-        return {'error': str(e)}
+        return error_response(e, context)
 
 
 class CompositionInitialMessageData(TypedDict):
@@ -1658,33 +1801,41 @@ class CompositionTrackDecisionData(TypedDict):
 
 
 @event_handler("composition:initial_message")
-async def handle_compose_initial_message(data: CompositionInitialMessageData) -> Dict[str, Any]:
+async def handle_compose_initial_message(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Compose initial message for agent spawning using composition system."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, CompositionInitialMessageData)
     profile_name = data.get('profile')
     interaction_prompt = data.get('interaction_prompt', '')
     variables = data.get('variables', {})
     format_style = data.get('format_style', 'concatenated')
     
     if not profile_name:
-        return {'status': 'error', 'error': 'Profile name required'}
+        return error_response('Profile name required', context)
     
     try:
         result = await compose_initial_message(profile_name, interaction_prompt, variables, format_style)
-        return {
+        return event_response_builder({
             'status': 'success',
             'initial_message': result['message'],
             'agent_prompt': result['agent_prompt'],
             'interaction_prompt': result['interaction_prompt'],
             'format_style': result['format_style']
-        }
+        }, context)
     except Exception as e:
         logger.error(f"Initial message composition failed: {e}")
-        return {'status': 'error', 'error': str(e)}
+        return error_response(e, context)
 
 
 @event_handler("composition:track_decision")
-async def handle_track_decision(data: CompositionTrackDecisionData) -> Dict[str, Any]:
+async def handle_track_decision(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Track orchestrator decisions for pattern learning."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, CompositionTrackDecisionData)
     pattern_name = data.get('pattern')
     decision = data.get('decision')
     context = data.get('context', {})
@@ -1693,7 +1844,7 @@ async def handle_track_decision(data: CompositionTrackDecisionData) -> Dict[str,
     agent_id = data.get('agent_id', 'unknown')
     
     if not pattern_name or not decision:
-        return {'error': 'Pattern name and decision required'}
+        return error_response('Pattern name and decision required', context)
     
     try:
         # Store decision in pattern-specific decision log
@@ -1753,12 +1904,12 @@ async def handle_track_decision(data: CompositionTrackDecisionData) -> Dict[str,
         
         logger.debug(f"Tracked decision for pattern {pattern_name}: {decision} -> {outcome}")
         
-        return {
+        return event_response_builder({
             'status': 'success',
             'tracked': decision_record,
             'decisions_file': str(decisions_path)
-        }
+        }, context)
         
     except Exception as e:
         logger.error(f"Failed to track decision: {e}")
-        return {'error': str(e)}
+        return error_response(e, context)

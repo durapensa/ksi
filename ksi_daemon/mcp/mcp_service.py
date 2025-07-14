@@ -11,6 +11,8 @@ from typing import Any, Dict, Optional
 
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
+from ksi_common.event_parser import event_format_linter
+from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_daemon.event_system import event_handler, shutdown_handler, get_router
 
 from .dynamic_server import KSIDynamicMCPServer
@@ -135,19 +137,21 @@ async def handle_mcp_status(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("mcp:clear_sessions")
-async def handle_clear_sessions(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_clear_sessions(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Clear MCP session cache for specific agent or all."""
+    data = event_format_linter(raw_data, dict)
+    
     if not mcp_server:
-        return {"error": "MCP server not running"}
+        return error_response("MCP server not running", context)
     
     agent_id = data.get("agent_id")
     
     if hasattr(mcp_server, 'clear_sessions'):
         if agent_id:
             cleared = await mcp_server.clear_sessions(agent_id)
-            return {"cleared": cleared, "agent_id": agent_id}
+            return event_response_builder({"cleared": cleared, "agent_id": agent_id}, context)
         else:
             cleared = await mcp_server.clear_all_sessions()
-            return {"cleared": cleared, "agent_id": "all"}
+            return event_response_builder({"cleared": cleared, "agent_id": "all"}, context)
     
-    return {"error": "Session management not available"}
+    return error_response("Session management not available", context)

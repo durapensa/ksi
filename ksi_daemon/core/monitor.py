@@ -16,7 +16,7 @@ import time
 
 from ksi_daemon.event_system import event_handler
 from ksi_common.logging import get_bound_logger
-from ksi_common.event_response_builder import build_response, success_response, error_response, list_response
+from ksi_common.event_response_builder import event_response_builder, success_response, error_response, list_response
 
 # Module state
 logger = get_bound_logger("monitor", version="1.0.0")
@@ -42,26 +42,26 @@ async def broadcast_to_subscribed_clients(event_name: str, data: Any) -> int:
         "timestamp": time.time()
     }
     
-    # The event system injects originator fields directly into data
+    # The event system injects system metadata fields directly into data
     # Extract them for root-level visibility in broadcast messages
     if isinstance(data, dict):
-        from ksi_common.event_parser import parse_event_data, ORIGINATOR_FIELDS
+        from ksi_common.event_parser import event_format_linter, SYSTEM_METADATA_FIELDS
         
-        # Separate originator fields from actual event data
+        # Separate system metadata fields from actual event data
         clean_data = {}
-        originator_fields = {}
+        system_metadata = {}
         
         for key, value in data.items():
-            if key in ORIGINATOR_FIELDS:
-                originator_fields[key] = value
+            if key in SYSTEM_METADATA_FIELDS:
+                system_metadata[key] = value
             else:
                 clean_data[key] = value
         
         # Put clean data in the data field
         event_message["data"] = clean_data
         
-        # Add originator fields at root level for visibility
-        for key, value in originator_fields.items():
+        # Add system metadata fields at root level for visibility
+        for key, value in system_metadata.items():
             event_message[key] = value
     else:
         # Non-dict data
@@ -212,8 +212,6 @@ async def handle_startup(config: SystemStartupData, context: Optional[Dict[str, 
     logger.info("Monitor module started")
     return success_response(
         {"monitor_module": {"ready": True}},
-        handler_name="monitor.handle_startup",
-        event_name="system:startup",
         context=context
     )
 
@@ -234,8 +232,6 @@ async def handle_context(ctx_data: SystemContextData, context: Optional[Dict[str
     logger.info("Monitor module received event router context")
     return success_response(
         {"module": "monitor"},
-        handler_name="monitor.handle_context",
-        event_name="system:context",
         context=context
     )
 
@@ -243,7 +239,7 @@ async def handle_context(ctx_data: SystemContextData, context: Optional[Dict[str
 class MonitorGetEventsData(TypedDict):
     """Query event log with filtering and pagination."""
     event_patterns: NotRequired[List[str]]  # Event name patterns (supports wildcards)
-    originator_id: NotRequired[str]  # Filter by specific originator
+    _agent_id: NotRequired[str]  # Filter by specific agent that emitted events
     since: NotRequired[Union[str, float]]  # Start time (ISO string or timestamp)
     until: NotRequired[Union[str, float]]  # End time (ISO string or timestamp)
     limit: NotRequired[int]  # Maximum number of events to return (default: 100)
@@ -251,33 +247,25 @@ class MonitorGetEventsData(TypedDict):
 
 
 @event_handler("monitor:get_events")
-async def handle_get_events(data: MonitorGetEventsData) -> Dict[str, Any]:
-    """
-    Query event log with filtering and pagination.
-    
-    Args:
-        data: Query parameters:
-            - event_patterns: List of event name patterns (supports wildcards)
-            - originator_id: Filter by specific originator  
-            - since: Start time (ISO string or timestamp)
-            - until: End time (ISO string or timestamp)
-            - limit: Maximum number of events to return
-            - reverse: Return newest first (default True)
-    
-    Returns:
-        Dictionary with events list and metadata
-    """
+async def handle_get_events(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Query event log with filtering and pagination."""
     if not event_router or not hasattr(event_router, 'reference_event_log'):
-        return {"error": "Reference event log not available"}
+        return error_response(
+            "Reference event log not available",
+            context=context
+        )
     
     try:
-        # Extract query parameters
-        event_patterns = data.get("event_patterns")
-        originator_id = data.get("originator_id")
-        since = data.get("since")
-        until = data.get("until")
-        limit = data.get("limit", 100)  # Default limit
-        reverse = data.get("reverse", True)
+        # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
+        from ksi_common.event_parser import extract_system_handler_data
+        clean_data, system_metadata = extract_system_handler_data(raw_data)
+        
+        # Extract query parameters from clean business data
+        event_patterns = clean_data.get("event_patterns")
+        since = clean_data.get("since")
+        until = clean_data.get("until") 
+        limit = clean_data.get("limit", 100)  # Default limit
+        reverse = clean_data.get("reverse", True)
         
         # Convert time strings to timestamps if needed
         if isinstance(since, str):
@@ -287,10 +275,10 @@ async def handle_get_events(data: MonitorGetEventsData) -> Dict[str, Any]:
             from ksi_common.timestamps import parse_iso_timestamp
             until = parse_iso_timestamp(until).timestamp()
         
-        # Query metadata from SQLite
+        # Query metadata from SQLite (use system metadata for agent filtering)
         metadata_results = await event_router.reference_event_log.query_metadata(
             event_patterns=event_patterns,
-            originator_id=originator_id,
+            originator_id=system_metadata.get("_agent_id"),
             start_time=since,
             end_time=until,
             limit=limit
@@ -312,13 +300,13 @@ async def handle_get_events(data: MonitorGetEventsData) -> Dict[str, Any]:
             stats = await event_router.reference_event_log.get_statistics()
             total_events = stats.get("storage", {}).get("total_events", len(metadata_results))
         
-        return {
+        result = {
             "events": events,
             "count": len(events),
             "total_events": total_events,
             "query": {
                 "event_patterns": event_patterns,
-                "originator_id": originator_id,
+                "_agent_id": system_metadata.get("_agent_id"),
                 "since": since,
                 "until": until,
                 "limit": limit,
@@ -326,9 +314,17 @@ async def handle_get_events(data: MonitorGetEventsData) -> Dict[str, Any]:
             }
         }
         
+        return event_response_builder(
+            result,
+            context=context
+        )
+        
     except Exception as e:
         logger.error(f"Failed to query events: {e}")
-        return {"error": f"Query failed: {str(e)}"}
+        return error_response(
+            f"Query failed: {str(e)}",
+            context=context
+        )
 
 
 class MonitorGetStatsData(TypedDict):
@@ -338,15 +334,13 @@ class MonitorGetStatsData(TypedDict):
 
 
 @event_handler("monitor:get_stats")
-async def handle_get_stats(data: MonitorGetStatsData) -> Dict[str, Any]:
-    """
-    Get event log statistics.
-    
-    Returns:
-        Dictionary with event log statistics
-    """
+async def handle_get_stats(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Get event log statistics."""
     if not event_router or not hasattr(event_router, 'reference_event_log'):
-        return {"error": "Reference event log not available"}
+        return error_response(
+            "Reference event log not available",
+            context=context
+        )
     
     try:
         # For reference-based event log, return basic info
@@ -355,7 +349,7 @@ async def handle_get_stats(data: MonitorGetStatsData) -> Dict[str, Any]:
         # Add router stats
         router_stats = getattr(event_router, 'stats', {})
         
-        return {
+        result = {
             "event_log": {
                 "type": "reference_event_log",
                 "db_path": str(ref_log.db_path),
@@ -365,9 +359,17 @@ async def handle_get_stats(data: MonitorGetStatsData) -> Dict[str, Any]:
             "router": router_stats
         }
         
+        return event_response_builder(
+            result,
+            context=context
+        )
+        
     except Exception as e:
         logger.error(f"Failed to get stats: {e}")
-        return {"error": f"Stats failed: {str(e)}"}
+        return error_response(
+            f"Stats failed: {str(e)}",
+            context=context
+        )
 
 
 class MonitorClearLogData(TypedDict):
@@ -377,50 +379,38 @@ class MonitorClearLogData(TypedDict):
 
 
 @event_handler("monitor:clear_log")
-async def handle_clear_log(data: MonitorClearLogData) -> Dict[str, Any]:
-    """
-    Clear event log (admin operation).
-    
-    Returns:
-        Confirmation of log clearing
-    """
-    return {
-        "error": "Clear operation not supported for reference event log",
-        "message": "File-based logs should be managed through log rotation"
-    }
+async def handle_clear_log(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Clear event log (admin operation)."""
+    return error_response(
+        "Clear operation not supported for reference event log. File-based logs should be managed through log rotation",
+        context=context
+    )
 
 
 class MonitorSubscribeData(TypedDict):
     """Subscribe to real-time event stream."""
     event_patterns: NotRequired[List[str]]  # Event name patterns (supports wildcards)
     filter_fn: NotRequired[Any]  # Additional filter function
-    originator_id: NotRequired[str]  # Originator identifier
+    _agent_id: NotRequired[str]  # Agent identifier
     writer: NotRequired[Any]  # Transport writer reference
 
 
 @event_handler("monitor:subscribe")
-async def handle_subscribe(data: MonitorSubscribeData) -> Dict[str, Any]:
-    """
-    Subscribe to real-time event stream.
+async def handle_subscribe(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Subscribe to real-time event stream."""
+    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
+    from ksi_common.event_parser import extract_system_handler_data
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
     
-    Note: In event system, context is passed through data
-    
-    Args:
-        data: Subscription parameters:
-            - event_patterns: List of event name patterns (supports wildcards)
-            - filter_fn: Optional additional filter function
-            - originator_id: Originator identifier
-            - writer: Transport writer reference
-    
-    Returns:
-        Subscription confirmation
-    """
-    # Get client_id from data
-    client_id = data.get("client_id") or data.get("originator_id")
+    # Get client_id from business data or fall back to system metadata
+    client_id = clean_data.get("client_id") or system_metadata.get("_agent_id")
     if not client_id:
-        return {"error": "client_id required"}
+        return error_response(
+            "client_id required",
+            context=context
+        )
     
-    event_patterns = data.get("event_patterns", ["*"])
+    event_patterns = clean_data.get("event_patterns", ["*"])
     
     # Import unix_socket module to access subscriptions
     from ksi_daemon.transport import unix_socket
@@ -445,34 +435,30 @@ async def handle_subscribe(data: MonitorSubscribeData) -> Dict[str, Any]:
     
     logger.debug(f"Active subscriptions: {len(client_subscriptions)} clients, patterns: {dict(client_subscriptions)}")
     
-    return {
+    result = {
         "status": "subscribed",
         "client_id": client_id,
         "patterns": list(client_subscriptions[client_id])
     }
+    
+    return event_response_builder(
+        result,
+        context=context
+    )
 
 
 class MonitorUnsubscribeData(TypedDict):
     """Unsubscribe from event stream."""
-    originator_id: Required[str]  # Originator identifier
+    _agent_id: Required[str]  # Agent identifier
 
 
 @event_handler("monitor:unsubscribe")
-async def handle_unsubscribe(data: MonitorUnsubscribeData) -> Dict[str, Any]:
-    """
-    Unsubscribe from event stream.
-    
-    Args:
-        data: Unsubscribe parameters:
-            - originator_id: Originator identifier
-    
-    Returns:
-        Unsubscribe confirmation
-    """
-    return {
-        "error": "Subscription not implemented for reference event log",
-        "message": "No active subscriptions to unsubscribe from"
-    }
+async def handle_unsubscribe(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Unsubscribe from event stream."""
+    return error_response(
+        "Subscription not implemented for reference event log. No active subscriptions to unsubscribe from",
+        context=context
+    )
 
 
 class MonitorGetSubscriptionsData(TypedDict):
@@ -482,22 +468,22 @@ class MonitorGetSubscriptionsData(TypedDict):
 
 
 @event_handler("monitor:get_subscriptions")
-async def handle_get_subscriptions(data: MonitorGetSubscriptionsData) -> Dict[str, Any]:
-    """
-    Get subscription statistics for debugging.
-    
-    Returns:
-        Dictionary with subscription statistics and current state
-    """
+async def handle_get_subscriptions(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Get subscription statistics for debugging."""
     # Clean up stale subscriptions before reporting
     _cleanup_stale_subscriptions()
     
     stats = get_subscription_stats()
     
-    return {
+    result = {
         "subscription_stats": stats,
         "timestamp": time.time()
     }
+    
+    return event_response_builder(
+        result,
+        context=context
+    )
 
 
 class MonitorQueryData(TypedDict):
@@ -508,23 +494,12 @@ class MonitorQueryData(TypedDict):
 
 
 @event_handler("monitor:query")
-async def handle_query(data: MonitorQueryData) -> Dict[str, Any]:
-    """
-    Execute custom SQL query against event database.
-    
-    Args:
-        data: Query parameters:
-            - query: SQL query string
-            - params: Optional query parameters (tuple)
-            - limit: Maximum results (default 1000)
-    
-    Returns:
-        Query results with metadata
-    """
-    return {
-        "error": "Direct SQL queries not supported for reference event log",
-        "message": "Use monitor:get_events with filters instead"
-    }
+async def handle_query(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Execute custom SQL query against event database."""
+    return error_response(
+        "Direct SQL queries not supported for reference event log. Use monitor:get_events with filters instead",
+        context=context
+    )
 
 
 class MonitorGetSessionEventsData(TypedDict):
@@ -535,27 +510,26 @@ class MonitorGetSessionEventsData(TypedDict):
 
 
 @event_handler("monitor:get_session_events")
-async def handle_get_session_events(data: MonitorGetSessionEventsData) -> Dict[str, Any]:
-    """
-    Get all events for a specific session.
-    
-    Args:
-        data: Query parameters:
-            - session_id: Session ID to query
-            - include_memory: Include events from memory buffer (default True)
-            - reverse: Sort newest first (default True)
-    
-    Returns:
-        Events for the session
-    """
+async def handle_get_session_events(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Get all events for a specific session."""
     if not event_router or not hasattr(event_router, 'reference_event_log'):
-        return {"error": "Reference event log not available"}
+        return error_response(
+            "Reference event log not available",
+            context=context
+        )
     
-    session_id = data.get("session_id")
+    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
+    from ksi_common.event_parser import extract_system_handler_data
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    
+    session_id = clean_data.get("session_id")
     if not session_id:
-        return {"error": "No session_id provided"}
+        return error_response(
+            "No session_id provided",
+            context=context
+        )
     
-    reverse = data.get("reverse", True)
+    reverse = clean_data.get("reverse", True)
     
     try:
         # Query all events and filter by session_id
@@ -581,16 +555,24 @@ async def handle_get_session_events(data: MonitorGetSessionEventsData) -> Dict[s
         # Sort by timestamp
         events.sort(key=lambda e: e.get("timestamp", 0), reverse=reverse)
         
-        return {
+        result = {
             "session_id": session_id,
             "events": events,
             "count": len(events),
             "sources": ["file_storage"]
         }
         
+        return event_response_builder(
+            result,
+            context=context
+        )
+        
     except Exception as e:
         logger.error(f"Failed to get session events: {e}")
-        return {"error": f"Query failed: {str(e)}"}
+        return error_response(
+            f"Query failed: {str(e)}",
+            context=context
+        )
 
 
 class MonitorGetCorrelationChainData(TypedDict):
@@ -600,24 +582,24 @@ class MonitorGetCorrelationChainData(TypedDict):
 
 
 @event_handler("monitor:get_correlation_chain")
-async def handle_get_correlation_chain(data: MonitorGetCorrelationChainData) -> Dict[str, Any]:
-    """
-    Get all events in a correlation chain.
-    
-    Args:
-        data: Query parameters:
-            - correlation_id: Correlation ID to trace
-            - include_memory: Include events from memory buffer (default True)
-    
-    Returns:
-        Events in the correlation chain
-    """
+async def handle_get_correlation_chain(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Get all events in a correlation chain."""
     if not event_router or not hasattr(event_router, 'reference_event_log'):
-        return {"error": "Reference event log not available"}
+        return error_response(
+            "Reference event log not available",
+            context=context
+        )
     
-    correlation_id = data.get("correlation_id")
+    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
+    from ksi_common.event_parser import extract_system_handler_data
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    
+    correlation_id = clean_data.get("correlation_id")
     if not correlation_id:
-        return {"error": "No correlation_id provided"}
+        return error_response(
+            "No correlation_id provided",
+            context=context
+        )
     
     try:
         # Query events by correlation_id
@@ -652,11 +634,17 @@ async def handle_get_correlation_chain(data: MonitorGetCorrelationChainData) -> 
                 (events[-1].get("timestamp", 0) - events[0].get("timestamp", 0)) * 1000
             )
         
-        return chain_info
+        return event_response_builder(
+            chain_info,
+            context=context
+        )
         
     except Exception as e:
         logger.error(f"Failed to get correlation chain: {e}")
-        return {"error": f"Query failed: {str(e)}"}
+        return error_response(
+            f"Query failed: {str(e)}",
+            context=context
+        )
 
 
 class SystemShutdownData(TypedDict):
@@ -666,7 +654,7 @@ class SystemShutdownData(TypedDict):
 
 
 @event_handler("system:shutdown")
-async def handle_shutdown(data: SystemShutdownData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_shutdown(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Clean up on shutdown."""
     logger.info("Monitor module shutting down")
     return success_response(
@@ -674,8 +662,6 @@ async def handle_shutdown(data: SystemShutdownData, context: Optional[Dict[str, 
             "module": "monitor",
             "subscriptions_cleared": len(client_subscriptions)
         },
-        handler_name="monitor.handle_shutdown",
-        event_name="system:shutdown",
         context=context
     )
 
@@ -690,35 +676,26 @@ class MonitorGetStatusData(TypedDict):
 
 
 @event_handler("monitor:get_status")
-async def handle_get_status(data: MonitorGetStatusData) -> Dict[str, Any]:
-    """
-    Get consolidated KSI daemon status including recent events and agent information.
+async def handle_get_status(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Get consolidated KSI daemon status including recent events and agent information.
     
     This endpoint combines monitor:get_events and agent:list functionality to reduce
     the number of socket calls needed for status monitoring.
-    
-    Args:
-        data: Query parameters:
-            - event_patterns: List of event name patterns (supports wildcards)
-            - since: Start time for events (ISO string or timestamp)
-            - limit: Maximum number of events to return (default: 20)
-            - include_agents: Include agent status (default: True)
-            - include_events: Include recent events (default: True)
-    
-    Returns:
-        Dictionary with consolidated status information
     """
+    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
+    from ksi_common.event_parser import extract_system_handler_data
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
     result = {}
     
     # Get recent events if requested
-    include_events = data.get("include_events", True)
+    include_events = clean_data.get("include_events", True)
     if include_events:
         try:
             # Prepare event query parameters
             events_data = MonitorGetEventsData(
-                event_patterns=data.get("event_patterns"),
-                since=data.get("since"),
-                limit=data.get("limit", 20),
+                event_patterns=clean_data.get("event_patterns"),
+                since=clean_data.get("since"),
+                limit=clean_data.get("limit", 20),
                 reverse=True
             )
             
@@ -739,7 +716,7 @@ async def handle_get_status(data: MonitorGetStatusData) -> Dict[str, Any]:
             result["events_error"] = str(e)
     
     # Get agent status if requested
-    include_agents = data.get("include_agents", True)
+    include_agents = clean_data.get("include_agents", True)
     if include_agents:
         try:
             # Import agent service to get agent list
@@ -777,14 +754,17 @@ async def handle_get_status(data: MonitorGetStatusData) -> Dict[str, Any]:
     result["timestamp"] = time.time()
     result["status"] = "ok"
     
-    return result
+    return event_response_builder(
+        result,
+        context=context
+    )
 
 
 # Universal event handler for broadcasting (moved from unix_socket)
 from typing_extensions import Any as AnyData
 
 @event_handler("*")  # Match ALL events
-async def handle_universal_broadcast(data: AnyData, context: Optional[Dict[str, Any]] = None) -> None:
+async def handle_universal_broadcast(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Universal event handler that broadcasts all events to subscribed clients.
     
     This is the proper place for broadcasting logic - in the monitor module,
@@ -804,10 +784,10 @@ async def handle_universal_broadcast(data: AnyData, context: Optional[Dict[str, 
     if event_name.startswith('transport:') or event_name == 'monitor:subscribe':
         return
     
-    # The event system has already injected originator fields into data
+    # The event system has already injected originator fields into raw_data
     # We can pass it directly to broadcast
     if client_subscriptions:
-        broadcast_count = await broadcast_to_subscribed_clients(event_name, data)
+        broadcast_count = await broadcast_to_subscribed_clients(event_name, raw_data)
         logger.debug(f"Broadcasted {event_name} to {broadcast_count} clients with originator info")
     
     # Return None - don't interfere with other handlers' responses

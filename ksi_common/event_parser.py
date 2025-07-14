@@ -27,33 +27,28 @@ Usage:
 from typing import Any, Dict, TypeVar, Type, Optional, Set, get_type_hints, get_args, get_origin
 from typing_extensions import TypedDict, NotRequired, Required
 
-T = TypeVar('T', bound=TypedDict)
+T = TypeVar('T')
 
-# Standard originator fields injected by event system
-ORIGINATOR_FIELDS = {
-    "originator_id",
-    "agent_id", 
-    "session_id",
-    "correlation_id",
-    "construct_id",
-    "event_id",
-    "source_agent",
-    # Fields that might be injected for tracking
-    "_event_timestamp",
-    "_event_sequence",
-    "_event_source"
+# Standard system metadata fields injected by event system
+# NOTE: session_id is NOT included - it's private to completion system
+# NOTE: correlation_id is NOT included - it's internal to modules that use it
+SYSTEM_METADATA_FIELDS = {
+    "_agent_id",
+    "_client_id",
+    "_event_id",
+    "_event_timestamp"
 }
 
 
-def parse_event_data(raw_data: Dict[str, Any], expected_type: Type[T] = None) -> Dict[str, Any]:
-    """Parse event data, separating injected originator fields from actual data.
+def event_format_linter(raw_data: Dict[str, Any], expected_type: Type[T] = None) -> Dict[str, Any]:
+    """Strip system metadata from event data, returning clean handler data.
     
     Args:
-        raw_data: The raw event data potentially containing injected fields
+        raw_data: The raw event data potentially containing injected system fields
         expected_type: Optional TypedDict type for validation/filtering
         
     Returns:
-        Clean data dictionary without injected originator fields
+        Clean data dictionary without injected system metadata fields
     """
     if not isinstance(raw_data, dict):
         # Non-dict data is returned as-is
@@ -69,50 +64,54 @@ def parse_event_data(raw_data: Dict[str, Any], expected_type: Type[T] = None) ->
             if key in expected_fields:
                 clean_data[key] = value
     else:
-        # No type specified, remove known originator fields
+        # No type specified, remove known system metadata fields
         for key, value in raw_data.items():
-            if key not in ORIGINATOR_FIELDS:
+            if key not in SYSTEM_METADATA_FIELDS:
                 clean_data[key] = value
                 
     return clean_data
 
 
-def extract_originator_info(raw_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Extract originator information from event data.
+def extract_system_metadata(raw_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract system metadata from event data.
     
     Args:
         raw_data: The raw event data containing injected fields
         
     Returns:
-        Dictionary containing only originator fields
+        Dictionary containing only system metadata fields
     """
     if not isinstance(raw_data, dict):
         return {}
         
-    originator_info = {}
-    for field in ORIGINATOR_FIELDS:
+    metadata_info = {}
+    for field in SYSTEM_METADATA_FIELDS:
         if field in raw_data:
-            originator_info[field] = raw_data[field]
+            metadata_info[field] = raw_data[field]
             
-    return originator_info
+    return metadata_info
 
 
-def split_event_data(raw_data: Dict[str, Any], expected_type: Type[T] = None) -> tuple[Dict[str, Any], Dict[str, Any]]:
-    """Split event data into clean data and originator info.
+def extract_system_handler_data(raw_data: Dict[str, Any], expected_type: Type[T] = None) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    """Extract clean business data and system metadata for system infrastructure handlers.
+    
+    This is the standard utility for system infrastructure handlers (monitor, event_system, 
+    transport) that need to work with both clean business data and system metadata.
+    Uses SYSTEM_METADATA_FIELDS as the single source of truth.
     
     Args:
-        raw_data: The raw event data
+        raw_data: The raw enriched event data from the event system
         expected_type: Optional TypedDict type for validation
         
     Returns:
-        Tuple of (clean_data, originator_info)
+        Tuple of (clean_business_data, system_metadata_dict)
     """
-    clean_data = parse_event_data(raw_data, expected_type)
-    originator_info = extract_originator_info(raw_data)
-    return clean_data, originator_info
+    clean_data = event_format_linter(raw_data, expected_type)
+    system_metadata = extract_system_metadata(raw_data)
+    return clean_data, system_metadata
 
 
-def get_expected_fields(typed_dict_class: Type[TypedDict]) -> Set[str]:
+def get_expected_fields(typed_dict_class: Type[Any]) -> Set[str]:
     """Extract field names from a TypedDict class.
     
     Args:
@@ -191,16 +190,16 @@ def get_field(raw_data: Dict[str, Any], field: str, default: Any = None) -> Any:
     return raw_data.get(field, default)
 
 
-def has_originator(raw_data: Dict[str, Any]) -> bool:
-    """Check if event data contains originator information.
+def has_system_metadata(raw_data: Dict[str, Any]) -> bool:
+    """Check if event data contains system metadata.
     
     Args:
         raw_data: The raw event data
         
     Returns:
-        True if any originator fields are present
+        True if any system metadata fields are present
     """
     if not isinstance(raw_data, dict):
         return False
         
-    return any(field in raw_data for field in ORIGINATOR_FIELDS)
+    return any(field in raw_data for field in SYSTEM_METADATA_FIELDS)

@@ -520,24 +520,44 @@ class SystemShutdownData(TypedDict):
 # Event handlers
 
 @event_handler("system:startup", priority=EventPriority.LOW)
-async def handle_startup(config_data: SystemStartupData) -> Dict[str, Any]:
+async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize checkpoint system database."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, SystemStartupData)
+    
     if is_checkpoint_disabled:
         logger.debug("Checkpoint system disabled via KSI_CHECKPOINT_DISABLED")
-        return {"checkpoint": "disabled"}
+        return event_response_builder(
+            {"checkpoint": "disabled"},
+            context=context
+        )
     
     # Initialize database only - don't restore yet
     if not await initialize_checkpoint_db():
-        return {"checkpoint": "failed_init"}
+        return event_response_builder(
+            {"checkpoint": "failed_init"},
+            context=context
+        )
     
-    return {"checkpoint": "initialized"}
+    return event_response_builder(
+        {"checkpoint": "initialized"},
+        context=context
+    )
 
 
 @event_handler("system:ready", priority=EventPriority.LOW)
-async def handle_ready_restore(data: SystemReadyData) -> Dict[str, Any]:
+async def handle_ready_restore(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Restore checkpoint after all services are ready."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, SystemReadyData)
+    
     if is_checkpoint_disabled:
-        return {"checkpoint": "disabled"}
+        return event_response_builder(
+            {"checkpoint": "disabled"},
+            context=context
+        )
     
     # Try to restore checkpoint now that services are ready
     checkpoint = await load_latest_checkpoint()
@@ -549,9 +569,15 @@ async def handle_ready_restore(data: SystemReadyData) -> Dict[str, Any]:
         
         # Services are ready, no need to wait
         results = await restore_completion_state(checkpoint)
-        return {"checkpoint": "restored", "results": results}
+        return event_response_builder(
+            {"checkpoint": "restored", "results": results},
+            context=context
+        )
     
-    return {"checkpoint": "no_checkpoint"}
+    return event_response_builder(
+        {"checkpoint": "no_checkpoint"},
+        context=context
+    )
 
 
 async def _create_checkpoint(save_if_empty: bool = True, reason: str = "manual") -> Dict[str, Any]:
@@ -792,67 +818,104 @@ async def _clear_checkpoint_requests(filter_type: str = "all") -> Dict[str, Any]
 
 
 @event_handler("dev:checkpoint")
-async def handle_checkpoint(data: DevCheckpointData) -> Dict[str, Any]:
+async def handle_checkpoint(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle checkpoint operations with multiple actions."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, DevCheckpointData)
+    
     action = data.get("action")
     if not action:
-        return {"error": "action parameter required. Valid actions: create, status, list_requests, remove_request, clear_failed, clear_all"}
+        return error_response(
+            "action parameter required. Valid actions: create, status, list_requests, remove_request, clear_failed, clear_all",
+            context=context
+        )
     
     if action == "create":
-        return await _create_checkpoint(save_if_empty=True, reason="manual")
+        result = await _create_checkpoint(save_if_empty=True, reason="manual")
+        return event_response_builder(result, context=context)
     
     elif action == "status":
         # Get status from latest checkpoint 
         checkpoint = await load_latest_checkpoint()
         if not checkpoint:
-            return {"status": "no_checkpoint"}
+            return event_response_builder(
+                {"status": "no_checkpoint"},
+                context=context
+            )
         
         active_completions = checkpoint.get("active_completions", {})
         session_queues = checkpoint.get("session_queues", {})
         
-        return {
-            "status": "saved",
-            "timestamp": checkpoint.get("timestamp"),
-            "sessions": len(session_queues),
-            "queued_requests": sum(len(items) for items in session_queues.values()),
-            "active_requests": len(active_completions)
-        }
+        return event_response_builder(
+            {
+                "status": "saved",
+                "timestamp": checkpoint.get("timestamp"),
+                "sessions": len(session_queues),
+                "queued_requests": sum(len(items) for items in session_queues.values()),
+                "active_requests": len(active_completions)
+            },
+            context=context
+        )
     
     elif action == "list_requests":
-        return await _list_checkpoint_requests()
+        result = await _list_checkpoint_requests()
+        return event_response_builder(result, context=context)
     
     elif action == "remove_request":
         request_id = data.get("request_id")
         if not request_id:
-            return {"error": "request_id required for remove_request action"}
-        return await _remove_checkpoint_request(request_id)
+            return error_response(
+                "request_id required for remove_request action",
+                context=context
+            )
+        result = await _remove_checkpoint_request(request_id)
+        return event_response_builder(result, context=context)
     
     elif action == "clear_failed":
-        return await _clear_checkpoint_requests("failed")
+        result = await _clear_checkpoint_requests("failed")
+        return event_response_builder(result, context=context)
     
     elif action == "clear_all":
-        return await _clear_checkpoint_requests("all")
+        result = await _clear_checkpoint_requests("all")
+        return event_response_builder(result, context=context)
     
     else:
-        return {"error": f"Unknown action: {action}. Valid actions: create, status, list_requests, remove_request, clear_failed, clear_all"}
+        return error_response(
+            f"Unknown action: {action}. Valid actions: create, status, list_requests, remove_request, clear_failed, clear_all",
+            context=context
+        )
 
 
 @event_handler("dev:restore")
-async def handle_restore(data: DevRestoreData) -> Dict[str, Any]:
+async def handle_restore(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Manually trigger checkpoint restore."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, DevRestoreData)
+    
     if is_checkpoint_disabled:
-        return {"error": "Checkpoint system disabled"}
+        return error_response(
+            "Checkpoint system disabled",
+            context=context
+        )
     
     checkpoint = await load_latest_checkpoint()
     if not checkpoint:
-        return {"error": "No checkpoint found"}
+        return error_response(
+            "No checkpoint found",
+            context=context
+        )
     
     results = await restore_completion_state(checkpoint)
-    return {
-        "status": "restored",
-        "checkpoint_time": checkpoint.get("timestamp"),
-        "results": results
-    }
+    return event_response_builder(
+        {
+            "status": "restored",
+            "checkpoint_time": checkpoint.get("timestamp"),
+            "results": results
+        },
+        context=context
+    )
 
 
 @shutdown_handler("checkpoint", priority=EventPriority.HIGH)

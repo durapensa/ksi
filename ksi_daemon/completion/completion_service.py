@@ -94,8 +94,11 @@ class SystemStartupData(TypedDict):
 
 
 @event_handler("system:startup", priority=EventPriority.LOW)
-async def handle_startup(config_data: SystemStartupData) -> Dict[str, Any]:
+async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize completion service on startup."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, SystemStartupData)
     global queue_manager, provider_manager, conversation_tracker, token_tracker
     
     logger.info("Completion service startup handler called")
@@ -115,7 +118,10 @@ async def handle_startup(config_data: SystemStartupData) -> Dict[str, Any]:
         f"provider={provider_manager is not None}, token={token_tracker is not None}"
     )
     
-    return {"status": "completion_service_ready", "version": "4.0.0"}
+    return event_response_builder(
+        {"status": "completion_service_ready", "version": "4.0.0"},
+        context=context
+    )
 
 
 class SystemContextData(TypedDict):
@@ -125,12 +131,14 @@ class SystemContextData(TypedDict):
 
 
 @event_handler("system:context")
-async def handle_context(context: SystemContextData) -> None:
+async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Receive runtime context."""
+    from ksi_common.event_parser import event_format_linter
+    data = event_format_linter(raw_data, SystemContextData)
     global event_emitter, shutdown_event, retry_manager
     
-    event_emitter = context.get("emit_event")
-    shutdown_event = context.get("shutdown_event")
+    event_emitter = data.get("emit_event")
+    shutdown_event = data.get("shutdown_event")
     
     if event_emitter:
         logger.info("Completion service received event emitter")
@@ -200,19 +208,25 @@ class SystemReadyData(TypedDict):
 
 
 @event_handler("system:ready")
-async def handle_ready(data: SystemReadyData) -> Optional[Dict[str, Any]]:
+async def handle_ready(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """Return the completion service manager task."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, SystemReadyData)
     logger.info("Completion service requesting service manager task")
     
-    return {
-        "service": "completion_service",
-        "tasks": [
-            {
-                "name": "service_manager",
-                "coroutine": manage_completion_service()
-            }
-        ]
-    }
+    return event_response_builder(
+        {
+            "service": "completion_service",
+            "tasks": [
+                {
+                    "name": "service_manager",
+                    "coroutine": manage_completion_service()
+                }
+            ]
+        },
+        context=context
+    )
 
 
 class ClearAgentSessionData(TypedDict):
@@ -221,23 +235,38 @@ class ClearAgentSessionData(TypedDict):
 
 
 @event_handler("completion:clear_agent_session")
-async def handle_clear_agent_session(data: ClearAgentSessionData) -> Dict[str, Any]:
+async def handle_clear_agent_session(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Clear an agent's session mapping when the agent is terminated."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, ClearAgentSessionData)
     if not conversation_tracker:
-        return {"error": "Conversation tracker not initialized"}
+        return error_response(
+            "Conversation tracker not initialized",
+            context=context
+        )
     
     agent_id = data.get("agent_id")
     if not agent_id:
-        return {"error": "agent_id required"}
+        return error_response(
+            "agent_id required",
+            context=context
+        )
     
     # Clear the agent's session mapping
     if agent_id in conversation_tracker._agent_sessions:
         old_session = conversation_tracker._agent_sessions.pop(agent_id)
         logger.info(f"Cleared session mapping for terminated agent {agent_id} (was: {old_session})")
-        return {"status": "cleared", "old_session": old_session}
+        return event_response_builder(
+            {"status": "cleared", "old_session": old_session},
+            context=context
+        )
     else:
         logger.debug(f"No session mapping found for agent {agent_id}")
-        return {"status": "not_found"}
+        return event_response_builder(
+            {"status": "not_found"},
+            context=context
+        )
 
 
 class CompletionAsyncData(TypedDict):
@@ -260,10 +289,16 @@ class CompletionAsyncData(TypedDict):
 
 
 @event_handler("completion:async")
-async def handle_async_completion(data: CompletionAsyncData) -> Dict[str, Any]:
+async def handle_async_completion(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle async completion requests with smart queueing and automatic session continuity."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, CompletionAsyncData)
     if not all([queue_manager, provider_manager, conversation_tracker]):
-        return {"error": "Completion service not fully initialized"}
+        return error_response(
+            "Completion service not fully initialized",
+            context=context
+        )
     
     # Preserve original request_id from agent, or generate new one if missing
     request_id = data.get("request_id", str(uuid.uuid4()))
@@ -644,8 +679,11 @@ class CompletionStatusData(TypedDict):
 
 
 @event_handler("completion:status")
-async def handle_completion_status(data: CompletionStatusData) -> Dict[str, Any]:
+async def handle_completion_status(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get status of completion service and components."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, CompletionStatusData)
     # Debug logging
     logger.debug(
         f"Status check - components initialized: "
@@ -656,7 +694,7 @@ async def handle_completion_status(data: CompletionStatusData) -> Dict[str, Any]
     )
     
     if not all([queue_manager, conversation_tracker, provider_manager, token_tracker]):
-        return {"error": "Completion service not fully initialized"}
+        return error_response("Completion service not fully initialized", context)
     
     # Build status summary (preserving original functionality)
     status_counts = {}
@@ -664,7 +702,7 @@ async def handle_completion_status(data: CompletionStatusData) -> Dict[str, Any]
         status = completion["status"]
         status_counts[status] = status_counts.get(status, 0) + 1
     
-    return {
+    return event_response_builder({
         "service_ready": completion_task_group is not None,
         "active_completions": len(active_completions),
         "active_tasks": len(active_tasks),
@@ -674,7 +712,7 @@ async def handle_completion_status(data: CompletionStatusData) -> Dict[str, Any]
         "providers": provider_manager.get_all_provider_status(),
         "token_usage": token_tracker.get_summary_statistics(),
         "retry_manager": retry_manager.get_retry_stats() if retry_manager else None
-    }
+    }, context)
 
 
 class CompletionSessionStatusData(TypedDict):
@@ -683,14 +721,17 @@ class CompletionSessionStatusData(TypedDict):
 
 
 @event_handler("completion:session_status")
-async def handle_session_status(data: CompletionSessionStatusData) -> Dict[str, Any]:
+async def handle_session_status(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get detailed status for a specific session."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, CompletionSessionStatusData)
     if not all([queue_manager, conversation_tracker]):
-        return {"error": "Completion service not fully initialized"}
+        return error_response("Completion service not fully initialized", context)
     
     session_id = data.get("session_id")
     if not session_id:
-        return {"error": "session_id required"}
+        return error_response("session_id required", context)
     
     # Find completions for this session (preserving original functionality)
     session_completions = []
@@ -704,12 +745,12 @@ async def handle_session_status(data: CompletionSessionStatusData) -> Dict[str, 
                 "completed_at": completion.get("completed_at")
             })
     
-    return {
+    return event_response_builder({
         "session_id": session_id,
         "completions": session_completions,
         "queue": queue_manager.get_queue_status(session_id),
         "session": conversation_tracker.get_session_status(session_id)
-    }
+    }, context)
 
 
 class CompletionProviderStatusData(TypedDict):
@@ -718,16 +759,19 @@ class CompletionProviderStatusData(TypedDict):
 
 
 @event_handler("completion:provider_status")
-async def handle_provider_status(data: CompletionProviderStatusData) -> Dict[str, Any]:
+async def handle_provider_status(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get provider status and health information."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, CompletionProviderStatusData)
     if not provider_manager:
-        return {"error": "Provider manager not initialized"}
+        return error_response("Provider manager not initialized", context)
     
     provider = data.get("provider")
     if provider:
-        return provider_manager.get_provider_status(provider)
+        return event_response_builder(provider_manager.get_provider_status(provider), context)
     else:
-        return provider_manager.get_all_provider_status()
+        return event_response_builder(provider_manager.get_all_provider_status(), context)
 
 
 class CompletionTokenUsageData(TypedDict):
@@ -738,20 +782,23 @@ class CompletionTokenUsageData(TypedDict):
 
 
 @event_handler("completion:token_usage")
-async def handle_token_usage(data: CompletionTokenUsageData) -> Dict[str, Any]:
+async def handle_token_usage(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get token usage analytics."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, CompletionTokenUsageData)
     if not token_tracker:
-        return {"error": "Token tracker not initialized"}
+        return error_response("Token tracker not initialized", context)
     
     agent_id = data.get("agent_id")
     model = data.get("model")
     
     if agent_id:
-        return token_tracker.get_agent_usage(agent_id, data.get("hours"))
+        return event_response_builder(token_tracker.get_agent_usage(agent_id, data.get("hours")), context)
     elif model:
-        return token_tracker.get_model_usage(model)
+        return event_response_builder(token_tracker.get_model_usage(model), context)
     else:
-        return token_tracker.get_summary_statistics()
+        return event_response_builder(token_tracker.get_summary_statistics(), context)
 
 
 class CompletionCancelData(TypedDict):
@@ -760,19 +807,22 @@ class CompletionCancelData(TypedDict):
 
 
 @event_handler("completion:cancel")
-async def handle_cancel_completion(data: CompletionCancelData) -> Dict[str, Any]:
+async def handle_cancel_completion(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Cancel an in-progress completion."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, CompletionCancelData)
     request_id = data.get("request_id")
     if not request_id:
-        return {"error": "request_id required"}
+        return error_response("request_id required", context)
     
     if request_id not in active_completions:
-        return {"error": f"Unknown request_id: {request_id}"}
+        return error_response(f"Unknown request_id: {request_id}", context)
     
     completion = active_completions[request_id]
     
     if completion["status"] in ["completed", "failed", "cancelled"]:
-        return {"error": f"Request {request_id} already {completion['status']}"}
+        return error_response(f"Request {request_id} already {completion['status']}", context)
     
     # Implement actual cancellation logic
     completion["status"] = "cancelled"
@@ -792,10 +842,10 @@ async def handle_cancel_completion(data: CompletionCancelData) -> Dict[str, Any]
     
     logger.info(f"Cancelled completion {request_id}")
     
-    return {
+    return event_response_builder({
         "request_id": request_id,
         "status": "cancelled"
-    }
+    }, context)
 
 
 class CompletionRetryStatusData(TypedDict):
@@ -805,19 +855,22 @@ class CompletionRetryStatusData(TypedDict):
 
 
 @event_handler("completion:retry_status")
-async def handle_retry_status(data: CompletionRetryStatusData) -> Dict[str, Any]:
+async def handle_retry_status(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get retry manager status and statistics."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, CompletionRetryStatusData)
     if not retry_manager:
-        return {"error": "Retry manager not available"}
+        return error_response("Retry manager not available", context)
     
     stats = retry_manager.get_retry_stats()
     retrying_requests = retry_manager.list_retrying_requests()
     
-    return {
+    return event_response_builder({
         "retry_manager": "active",
         "stats": stats,
         "retrying_requests": retrying_requests
-    }
+    }, context)
 
 
 class CompletionFailedData(TypedDict):
@@ -829,12 +882,15 @@ class CompletionFailedData(TypedDict):
 
 
 @event_handler("completion:failed")
-async def handle_completion_failed(data: CompletionFailedData) -> Dict[str, Any]:
+async def handle_completion_failed(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle completion failures and attempt retries if appropriate."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, CompletionFailedData)
     request_id = data.get("request_id")
     if not request_id:
         logger.warning("Completion failure without request_id", data=data)
-        return {"error": "Missing request_id"}
+        return error_response("Missing request_id", context)
     
     # Get recovery data from conversation tracker
     recovery_data = conversation_tracker.get_recovery_data(request_id) if conversation_tracker else None
@@ -855,7 +911,7 @@ async def handle_completion_failed(data: CompletionFailedData) -> Dict[str, Any]
             logger.info("Processing checkpoint restore failure", request_id=request_id)
         else:
             logger.debug("No recovery data found for failed request", request_id=request_id)
-            return {"status": "not_found"}
+            return event_response_builder({"status": "not_found"}, context)
     
     if retry_manager:
         # Extract error information
@@ -873,13 +929,13 @@ async def handle_completion_failed(data: CompletionFailedData) -> Dict[str, Any]
         
         if retry_attempted:
             logger.info("Retry scheduled for failed completion", request_id=request_id)
-            return {"status": "retry_scheduled"}
+            return event_response_builder({"status": "retry_scheduled"}, context)
         else:
             logger.warning("Completion not retryable", request_id=request_id, error_type=error_type)
-            return {"status": "not_retryable"}
+            return event_response_builder({"status": "not_retryable"}, context)
     else:
         logger.warning("Retry manager not available")
-        return {"status": "retry_unavailable"}
+        return event_response_builder({"status": "retry_unavailable"}, context)
 
 
 class CheckpointCollectData(TypedDict):
@@ -889,8 +945,11 @@ class CheckpointCollectData(TypedDict):
 
 
 @event_handler("checkpoint:collect")
-async def collect_checkpoint_data(data: CheckpointCollectData) -> Dict[str, Any]:
+async def collect_checkpoint_data(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Collect completion service state for checkpoint."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, CheckpointCollectData)
     checkpoint_data = {
         "session_queues": {},
         "active_completions": dict(active_completions)  # Copy current state
@@ -932,7 +991,7 @@ async def collect_checkpoint_data(data: CheckpointCollectData) -> Dict[str, Any]
         session_queues=len(checkpoint_data["session_queues"])
     )
     
-    return checkpoint_data
+    return event_response_builder(checkpoint_data, context)
 
 
 class CheckpointRestoreData(TypedDict):
@@ -942,12 +1001,15 @@ class CheckpointRestoreData(TypedDict):
 
 
 @event_handler("checkpoint:restore")
-async def restore_checkpoint_data(data: CheckpointRestoreData) -> Dict[str, Any]:
+async def restore_checkpoint_data(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Restore completion service state from checkpoint."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, CheckpointRestoreData)
     global active_completions
     
     if not data:
-        return {"restored": 0}
+        return event_response_builder({"restored": 0}, context)
     
     # Restore active completions
     restored_completions = data.get("active_completions", {})
@@ -961,10 +1023,10 @@ async def restore_checkpoint_data(data: CheckpointRestoreData) -> Dict[str, Any]
         active_completions=len(restored_completions)
     )
     
-    return {
+    return event_response_builder({
         "restored": len(restored_completions),
         "message": "Active completions restored, queued items will be retried if needed"
-    }
+    }, context)
 
 
 class SystemShutdownData(TypedDict):
@@ -974,8 +1036,10 @@ class SystemShutdownData(TypedDict):
 
 
 @event_handler("system:shutdown")
-async def handle_shutdown(data: SystemShutdownData) -> None:
+async def handle_shutdown(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Clean up on shutdown."""
+    from ksi_common.event_parser import event_format_linter
+    data = event_format_linter(raw_data, SystemShutdownData)
     logger.info("Completion service shutting down")
     
     # Stop retry manager

@@ -42,82 +42,65 @@ class RuntimeConfigResetData(TypedDict):
 
 
 @event_handler("runtime:config:set")
-async def handle_runtime_config_set(data: RuntimeConfigSetData) -> Dict[str, Any]:
+async def handle_runtime_config_set(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Set runtime configuration override.
-    
-    Args:
-        key (str): Configuration key to set (required)
-        value (any): Value to set (required)
-    
-    Returns:
-        Status of the configuration change
-        
-    Example:
-        {"key": "error_verbosity", "value": "verbose"}
     """
-    # Validate parameters using ksi_common validation utilities
-    key_validator = Validator(data.get("key"), "key").required().type(str)
-    if not key_validator.is_valid():
-        return {"error": key_validator.get_errors()[0]}
-    
-    value_validator = Validator(data.get("value"), "value").required()
-    if not value_validator.is_valid():
-        return {"error": value_validator.get_errors()[0]}
-    
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, RuntimeConfigSetData)
     key = data.get("key")
     value = data.get("value")
     
     success = set_runtime_config(key, value)
     
     if success:
-        return {
-            "status": "updated",
-            "key": key,
-            "value": value
-        }
+        return event_response_builder(
+            {
+                "status": "updated",
+                "key": key,
+                "value": value
+            },
+            context=context
+        )
     else:
-        return {"error": f"Failed to set runtime config: {key}={value}"}
+        return error_response(
+            f"Failed to set runtime config: {key}={value}",
+            context=context
+        )
 
 
 @event_handler("runtime:config:get")
-async def handle_runtime_config_get(data: RuntimeConfigGetData) -> Dict[str, Any]:
+async def handle_runtime_config_get(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Get runtime configuration value(s).
-    
-    Args:
-        key (str): Configuration key to get (optional - if not provided, returns all)
-    
-    Returns:
-        Current configuration value(s) with metadata
-        
-    Examples:
-        {"key": "error_verbosity"}  # Get specific key
-        {}                          # Get all runtime config
     """
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, RuntimeConfigGetData)
     key = data.get("key")
-    
-    # Validate key parameter if provided (optional parameter validation)
-    if key is not None:
-        key_validator = Validator(key, "key").type(str)
-        if not key_validator.is_valid():
-            return {"error": key_validator.get_errors()[0]}
     
     if key:
         # Get specific key
         value = get_runtime_config(key)
         if value is None and key not in get_runtime_config_keys():
-            return {"error": f"Unknown config key: {key}"}
+            return error_response(
+                f"Unknown config key: {key}",
+                context=context
+            )
         
         # Check if it's a runtime override or default
         from ksi_daemon.config_manager import _runtime_overrides
         source = "runtime" if key in _runtime_overrides else "default"
         
-        return {
-            "key": key,
-            "value": value,
-            "source": source
-        }
+        return event_response_builder(
+            {
+                "key": key,
+                "value": value,
+                "source": source
+            },
+            context=context
+        )
     else:
         # Get all runtime-configurable settings
         all_keys = get_runtime_config_keys()
@@ -132,74 +115,67 @@ async def handle_runtime_config_get(data: RuntimeConfigGetData) -> Dict[str, Any
                 "source": source
             }
         
-        return {"runtime_config": result}
+        return event_response_builder(
+            {"runtime_config": result},
+            context=context
+        )
 
 
 @event_handler("runtime:config:query")
-async def handle_runtime_config_query(data: RuntimeConfigQueryData) -> Dict[str, Any]:
+async def handle_runtime_config_query(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Query available runtime configuration options.
-    
-    Args:
-        key (str): Configuration key to query (optional - if not provided, returns all available)
-    
-    Returns:
-        Configuration schema and current values
-        
-    Examples:
-        {"key": "error_verbosity"}  # Query specific key schema
-        {}                          # Query all available keys
     """
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, RuntimeConfigQueryData)
     key = data.get("key")
     
-    # Validate key parameter if provided (optional parameter validation)
-    if key is not None:
-        key_validator = Validator(key, "key").type(str)
-        if not key_validator.is_valid():
-            return {"error": key_validator.get_errors()[0]}
-    
-    return query_runtime_config(key)
+    result = query_runtime_config(key)
+    return event_response_builder(
+        result,
+        context=context
+    )
 
 
 @event_handler("runtime:config:reset")
-async def handle_runtime_config_reset(data: RuntimeConfigResetData) -> Dict[str, Any]:
+async def handle_runtime_config_reset(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Reset runtime configuration to defaults.
-    
-    Args:
-        key (str): Configuration key to reset (optional - if not provided, resets all)
-    
-    Returns:
-        Status of the reset operation
-        
-    Examples:
-        {"key": "error_verbosity"}  # Reset specific key
-        {}                          # Reset all runtime config
     """
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, RuntimeConfigResetData)
     key = data.get("key")
-    
-    # Validate key parameter if provided (optional parameter validation)
-    if key is not None:
-        key_validator = Validator(key, "key").type(str)
-        if not key_validator.is_valid():
-            return {"error": key_validator.get_errors()[0]}
     
     success = reset_runtime_config(key)
     
     if success:
         if key:
-            return {
-                "status": "reset",
-                "key": key,
-                "message": f"Runtime config '{key}' reset to default"
-            }
+            return event_response_builder(
+                {
+                    "status": "reset",
+                    "key": key,
+                    "message": f"Runtime config '{key}' reset to default"
+                },
+                context=context
+            )
         else:
-            return {
-                "status": "reset",
-                "message": "All runtime config reset to defaults"
-            }
+            return event_response_builder(
+                {
+                    "status": "reset",
+                    "message": "All runtime config reset to defaults"
+                },
+                context=context
+            )
     else:
         if key:
-            return {"error": f"Failed to reset runtime config: {key}"}
+            return error_response(
+                f"Failed to reset runtime config: {key}",
+                context=context
+            )
         else:
-            return {"error": "Failed to reset runtime config"}
+            return error_response(
+                "Failed to reset runtime config",
+                context=context
+            )

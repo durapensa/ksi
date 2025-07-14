@@ -7,10 +7,10 @@ that includes originator information and processing metadata. This ensures all
 event responses have consistent structure while preserving handler-specific data.
 
 Usage:
-    from ksi_common.event_response_builder import build_response, async_response
+    from ksi_common.event_response_builder import event_response_builder, async_response
     
     # In an event handler:
-    return build_response(
+    return event_response_builder(
         {"result": "success"},
         handler_name="my_handler",
         event_name="my:event",
@@ -18,12 +18,11 @@ Usage:
     )
 """
 from typing import Any, Dict, Optional, Union
+from .event_parser import SYSTEM_METADATA_FIELDS
 
 
-def build_response(
+def event_response_builder(
     data: Any,
-    handler_name: str,
-    event_name: str,
     context: Optional[Dict[str, Any]] = None,
     include_metadata: bool = True
 ) -> Dict[str, Any]:
@@ -31,14 +30,12 @@ def build_response(
     
     Creates a response that includes:
     - The actual response data
-    - Processing metadata (handler, event_processed)
-    - Originator information from context
+    - Processing metadata (status, timestamps)
+    - System metadata from context
     
     Args:
         data: The actual response data (can be dict, list, string, etc.)
-        handler_name: Name of the handler processing the event
-        event_name: Name of the event being handled
-        context: Event context containing originator info
+        context: Event context containing system metadata
         include_metadata: Whether to include processing metadata
         
     Returns:
@@ -53,23 +50,20 @@ def build_response(
     
     # Add processing metadata if requested
     if include_metadata:
-        response["event_processed"] = True
-        response["handler"] = handler_name
-        response["event"] = event_name
-    
-    # Extract and add originator information from context
-    if context:
-        # Add individual fields directly to response
-        originator_fields = [
-            "originator_id",
-            "agent_id", 
-            "session_id",
-            "correlation_id",
-            "construct_id",
-            "event_id"
-        ]
+        # Only set default status if not already set
+        if "status" not in response:
+            response["status"] = "success"  # Default status
         
-        for field in originator_fields:
+        # Add response metadata
+        import time
+        import uuid
+        response["_timestamp"] = time.time()
+        response["_response_id"] = f"resp_{uuid.uuid4().hex[:8]}"
+    
+    # Extract and add system metadata from context
+    if context:
+        # Add system metadata fields to response
+        for field in SYSTEM_METADATA_FIELDS:
             if field in context and field not in response:
                 response[field] = context[field]
     
@@ -78,8 +72,6 @@ def build_response(
 
 def success_response(
     data: Any = None,
-    handler_name: str = None,
-    event_name: str = None,
     context: Optional[Dict[str, Any]] = None,
     message: str = None
 ) -> Dict[str, Any]:
@@ -87,9 +79,7 @@ def success_response(
     
     Args:
         data: Optional response data
-        handler_name: Handler name (required)
-        event_name: Event name (required)
-        context: Event context with originator info
+        context: Event context with system metadata
         message: Optional success message
         
     Returns:
@@ -106,18 +96,14 @@ def success_response(
     if message:
         response_data["message"] = message
         
-    return build_response(
+    return event_response_builder(
         response_data,
-        handler_name=handler_name,
-        event_name=event_name,
         context=context
     )
 
 
 def error_response(
     error: Union[str, Exception],
-    handler_name: str = None,
-    event_name: str = None,
     context: Optional[Dict[str, Any]] = None,
     details: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
@@ -125,9 +111,7 @@ def error_response(
     
     Args:
         error: Error message or exception
-        handler_name: Handler name
-        event_name: Event name
-        context: Event context with originator info
+        context: Event context with system metadata
         details: Additional error details
         
     Returns:
@@ -141,18 +125,14 @@ def error_response(
     if details:
         response_data.update(details)
         
-    return build_response(
+    return event_response_builder(
         response_data,
-        handler_name=handler_name,
-        event_name=event_name,
         context=context
     )
 
 
 def async_response(
     request_id: str,
-    handler_name: str = None,
-    event_name: str = None,
     context: Optional[Dict[str, Any]] = None,
     status: str = "queued",
     **kwargs
@@ -164,9 +144,7 @@ def async_response(
     
     Args:
         request_id: The request ID for tracking
-        handler_name: Handler name
-        event_name: Event name
-        context: Event context with originator info
+        context: Event context with system metadata
         status: Operation status (default: "queued")
         **kwargs: Additional fields to include
         
@@ -181,10 +159,8 @@ def async_response(
     # Add any additional fields
     response_data.update(kwargs)
     
-    return build_response(
+    return event_response_builder(
         response_data,
-        handler_name=handler_name,
-        event_name=event_name,
         context=context,
         include_metadata=True  # Always include metadata for async responses
     )
@@ -192,8 +168,6 @@ def async_response(
 
 def list_response(
     items: list,
-    handler_name: str = None,
-    event_name: str = None,
     context: Optional[Dict[str, Any]] = None,
     count_field: str = "count",
     items_field: str = "items"
@@ -202,9 +176,7 @@ def list_response(
     
     Args:
         items: List of items
-        handler_name: Handler name
-        event_name: Event name
-        context: Event context with originator info
+        context: Event context with system metadata
         count_field: Name for count field (default: "count")
         items_field: Name for items field (default: "items")
         
@@ -216,9 +188,7 @@ def list_response(
         count_field: len(items)
     }
     
-    return build_response(
+    return event_response_builder(
         response_data,
-        handler_name=handler_name,
-        event_name=event_name,
         context=context
     )

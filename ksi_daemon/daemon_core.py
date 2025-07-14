@@ -318,13 +318,16 @@ class SystemHealthData(TypedDict):
     pass
 
 @event_handler("system:shutdown", priority=EventPriority.HIGHEST)  # Use HIGHEST to run before other handlers
-async def handle_shutdown_request(data: SystemShutdownData) -> None:
+async def handle_shutdown_request(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle external shutdown request by setting shutdown event.
     
     This handler responds to external shutdown requests (e.g. from daemon_control)
     by setting the shutdown event. The main daemon wrapper will then call shutdown()
     which performs the coordinated shutdown sequence.
     """
+    from ksi_common.event_parser import extract_system_handler_data
+    from ksi_common.event_response_builder import event_response_builder
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
     # Get the daemon core instance from the router
     router = get_router()
     if hasattr(router, '_daemon_core') and router._daemon_core:
@@ -333,81 +336,128 @@ async def handle_shutdown_request(data: SystemShutdownData) -> None:
         if router._daemon_core.running and not router._daemon_core.shutdown_event.is_set():
             logger.info("Received system:shutdown request, setting shutdown event")
             router._daemon_core.shutdown_event.set()
+            return event_response_builder(
+                {"shutdown_initiated": True},
+                context=context
+            )
         else:
             logger.debug("Ignoring system:shutdown - already shutting down")
+            return event_response_builder(
+                {"shutdown_initiated": False, "reason": "already_shutting_down"},
+                context=context
+            )
     else:
         logger.warning("No daemon core reference available for shutdown")
+        return event_response_builder(
+            {"shutdown_initiated": False, "reason": "no_daemon_core"},
+            context=context
+        )
 
 @event_handler("shutdown:acknowledge")
-async def handle_shutdown_acknowledge(data: ShutdownAcknowledgeData) -> Dict[str, Any]:
-    """Handle shutdown acknowledgment from a service.
+async def handle_shutdown_acknowledge(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Handle shutdown acknowledgment from a service."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, ShutdownAcknowledgeData)
     
-    Expected data:
-        service_name: Name of the service acknowledging shutdown
-    """
     service_name = data.get("service_name")
     if not service_name:
-        return {"error": "Missing service_name"}
+        return error_response(
+            "Missing service_name",
+            context=context
+        )
     
     router = get_router()
     await router.acknowledge_shutdown(service_name)
-    return {"acknowledged": service_name}
+    return event_response_builder(
+        {"acknowledged": service_name},
+        context=context
+    )
 
 @event_handler("module:list")
-async def handle_list_modules(data: ModuleListData) -> Dict[str, Any]:
+async def handle_list_modules(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """List all loaded modules."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, ModuleListData)
     router = get_router()
     modules = router.get_modules()
     
-    return {
-        "modules": [
-            {
-                "name": name,
-                "handlers": len(info["handlers"]),
-                "services": len(info["services"]),
-                "tasks": len(info["background_tasks"])
-            }
-            for name, info in modules.items()
-        ],
-        "count": len(modules)
-    }
+    return event_response_builder(
+        {
+            "modules": [
+                {
+                    "name": name,
+                    "handlers": len(info["handlers"]),
+                    "services": len(info["services"]),
+                    "tasks": len(info["background_tasks"])
+                }
+                for name, info in modules.items()
+            ],
+            "count": len(modules)
+        },
+        context=context
+    )
 
 
 @event_handler("module:events")
-async def handle_list_events(data: ModuleEventsData) -> Dict[str, Any]:
+async def handle_list_events(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """List all registered events and patterns."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, ModuleEventsData)
     router = get_router()
     events = router.get_events()
     
-    return {
-        "events": events["direct_events"],
-        "patterns": events["pattern_events"], 
-        "total_events": events["total_events"],
-        "total_patterns": events["total_patterns"]
-    }
+    return event_response_builder(
+        {
+            "events": events["direct_events"],
+            "patterns": events["pattern_events"], 
+            "total_events": events["total_events"],
+            "total_patterns": events["total_patterns"]
+        },
+        context=context
+    )
 
 
 @event_handler("module:inspect")
-async def handle_inspect_module(data: ModuleInspectData) -> Dict[str, Any]:
+async def handle_inspect_module(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Inspect a specific module using direct function metadata."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, ModuleInspectData)
+    
     router = get_router()
     module_name = data.get("module_name")
     
     if not module_name:
-        return {"error": "Missing module_name parameter"}
+        return error_response(
+            "Missing module_name parameter",
+            context=context
+        )
     
     # Get module info with direct function inspection
     info = router.inspect_module(module_name)
     if not info:
-        return {"error": f"Module not found: {module_name}"}
+        return error_response(
+            f"Module not found: {module_name}",
+            context=context
+        )
     
-    return {"module": info}
+    return event_response_builder(
+        {"module": info},
+        context=context
+    )
 
 
 
 @event_handler("system:health")
-async def handle_system_health(data: SystemHealthData) -> Dict[str, Any]:
-    """System health check including module status.""" 
+async def handle_system_health(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """System health check including module status."""
+    from ksi_common.event_parser import extract_system_handler_data
+    from ksi_common.event_response_builder import event_response_builder
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    
     import time
     
     router = get_router()
@@ -421,16 +471,19 @@ async def handle_system_health(data: SystemHealthData) -> Dict[str, Any]:
     else:
         uptime = 0
     
-    return {
-        "status": "healthy",
-        "uptime": uptime,
-        "version": "3.0.0",  # Event-based daemon version
-        "modules_loaded": len(modules),
-        "services_registered": services["total"],
-        "events_registered": len(router._handlers),
-        "background_tasks": len(router._tasks),
-        "modules": list(modules.keys())
-    }
+    return event_response_builder(
+        {
+            "status": "healthy",
+            "uptime": uptime,
+            "version": "3.0.0",  # Event-based daemon version
+            "modules_loaded": len(modules),
+            "services_registered": services["total"],
+            "events_registered": len(router._handlers),
+            "background_tasks": len(router._tasks),
+            "modules": list(modules.keys())
+        },
+        context=context
+    )
 
 
 class ConfigChangedData(TypedDict):
@@ -442,14 +495,18 @@ class ConfigChangedData(TypedDict):
 
 
 @event_handler("config:changed")
-async def handle_config_changed(data: ConfigChangedData) -> None:
+async def handle_config_changed(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle configuration changes by applying them immediately.
     
     This eliminates the need for config:reload - changes apply immediately.
     """
-    config_type = data.get("config_type")
-    key = data.get("key")
-    value = data.get("value")
+    from ksi_common.event_parser import extract_system_handler_data
+    from ksi_common.event_response_builder import event_response_builder
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    
+    config_type = clean_data.get("config_type")
+    key = clean_data.get("key")
+    value = clean_data.get("value")
     
     logger.info(f"Configuration changed: {config_type}.{key} = {value}")
     
@@ -464,6 +521,15 @@ async def handle_config_changed(data: ConfigChangedData) -> None:
         # Add more immediate config applications as needed
     
     logger.debug(f"Applied configuration change: {key} = {value}")
+    
+    return event_response_builder(
+        {
+            "config_applied": True,
+            "config_type": config_type,
+            "key": key
+        },
+        context=context
+    )
 
 
 async def _apply_debug_logging_change(debug_enabled: bool):

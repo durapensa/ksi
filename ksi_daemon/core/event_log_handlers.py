@@ -7,6 +7,7 @@ Bridges between different query interfaces and parameter naming conventions.
 """
 
 from typing import Dict, Any, List, Optional
+from typing_extensions import TypedDict
 
 from ksi_daemon.event_system import event_handler, emit_event, get_router
 from ksi_common.logging import get_bound_logger
@@ -14,28 +15,32 @@ from ksi_common.logging import get_bound_logger
 logger = get_bound_logger("event_log_handlers")
 
 
+# TypedDict definitions for event handlers
+class EventLogQueryData(TypedDict):
+    """Query event log with parameter mapping."""
+    source_agent: Optional[str]  # Agent ID to filter by (maps to originator_id)
+    event_patterns: Optional[List[str]]  # List of event name patterns to match
+    start_time: Optional[str]  # Start time for query range (ISO string or timestamp)
+    end_time: Optional[str]  # End time for query range (ISO string or timestamp)
+    limit: Optional[int]  # Maximum number of results
+    offset: Optional[int]  # Pagination offset
+
+class EventLogStatsData(TypedDict):
+    """Get event log statistics."""
+    # No specific fields - returns all statistics
+    pass
+
+class EventLogClearData(TypedDict):
+    """Clear the event log (admin operation)."""
+    # No specific fields for clear operation
+    pass
+
 @event_handler("event_log:query")
-async def handle_event_log_query(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Query event log - bridges to monitor:get_events with parameter mapping.
-    
-    This handler provides compatibility for the observation system which
-    expects event_log:query to exist. It maps observation-style parameters
-    to the monitor module's get_events handler.
-    
-    Args:
-        source_agent: Agent ID to filter by (maps to originator_id)
-        event_patterns: List of event name patterns to match
-        start_time: Start time for query range (ISO string or timestamp)
-        end_time: End time for query range (ISO string or timestamp)
-        limit: Maximum number of results
-        offset: Pagination offset
-    
-    Returns:
-        events: List of matching events
-        total: Total count of matching events
-        has_more: Whether more results exist beyond the limit
-    """
+async def handle_event_log_query(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Query event log - bridges to monitor:get_events with parameter mapping."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, EventLogQueryData)
     # Map observation parameters to monitor parameters
     query = {
         "event_patterns": data.get("event_patterns"),
@@ -68,45 +73,50 @@ async def handle_event_log_query(data: Dict[str, Any]) -> Dict[str, Any]:
         events = events[offset:]
     
     # Map response format for observations
-    return {
-        "events": events,
-        "total": total,
-        "has_more": len(events) >= query.get("limit", 100),
-        "offset": offset
-    }
+    return event_response_builder(
+        {
+            "events": events,
+            "total": total,
+            "has_more": len(events) >= query.get("limit", 100),
+            "offset": offset
+        },
+        context=context
+    )
 
 
 @event_handler("event_log:stats")
-async def handle_event_log_stats(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Get event log statistics.
-    
-    Returns current statistics about the event log including:
-    - Total events in database
-    - Events directory size
-    - Database path
-    """
+async def handle_event_log_stats(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Get event log statistics."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, EventLogStatsData)
     router = get_router()
     
     if not hasattr(router, 'reference_event_log') or not router.reference_event_log:
-        return {"error": "Reference event log not available"}
+        return error_response(
+            "Reference event log not available",
+            context=context
+        )
     
     # Get comprehensive statistics from reference event log
     stats = await router.reference_event_log.get_statistics()
     stats["status"] = "reference_event_log"
-    return stats
+    return event_response_builder(
+        stats,
+        context=context
+    )
 
 
 @event_handler("event_log:clear")
-async def handle_event_log_clear(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Clear the event log (admin operation).
-    
-    For reference event log, this would need to clear both
-    the SQLite index and JSONL files. Currently disabled
-    for safety.
-    """
-    return {
-        "error": "Clear operation not supported for reference event log",
-        "message": "File-based logs should be managed through log rotation"
-    }
+async def handle_event_log_clear(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Clear the event log (admin operation)."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, EventLogClearData)
+    return event_response_builder(
+        {
+            "error": "Clear operation not supported for reference event log",
+            "message": "File-based logs should be managed through log rotation"
+        },
+        context=context
+    )

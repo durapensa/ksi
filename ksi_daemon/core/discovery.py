@@ -703,27 +703,25 @@ class SystemShutdownData(TypedDict):
 
 
 @event_handler("system:startup")
-async def handle_startup(config: SystemStartupData) -> Dict[str, Any]:
+async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize discovery service."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, SystemStartupData)
+    
     logger.info("Discovery service started")
-    return {"status": "discovery_ready"}
+    return event_response_builder(
+        {"status": "discovery_ready"},
+        context=context
+    )
 
 
 @event_handler("system:discover")
-async def handle_discover(data: SystemDiscoverData) -> Dict[str, Any]:
-    """
-    Universal discovery endpoint - everything you need to understand KSI.
-
-    Parameters:
-        detail (bool): Include parameters and triggers (default: False)
-        namespace (str): Filter by namespace (optional)
-        event (str): Get details for specific event (optional)
-        module (str): Filter by module name (optional)
-        format_style (str): Output format - verbose, compact, ultra_compact, mcp (default: verbose)
-
-    Returns:
-        Dictionary with events, their parameters, and what they trigger
-    """
+async def handle_discover(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Universal discovery endpoint - everything you need to understand KSI."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, SystemDiscoverData)
     include_detail = data.get("detail", False)
     namespace_filter = data.get("namespace")
     event_filter = data.get("event")
@@ -774,21 +772,24 @@ async def handle_discover(data: SystemDiscoverData) -> Dict[str, Any]:
         if module_info and "docstring" in module_info:
             response["module_description"] = module_info["docstring"].split("\n")[0].strip()
     
-    return response
+    return event_response_builder(
+        response,
+        context=context
+    )
 
 
 @event_handler("system:help")
-async def handle_help(data: SystemHelpData) -> Dict[str, Any]:
-    """
-    Get detailed help for a specific event.
-
-    Parameters:
-        event (str): The event name to get help for (required)
-        format_style (str): Output format - verbose, compact, mcp (default: verbose)
-    """
+async def handle_help(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Get detailed help for a specific event."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    data = event_format_linter(raw_data, SystemHelpData)
     event_name = data.get("event")
     if not event_name:
-        return {"error": "event parameter required"}
+        return error_response(
+            "event parameter required",
+            context=context
+        )
 
     format_style = data.get("format_style", FORMAT_VERBOSE)
 
@@ -798,7 +799,10 @@ async def handle_help(data: SystemHelpData) -> Dict[str, Any]:
 
     # Find the event handler directly
     if event_name not in router._handlers:
-        return {"error": f"Event not found: {event_name}"}
+        return error_response(
+            f"Event not found: {event_name}",
+            context=context
+        )
 
     handler = router._handlers[event_name][0]
 
@@ -818,8 +822,11 @@ async def handle_help(data: SystemHelpData) -> Dict[str, Any]:
     # Format based on style
     if format_style == FORMAT_MCP:
         # Return MCP-compatible format
-        return format_event_info(
-            event_name, handler_info, style=FORMAT_MCP, include_params=True, include_triggers=False
+        return event_response_builder(
+            format_event_info(
+                event_name, handler_info, style=FORMAT_MCP, include_params=True, include_triggers=False
+            ),
+            context=context
         )
     else:
         # Standard help format
@@ -835,12 +842,23 @@ async def handle_help(data: SystemHelpData) -> Dict[str, Any]:
         # Add usage example
         formatted_info["usage"] = generate_usage_example(event_name, handler_info.get("parameters", {}))
 
-        return formatted_info
+        return event_response_builder(
+            formatted_info,
+            context=context
+        )
 
 
 
 
 @event_handler("system:shutdown")
-async def handle_shutdown(data: SystemShutdownData) -> None:
+async def handle_shutdown(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Clean shutdown."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, SystemShutdownData)
+    
     logger.info("Discovery service stopped")
+    return event_response_builder(
+        {"discovery_service_shutdown": True},
+        context=context
+    )

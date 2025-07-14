@@ -463,8 +463,10 @@ class SystemContextData(TypedDict):
 
 
 @event_handler("system:context")
-async def handle_context(context: SystemContextData) -> None:
+async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Store event emitter reference."""
+    from ksi_common.event_parser import event_format_linter
+    data = event_format_linter(raw_data, SystemContextData)
     global event_emitter
     # Get router for event emission
     router = get_router()
@@ -479,10 +481,13 @@ class SystemStartupData(TypedDict):
 
 
 @event_handler("system:startup")
-async def handle_startup(config_data: SystemStartupData) -> Dict[str, Any]:
+async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize message bus."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    data = event_format_linter(raw_data, SystemStartupData)
     logger.info("Message bus module started (consolidated)")
-    return {"module.message_bus": {"loaded": True}}
+    return event_response_builder({"module.message_bus": {"loaded": True}}, context)
 
 
 @shutdown_handler("message_bus")
@@ -513,16 +518,20 @@ class MessageSubscribeData(TypedDict):
 
 
 @event_handler("message:subscribe")
-async def handle_subscribe(data: MessageSubscribeData) -> Dict[str, Any]:
+async def handle_subscribe(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle subscription request."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, MessageSubscribeData)
     agent_id = data.get("agent_id")
     event_types = data.get("event_types", [])
     
     if not agent_id:
-        return {"error": "agent_id required"}
+        return error_response("agent_id required", context)
     
     if not event_types:
-        return {"error": "event_types required"}
+        return error_response("event_types required", context)
     
     # Track subscriptions per client for unsubscription
     if agent_id not in client_subscriptions:
@@ -534,13 +543,13 @@ async def handle_subscribe(data: MessageSubscribeData) -> Dict[str, Any]:
     success = message_bus.subscribe(agent_id, event_types)
     
     if success:
-        return {
+        return event_response_builder({
             "status": "subscribed",
             "agent_id": agent_id,
             "event_types": event_types
-        }
+        }, context)
     else:
-        return {"error": "Subscription failed - agent not connected"}
+        return error_response("Subscription failed - agent not connected", context)
 
 
 class MessageUnsubscribeData(TypedDict):
@@ -550,13 +559,17 @@ class MessageUnsubscribeData(TypedDict):
 
 
 @event_handler("message:unsubscribe")
-async def handle_unsubscribe(data: MessageUnsubscribeData) -> Dict[str, Any]:
+async def handle_unsubscribe(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle unsubscription request."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, MessageUnsubscribeData)
     agent_id = data.get("agent_id")
     event_types = data.get("event_types", [])
     
     if not agent_id:
-        return {"error": "agent_id required"}
+        return error_response("agent_id required", context)
     
     # If no specific event_types, unsubscribe from all
     if not event_types and agent_id in client_subscriptions:
@@ -571,11 +584,11 @@ async def handle_unsubscribe(data: MessageUnsubscribeData) -> Dict[str, Any]:
             if not client_subscriptions[agent_id]:
                 del client_subscriptions[agent_id]
     
-    return {
+    return event_response_builder({
         "status": "unsubscribed",
         "agent_id": agent_id,
         "event_types": event_types
-    }
+    }, context)
 
 
 class MessagePublishData(TypedDict):
@@ -586,24 +599,28 @@ class MessagePublishData(TypedDict):
 
 
 @event_handler("message:publish")
-async def handle_publish(data: MessagePublishData) -> Dict[str, Any]:
+async def handle_publish(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle message publication."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, MessagePublishData)
     agent_id = data.get("agent_id")
     event_type = data.get("event_type")
     message = data.get("message", {})
     
     if not agent_id:
-        return {"error": "agent_id required"}
+        return error_response("agent_id required", context)
     
     if not event_type:
-        return {"error": "event_type required"}
+        return error_response("event_type required", context)
     
     try:
         result = await message_bus.publish(agent_id, event_type, message)
-        return result
+        return event_response_builder(result, context)
     except Exception as e:
         logger.error(f"Publish error: {e}")
-        return {"error": str(e)}
+        return error_response(str(e), context)
 
 
 class MessageSubscriptionsData(TypedDict):
@@ -612,21 +629,27 @@ class MessageSubscriptionsData(TypedDict):
 
 
 @event_handler("message:subscriptions")
-async def handle_get_subscriptions(data: MessageSubscriptionsData) -> Dict[str, Any]:
+async def handle_get_subscriptions(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get subscription information."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    
+    data = event_format_linter(raw_data, MessageSubscriptionsData)
     agent_id = data.get("agent_id")
     
     if agent_id:
         # Get subscriptions for specific agent
-        return {
+        result = {
             "agent_id": agent_id,
             "subscriptions": list(client_subscriptions.get(agent_id, []))
         }
     else:
         # Get all subscriptions
-        return {
+        result = {
             "all_subscriptions": dict(client_subscriptions)
         }
+    
+    return event_response_builder(result, context)
 
 
 class MessageBusStatsData(TypedDict):
@@ -636,9 +659,14 @@ class MessageBusStatsData(TypedDict):
 
 
 @event_handler("message_bus:stats")
-async def handle_get_stats(data: MessageBusStatsData) -> Dict[str, Any]:
+async def handle_get_stats(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get message bus statistics."""
-    return {"stats": message_bus.get_stats()}
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    
+    data = event_format_linter(raw_data, MessageBusStatsData)
+    result = {"stats": message_bus.get_stats()}
+    return event_response_builder(result, context)
 
 
 class MessageConnectData(TypedDict):
@@ -647,20 +675,25 @@ class MessageConnectData(TypedDict):
 
 
 @event_handler("message:connect")
-async def handle_connect_agent(data: MessageConnectData) -> Dict[str, Any]:
+async def handle_connect_agent(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle agent connection."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, MessageConnectData)
     agent_id = data.get("agent_id")
     
     if not agent_id:
-        return {"error": "agent_id required"}
+        return error_response("agent_id required", context)
     
     # For now, we'll create a mock writer - in real implementation this would be passed
     # This is mainly for the in-process agent case
     
-    return {
+    result = {
         "status": "connected",
         "agent_id": agent_id
     }
+    return event_response_builder(result, context)
 
 
 class MessageDisconnectData(TypedDict):
@@ -669,12 +702,16 @@ class MessageDisconnectData(TypedDict):
 
 
 @event_handler("message:disconnect")
-async def handle_disconnect_agent(data: MessageDisconnectData) -> Dict[str, Any]:
+async def handle_disconnect_agent(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle agent disconnection."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, MessageDisconnectData)
     agent_id = data.get("agent_id")
     
     if not agent_id:
-        return {"error": "agent_id required"}
+        return error_response("agent_id required", context)
     
     message_bus.disconnect_agent(agent_id)
     
@@ -682,10 +719,11 @@ async def handle_disconnect_agent(data: MessageDisconnectData) -> Dict[str, Any]
     if agent_id in client_subscriptions:
         del client_subscriptions[agent_id]
     
-    return {
+    result = {
         "status": "disconnected",
         "agent_id": agent_id
     }
+    return event_response_builder(result, context)
 
 
 # Legacy transport:message compatibility
@@ -704,27 +742,33 @@ class TransportMessageData(TypedDict):
 
 
 @event_handler("transport:message")
-async def handle_transport_message(data: TransportMessageData) -> Dict[str, Any]:
+async def handle_transport_message(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle legacy transport:message events by converting them."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import error_response
+    
+    data = event_format_linter(raw_data, TransportMessageData)
     command = data.get("command")
     
     if command == "PUBLISH":
         # Convert legacy format
         params = data.get("parameters", {})
-        return await handle_publish({
+        publish_data = {
             "agent_id": params.get("agent_id"),
             "event_type": params.get("event_type"),
             "message": params.get("message", {})
-        })
+        }
+        return await handle_publish(publish_data, context)
     
     elif command == "SUBSCRIBE":
         # Convert legacy format
         params = data.get("parameters", {})
-        return await handle_subscribe({
+        subscribe_data = {
             "agent_id": params.get("agent_id"),
             "event_types": params.get("event_types", [])
-        })
+        }
+        return await handle_subscribe(subscribe_data, context)
     
-    return {"error": f"Unknown transport command: {command}"}
+    return error_response(f"Unknown transport command: {command}", context)
 
 

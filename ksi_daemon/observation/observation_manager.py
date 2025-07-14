@@ -19,6 +19,8 @@ from typing_extensions import NotRequired, Required
 
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc
+from ksi_common.event_parser import event_format_linter
+from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_daemon.event_system import event_handler, get_router, RateLimiter
 
 
@@ -94,8 +96,9 @@ class CheckpointRestoreData(TypedDict):
 
 
 @event_handler("system:context")
-async def handle_context(context: SystemContextData) -> None:
+async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Receive system context with event emitter."""
+    data = event_format_linter(raw_data, SystemContextData)
     global _event_emitter
     router = get_router()
     _event_emitter = router.emit
@@ -103,13 +106,14 @@ async def handle_context(context: SystemContextData) -> None:
 
 
 @event_handler("system:ready")
-async def observation_system_ready(data: SystemReadyData) -> Dict[str, Any]:
+async def observation_system_ready(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Signal that observation system is ready for subscriptions.
     
     The daemon always checks for checkpoints on startup. We only emit
     observation:ready if subscriptions were NOT restored from checkpoint,
     indicating agents need to re-establish them.
     """
+    data = event_format_linter(raw_data, SystemReadyData)
     global _observation_queue, _observation_task
     
     # Start async observation processor
@@ -131,19 +135,20 @@ async def observation_system_ready(data: SystemReadyData) -> Dict[str, Any]:
             "message": "Subscriptions must be re-established by agents"
         })
     
-    return {
+    return event_response_builder({
         "status": "ready",
         "subscriptions_restored": _subscriptions_restored_from_checkpoint,
         "subscriptions_active": len(_observers)
-    }
+    }, context)
 
 
 @event_handler("agent:terminated")
-async def cleanup_agent_subscriptions(data: AgentTerminatedData) -> Dict[str, Any]:
+async def cleanup_agent_subscriptions(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Remove all subscriptions for terminated agent."""
+    data = event_format_linter(raw_data, AgentTerminatedData)
     agent_id = data.get("agent_id")
     if not agent_id:
-        return {"error": "No agent_id provided"}
+        return error_response("No agent_id provided", context)
     
     removed_count = 0
     
@@ -191,22 +196,23 @@ async def cleanup_agent_subscriptions(data: AgentTerminatedData) -> Dict[str, An
     for key in keys_to_remove:
         del _rate_limiters[key]
     
-    return {
+    return event_response_builder({
         "agent_id": agent_id,
         "subscriptions_removed": removed_count,
         "status": "cleaned"
-    }
+    }, context)
 
 
 @event_handler("observation:subscribe")
-async def handle_subscribe(data: ObservationSubscribeData) -> Dict[str, Any]:
+async def handle_subscribe(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Subscribe to observe events from a target agent."""
+    data = event_format_linter(raw_data, ObservationSubscribeData)
     observer_id = data.get("observer")
     target_id = data.get("target")
     event_patterns = data.get("events", [])
     
     if not all([observer_id, target_id, event_patterns]):
-        return {"error": "observer, target, and events are required"}
+        return error_response("observer, target, and events are required", context)
     
     # Validate agents exist
     if _event_emitter:
@@ -221,7 +227,7 @@ async def handle_subscribe(data: ObservationSubscribeData) -> Dict[str, Any]:
             observer_result = observer_result[0] if observer_result else {}
         
         if observer_result.get("error") or not observer_result.get("entity"):
-            return {"error": f"Observer agent {observer_id} not found"}
+            return error_response(f"Observer agent {observer_id} not found", context)
         
         # Check target exists
         target_result = await _event_emitter("state:entity:get", {
@@ -234,7 +240,7 @@ async def handle_subscribe(data: ObservationSubscribeData) -> Dict[str, Any]:
             target_result = target_result[0] if target_result else {}
         
         if target_result.get("error") or not target_result.get("entity"):
-            return {"error": f"Target agent {target_id} not found"}
+            return error_response(f"Target agent {target_id} not found", context)
     
     # Create subscription
     subscription_id = f"sub_{uuid.uuid4().hex[:8]}"
@@ -267,24 +273,25 @@ async def handle_subscribe(data: ObservationSubscribeData) -> Dict[str, Any]:
     # Subscriptions are ephemeral - they will not survive restart unless checkpoint/restore is used
     logger.info(f"Created ephemeral subscription {subscription_id}: {observer_id} observing {target_id} (will not survive restart)")
     
-    return {
+    return event_response_builder({
         "subscription_id": subscription_id,
         "observer": observer_id,
         "target": target_id,
         "events": event_patterns,
         "status": "active"
-    }
+    }, context)
 
 
 @event_handler("observation:unsubscribe")
-async def handle_unsubscribe(data: ObservationUnsubscribeData) -> Dict[str, Any]:
+async def handle_unsubscribe(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Unsubscribe from observing a target."""
+    data = event_format_linter(raw_data, ObservationUnsubscribeData)
     subscription_id = data.get("subscription_id")
     observer_id = data.get("observer")
     target_id = data.get("target")
     
     if not subscription_id and not (observer_id and target_id):
-        return {"error": "Either subscription_id or both observer and target required"}
+        return error_response("Either subscription_id or both observer and target required", context)
     
     unsubscribed = []
     
@@ -331,15 +338,16 @@ async def handle_unsubscribe(data: ObservationUnsubscribeData) -> Dict[str, Any]
     
     logger.info(f"Unsubscribed {len(unsubscribed)} ephemeral subscriptions")
     
-    return {
+    return event_response_builder({
         "unsubscribed": len(unsubscribed),
         "subscription_ids": [sub["id"] for sub in unsubscribed]
-    }
+    }, context)
 
 
 @event_handler("observation:list")
-async def handle_list_observations(data: ObservationListData) -> Dict[str, Any]:
+async def handle_list_observations(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """List active observation subscriptions."""
+    data = event_format_linter(raw_data, ObservationListData)
     observer_filter = data.get("observer")
     target_filter = data.get("target")
     
@@ -362,10 +370,10 @@ async def handle_list_observations(data: ObservationListData) -> Dict[str, Any]:
                     "created_at": sub.get("created_at")
                 })
     
-    return {
+    return event_response_builder({
         "subscriptions": subscriptions,
         "count": len(subscriptions)
-    }
+    }, context)
 
 
 def should_observe_event(event_name: str, source_agent: str, 
@@ -652,12 +660,13 @@ async def notify_observers_async(subscriptions: List[Dict[str, Any]], event_type
 
 
 @event_handler("checkpoint:collect")
-async def collect_observation_state(data: CheckpointCollectData) -> Dict[str, Any]:
+async def collect_observation_state(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Collect observation subscriptions for checkpoint.
     
     Only called during system checkpoint operations.
     Normal restarts do NOT trigger this.
     """
+    data = event_format_linter(raw_data, CheckpointCollectData)
     # Flatten subscription data for storage
     subscriptions = []
     for target_id, target_subs in _subscriptions.items():
@@ -673,29 +682,30 @@ async def collect_observation_state(data: CheckpointCollectData) -> Dict[str, An
     
     logger.info(f"Checkpointing {len(subscriptions)} active subscriptions")
     
-    return {
+    return event_response_builder({
         "observation_subscriptions": {
             "version": "1.0",
             "subscriptions": subscriptions,
             "checkpointed_at": timestamp_utc()
         }
-    }
+    }, context)
 
 
 @event_handler("checkpoint:restore")
-async def restore_observation_state(data: CheckpointRestoreData) -> Dict[str, Any]:
+async def restore_observation_state(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Restore observation subscriptions from checkpoint.
     
     Only called during checkpoint restore operations.
     Sets the module flag to indicate if subscriptions were restored.
     """
+    data = event_format_linter(raw_data, CheckpointRestoreData)
     global _subscriptions_restored_from_checkpoint
     
     checkpoint_data = data.get("observation_subscriptions", {})
     if not checkpoint_data:
         logger.info("No observation subscriptions in checkpoint")
         _subscriptions_restored_from_checkpoint = False
-        return {"restored": 0}
+        return event_response_builder({"restored": 0}, context)
     
     subscriptions = checkpoint_data.get("subscriptions", [])
     restored = 0
@@ -754,7 +764,7 @@ async def restore_observation_state(data: CheckpointRestoreData) -> Dict[str, An
             "from_checkpoint": checkpoint_data.get("checkpointed_at")
         })
     
-    return {"restored": restored}
+    return event_response_builder({"restored": restored}, context)
 
 
 # Export key functions for event router integration

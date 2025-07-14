@@ -18,6 +18,8 @@ from ksi_common.file_utils import save_yaml_file, load_yaml_file, ensure_directo
 from ksi_common.event_utils import is_success_response, get_response_error, build_error_response, build_success_response
 from ksi_common.validation_utils import Validator, validate_dict_structure
 from ksi_common.prompt_library import prompt_library
+from ksi_common.event_parser import event_format_linter
+from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_daemon.event_system import event_handler, emit_event, emit_event_first
 from ksi_client import EventClient
 
@@ -486,7 +488,7 @@ JUDGE_TECHNIQUES = {
 
 
 @event_handler("evaluation:bootstrap_judges_v2")
-async def handle_bootstrap_judges_v2(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_bootstrap_judges_v2(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Run improved judge bootstrap protocol using KSI capabilities.
     
@@ -496,6 +498,8 @@ async def handle_bootstrap_judges_v2(data: Dict[str, Any]) -> Dict[str, Any]:
         run_tournament: Whether to run cross-evaluation tournament
         save_selected: Whether to save selected judges to disk
     """
+    data = event_format_linter(raw_data, dict)
+    
     # Validate input
     validation_error = validate_dict_structure(
         data,
@@ -503,80 +507,82 @@ async def handle_bootstrap_judges_v2(data: Dict[str, Any]) -> Dict[str, Any]:
         optional_fields=['roles', 'techniques_per_role', 'run_tournament', 'save_selected']
     )
     if validation_error:
-        return build_error_response(validation_error)
+        return error_response(validation_error, context)
     
     roles = data.get('roles', ['evaluator', 'analyst', 'rewriter'])
     techniques_per_role = data.get('techniques_per_role', 3)
     run_tournament = data.get('run_tournament', True)
     save_selected = data.get('save_selected', True)
     
-    bootstrap = JudgeBootstrapV2()
-    
-    # Phase 1: Create variations using dynamic compositions
-    logger.info("Phase 1: Creating judge variations")
-    
-    for role in roles:
-        techniques = JUDGE_TECHNIQUES.get(role, [])[:techniques_per_role]
+    try:
+        bootstrap = JudgeBootstrapV2()
         
-        for technique_config in techniques:
+        # Phase 1: Create variations using dynamic compositions
+        logger.info("Phase 1: Creating judge variations")
+        
+        for role in roles:
+            techniques = JUDGE_TECHNIQUES.get(role, [])[:techniques_per_role]
+            
+            for technique_config in techniques:
+                try:
+                    variation = await bootstrap.create_judge_variation(
+                        role,
+                        technique_config['name'],
+                        technique_config
+                    )
+                    logger.info(f"Created {role} variation: {technique_config['name']}")
+                except Exception as e:
+                    logger.error(f"Failed to create variation: {e}")
+        
+        # Phase 2: Evaluate against ground truth
+        logger.info("Phase 2: Evaluating against ground truth")
+        
+        # Load ground truth cases
+        ground_truth_file = bootstrap.bootstrap_dir / "ground_truth_cases.yaml"
+        if ground_truth_file.exists():
+            ground_truth_data = load_yaml_file(ground_truth_file)
+            ground_truth_cases = ground_truth_data.get('cases', [])
+        else:
+            ground_truth_cases = []
+            logger.warning("No ground truth cases found")
+        
+        # Evaluate each variation
+        for variation in bootstrap.variations.values():
             try:
-                variation = await bootstrap.create_judge_variation(
-                    role,
-                    technique_config['name'],
-                    technique_config
-                )
-                logger.info(f"Created {role} variation: {technique_config['name']}")
+                score = await bootstrap.evaluate_with_ground_truth(variation, ground_truth_cases)
+                logger.info(f"{variation.variation_id} ground truth score: {score:.2f}")
             except Exception as e:
-                logger.error(f"Failed to create variation: {e}")
-    
-    # Phase 2: Evaluate against ground truth
-    logger.info("Phase 2: Evaluating against ground truth")
-    
-    # Load ground truth cases
-    ground_truth_file = bootstrap.bootstrap_dir / "ground_truth_cases.yaml"
-    if ground_truth_file.exists():
-        ground_truth_data = load_yaml_file(ground_truth_file)
-        ground_truth_cases = ground_truth_data.get('cases', [])
-    else:
-        ground_truth_cases = []
-        logger.warning("No ground truth cases found")
-    
-    # Evaluate each variation
-    for variation in bootstrap.variations.values():
-        try:
-            score = await bootstrap.evaluate_with_ground_truth(variation, ground_truth_cases)
-            logger.info(f"{variation.variation_id} ground truth score: {score:.2f}")
-        except Exception as e:
-            logger.error(f"Failed to evaluate {variation.variation_id}: {e}")
-    
-    # Phase 3: Tournament (if requested)
-    if run_tournament and len(bootstrap.variations) > 1:
-        logger.info("Phase 3: Running tournament")
+                logger.error(f"Failed to evaluate {variation.variation_id}: {e}")
         
-        evaluator_vars = [v for v in bootstrap.variations.values() if v.role == 'evaluator']
-        other_vars = [v for v in bootstrap.variations.values() if v.role != 'evaluator']
+        # Phase 3: Tournament (if requested)
+        if run_tournament and len(bootstrap.variations) > 1:
+            logger.info("Phase 3: Running tournament")
+            
+            evaluator_vars = [v for v in bootstrap.variations.values() if v.role == 'evaluator']
+            other_vars = [v for v in bootstrap.variations.values() if v.role != 'evaluator']
+            
+            if evaluator_vars and other_vars:
+                tournament_results = await bootstrap.run_tournament_round(evaluator_vars, other_vars)
+                logger.info(f"Tournament round complete: {len(tournament_results['evaluations'])} evaluations")
         
-        if evaluator_vars and other_vars:
-            tournament_results = await bootstrap.run_tournament_round(evaluator_vars, other_vars)
-            logger.info(f"Tournament round complete: {len(tournament_results['evaluations'])} evaluations")
-    
-    # Phase 4: Select best and save
-    logger.info("Phase 4: Selecting best variations")
-    
-    selected_judges = await bootstrap.select_best_variations()
-    
-    if save_selected:
-        results = await bootstrap.save_bootstrap_results(selected_judges)
-    
-    return {
-        "status": "success",
-        "variations_tested": len(bootstrap.variations),
-        "selected_judges": {
-            role: {
-                "technique": var.technique,
-                "composition": var.composition_name,
-                "score": sum(var.performance_scores.values()) / len(var.performance_scores) if var.performance_scores else 0
+        # Phase 4: Select best and save
+        logger.info("Phase 4: Selecting best variations")
+        
+        selected_judges = await bootstrap.select_best_variations()
+        
+        if save_selected:
+            results = await bootstrap.save_bootstrap_results(selected_judges)
+        
+        return event_response_builder({
+            "variations_tested": len(bootstrap.variations),
+            "selected_judges": {
+                role: {
+                    "technique": var.technique,
+                    "composition": var.composition_name,
+                    "score": sum(var.performance_scores.values()) / len(var.performance_scores) if var.performance_scores else 0
+                }
+                for role, var in selected_judges.items()
             }
-            for role, var in selected_judges.items()
-        }
-    }
+        }, context)
+    except Exception as e:
+        return error_response(f"Bootstrap failed: {str(e)}", context)

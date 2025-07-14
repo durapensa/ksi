@@ -22,6 +22,8 @@ from ksi_common.sandbox_manager import (
 )
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
+from ksi_common.event_parser import event_format_linter
+from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_daemon.event_system import event_handler
 
 logger = get_bound_logger(__name__)
@@ -38,9 +40,11 @@ class SystemStartupData(TypedDict):
 
 
 @event_handler("system:startup")
-async def handle_startup(config_data: SystemStartupData) -> Dict[str, Any]:
+async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize the permission service."""
     global permission_manager, sandbox_manager
+    
+    data = event_format_linter(raw_data, SystemStartupData)
     
     logger.info("Initializing permission service")
     
@@ -56,7 +60,7 @@ async def handle_startup(config_data: SystemStartupData) -> Dict[str, Any]:
     profiles = list(permission_manager.profiles.keys())
     logger.info(f"Loaded {len(profiles)} permission profiles", profiles=[p.value for p in profiles])
     
-    return {"permission_service": {"loaded": True}}
+    return event_response_builder({"permission_service": {"loaded": True}}, context)
 
 
 class PermissionGetProfileData(TypedDict):
@@ -65,7 +69,7 @@ class PermissionGetProfileData(TypedDict):
 
 
 @event_handler("permission:get_profile")
-async def handle_get_profile(data: PermissionGetProfileData) -> Dict[str, Any]:
+async def handle_get_profile(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get details of a specific permission profile.
     
     Args:
@@ -74,17 +78,19 @@ async def handle_get_profile(data: PermissionGetProfileData) -> Dict[str, Any]:
     Returns:
         profile: The permission profile details
     """
+    data = event_format_linter(raw_data, PermissionGetProfileData)
+    
     level = data.get("level")
     if not level:
-        return {"error": "Missing required parameter: level"}
+        return error_response("Missing required parameter: level", context)
     
     profile = permission_manager.get_profile(level)
     if not profile:
-        return {"error": f"Profile not found: {level}"}
+        return error_response(f"Profile not found: {level}", context)
     
-    return {
+    return event_response_builder({
         "profile": profile.to_dict()
-    }
+    }, context)
 
 
 class PermissionSetAgentData(TypedDict):
@@ -96,7 +102,7 @@ class PermissionSetAgentData(TypedDict):
 
 
 @event_handler("permission:set_agent")
-async def handle_set_agent_permissions(data: PermissionSetAgentData) -> Dict[str, Any]:
+async def handle_set_agent_permissions(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Set permissions for an agent.
     
     Args:
@@ -109,9 +115,11 @@ async def handle_set_agent_permissions(data: PermissionSetAgentData) -> Dict[str
         agent_id: The agent ID
         permissions: The applied permissions
     """
+    data = event_format_linter(raw_data, PermissionSetAgentData)
+    
     agent_id = data.get("agent_id")
     if not agent_id:
-        return {"error": "Missing required parameter: agent_id"}
+        return error_response("Missing required parameter: agent_id", context)
     
     # Get permissions from data
     perm_data = data.get("permissions")
@@ -120,14 +128,14 @@ async def handle_set_agent_permissions(data: PermissionSetAgentData) -> Dict[str
         profile_level = data.get("profile", "restricted")
         profile = permission_manager.get_profile(profile_level)
         if not profile:
-            return {"error": f"Profile not found: {profile_level}"}
+            return error_response(f"Profile not found: {profile_level}", context)
         permissions = profile
     else:
         # Create permissions from data
         try:
             permissions = AgentPermissions.from_dict(perm_data)
         except Exception as e:
-            return {"error": f"Invalid permissions data: {str(e)}"}
+            return error_response(f"Invalid permissions data: {str(e)}", context)
     
     # Apply any overrides
     overrides = data.get("overrides", {})
@@ -137,10 +145,10 @@ async def handle_set_agent_permissions(data: PermissionSetAgentData) -> Dict[str
     # Set permissions
     permission_manager.set_agent_permissions(agent_id, permissions)
     
-    return {
+    return event_response_builder({
         "agent_id": agent_id,
         "permissions": permissions.to_dict()
-    }
+    }, context)
 
 
 def apply_permission_overrides(permissions: AgentPermissions, overrides: dict) -> AgentPermissions:
@@ -199,7 +207,7 @@ class PermissionValidateSpawnData(TypedDict):
 
 
 @event_handler("permission:validate_spawn")
-async def handle_validate_spawn(data: PermissionValidateSpawnData) -> Dict[str, Any]:
+async def handle_validate_spawn(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Validate if originator can spawn construct with given permissions.
     
     Args:
@@ -210,23 +218,25 @@ async def handle_validate_spawn(data: PermissionValidateSpawnData) -> Dict[str, 
         valid: Whether the spawn is allowed
         originator_id: The originating agent ID
     """
+    data = event_format_linter(raw_data, PermissionValidateSpawnData)
+    
     originator_id = data.get("originator_id")
     construct_permissions = data.get("construct_permissions")
     
     if not originator_id or not construct_permissions:
-        return {"error": "Missing required parameters: originator_id, construct_permissions"}
+        return error_response("Missing required parameters: originator_id, construct_permissions", context)
     
     try:
         construct_perms = AgentPermissions.from_dict(construct_permissions)
     except Exception as e:
-        return {"error": f"Invalid construct permissions: {str(e)}"}
+        return error_response(f"Invalid construct permissions: {str(e)}", context)
     
     valid = permission_manager.validate_spawn_permissions(originator_id, construct_perms)
     
-    return {
+    return event_response_builder({
         "valid": valid,
         "originator_id": originator_id
-    }
+    }, context)
 
 
 class PermissionGetAgentData(TypedDict):
@@ -235,7 +245,7 @@ class PermissionGetAgentData(TypedDict):
 
 
 @event_handler("permission:get_agent")
-async def handle_get_agent_permissions(data: PermissionGetAgentData) -> Dict[str, Any]:
+async def handle_get_agent_permissions(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get permissions for a specific agent.
     
     Args:
@@ -245,18 +255,20 @@ async def handle_get_agent_permissions(data: PermissionGetAgentData) -> Dict[str
         agent_id: The agent ID
         permissions: The agent's permissions
     """
+    data = event_format_linter(raw_data, PermissionGetAgentData)
+    
     agent_id = data.get("agent_id")
     if not agent_id:
-        return {"error": "Missing required parameter: agent_id"}
+        return error_response("Missing required parameter: agent_id", context)
     
     permissions = permission_manager.get_agent_permissions(agent_id)
     if not permissions:
-        return {"error": f"No permissions found for agent: {agent_id}"}
+        return error_response(f"No permissions found for agent: {agent_id}", context)
     
-    return {
+    return event_response_builder({
         "agent_id": agent_id,
         "permissions": permissions.to_dict()
-    }
+    }, context)
 
 
 class PermissionRemoveAgentData(TypedDict):
@@ -265,7 +277,7 @@ class PermissionRemoveAgentData(TypedDict):
 
 
 @event_handler("permission:remove_agent")
-async def handle_remove_agent_permissions(data: PermissionRemoveAgentData) -> Dict[str, Any]:
+async def handle_remove_agent_permissions(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Remove permissions for an agent.
     
     Args:
@@ -275,16 +287,18 @@ async def handle_remove_agent_permissions(data: PermissionRemoveAgentData) -> Di
         agent_id: The agent ID
         status: Removal status (removed)
     """
+    data = event_format_linter(raw_data, PermissionRemoveAgentData)
+    
     agent_id = data.get("agent_id")
     if not agent_id:
-        return {"error": "Missing required parameter: agent_id"}
+        return error_response("Missing required parameter: agent_id", context)
     
     permission_manager.remove_agent_permissions(agent_id)
     
-    return {
+    return event_response_builder({
         "agent_id": agent_id,
         "status": "removed"
-    }
+    }, context)
 
 
 class PermissionListProfilesData(TypedDict):
@@ -294,12 +308,14 @@ class PermissionListProfilesData(TypedDict):
 
 
 @event_handler("permission:list_profiles")
-async def handle_list_profiles(data: PermissionListProfilesData) -> Dict[str, Any]:
+async def handle_list_profiles(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """List available permission profiles.
     
     Returns:
         profiles: Dictionary containing all permission profiles with their tools and capabilities
     """
+    data = event_format_linter(raw_data, PermissionListProfilesData)
+    
     profiles = {}
     for level, profile in permission_manager.profiles.items():
         profiles[level.value] = {
@@ -311,7 +327,7 @@ async def handle_list_profiles(data: PermissionListProfilesData) -> Dict[str, An
             "capabilities": profile.capabilities.to_dict()
         }
     
-    return {"profiles": profiles}
+    return event_response_builder({"profiles": profiles}, context)
 
 
 class SandboxCreateConfig(TypedDict):
@@ -330,7 +346,7 @@ class SandboxCreateData(TypedDict):
 
 
 @event_handler("sandbox:create")
-async def handle_create_sandbox(data: SandboxCreateData) -> Dict[str, Any]:
+async def handle_create_sandbox(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Create a new sandbox for an agent.
     
     Args:
@@ -346,9 +362,11 @@ async def handle_create_sandbox(data: SandboxCreateData) -> Dict[str, Any]:
         agent_id: The agent ID
         sandbox: The created sandbox details
     """
+    data = event_format_linter(raw_data, SandboxCreateData)
+    
     agent_id = data.get("agent_id")
     if not agent_id:
-        return {"error": "Missing required parameter: agent_id"}
+        return error_response("Missing required parameter: agent_id", context)
     
     # Get sandbox configuration
     config_data = data.get("config", {})
@@ -362,13 +380,13 @@ async def handle_create_sandbox(data: SandboxCreateData) -> Dict[str, Any]:
     
     try:
         sandbox = sandbox_manager.create_sandbox(agent_id, sandbox_config)
-        return {
+        return event_response_builder({
             "agent_id": agent_id,
             "sandbox": sandbox.to_dict()
-        }
+        }, context)
     except Exception as e:
         logger.error("Failed to create sandbox", agent_id=agent_id, error=str(e))
-        return {"error": f"Failed to create sandbox: {str(e)}"}
+        return error_response(f"Failed to create sandbox: {str(e)}", context)
 
 
 class SandboxGetData(TypedDict):
@@ -377,7 +395,7 @@ class SandboxGetData(TypedDict):
 
 
 @event_handler("sandbox:get")
-async def handle_get_sandbox(data: SandboxGetData) -> Dict[str, Any]:
+async def handle_get_sandbox(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get sandbox information for an agent.
     
     Args:
@@ -387,18 +405,20 @@ async def handle_get_sandbox(data: SandboxGetData) -> Dict[str, Any]:
         agent_id: The agent ID
         sandbox: The sandbox details
     """
+    data = event_format_linter(raw_data, SandboxGetData)
+    
     agent_id = data.get("agent_id")
     if not agent_id:
-        return {"error": "Missing required parameter: agent_id"}
+        return error_response("Missing required parameter: agent_id", context)
     
     sandbox = sandbox_manager.get_sandbox(agent_id)
     if not sandbox:
-        return {"error": f"No sandbox found for agent: {agent_id}"}
+        return error_response(f"No sandbox found for agent: {agent_id}", context)
     
-    return {
+    return event_response_builder({
         "agent_id": agent_id,
         "sandbox": sandbox.to_dict()
-    }
+    }, context)
 
 
 class SandboxRemoveData(TypedDict):
@@ -408,7 +428,7 @@ class SandboxRemoveData(TypedDict):
 
 
 @event_handler("sandbox:remove")
-async def handle_remove_sandbox(data: SandboxRemoveData) -> Dict[str, Any]:
+async def handle_remove_sandbox(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Remove an agent's sandbox.
     
     Args:
@@ -419,17 +439,19 @@ async def handle_remove_sandbox(data: SandboxRemoveData) -> Dict[str, Any]:
         agent_id: The agent ID
         removed: Whether the sandbox was removed
     """
+    data = event_format_linter(raw_data, SandboxRemoveData)
+    
     agent_id = data.get("agent_id")
     if not agent_id:
-        return {"error": "Missing required parameter: agent_id"}
+        return error_response("Missing required parameter: agent_id", context)
     
     force = data.get("force", False)
     success = sandbox_manager.remove_sandbox(agent_id, force=force)
     
-    return {
+    return event_response_builder({
         "agent_id": agent_id,
         "removed": success
-    }
+    }, context)
 
 
 class SandboxListData(TypedDict):
@@ -439,19 +461,21 @@ class SandboxListData(TypedDict):
 
 
 @event_handler("sandbox:list")
-async def handle_list_sandboxes(data: SandboxListData) -> Dict[str, Any]:
+async def handle_list_sandboxes(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """List all active sandboxes.
     
     Returns:
         sandboxes: List of active sandbox details
         count: Total number of sandboxes
     """
+    data = event_format_linter(raw_data, SandboxListData)
+    
     sandboxes = sandbox_manager.list_sandboxes()
     
-    return {
+    return event_response_builder({
         "sandboxes": [s.to_dict() for s in sandboxes],
         "count": len(sandboxes)
-    }
+    }, context)
 
 
 class SandboxStatsData(TypedDict):
@@ -461,13 +485,15 @@ class SandboxStatsData(TypedDict):
 
 
 @event_handler("sandbox:stats")
-async def handle_sandbox_stats(data: SandboxStatsData) -> Dict[str, Any]:
+async def handle_sandbox_stats(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get sandbox statistics.
     
     Returns:
         stats: Sandbox usage statistics
     """
+    data = event_format_linter(raw_data, SandboxStatsData)
+    
     stats = sandbox_manager.get_sandbox_stats()
-    return {"stats": stats}
+    return event_response_builder({"stats": stats}, context)
 
 
