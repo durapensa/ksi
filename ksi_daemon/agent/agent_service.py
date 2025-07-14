@@ -19,6 +19,7 @@ import aiofiles
 from typing_extensions import NotRequired, Required
 
 from ksi_common import format_for_logging
+from ksi_common.agent_context import propagate_agent_context
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc
@@ -602,7 +603,7 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
             "task": data.get("task"),
             "context": selection_context,
             "max_suggestions": 3
-        })
+        }, propagate_agent_context(context))
         
         if select_result and isinstance(select_result, list):
             # Handle multiple responses - take first one
@@ -657,7 +658,7 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
         compose_result = await event_emitter("composition:profile", {
             "name": compose_name,
             "variables": comp_vars
-        })
+        }, propagate_agent_context(context))
         
         if compose_result and isinstance(compose_result, list):
             # Handle multiple responses - take first one
@@ -734,7 +735,7 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
             "agent_id": agent_id,
             "profile": permission_profile,
             "overrides": data.get("permission_overrides", {})
-        })
+        }, propagate_agent_context(context))
         
         if perm_result and isinstance(perm_result, list):
             perm_result = perm_result[0] if perm_result else {}
@@ -749,7 +750,7 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
         sandbox_result = await event_emitter("sandbox:create", {
             "agent_id": agent_id,
             "config": sandbox_config
-        })
+        }, propagate_agent_context(context))
         
         if sandbox_result and isinstance(sandbox_result, list):
             sandbox_result = sandbox_result[0] if sandbox_result else {}
@@ -827,7 +828,7 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
             "id": agent_id,
             "type": "agent",
             "properties": entity_props
-        })
+        }, propagate_agent_context(context))
         
         if entity_result and isinstance(entity_result, list):
             entity_result = entity_result[0] if entity_result else {}
@@ -842,7 +843,7 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
             metadata_result = await event_emitter("state:set", {
                 "namespace": f"metadata:agent:{agent_id}",
                 "data": metadata
-            })
+            }, propagate_agent_context(context))
             if metadata_result and isinstance(metadata_result, list):
                 metadata_result = metadata_result[0] if metadata_result else {}
             
@@ -873,7 +874,7 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
             "interaction_prompt": interaction_prompt,
             "orchestration": data.get("orchestration"),  # Include orchestration context if available
             "variables": data.get("variables", {})
-        })
+        }, propagate_agent_context(context))
         
         if compose_result and isinstance(compose_result, list):
             compose_result = compose_result[0] if compose_result else {}
@@ -888,7 +889,7 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
                     "role": "user", 
                     "content": agent_context_message
                 }
-            })
+            }, propagate_agent_context(context))
             
             if initial_result and isinstance(initial_result, list):
                 initial_result = initial_result[0] if initial_result else {}
@@ -912,7 +913,7 @@ Please proceed as a basic autonomous agent with full autonomy to execute tasks a
                     "role": "user", 
                     "content": fallback_message
                 }
-            })
+            }, propagate_agent_context(context))
             
             if initial_result and isinstance(initial_result, list):
                 initial_result = initial_result[0] if initial_result else {}
@@ -968,7 +969,7 @@ async def handle_terminate_agent(raw_data: Dict[str, Any], context: Optional[Dic
     
     for agent_id in target_agent_ids:
         try:
-            result = await _terminate_single_agent(agent_id, force)
+            result = await _terminate_single_agent(agent_id, force, context)
             if result["status"] == "terminated":
                 terminated_agents.append(agent_id)
             else:
@@ -1059,7 +1060,7 @@ async def _resolve_target_agents(data: AgentTerminateData) -> List[str]:
     return list(dict.fromkeys(target_agent_ids))
 
 
-async def _terminate_single_agent(agent_id: str, force: bool = False) -> Dict[str, Any]:
+async def _terminate_single_agent(agent_id: str, force: bool = False, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Terminate a single agent."""
     if agent_id not in agents:
         return {"error": f"Agent {agent_id} not found"}
@@ -1081,12 +1082,12 @@ async def _terminate_single_agent(agent_id: str, force: bool = False) -> Dict[st
         await event_emitter("sandbox:remove", {
             "agent_id": agent_id,
             "force": force
-        })
+        }, propagate_agent_context(context))
         
         # Remove permissions
         await event_emitter("permission:remove_agent", {
             "agent_id": agent_id
-        })
+        }, propagate_agent_context(context))
     
     # Clean up MCP config if present
     if config.mcp_enabled:
@@ -1105,7 +1106,7 @@ async def _terminate_single_agent(agent_id: str, force: bool = False) -> Dict[st
                 "terminated_at": time.time(),  # numeric for DB storage
                 "terminated_at_iso": timestamp_utc()  # ISO for display
             }
-        })
+        }, propagate_agent_context(context))
         
         if update_result and isinstance(update_result, list):
             update_result = update_result[0] if update_result else {}
@@ -1119,7 +1120,7 @@ async def _terminate_single_agent(agent_id: str, force: bool = False) -> Dict[st
         # This ensures new agents with the same ID start fresh
         await event_emitter("completion:clear_agent_session", {
             "agent_id": agent_id
-        })
+        }, propagate_agent_context(context))
     
     # Remove from active agents
     del agents[agent_id]
@@ -1270,7 +1271,10 @@ async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
             logger.debug(f"Agent {agent_id} sending completion with MCP config: {agent_info.get('mcp_config_path')}")
             
             # Session continuity is now handled automatically by completion service
-            await event_emitter("completion:async", completion_data)
+            # Mark this as agent-originated for observation
+            await event_emitter("completion:async", completion_data, {
+                "_agent_id": agent_id  # Agent is the originator
+            })
     
     # Remove tournament-specific handling - this belongs in orchestration patterns
     # Agents should be domain-agnostic infrastructure
@@ -1381,7 +1385,7 @@ async def handle_list_agents(raw_data: Dict[str, Any], context: Optional[Dict[st
         if include_metadata and event_emitter:
             metadata_result = await event_emitter("state:get", {
                 "namespace": f"metadata:agent:{agent_id}"
-            })
+            }, propagate_agent_context(context))
             if metadata_result and isinstance(metadata_result, list):
                 metadata_result = metadata_result[0] if metadata_result else {}
             
@@ -1675,7 +1679,9 @@ async def handle_send_message(raw_data: Dict[str, Any], context: Optional[Dict[s
         }
         
         # Emit completion event directly
-        result = await event_emitter("completion:async", completion_data)
+        # Mark this as agent-originated for observation  
+        result = await event_emitter("completion:async", completion_data, 
+                                    propagate_agent_context(context))
         
         # Handle list response format
         if result and isinstance(result, list):
@@ -1760,7 +1766,7 @@ async def handle_update_composition(raw_data: Dict[str, Any], context: Optional[
         # Get composition metadata
         comp_result = await event_emitter("composition:get", {
             "name": current_comp
-        })
+        }, propagate_agent_context(context))
         
         if comp_result and isinstance(comp_result, list):
             comp_result = comp_result[0] if comp_result else {}
@@ -1778,7 +1784,7 @@ async def handle_update_composition(raw_data: Dict[str, Any], context: Optional[
             "previous_role": current_config.get("role"),
             "adaptation_reason": reason
         }
-    })
+    }, propagate_agent_context(context))
     
     if compose_result and isinstance(compose_result, list):
         compose_result = compose_result[0] if compose_result else {}

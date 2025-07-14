@@ -132,8 +132,15 @@ async def extract_and_emit_json_events(
             if context:
                 event_data.setdefault('_context', {}).update(context)
             
-            # Emit the event and capture raw result
-            emission_result = await event_emitter(event_name, event_data)
+            # Create emission context for agent-originated events
+            emission_context = None
+            if agent_id:
+                emission_context = {
+                    '_agent_id': agent_id  # Presence of _agent_id is the signal for observation
+                }
+            
+            # Emit the event with proper context
+            emission_result = await event_emitter(event_name, event_data, emission_context)
             
             # Pass through raw emission result to agent
             emitted.append({

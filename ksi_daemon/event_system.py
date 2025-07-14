@@ -371,13 +371,16 @@ class EventRouter:
                 event_id=event_id
             ))
         
-        # Check for observation - extract source agent from context or data
-        source_agent = context.get("agent_id") or context.get("source_agent") or data.get("agent_id")
+        # Check for observation - use _agent_id as single source of truth
         observation_id = None
         matching_subscriptions = []
         
+        # Agent origination determined solely by _agent_id presence in context
+        source_agent = context.get("_agent_id") if context else None
+        
         # Don't observe observation events to prevent loops
-        if source_agent and not event.startswith("observe:") and not event.startswith("observation:"):
+        if (source_agent and 
+            not event.startswith("observe:") and not event.startswith("observation:")):
             # Import here to avoid circular dependency
             from ksi_daemon.observation import should_observe_event, notify_observers_async
             
