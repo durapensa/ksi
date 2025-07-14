@@ -308,9 +308,23 @@ class KSIVisualizer {
             });
         }
         
+        // Extract originator info if available
+        let originatorStr = '';
+        if (data.originator) {
+            // From broadcast format
+            const orig = data.originator;
+            if (orig.originator_id || orig.agent_id) {
+                originatorStr = `[${orig.originator_id || orig.agent_id}]`;
+            }
+        } else if (data.originator_id || data.agent_id) {
+            // Direct fields
+            originatorStr = `[${data.originator_id || data.agent_id}]`;
+        }
+        
         // Build entry content
         entry.innerHTML = `
             <span class="event-time">${time}</span>
+            <span class="event-originator">${originatorStr}</span>
             <span class="event-type">${eventName}</span>
             <span class="event-data">${JSON.stringify(data.data || {})}</span>
         `;

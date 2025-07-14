@@ -16,6 +16,7 @@ import time
 
 from ksi_daemon.event_system import event_handler
 from ksi_common.logging import get_bound_logger
+from ksi_common.event_response_builder import build_response, success_response, error_response, list_response
 
 # Module state
 logger = get_bound_logger("monitor", version="1.0.0")
@@ -36,21 +37,35 @@ async def broadcast_to_subscribed_clients(event_name: str, data: Any) -> int:
         return 0
     
     # Build event message in KSI format
-    # If data already has originator info (from universal handler), use it directly
-    # Otherwise wrap raw data
-    if isinstance(data, dict) and "originator" in data and "data" in data:
-        event_message = {
-            "event_name": event_name,
-            "data": data["data"],
-            "originator": data["originator"],
-            "timestamp": time.time()
-        }
+    event_message = {
+        "event_name": event_name,
+        "timestamp": time.time()
+    }
+    
+    # The event system injects originator fields directly into data
+    # Extract them for root-level visibility in broadcast messages
+    if isinstance(data, dict):
+        from ksi_common.event_parser import parse_event_data, ORIGINATOR_FIELDS
+        
+        # Separate originator fields from actual event data
+        clean_data = {}
+        originator_fields = {}
+        
+        for key, value in data.items():
+            if key in ORIGINATOR_FIELDS:
+                originator_fields[key] = value
+            else:
+                clean_data[key] = value
+        
+        # Put clean data in the data field
+        event_message["data"] = clean_data
+        
+        # Add originator fields at root level for visibility
+        for key, value in originator_fields.items():
+            event_message[key] = value
     else:
-        event_message = {
-            "event_name": event_name,
-            "data": data,
-            "timestamp": time.time()
-        }
+        # Non-dict data
+        event_message["data"] = data
     
     # Track broadcast statistics
     broadcast_count = 0
@@ -191,11 +206,16 @@ class SystemStartupData(TypedDict):
 
 
 @event_handler("system:startup")
-async def handle_startup(config: SystemStartupData) -> Dict[str, Any]:
+async def handle_startup(config: SystemStartupData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize monitor module."""
     logger.debug("Monitor startup event received")
     logger.info("Monitor module started")
-    return {"monitor_module": {"ready": True}}
+    return success_response(
+        {"monitor_module": {"ready": True}},
+        handler_name="monitor.handle_startup",
+        event_name="system:startup",
+        context=context
+    )
 
 
 class SystemContextData(TypedDict):
@@ -205,18 +225,19 @@ class SystemContextData(TypedDict):
 
 
 @event_handler("system:context")
-async def handle_context(context: SystemContextData) -> Dict[str, Any]:
+async def handle_context(ctx_data: SystemContextData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Receive module context with event router reference."""
     global event_router
     # Get router directly to avoid JSON serialization issues
     from ksi_daemon.event_system import get_router
     event_router = get_router()
     logger.info("Monitor module received event router context")
-    return {
-        "event_processed": True,
-        "handler": "monitor.handle_context",
-        "module": "monitor"
-    }
+    return success_response(
+        {"module": "monitor"},
+        handler_name="monitor.handle_context",
+        event_name="system:context",
+        context=context
+    )
 
 
 class MonitorGetEventsData(TypedDict):
@@ -645,15 +666,18 @@ class SystemShutdownData(TypedDict):
 
 
 @event_handler("system:shutdown")
-async def handle_shutdown(data: SystemShutdownData) -> Dict[str, Any]:
+async def handle_shutdown(data: SystemShutdownData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Clean up on shutdown."""
     logger.info("Monitor module shutting down")
-    return {
-        "event_processed": True,
-        "handler": "monitor.handle_shutdown",
-        "module": "monitor",
-        "subscriptions_cleared": len(client_subscriptions)
-    }
+    return success_response(
+        {
+            "module": "monitor",
+            "subscriptions_cleared": len(client_subscriptions)
+        },
+        handler_name="monitor.handle_shutdown",
+        event_name="system:shutdown",
+        context=context
+    )
 
 
 class MonitorGetStatusData(TypedDict):
@@ -760,58 +784,33 @@ async def handle_get_status(data: MonitorGetStatusData) -> Dict[str, Any]:
 from typing_extensions import Any as AnyData
 
 @event_handler("*")  # Match ALL events
-async def handle_universal_broadcast(data: AnyData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_universal_broadcast(data: AnyData, context: Optional[Dict[str, Any]] = None) -> None:
     """Universal event handler that broadcasts all events to subscribed clients.
     
     This is the proper place for broadcasting logic - in the monitor module,
     not in the transport layer.
+    
+    Returns None to avoid interfering with other handlers' responses.
     """
     if not context:
-        return {"event_processed": True, "handler": "universal_broadcast", "reason": "no_context"}
+        return
         
     # Get the event name from context
     event_name = context.get("event")
     if not event_name:
-        return {"event_processed": True, "handler": "universal_broadcast", "reason": "no_event_name"}
+        return
     
-    # Skip internal events to avoid loops
+    # Skip internal transport events to avoid loops
     if event_name.startswith('transport:') or event_name == 'monitor:subscribe':
-        return {"event_processed": True, "handler": "universal_broadcast", "reason": "internal_event_skipped"}
+        return
     
-    # Extract originator information from context
-    originator_info = {
-        "originator_id": context.get("originator_id") or context.get("agent_id"),
-        "agent_id": context.get("agent_id"),
-        "source_agent": context.get("source_agent"),
-        "construct_id": context.get("construct_id"),
-        "correlation_id": context.get("correlation_id"),
-        "event_id": context.get("event_id"),
-        "session_id": context.get("session_id")
-    }
-    
-    # Remove None values for cleaner output
-    originator_info = {k: v for k, v in originator_info.items() if v is not None}
-    
-    # Log originator info for debugging
-    if originator_info:
-        logger.debug(f"Broadcasting {event_name} with originator: {originator_info}")
-    
-    # Create enhanced data that includes both event data and originator context
-    enhanced_data = {
-        "data": data,
-        "originator": originator_info
-    }
-    
-    # Track broadcast stats
-    broadcast_count = 0
+    # The event system has already injected originator fields into data
+    # We can pass it directly to broadcast
     if client_subscriptions:
-        broadcast_count = await broadcast_to_subscribed_clients(event_name, enhanced_data)
+        broadcast_count = await broadcast_to_subscribed_clients(event_name, data)
+        logger.debug(f"Broadcasted {event_name} to {broadcast_count} clients with originator info")
     
-    return {
-        "event_processed": True,
-        "handler": "universal_broadcast",
-        "broadcast_count": broadcast_count,
-        "event": event_name
-    }
+    # Return None - don't interfere with other handlers' responses
+    return None
 
 

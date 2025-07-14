@@ -37,28 +37,8 @@ def get_runtime_config(key: str, fallback=None):
 T = TypeVar('T')
 
 
-def event_processed(handler_name: str, details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Create a standardized response for event handlers.
-    
-    This ensures all handlers return a consistent format that clients and orchestrators
-    can understand. The response indicates the event was received and processed by
-    the handler, without making claims about "success" (since we don't know if
-    downstream effects were successful).
-    
-    Args:
-        handler_name: Name of the handler that processed the event
-        details: Optional additional details about the processing
-        
-    Returns:
-        Standardized response dictionary
-    """
-    response = {
-        "event_processed": True,
-        "handler": handler_name
-    }
-    if details:
-        response.update(details)
-    return response
+# Response builder utility moved to ksi_common.event_response_builder
+# Handlers should import and use build_response() directly
 
 
 
@@ -411,6 +391,26 @@ class EventRouter:
         for mw in self._middleware:
             data = await mw(event, data, context)
             
+        # Enrich event data with originator information
+        # This is core KSI functionality - all events carry their full context
+        # for complete traceability and system-wide context awareness
+        if context and isinstance(data, dict):
+            # Create enriched data with originator fields
+            enhanced_data = data.copy()
+            
+            # Add system context fields
+            originator_fields = [
+                "originator_id", "agent_id", "session_id", 
+                "correlation_id", "construct_id", "event_id", "source_agent"
+            ]
+            
+            for field in originator_fields:
+                if field in context and field not in enhanced_data:
+                    enhanced_data[field] = context[field]
+        else:
+            # Non-dict data or no context - use as-is
+            enhanced_data = data
+            
         # Collect all matching handlers
         handlers = []
         
@@ -437,11 +437,11 @@ class EventRouter:
             )
             return [unknown_event_response]
             
-        # Execute handlers concurrently
+        # Execute handlers concurrently with enhanced data
         if self._propagate_errors:
             # In error propagation mode, let exceptions bubble up
             results = await asyncio.gather(
-                *[handler(data, context) for handler in handlers]
+                *[handler(enhanced_data, context) for handler in handlers]
             )
             # All results are valid if we get here
             valid_results = [r for r in results if r is not None]
@@ -449,7 +449,7 @@ class EventRouter:
         else:
             # Default mode: catch exceptions and continue
             results = await asyncio.gather(
-                *[handler(data, context) for handler in handlers],
+                *[handler(enhanced_data, context) for handler in handlers],
                 return_exceptions=True
             )
             
