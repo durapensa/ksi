@@ -1,2 +1,4 @@
 log_level: DEBUG
 debug_logging: 'true'
+daemon:
+  log_level: DEBUG

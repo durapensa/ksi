@@ -164,9 +164,28 @@ async def handle_message(message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if not event_name:
         return {"error": "Missing event name"}
     
+    # Build context from message metadata
+    context = {}
+    if "originator_id" in message:
+        context["originator_id"] = message["originator_id"]
+    if "agent_id" in message:
+        context["agent_id"] = message["agent_id"]
+    if "session_id" in message:
+        context["session_id"] = message["session_id"]
+    if "construct_id" in message:
+        context["construct_id"] = message["construct_id"]
+    if "event_id" in message:
+        context["event_id"] = message["event_id"]
+    if correlation_id:
+        context["correlation_id"] = correlation_id
+    
     try:
         # Emit the event and get response (event system always returns list)
-        response_data = await event_emitter(event_name, data)
+        # Pass context if we have any metadata
+        if context:
+            response_data = await event_emitter(event_name, data, context)
+        else:
+            response_data = await event_emitter(event_name, data)
         
         # Handle async responses
         if asyncio.iscoroutine(response_data) or asyncio.isfuture(response_data):
@@ -310,7 +329,7 @@ class SystemContextData(TypedDict):
 
 
 @event_handler("system:context")
-async def handle_context(context: SystemContextData) -> None:
+async def handle_context(context: SystemContextData) -> Dict[str, Any]:
     """Receive context including event emitter."""
     global transport_instance, event_emitter
     
@@ -318,6 +337,17 @@ async def handle_context(context: SystemContextData) -> None:
     if transport_instance and event_emitter:
         transport_instance.set_event_emitter(event_emitter)
         logger.info("Transport configured with event emitter")
+        return {
+            "event_processed": True,
+            "handler": "unix_socket.handle_context",
+            "module": "unix_socket_transport"
+        }
+    return {
+        "event_processed": True,
+        "handler": "unix_socket.handle_context",
+        "module": "unix_socket_transport",
+        "warning": "no_transport_instance_or_emitter"
+    }
 
 
 class TransportCreateConfig(TypedDict):

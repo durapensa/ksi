@@ -26,53 +26,67 @@ client_subscriptions = {}  # client_id -> set of event patterns
 client_writers = {}  # client_id -> writer mapping for broadcasting
 
 
-async def broadcast_to_subscribed_clients(event_name: str, data: Any):
-    """Broadcast event to clients that have subscribed to matching patterns."""
-    logger.debug(f"broadcast_to_subscribed_clients called with event: {event_name}, subscriptions: {len(client_subscriptions)}")
+async def broadcast_to_subscribed_clients(event_name: str, data: Any) -> int:
+    """Broadcast event to clients that have subscribed to matching patterns.
     
+    Returns:
+        Number of clients the event was broadcast to
+    """
     if not client_subscriptions:
-        logger.debug("No client subscriptions, skipping broadcast")
-        return
-    
-    # Skip internal transport events to avoid loops
-    if event_name.startswith('transport:') or event_name == 'monitor:subscribe':
-        logger.debug(f"Skipping internal event: {event_name}")
-        return
+        return 0
     
     # Build event message in KSI format
-    event_message = {
-        "event_name": event_name,
-        "data": data,
-        "timestamp": time.time()
-    }
+    # If data already has originator info (from universal handler), use it directly
+    # Otherwise wrap raw data
+    if isinstance(data, dict) and "originator" in data and "data" in data:
+        event_message = {
+            "event_name": event_name,
+            "data": data["data"],
+            "originator": data["originator"],
+            "timestamp": time.time()
+        }
+    else:
+        event_message = {
+            "event_name": event_name,
+            "data": data,
+            "timestamp": time.time()
+        }
     
-    # Send to clients with matching subscription patterns
+    # Track broadcast statistics
+    broadcast_count = 0
     disconnect_clients = []
+    
+    # Send ONLY to clients with matching subscription patterns
     for str_client_id, patterns in client_subscriptions.items():
-        if patterns:
-            # Check if any of this client's patterns match the event
-            matches = any(
-                pattern == "*" or fnmatch.fnmatch(event_name, pattern) 
-                for pattern in patterns
-            )
-            if matches:
-                # Find the writer for this client
-                writer = client_writers.get(str_client_id)
-                if writer:
-                    try:
-                        message_str = json.dumps(event_message) + '\n'
-                        writer.write(message_str.encode())
-                        await writer.drain()
-                        logger.debug(f"Broadcasted {event_name} to client {str_client_id} (matched patterns: {patterns})")
-                    except Exception as e:
-                        logger.warning(f"Failed to broadcast to client {str_client_id}: {e}")
-                        disconnect_clients.append(str_client_id)
-                else:
-                    logger.debug(f"No writer found for subscribed client {str_client_id}")
-            else:
-                logger.debug(f"Event {event_name} doesn't match client {str_client_id} patterns: {patterns}")
-        else:
-            logger.debug(f"Client {str_client_id} has no subscription patterns")
+        if not patterns:
+            continue
+            
+        # Check if ANY of this client's patterns match the event
+        matches = any(
+            pattern == "*" or fnmatch.fnmatch(event_name, pattern) 
+            for pattern in patterns
+        )
+        
+        if not matches:
+            # This client's patterns don't match - SKIP this client entirely
+            continue
+            
+        # Pattern matched - find the writer for this client
+        writer = client_writers.get(str_client_id)
+        if not writer:
+            logger.debug(f"No writer found for subscribed client {str_client_id}")
+            continue
+            
+        # Try to send to this client
+        try:
+            message_str = json.dumps(event_message) + '\n'
+            writer.write(message_str.encode())
+            await writer.drain()
+            broadcast_count += 1
+            logger.debug(f"Broadcasted {event_name} to client {str_client_id} (matched patterns: {patterns})")
+        except Exception as e:
+            logger.warning(f"Failed to broadcast to client {str_client_id}: {e}")
+            disconnect_clients.append(str_client_id)
     
     # Clean up disconnected clients
     for str_client_id in disconnect_clients:
@@ -80,6 +94,8 @@ async def broadcast_to_subscribed_clients(event_name: str, data: Any):
             del client_subscriptions[str_client_id]
         if str_client_id in client_writers:
             del client_writers[str_client_id]
+            
+    return broadcast_count
 
 
 def register_client_writer(client_id: str, writer: Any):
@@ -95,6 +111,52 @@ def unregister_client_writer(client_id: str):
     if client_id in client_subscriptions:
         del client_subscriptions[client_id]
     logger.debug(f"Unregistered writer for client {client_id}")
+
+
+def _cleanup_stale_subscriptions():
+    """Remove subscriptions for clients that no longer have valid writers."""
+    stale_clients = []
+    
+    for client_id in list(client_subscriptions.keys()):
+        writer = client_writers.get(client_id)
+        if not writer:
+            # No writer means this subscription is stale
+            stale_clients.append(client_id)
+        else:
+            # Check if writer is still valid (not closed)
+            try:
+                if hasattr(writer, 'is_closing') and writer.is_closing():
+                    stale_clients.append(client_id)
+                elif hasattr(writer, 'transport') and writer.transport and writer.transport.is_closing():
+                    stale_clients.append(client_id)
+            except Exception:
+                # If we can't check writer status, assume it's stale
+                stale_clients.append(client_id)
+    
+    # Remove stale subscriptions
+    for client_id in stale_clients:
+        if client_id in client_subscriptions:
+            patterns = client_subscriptions[client_id]
+            del client_subscriptions[client_id]
+            logger.info(f"Cleaned up stale subscription for client {client_id} (patterns: {patterns})")
+        if client_id in client_writers:
+            del client_writers[client_id]
+    
+    if stale_clients:
+        logger.info(f"Cleaned up {len(stale_clients)} stale subscriptions. Active clients: {len(client_subscriptions)}")
+
+
+def get_subscription_stats():
+    """Get statistics about current subscriptions for debugging."""
+    stats = {
+        "total_subscriptions": len(client_subscriptions),
+        "total_writers": len(client_writers),
+        "clients_with_writers": len(set(client_subscriptions.keys()) & set(client_writers.keys())),
+        "clients_without_writers": len(set(client_subscriptions.keys()) - set(client_writers.keys())),
+        "writers_without_subscriptions": len(set(client_writers.keys()) - set(client_subscriptions.keys())),
+        "subscriptions": {client_id: list(patterns) for client_id, patterns in client_subscriptions.items()}
+    }
+    return stats
 
 
 # Module info
@@ -143,13 +205,18 @@ class SystemContextData(TypedDict):
 
 
 @event_handler("system:context")
-async def handle_context(context: SystemContextData) -> None:
+async def handle_context(context: SystemContextData) -> Dict[str, Any]:
     """Receive module context with event router reference."""
     global event_router
     # Get router directly to avoid JSON serialization issues
     from ksi_daemon.event_system import get_router
     event_router = get_router()
     logger.info("Monitor module received event router context")
+    return {
+        "event_processed": True,
+        "handler": "monitor.handle_context",
+        "module": "monitor"
+    }
 
 
 class MonitorGetEventsData(TypedDict):
@@ -337,14 +404,25 @@ async def handle_subscribe(data: MonitorSubscribeData) -> Dict[str, Any]:
     # Import unix_socket module to access subscriptions
     from ksi_daemon.transport import unix_socket
     
-    # Store subscription patterns in monitor module
-    if client_id not in client_subscriptions:
-        client_subscriptions[client_id] = set()
+    # Clean up any stale subscriptions first (clients with invalid writers)
+    _cleanup_stale_subscriptions()
     
-    client_subscriptions[client_id].update(event_patterns)
+    # Check for duplicate subscriptions from the same logical client
+    existing_patterns = client_subscriptions.get(client_id, set())
+    new_patterns = set(event_patterns)
     
-    logger.info(f"Client {client_id} subscribed to patterns: {event_patterns}")
-    logger.debug(f"Total subscriptions now: {dict(client_subscriptions)}")
+    # Replace subscription entirely instead of accumulating
+    client_subscriptions[client_id] = new_patterns
+    
+    if existing_patterns:
+        if existing_patterns == new_patterns:
+            logger.debug(f"Client {client_id} re-subscribed with identical patterns: {event_patterns}")
+        else:
+            logger.info(f"Client {client_id} replaced subscription - old: {existing_patterns}, new: {new_patterns}")
+    else:
+        logger.info(f"Client {client_id} subscribed to patterns: {event_patterns}")
+    
+    logger.debug(f"Active subscriptions: {len(client_subscriptions)} clients, patterns: {dict(client_subscriptions)}")
     
     return {
         "status": "subscribed",
@@ -373,6 +451,31 @@ async def handle_unsubscribe(data: MonitorUnsubscribeData) -> Dict[str, Any]:
     return {
         "error": "Subscription not implemented for reference event log",
         "message": "No active subscriptions to unsubscribe from"
+    }
+
+
+class MonitorGetSubscriptionsData(TypedDict):
+    """Get subscription statistics for debugging."""
+    # No specific fields - returns current subscription state
+    pass
+
+
+@event_handler("monitor:get_subscriptions")
+async def handle_get_subscriptions(data: MonitorGetSubscriptionsData) -> Dict[str, Any]:
+    """
+    Get subscription statistics for debugging.
+    
+    Returns:
+        Dictionary with subscription statistics and current state
+    """
+    # Clean up stale subscriptions before reporting
+    _cleanup_stale_subscriptions()
+    
+    stats = get_subscription_stats()
+    
+    return {
+        "subscription_stats": stats,
+        "timestamp": time.time()
     }
 
 
@@ -542,36 +645,173 @@ class SystemShutdownData(TypedDict):
 
 
 @event_handler("system:shutdown")
-async def handle_shutdown(data: SystemShutdownData) -> None:
+async def handle_shutdown(data: SystemShutdownData) -> Dict[str, Any]:
     """Clean up on shutdown."""
     logger.info("Monitor module shutting down")
+    return {
+        "event_processed": True,
+        "handler": "monitor.handle_shutdown",
+        "module": "monitor",
+        "subscriptions_cleared": len(client_subscriptions)
+    }
+
+
+class MonitorGetStatusData(TypedDict):
+    """Get consolidated KSI daemon status including recent events and agent info."""
+    event_patterns: NotRequired[List[str]]  # Event name patterns (supports wildcards)
+    since: NotRequired[Union[str, float]]  # Start time for events (ISO string or timestamp)
+    limit: NotRequired[int]  # Maximum number of events to return (default: 20)
+    include_agents: NotRequired[bool]  # Include agent status (default: True)
+    include_events: NotRequired[bool]  # Include recent events (default: True)
+
+
+@event_handler("monitor:get_status")
+async def handle_get_status(data: MonitorGetStatusData) -> Dict[str, Any]:
+    """
+    Get consolidated KSI daemon status including recent events and agent information.
+    
+    This endpoint combines monitor:get_events and agent:list functionality to reduce
+    the number of socket calls needed for status monitoring.
+    
+    Args:
+        data: Query parameters:
+            - event_patterns: List of event name patterns (supports wildcards)
+            - since: Start time for events (ISO string or timestamp)
+            - limit: Maximum number of events to return (default: 20)
+            - include_agents: Include agent status (default: True)
+            - include_events: Include recent events (default: True)
+    
+    Returns:
+        Dictionary with consolidated status information
+    """
+    result = {}
+    
+    # Get recent events if requested
+    include_events = data.get("include_events", True)
+    if include_events:
+        try:
+            # Prepare event query parameters
+            events_data = MonitorGetEventsData(
+                event_patterns=data.get("event_patterns"),
+                since=data.get("since"),
+                limit=data.get("limit", 20),
+                reverse=True
+            )
+            
+            # Get events using existing handler
+            events_result = await handle_get_events(events_data)
+            if "error" not in events_result:
+                result["events"] = events_result["events"]
+                result["event_count"] = events_result["count"]
+            else:
+                result["events"] = []
+                result["event_count"] = 0
+                result["events_error"] = events_result["error"]
+                
+        except Exception as e:
+            logger.error(f"Failed to get events for status: {e}")
+            result["events"] = []
+            result["event_count"] = 0
+            result["events_error"] = str(e)
+    
+    # Get agent status if requested
+    include_agents = data.get("include_agents", True)
+    if include_agents:
+        try:
+            # Import agent service to get agent list
+            from ksi_daemon.agent.agent_service import agents, identities
+            
+            # Build agent status summary
+            agent_list = []
+            for agent_id, agent_info in agents.items():
+                agent_summary = {
+                    "agent_id": agent_id,
+                    "profile": agent_info.get("profile", "unknown"),
+                    "status": agent_info.get("status", "unknown"),
+                    "created": agent_info.get("created", 0)
+                }
+                # Add identity info if available
+                if agent_id in identities:
+                    identity = identities[agent_id]
+                    agent_summary["identity"] = {
+                        "name": identity.get("name", agent_id),
+                        "type": identity.get("type", "agent")
+                    }
+                agent_list.append(agent_summary)
+            
+            result["agents"] = agent_list
+            result["agent_count"] = len(agent_list)
+            result["total_identities"] = len(identities)
+            
+        except Exception as e:
+            logger.error(f"Failed to get agent status: {e}")
+            result["agents"] = []
+            result["agent_count"] = 0
+            result["agents_error"] = str(e)
+    
+    # Add timestamp for status snapshot
+    result["timestamp"] = time.time()
+    result["status"] = "ok"
+    
+    return result
 
 
 # Universal event handler for broadcasting (moved from unix_socket)
 from typing_extensions import Any as AnyData
 
 @event_handler("*")  # Match ALL events
-async def handle_universal_broadcast(data: AnyData, context: Optional[Dict[str, Any]] = None) -> None:
+async def handle_universal_broadcast(data: AnyData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Universal event handler that broadcasts all events to subscribed clients.
     
     This is the proper place for broadcasting logic - in the monitor module,
     not in the transport layer.
     """
-    logger.debug(f"Universal event handler called with context: {context}")
-    
     if not context:
-        logger.debug("No context provided to universal event handler")
-        return
+        return {"event_processed": True, "handler": "universal_broadcast", "reason": "no_context"}
         
     # Get the event name from context
     event_name = context.get("event")
     if not event_name:
-        logger.debug("No event name in context")
-        return
+        return {"event_processed": True, "handler": "universal_broadcast", "reason": "no_event_name"}
     
-    logger.debug(f"Universal event handler processing event: {event_name}")
+    # Skip internal events to avoid loops
+    if event_name.startswith('transport:') or event_name == 'monitor:subscribe':
+        return {"event_processed": True, "handler": "universal_broadcast", "reason": "internal_event_skipped"}
     
-    # Broadcast to clients with matching subscription patterns
-    await broadcast_to_subscribed_clients(event_name, data)
+    # Extract originator information from context
+    originator_info = {
+        "originator_id": context.get("originator_id") or context.get("agent_id"),
+        "agent_id": context.get("agent_id"),
+        "source_agent": context.get("source_agent"),
+        "construct_id": context.get("construct_id"),
+        "correlation_id": context.get("correlation_id"),
+        "event_id": context.get("event_id"),
+        "session_id": context.get("session_id")
+    }
+    
+    # Remove None values for cleaner output
+    originator_info = {k: v for k, v in originator_info.items() if v is not None}
+    
+    # Log originator info for debugging
+    if originator_info:
+        logger.debug(f"Broadcasting {event_name} with originator: {originator_info}")
+    
+    # Create enhanced data that includes both event data and originator context
+    enhanced_data = {
+        "data": data,
+        "originator": originator_info
+    }
+    
+    # Track broadcast stats
+    broadcast_count = 0
+    if client_subscriptions:
+        broadcast_count = await broadcast_to_subscribed_clients(event_name, enhanced_data)
+    
+    return {
+        "event_processed": True,
+        "handler": "universal_broadcast",
+        "broadcast_count": broadcast_count,
+        "event": event_name
+    }
 
 

@@ -37,6 +37,30 @@ def get_runtime_config(key: str, fallback=None):
 T = TypeVar('T')
 
 
+def event_processed(handler_name: str, details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Create a standardized response for event handlers.
+    
+    This ensures all handlers return a consistent format that clients and orchestrators
+    can understand. The response indicates the event was received and processed by
+    the handler, without making claims about "success" (since we don't know if
+    downstream effects were successful).
+    
+    Args:
+        handler_name: Name of the handler that processed the event
+        details: Optional additional details about the processing
+        
+    Returns:
+        Standardized response dictionary
+    """
+    response = {
+        "event_processed": True,
+        "handler": handler_name
+    }
+    if details:
+        response.update(details)
+    return response
+
+
 
 class EventPriority:
     """Priority levels for event handlers."""

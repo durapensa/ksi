@@ -205,8 +205,8 @@ class KSIHookMonitor:
         except Exception as e:
             self.logger.log_debug(f"Failed to save timestamp: {e}")
         
-    def get_recent_events(self, pattern: str = "*", limit: int = None) -> List[Dict[str, Any]]:
-        """Query recent KSI events since last check."""
+    def get_status_consolidated(self, pattern: str = "*", limit: int = None) -> tuple[List[Dict[str, Any]], str]:
+        """Query recent KSI events and agent status in a single call."""
         limit = limit or self.config.event_limit
         
         try:
@@ -215,36 +215,70 @@ class KSIHookMonitor:
                 "event_patterns": [pattern] if pattern != "*" else None,
                 "since": self.last_timestamp,  # Only get events after this timestamp
                 "limit": limit,
-                "reverse": True
+                "include_events": True,
+                "include_agents": True
             }
             
-            result = self.client.send_event("monitor:get_events", data)
-            return result.get("events", [])
+            result = self.client.send_event("monitor:get_status", data)
+            
+            # Extract events
+            events = result.get("events", [])
+            
+            # Extract and format agent status
+            agents = result.get("agents", [])
+            if agents:
+                # Concise agent list
+                agent_ids = [a['agent_id'] for a in agents[:3]]
+                more = f"+{len(agents)-3}" if len(agents) > 3 else ""
+                agent_status = f"Agents[{len(agents)}]: {', '.join(agent_ids)}{more}"
+            else:
+                agent_status = "No active agents."
+            
+            return events, agent_status
                 
         except KSIConnectionError:
             self.logger.log_diagnostic("Daemon not running or socket not found")
-            return []
+            return [], "No active agents."
         except Exception as e:
-            self.logger.log_diagnostic(f"Error getting events: {e}")
-            return []
+            self.logger.log_diagnostic(f"Error getting consolidated status: {e}")
+            # Fallback to separate calls if new endpoint doesn't exist yet
+            return self._get_status_fallback(pattern, limit)
     
-    def check_active_agents(self) -> str:
-        """Check for active agents."""
+    def _get_status_fallback(self, pattern: str = "*", limit: int = None) -> tuple[List[Dict[str, Any]], str]:
+        """Fallback to separate calls if consolidated endpoint not available."""
+        limit = limit or self.config.event_limit
+        
+        # Get events
+        try:
+            data = {
+                "_silent": True,
+                "event_patterns": [pattern] if pattern != "*" else None,
+                "since": self.last_timestamp,
+                "limit": limit,
+                "reverse": True
+            }
+            result = self.client.send_event("monitor:get_events", data)
+            events = result.get("events", [])
+        except Exception as e:
+            self.logger.log_diagnostic(f"Fallback: Error getting events: {e}")
+            events = []
+        
+        # Get agent status
         try:
             result = self.client.send_event("agent:list", {"_silent": True})
             agents = result.get("agents", [])
             
             if agents:
-                # Concise agent list
                 agent_ids = [a['agent_id'] for a in agents[:3]]
                 more = f"+{len(agents)-3}" if len(agents) > 3 else ""
-                return f"Agents[{len(agents)}]: {', '.join(agent_ids)}{more}"
+                agent_status = f"Agents[{len(agents)}]: {', '.join(agent_ids)}{more}"
             else:
-                return "No active agents."
-                    
+                agent_status = "No active agents."
         except Exception as e:
-            self.logger.log_diagnostic(f"Error checking agents: {e}")
-            return "No active agents."
+            self.logger.log_diagnostic(f"Fallback: Error checking agents: {e}")
+            agent_status = "No active agents."
+        
+        return events, agent_status
     
     def check_claude_processes(self) -> List[Dict[str, Any]]:
         """Check for KSI-spawned claude processes (with ?? TTY)."""
@@ -708,14 +742,12 @@ def main():
         if not monitor.should_process_command(tool_name, hook_data):
             ExitStrategy.exit_silent()
         
-        # Get KSI status
+        # Get KSI status (consolidated call)
         logger.log_diagnostic("Getting KSI status...")
         
         try:
-            events = monitor.get_recent_events("*", limit=config.event_limit)
+            events, agent_status = monitor.get_status_consolidated("*", limit=config.event_limit)
             logger.log_diagnostic(f"Got {len(events) if events else 0} events")
-            
-            agent_status = monitor.check_active_agents()
             logger.log_diagnostic(f"Agent status: {agent_status[:50]}...")
             
         except KSIConnectionError:
