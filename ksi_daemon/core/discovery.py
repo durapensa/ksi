@@ -36,6 +36,43 @@ FORMAT_ULTRA_COMPACT = "ultra_compact"
 FORMAT_MCP = "mcp"
 
 
+def _get_namespace_description(ns: str) -> str:
+    """Get description for a namespace."""
+    ns_descriptions = {
+        'agent': 'Agent lifecycle and management',
+        'system': 'Core system functionality',
+        'monitor': 'Event monitoring and status',
+        'completion': 'LLM completion handling',
+        'composition': 'Profile and prompt composition',
+        'orchestration': 'Multi-agent orchestration',
+        'state': 'Entity and relationship management',
+        'evaluation': 'Testing and evaluation system',
+        'permission': 'Access control and sandboxing',
+        'message': 'Inter-agent messaging',
+        'observation': 'Agent activity monitoring',
+        'dev': 'Development and debugging',
+        'config': 'Configuration management',
+        'correlation': 'Event correlation tracking',
+        'conversation': 'Conversation management',
+        'event': 'Event system control',
+        'module': 'Module inspection',
+        'checkpoint': 'State persistence',
+        'injection': 'Context injection',
+        'mcp': 'Model Context Protocol',
+        'runtime': 'Runtime configuration',
+        'sandbox': 'Agent sandboxing',
+        'tournament': 'Judge tournaments',
+        'transformer': 'Event transformation',
+        'transport': 'Network transport',
+        'router': 'Event routing',
+        'event_log': 'Event log queries',
+        'shutdown': 'Shutdown coordination',
+        'observe': 'Observation events',
+        'default': 'Miscellaneous functionality'
+    }
+    return ns_descriptions.get(ns, 'Specialized functionality')
+
+
 def format_event_info(
     event_name: str,
     handler_info: Dict[str, Any],
@@ -466,7 +503,8 @@ class UnifiedHandlerAnalyzer:
         return result
     
     def _find_typed_dict_class(self):
-        """Find TypedDict parameter type from type hints."""
+        """Find TypedDict parameter type from type hints or by pattern matching."""
+        # Strategy 1: Check type hints for 'data' parameter
         try:
             func_globals = getattr(self.func, '__globals__', None)
             hints = get_type_hints(self.func, globalns=func_globals, include_extras=True)
@@ -475,6 +513,52 @@ class UnifiedHandlerAnalyzer:
                 return data_type
         except Exception:
             pass
+        
+        # Strategy 2: Look for TypedDict classes by naming convention
+        handler_name = self.func.__name__
+        if handler_name.startswith('handle_'):
+            # Convert handle_get_status -> GetStatusData, MonitorGetStatusData
+            event_part = handler_name[7:]  # Remove 'handle_'
+            parts = event_part.split('_')
+            
+            # Try various naming patterns
+            possible_class_names = [
+                # GetStatusData pattern
+                ''.join(word.title() for word in parts) + 'Data',
+                # MonitorGetStatusData pattern (with module prefix)
+                self.func.__module__.split('.')[-1].title() + ''.join(word.title() for word in parts) + 'Data',
+            ]
+            
+            # Also try with event name if provided
+            if self.event_name and ':' in self.event_name:
+                namespace, event = self.event_name.split(':', 1)
+                # monitor:get_status -> MonitorGetStatusData
+                possible_class_names.append(
+                    namespace.title() + ''.join(word.title() for word in event.split('_')) + 'Data'
+                )
+            
+            func_globals = getattr(self.func, '__globals__', {})
+            for class_name in possible_class_names:
+                if class_name in func_globals:
+                    candidate = func_globals[class_name]
+                    if is_typeddict(candidate):
+                        logger.debug(f"Found TypedDict {class_name} for {handler_name}")
+                        return candidate
+        
+        # Strategy 3: Search module for TypedDict classes
+        import inspect
+        module = inspect.getmodule(self.func)
+        if module and self.event_name:
+            # Look for TypedDict classes that might match this event
+            event_parts = self.event_name.replace(':', '_').split('_')
+            for name, obj in inspect.getmembers(module):
+                if is_typeddict(obj) and name.endswith('Data'):
+                    # Check if class name contains event parts
+                    name_lower = name.lower()
+                    if all(part.lower() in name_lower for part in event_parts):
+                        logger.debug(f"Found TypedDict {name} by pattern matching for {self.event_name}")
+                        return obj
+        
         return None
     
     def _analyze_typed_dict(self):
@@ -530,6 +614,16 @@ class UnifiedHandlerAnalyzer:
             if description:
                 validation_info = parse_validation_patterns(description)
                 self.parameters[field_name].update(validation_info)
+                
+                # Parse CLI metadata from comment
+                cli_metadata = self._parse_cli_metadata(description)
+                if cli_metadata:
+                    self.parameters[field_name]['cli'] = cli_metadata
+                    # Remove CLI metadata from description
+                    import re
+                    clean_desc = re.sub(r'\[CLI:[^\]]+\]', '', description).strip()
+                    if clean_desc:
+                        self.parameters[field_name]['description'] = clean_desc
     
     def _analyze_implementation(self):
         """Analyze handler implementation for runtime behavior."""
@@ -659,6 +753,48 @@ class UnifiedHandlerAnalyzer:
         
         return None
     
+    def _parse_cli_metadata(self, comment: str) -> Dict[str, Any]:
+        """Parse CLI metadata from comment string.
+        
+        Format: Description text [CLI:flag] [CLI:option,short=l] [CLI:argument,position=1]
+        """
+        cli_metadata = {}
+        
+        if not comment:
+            return cli_metadata
+            
+        # Extract CLI metadata from square brackets
+        import re
+        cli_pattern = r'\[CLI:([^\]]+)\]'
+        matches = re.findall(cli_pattern, comment)
+        
+        for match in matches:
+            parts = match.split(',')
+            cli_type = parts[0].strip()
+            
+            if cli_type in ('flag', 'option', 'argument'):
+                cli_metadata['cli_type'] = cli_type
+                
+                # Parse additional attributes
+                for part in parts[1:]:
+                    if '=' in part:
+                        key, value = part.split('=', 1)
+                        key = key.strip()
+                        value = value.strip()
+                        
+                        if key == 'short':
+                            cli_metadata['cli_short'] = value
+                        elif key == 'group':
+                            cli_metadata['cli_group'] = value
+                        elif key == 'hidden' and value.lower() in ('true', '1', 'yes'):
+                            cli_metadata['cli_hidden'] = True
+                        elif key == 'completion':
+                            cli_metadata['completion_type'] = value
+                        elif key == 'position' and cli_type == 'argument':
+                            cli_metadata['position'] = int(value)
+        
+        return cli_metadata
+    
     def _enhance_from_docstring(self):
         """Enhance parameters with docstring information."""
         doc_params = parse_docstring_params(self.func)
@@ -683,11 +819,12 @@ class SystemStartupData(TypedDict):
 
 class SystemDiscoverData(TypedDict):
     """Universal discovery endpoint - everything you need to understand KSI."""
-    detail: NotRequired[bool]  # Include parameters and triggers (default: False)
-    namespace: NotRequired[str]  # Filter by namespace (optional)
-    event: NotRequired[str]  # Get details for specific event (optional)
-    module: NotRequired[str]  # Filter by module name (optional)
-    format_style: NotRequired[Literal['verbose', 'compact', 'ultra_compact', 'mcp']]  # Output format (default: verbose)
+    detail: NotRequired[bool]  # Include parameters and triggers (default: False) [CLI:flag]
+    namespace: NotRequired[str]  # Filter by namespace (optional) [CLI:option]
+    event: NotRequired[str]  # Get details for specific event (optional) [CLI:option]
+    module: NotRequired[str]  # Filter by module name (optional) [CLI:option]
+    format_style: NotRequired[Literal['verbose', 'compact', 'ultra_compact', 'mcp']]  # Output format (default: verbose) [CLI:option]
+    level: NotRequired[Literal['summary', 'namespace', 'full']]  # Discovery detail level (default: namespace) [CLI:option]
 
 
 class SystemHelpData(TypedDict):
@@ -720,57 +857,112 @@ async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, A
 async def handle_discover(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Universal discovery endpoint - everything you need to understand KSI."""
     from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder
+    from ksi_common.event_response_builder import event_response_builder, error_response
     data = event_format_linter(raw_data, SystemDiscoverData)
     include_detail = data.get("detail", False)
     namespace_filter = data.get("namespace")
     event_filter = data.get("event")
     module_filter = data.get("module")
     format_style = data.get("format_style", FORMAT_VERBOSE)
+    level = data.get("level", "namespace")  # Default to namespace level
+    
+    # Prevent detail timeout without filters
+    if include_detail and not (namespace_filter or event_filter) and level != "summary":
+        return error_response(
+            "--detail requires --namespace or --event filter to prevent timeouts",
+            context=context
+        )
 
     from ksi_daemon.event_system import get_router
 
     router = get_router()
 
-    all_events = {}
+    # For summary level, we don't need detailed info
+    if level == "summary" and not include_detail:
+        # Just get event names for counting
+        all_events = {}
+        for event_name, handlers in router._handlers.items():
+            handler = handlers[0]
+            all_events[event_name] = {
+                "module": handler.module,
+                "handler": handler.name,
+                "async": handler.is_async,
+                "summary": extract_summary(handler.func),
+            }
+    else:
+        # Gather all events with detail if needed
+        all_events = {}
+        
+        # For full level, always include detail
+        if level == "full":
+            include_detail = True
 
-    # Gather all events first
-    for event_name, handlers in router._handlers.items():
-        handler = handlers[0]  # Use first handler
+        for event_name, handlers in router._handlers.items():
+            handler = handlers[0]  # Use first handler
 
-        handler_info = {
-            "module": handler.module,
-            "handler": handler.name,
-            "async": handler.is_async,
-            "summary": extract_summary(handler.func),
-        }
+            handler_info = {
+                "module": handler.module,
+                "handler": handler.name,
+                "async": handler.is_async,
+                "summary": extract_summary(handler.func),
+            }
 
-        if include_detail:
-            # Use unified analysis that combines TypedDict and AST
-            analyzer = UnifiedHandlerAnalyzer(handler.func, event_name=event_name)
-            analysis_result = analyzer.analyze()
-            handler_info.update(analysis_result)
+            if include_detail:
+                # Use unified analysis that combines TypedDict and AST
+                analyzer = UnifiedHandlerAnalyzer(handler.func, event_name=event_name)
+                analysis_result = analyzer.analyze()
+                handler_info.update(analysis_result)
 
-        all_events[event_name] = handler_info
+            all_events[event_name] = handler_info
 
     # Apply filters
     filtered_events = filter_events(all_events, namespace=namespace_filter, module=module_filter, pattern=event_filter)
 
-    # Format events based on style
-    formatted_events = {}
-    for event_name, handler_info in filtered_events.items():
-        formatted_events[event_name] = format_event_info(
-            event_name, handler_info, style=format_style, include_params=include_detail, include_triggers=include_detail
-        )
+    # Build response based on level
+    if level == "summary":
+        # Return namespace summary
+        namespaces = {}
+        for event_name in filtered_events.keys():
+            if ':' in event_name:
+                ns = event_name.split(':', 1)[0]
+            else:
+                ns = 'default'
+            
+            if ns not in namespaces:
+                namespaces[ns] = {
+                    'count': 0,
+                    'description': _get_namespace_description(ns)
+                }
+            namespaces[ns]['count'] += 1
+        
+        response = {
+            'namespaces': namespaces,
+            'total_namespaces': len(namespaces),
+            'total_events': len(filtered_events),
+            '_level': 'summary',
+            '_filters': {
+                'namespace': namespace_filter,
+                'event': event_filter,
+                'module': module_filter
+            }
+        }
+    else:
+        # Format events based on style (namespace or full level)
+        formatted_events = {}
+        for event_name, handler_info in filtered_events.items():
+            formatted_events[event_name] = format_event_info(
+                event_name, handler_info, style=format_style, include_params=include_detail, include_triggers=include_detail
+            )
 
-    # Build response
-    response = build_discovery_response(formatted_events, style=format_style)
-    
-    # If filtering by module, add module description
-    if module_filter:
-        module_info = router.inspect_module(module_filter)
-        if module_info and "docstring" in module_info:
-            response["module_description"] = module_info["docstring"].split("\n")[0].strip()
+        # Build response
+        response = build_discovery_response(formatted_events, style=format_style)
+        response['_level'] = level
+        
+        # If filtering by module, add module description
+        if module_filter:
+            module_info = router.inspect_module(module_filter)
+            if module_info and "docstring" in module_info:
+                response["module_description"] = module_info["docstring"].split("\n")[0].strip()
     
     return event_response_builder(
         response,

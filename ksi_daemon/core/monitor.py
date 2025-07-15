@@ -668,11 +668,11 @@ async def handle_shutdown(raw_data: Dict[str, Any], context: Optional[Dict[str, 
 
 class MonitorGetStatusData(TypedDict):
     """Get consolidated KSI daemon status including recent events and agent info."""
-    event_patterns: NotRequired[List[str]]  # Event name patterns (supports wildcards)
-    since: NotRequired[Union[str, float]]  # Start time for events (ISO string or timestamp)
-    limit: NotRequired[int]  # Maximum number of events to return (default: 20)
-    include_agents: NotRequired[bool]  # Include agent status (default: True)
-    include_events: NotRequired[bool]  # Include recent events (default: True)
+    event_patterns: NotRequired[List[str]]  # Event name patterns (supports wildcards) [CLI:option,completion=event]
+    since: NotRequired[Union[str, float]]  # Start time for events (ISO string or timestamp) [CLI:option,completion=datetime]
+    limit: NotRequired[int]  # Maximum number of events to return (default: 20) [CLI:option]
+    include_agents: NotRequired[bool]  # Include agent status (default: True) [CLI:flag]
+    include_events: NotRequired[bool]  # Include recent events (default: True) [CLI:flag]
 
 
 @event_handler("monitor:get_status")

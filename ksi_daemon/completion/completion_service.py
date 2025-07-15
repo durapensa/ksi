@@ -85,6 +85,101 @@ def save_completion_response(response_data: Dict[str, Any]) -> None:
         logger.error(f"Failed to save completion response: {e}", exc_info=True)
 
 
+def save_completion_request(request_data: Dict[str, Any], session_id: str) -> None:
+    """Save user request to session file for conversation reconstruction."""
+    try:
+        if not session_id:
+            logger.warning("No session_id provided, cannot save request to session file")
+            return
+            
+        responses_dir = config.response_log_dir
+        responses_dir.mkdir(parents=True, exist_ok=True)
+        
+        session_file = responses_dir / f"{session_id}.jsonl"
+        
+        # Extract the user message content
+        content = ""
+        if "prompt" in request_data:
+            content = request_data["prompt"]
+        elif "messages" in request_data and request_data["messages"]:
+            # Get the last message (the new user message)
+            last_msg = request_data["messages"][-1]
+            content = last_msg.get("content", "")
+        
+        # Create a user message entry
+        user_entry = {
+            "type": "user",
+            "timestamp": timestamp_utc(),
+            "content": content,
+            "request_id": request_data.get("request_id"),
+            "model": request_data.get("model"),
+            "agent_id": request_data.get("agent_id")
+        }
+        
+        with open(session_file, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(user_entry) + '\n')
+            
+        logger.debug(f"Saved completion request to {session_file}")
+        
+    except Exception as e:
+        logger.error(f"Failed to save completion request: {e}", exc_info=True)
+
+
+async def load_conversation_for_provider(session_id: str, model: str) -> List[Dict[str, str]]:
+    """Load conversation history for stateless providers from JSONL logs."""
+    # Provider-aware: stateful providers maintain their own history
+    if model.startswith("claude-cli/"):
+        # Stateful provider - return empty, let provider handle it
+        logger.debug(f"Model {model} uses stateful provider, not loading conversation history")
+        return []
+    
+    # For stateless providers, reconstruct from logs
+    session_file = config.response_log_dir / f"{session_id}.jsonl"
+    if not session_file.exists():
+        logger.debug(f"No session file found for {session_id}")
+        return []
+    
+    messages = []
+    try:
+        with open(session_file, 'r') as f:
+            for line in f:
+                try:
+                    entry = json.loads(line.strip())
+                    
+                    if entry.get("type") == "user":
+                        # User message entry
+                        messages.append({
+                            "role": "user",
+                            "content": entry.get("content", "")
+                        })
+                    elif entry.get("type") == "claude":
+                        # Assistant response entry (legacy format)
+                        content = entry.get("result", entry.get("content", ""))
+                        messages.append({
+                            "role": "assistant",
+                            "content": content
+                        })
+                    else:
+                        # Standardized response format
+                        response_text = get_response_text(entry)
+                        if response_text:
+                            messages.append({
+                                "role": "assistant",
+                                "content": response_text
+                            })
+                        
+                except json.JSONDecodeError:
+                    logger.warning(f"Skipping malformed JSON line in {session_file}")
+                    continue
+                    
+        logger.info(f"Loaded {len(messages)} messages for session {session_id}")
+        return messages
+        
+    except Exception as e:
+        logger.error(f"Failed to load conversation history: {e}", exc_info=True)
+        return []
+
+
 # Event handlers
 
 class SystemStartupData(TypedDict):
@@ -468,6 +563,32 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
         # Ensure model is set in data for litellm
         if "model" not in data:
             data["model"] = model
+        
+        # Provider-aware conversation management
+        session_id = data.get("session_id")
+        
+        # Determine if provider is stateless based on model and provider_name
+        # Stateful providers: claude-cli only
+        # Stateless providers: everything else (openai, anthropic, gemini-cli, etc via litellm)
+        stateless_provider = True
+        if model.startswith("claude-cli/"):
+            stateless_provider = False
+        
+        # For stateless providers, save the request and load conversation history
+        if stateless_provider and session_id:
+            # Save the user request for future reconstruction
+            save_completion_request(data, session_id)
+            
+            # Load conversation history for stateless providers
+            history = await load_conversation_for_provider(session_id, model)
+            if history:
+                # Merge history with current message
+                current_messages = data.get("messages", [])
+                if current_messages:
+                    # Current messages should just be the new user message
+                    # Replace with full history + new message
+                    data["messages"] = history + current_messages
+                    logger.info(f"Loaded {len(history)} historical messages for session {session_id}")
         
         # Call through provider (currently only litellm handler)
         provider, raw_response = await handle_litellm_completion(data)
