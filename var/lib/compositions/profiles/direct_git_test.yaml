@@ -1,0 +1,6 @@
+name: direct_git_test
+type: profile
+version: 1.0.0
+description: Direct git test
+author: test_system
+components: []
