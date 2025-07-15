@@ -4,6 +4,8 @@ Essential technical reference for KSI (Kubernetes-Style Infrastructure) - a resi
 
 **Core Philosophy**: Pure event-based architecture with coordinated shutdown, automatic checkpoint/restore, and resilient error handling.
 
+**LLM Reality**: KSI is designed for LLM orchestration where API calls dominate timing (2-30+ seconds). Architecture prioritizes coordination resilience, cost management, and graceful degradation over microsecond optimizations.
+
 ## System Architecture
 
 ### Event-Driven Core
@@ -232,6 +234,26 @@ async def system_handler(raw_data: Dict[str, Any], context: Optional[Dict[str, A
 ```bash
 ./daemon_control.py dev  # Auto-restart on file changes
 ```
+
+## Testing Long-Running Orchestrations
+See `docs/LONG_RUNNING_COORDINATION_TEST_PLAN.md` for comprehensive test approach.
+
+**Key Testing Focus**:
+- **Coordination resilience** (not system resources)
+- **Timeout handling** (agents will fail/timeout)
+- **Cost tracking** (prevent runaway expenses)
+- **Partial results** (orchestrations must progress)
+
+## Architecture Analysis
+See `docs/KSI_LLM_ORCHESTRATION_ANALYSIS.md` for LLM-centric architecture analysis.
+
+**Key Insights**:
+- LLM latency (2-30s) dominates all timing considerations
+- Async event logging is non-blocking (not a bottleneck)
+- Queue unboundedness acceptable for realistic agent counts
+- Real bottlenecks: coordination efficiency, timeout cascades, cost control
+
+### Development Mode Features
 - Watches Python files in ksi_daemon/, ksi_common/, ksi_client/
 - Preserves state through checkpoint/restore
 
