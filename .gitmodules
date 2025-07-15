@@ -1,0 +1,14 @@
+[submodule "var/lib/compositions"]
+	path = var/lib/compositions
+	url = https://github.com/durapensa/ksi-compositions.git
+	branch = main
+
+[submodule "var/lib/evaluations"]
+	path = var/lib/evaluations
+	url = https://github.com/durapensa/ksi-evaluations.git
+	branch = main
+
+[submodule "var/lib/capabilities"]
+	path = var/lib/capabilities
+	url = https://github.com/durapensa/ksi-capabilities.git
+	branch = main

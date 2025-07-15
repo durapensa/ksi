@@ -46,9 +46,9 @@ Main KSI Repository
 ├── ksi_daemon/
 ├── ksi_common/
 ├── var/lib/              # Contains submodules
-│   ├── compositions/     # -> github.com/ksi-project/ksi-compositions
-│   ├── evaluations/      # -> github.com/ksi-project/ksi-evaluations
-│   └── capabilities/     # -> github.com/ksi-project/ksi-capabilities
+│   ├── compositions/     # -> github.com/durapensa/ksi-compositions
+│   ├── evaluations/      # -> github.com/durapensa/ksi-evaluations
+│   └── capabilities/     # -> github.com/durapensa/ksi-capabilities
 └── docs/
 ```
 

@@ -18,6 +18,7 @@ from ksi_common.logging import get_bound_logger
 from ksi_common.config import config
 from ksi_common.file_utils import save_yaml_file, ensure_directory, load_yaml_file
 from ksi_common.event_utils import extract_single_response
+from ksi_common.git_utils import git_manager
 
 # Import composition modules
 from . import composition_index
@@ -337,22 +338,8 @@ async def handle_evaluate(raw_data: Dict[str, Any], context: Optional[Dict[str, 
 
 
 async def _save_composition_to_disk(composition: Composition, overwrite: bool = False) -> Dict[str, Any]:
-    """Internal helper to save composition to disk."""
+    """Internal helper to save composition to disk with git commit."""
     try:
-        # Determine file path
-        type_dir = config.get_composition_type_dir(composition.type)
-        comp_path = type_dir / f"{composition.name}.yaml"
-        
-        # Check if file exists
-        if comp_path.exists() and not overwrite:
-            return {
-                'status': 'error',
-                'error': f'Composition {composition.name} already exists. Set overwrite=true to replace.'
-            }
-        
-        # Ensure directory exists
-        ensure_directory(type_dir)
-        
         # Build composition dict
         comp_dict = {
             'name': composition.name,
@@ -369,17 +356,33 @@ async def _save_composition_to_disk(composition: Composition, overwrite: bool = 
         # Remove None values
         comp_dict = {k: v for k, v in comp_dict.items() if v is not None}
         
-        # Save composition
-        save_yaml_file(comp_path, comp_dict)
+        # Use git manager to save and commit
+        git_result = await git_manager.save_component(
+            component_type="compositions",
+            name=composition.name,
+            content=comp_dict,
+            message=f"Save composition {composition.name} v{composition.version}"
+        )
+        
+        if not git_result.success:
+            return {
+                'status': 'error',
+                'error': f'Failed to save composition: {git_result.error}'
+            }
         
         # Update index
-        await composition_index.index_file(comp_path)
+        comp_path = git_manager.get_component_repo_path("compositions")
+        subdir = git_manager._determine_composition_subdir(comp_dict)
+        file_path = comp_path / subdir / f"{composition.name}.yaml"
+        await composition_index.index_file(file_path)
         
-        logger.info(f"Saved composition {composition.name} to {comp_path}")
+        logger.info(f"Saved and committed composition {composition.name} (commit: {git_result.commit_hash})")
         
         return {
             'status': 'success',
-            'path': str(comp_path)
+            'path': str(file_path),
+            'commit_hash': git_result.commit_hash,
+            'git_message': git_result.message
         }
         
     except Exception as e:
@@ -747,6 +750,90 @@ async def handle_get(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]]
         )
 
 
+
+
+@event_handler("composition:sync")
+async def handle_sync_compositions(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Synchronize composition submodules with remote repositories."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, dict)
+    component_type = data.get('component_type')  # Optional: sync specific component
+    
+    try:
+        # Use git manager to sync submodules
+        sync_result = await git_manager.sync_submodules(component_type)
+        
+        if not sync_result.success:
+            return error_response(f'Sync failed: {sync_result.error}', context)
+        
+        # Rebuild index after sync
+        indexed_count = await composition_index.rebuild()
+        
+        logger.info(f"Synchronized compositions and rebuilt index ({indexed_count} compositions)")
+        
+        return event_response_builder({
+            'status': 'success',
+            'sync_message': sync_result.message,
+            'indexed_count': indexed_count,
+            'message': f'Synchronized compositions and indexed {indexed_count} compositions'
+        }, context)
+        
+    except Exception as e:
+        logger.error(f"Sync failed: {e}")
+        return error_response(str(e), context)
+
+
+@event_handler("composition:git_info")
+async def handle_git_info(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Get information about git repositories for composition submodules."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    data = event_format_linter(raw_data, dict)
+    component_type = data.get('component_type')  # Optional: get info for specific component
+    
+    try:
+        if component_type:
+            # Get info for specific component
+            repo_info = await git_manager.get_repository_info(component_type)
+            return event_response_builder({
+                'status': 'success',
+                'repository_info': {
+                    'path': str(repo_info.path),
+                    'url': repo_info.url,
+                    'branch': repo_info.branch,
+                    'last_commit': repo_info.last_commit,
+                    'has_changes': repo_info.has_changes,
+                    'status': repo_info.status
+                }
+            }, context)
+        else:
+            # Get info for all components
+            all_info = {}
+            for comp_type in ['compositions', 'evaluations', 'capabilities']:
+                try:
+                    repo_info = await git_manager.get_repository_info(comp_type)
+                    all_info[comp_type] = {
+                        'path': str(repo_info.path),
+                        'url': repo_info.url,
+                        'branch': repo_info.branch,
+                        'last_commit': repo_info.last_commit,
+                        'has_changes': repo_info.has_changes,
+                        'status': repo_info.status
+                    }
+                except Exception as e:
+                    all_info[comp_type] = {'error': str(e)}
+            
+            return event_response_builder({
+                'status': 'success',
+                'repositories': all_info
+            }, context)
+            
+    except Exception as e:
+        logger.error(f"Git info failed: {e}")
+        return error_response(str(e), context)
 
 
 @event_handler("composition:rebuild_index")
@@ -1471,7 +1558,7 @@ class CompositionForkData(TypedDict):
 
 @event_handler("composition:fork")
 async def handle_fork_composition(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Fork a composition to create a variant with lineage tracking."""
+    """Fork a composition to create a variant with git-based lineage tracking."""
     from ksi_common.event_parser import event_format_linter
     from ksi_common.event_response_builder import event_response_builder, error_response
     
@@ -1486,63 +1573,47 @@ async def handle_fork_composition(raw_data: Dict[str, Any], context: Optional[Di
         return error_response('Both parent and name required for fork', context)
     
     try:
-        # Load parent composition
-        parent = await load_composition(parent_name)
+        # Use git manager to fork the composition
+        git_result = await git_manager.fork_component(
+            component_type="compositions",
+            source_name=parent_name,
+            target_name=new_name
+        )
         
-        # Create forked composition with lineage
-        forked_data = {
-            'name': new_name,
-            'type': parent.type,
-            'version': '0.1.0',  # Start fork at 0.1.0
-            'description': f"Fork of {parent_name}: {fork_reason}",
-            'author': author,
-            'extends': parent_name,  # Inherit from parent
-            'components': [vars(c) for c in parent.components],  # Serialize components
-            'variables': parent.variables,
-            'metadata': {
-                **parent.metadata,
-                'lineage': {
-                    'parent': f"{parent_name}@{parent.version}",
-                    'fork_date': timestamp_utc(),
-                    'fork_reason': fork_reason,
-                    'fork_author': author
-                }
-            }
-        }
+        if not git_result.success:
+            return error_response(f'Fork failed: {git_result.error}', context)
         
-        # Apply modifications
+        # Load the forked composition to apply modifications
         if modifications:
+            forked_comp = await load_composition(new_name)
+            
+            # Apply modifications
             for key, value in modifications.items():
-                if key in forked_data:
-                    forked_data[key] = value
-        
-        # Create the forked composition
-        result = await handle_create_composition({
-            'name': new_name,
-            'type': parent.type,
-            'content': forked_data,
-            'save': data.get('save', True)  # Save by default
-        })
-        
-        if result.get('status') == 'success':
-            # Update parent's metadata to track forks
-            parent.metadata['forks'] = parent.metadata.get('forks', [])
-            parent.metadata['forks'].append({
-                'name': new_name,
-                'date': timestamp_utc(),
-                'reason': fork_reason,
-                'author': author
+                if hasattr(forked_comp, key):
+                    setattr(forked_comp, key, value)
+            
+            # Update metadata with fork info
+            forked_comp.metadata.update({
+                'fork_reason': fork_reason,
+                'fork_author': author,
+                'modifications_applied': list(modifications.keys())
             })
             
-            # Save updated parent
-            parent_update = await handle_update_composition({
-                'name': parent_name,
-                'updates': {'metadata': parent.metadata}
-            })
-            
-            logger.info(f"Forked composition {parent_name} -> {new_name}")
+            # Save the modified fork
+            save_result = await _save_composition_to_disk(forked_comp, overwrite=True)
+            if save_result['status'] != 'success':
+                return error_response(f'Failed to save modified fork: {save_result["error"]}', context)
         
-        return result
+        logger.info(f"Forked composition {parent_name} -> {new_name} (commit: {git_result.commit_hash})")
+        
+        return event_response_builder({
+            'status': 'success',
+            'parent': parent_name,
+            'fork': new_name,
+            'commit_hash': git_result.commit_hash,
+            'files_changed': git_result.files_changed,
+            'message': f'Forked composition {parent_name} -> {new_name}'
+        }, context)
         
     except Exception as e:
         logger.error(f"Fork failed: {e}")
