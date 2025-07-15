@@ -1,7 +1,26 @@
 #!/usr/bin/env python3
 """
 WebSocket Bridge for KSI
-Connects to KSI daemon via Unix socket and bridges events to WebSocket clients
+
+Real-time event bridge connecting KSI daemon to web-based visualization clients.
+Provides transparent, low-latency access to all KSI events with automatic client
+management and graceful shutdown handling.
+
+Key Features:
+- **Event Normalization**: Converts KSI event format for web client compatibility
+- **Per-Client Connections**: Each WebSocket client gets dedicated KSI daemon connection
+- **Graceful Shutdown**: Notifies clients before termination with automatic reconnection
+- **Agent Origination Tracking**: Enhances events with agent metadata for visualization
+- **CORS Support**: Configurable cross-origin support for web applications
+- **Health Monitoring**: Automatic KSI daemon connectivity monitoring
+
+Usage:
+    python websocket_bridge.py [--ws-host HOST] [--ws-port PORT]
+    
+Environment Variables:
+    KSI_WEBSOCKET_BRIDGE_HOST - WebSocket server host (default: localhost)
+    KSI_WEBSOCKET_BRIDGE_PORT - WebSocket server port (default: 8765)
+    KSI_WEBSOCKET_BRIDGE_CORS_ORIGINS - Comma-separated CORS origins
 """
 import asyncio
 import websockets

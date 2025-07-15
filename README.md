@@ -17,7 +17,8 @@ KSI provides infrastructure for running and managing AI agents as persistent, au
 - 🛡️ **Coordinated Shutdown** - Graceful shutdown with completion guarantees
 - 🤖 **Multi-Agent Support** - Orchestrate conversations between multiple AI instances
 - 📦 **Modular Design** - Extend functionality through event-based modules
-- 📊 **Real-time Monitoring** - Beautiful TUI for observing system state
+- 📊 **Real-time Monitoring** - Beautiful TUI and web-based visualization for system state
+- 🌐 **Web Visualization** - Live agent ecosystem and state visualization via WebSocket
 - 🚀 **Production Ready** - Proper daemonization, logging, and error handling
 - 🔧 **MCP Integration** - Model Context Protocol server for tool access
 

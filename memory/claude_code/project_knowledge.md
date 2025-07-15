@@ -127,11 +127,11 @@ from ksi_common.config import config
 
 ## Development Patterns
 
-### Event Enrichment and Response Standardization (2025-07-14)
+### Event Enrichment and Response Standardization
 
 **Core System Functionality**: All events are automatically enriched with context metadata before handler execution. This is fundamental KSI behavior providing complete event traceability.
 
-#### Event Enrichment (Simplified)
+#### Event Enrichment
 ```python
 # The event system automatically injects these fields into ALL events:
 {
@@ -139,7 +139,7 @@ from ksi_common.config import config
   "_client_id": "ksi-cli",            # Client that emitted this event (if from client)
   "_event_id": "evt_abc123",          # Unique event identifier
   "_correlation_id": "corr_xyz789",   # Request correlation (if available)
-  "_event_timestamp": "2025-07-14T..." # System timestamp
+  "_event_timestamp": "2025-07-15T..." # System timestamp
 }
 # NOTE: session_id is NOT enriched - it's private to completion system
 # NOTE: Orchestration lineage is handled at orchestration layer, not event system
@@ -211,25 +211,6 @@ async def system_handler(raw_data: Dict[str, Any], context: Optional[Dict[str, A
 - **event_response_builder()**: Creates standardized responses (REQUIRED for ALL handlers)
 - **Benefits**: System-wide observability, consistent tooling, clean separation of concerns
 
-#### Architectural Evolution: Evaluation System Modernization (2025-07-14)
-
-**Key Insight**: Many specialized evaluation sub-modules are now **obsoleted by the declarative composition system**. The orchestration and composition layers provide superior pattern-based evaluation capabilities.
-
-**Obsoleted Modules** (skip in Phase 2B migration):
-- `evaluation/judge_bootstrap_v2.py` (1 handler) - Replaced by composition patterns
-- `evaluation/tournament_evaluation.py` (2 handlers) - Replaced by orchestration patterns  
-- `evaluation/judge_tournament.py` (3 handlers) - Replaced by orchestration coordination
-- `evaluation/tournament_bootstrap_integration.py` (2 handlers) - Integrated into composition system
-- `evaluation/prompt_iteration.py` (2 handlers) - Pattern evolution handles this
-- `evaluation/llm_judge.py` (2 handlers) - Judge patterns now declarative
-
-**Core Evaluation System** (continue to maintain):
-- `evaluation/prompt_evaluation.py` (6 handlers) - Core evaluation infrastructure
-- Declarative test suites in `var/lib/evaluations/test_suites/`
-- Composition-based judge patterns in `var/lib/compositions/prompts/evaluation/judges/`
-
-**Migration Strategy**: Focus Phase 2B updates on **core infrastructure modules only**, skip obsoleted evaluation sub-modules that are superseded by the modern declarative composition system.
-
 ### Module Communication
 - **Events Only**: No direct imports between service modules
 - **Context Access**: Use `context["emit_event"]` from system:context
@@ -291,7 +272,7 @@ tail -f var/logs/daemon/daemon.log
 4. **Modular**: Clean module boundaries, no coupling
 5. **Declarative**: Capabilities and permissions, not code
 
-## Socket Communication Patterns (2025-07-11)
+## Socket Communication Patterns
 
 ### KSI CLI Tool (Recommended)
 - **Primary Interface**: `ksi` command-line tool for all daemon interactions
@@ -309,6 +290,40 @@ tail -f var/logs/daemon/daemon.log
 - **Timestamp Filtering**: Use `since` parameter in monitor:get_events
 - **Pattern Matching**: Supports wildcards and arrays of patterns
 - **Efficient Queries**: Server-side filtering reduces data transfer
+
+## Real-Time Visualization System
+
+### WebSocket Bridge
+- **Architecture**: `websocket_bridge.py` connects KSI daemon to web clients
+- **Per-Client Connections**: Each WebSocket client gets dedicated KSI daemon connection
+- **Event Normalization**: Converts KSI event format for web client compatibility
+- **Health Monitoring**: Automatic KSI daemon connectivity checking
+- **Graceful Shutdown**: Notifies clients before termination for clean reconnection
+
+### Web Visualization Components
+- **Agent Ecosystem**: Real-time graph of agent spawn relationships and activity
+- **State System**: Visualization of entities and relationships (excludes agent data)
+- **Event Stream**: Live feed of all KSI events with filtering and categorization
+- **Connection Management**: Automatic reconnection with health checking
+
+### Usage
+```bash
+# Terminal 1: Start daemon
+./daemon_control.py start
+
+# Terminal 2: WebSocket bridge  
+python websocket_bridge.py
+
+# Terminal 3: Web UI
+cd ksi_web_ui && python -m http.server 8080
+# Open http://localhost:8080
+```
+
+### Event Origination Tracking
+- **Agent Activity**: Events originated by agents are visually marked
+- **Real-Time Updates**: Agent termination and entity deletion immediately reflected
+- **Spawn Relationships**: Visual hierarchy showing which agents spawned others
+- **Pulse Effects**: Visual feedback when agents emit events
 
 ## Claude Code Integration
 
@@ -340,41 +355,30 @@ tail -f var/logs/daemon/daemon.log
 
 ## Active Systems & Architecture
 
-### Self-Configuring Agent Architecture (2025-07-13)
-**Status**: Fully implemented and operational
+### Self-Configuring Agent Architecture
+**Overview**: Agents receive complete YAML context at spawn time for self-configuration, enabling full structural awareness.
 
-**Overview**: Agents receive complete YAML context at spawn time for self-configuration, enabling full structural awareness without hardcoded initialization logic.
-
-**Implementation**:
-- **Context Assembly**: `composition:agent_context` event constructs complete agent context
+**Key Features**:
+- **Context Assembly**: `composition:agent_context` constructs complete agent context
 - **Minimal Redaction**: Only genuine secrets removed (API keys, tokens)
-- **Full Context**: Agents receive their profile, orchestration context, and variables
-- **Boilerplate Generation**: Simple introduction explaining the agent's role and configuration
+- **Full Context**: Agents receive profile, orchestration context, and variables
+- **Natural Adaptation**: Agents understand their place in larger systems
 
-**Architecture Benefits**:
-- Agents understand their place in larger systems
-- No hidden configuration or implicit behavior
-- Natural adaptation based on complete context
-- Supports complex multi-agent orchestration patterns
-
-**Usage Example**:
+**Usage**:
 ```bash
 # Spawn self-configuring agent with orchestration context
 ksi send agent:spawn --profile worker --orchestration distributed_analysis \
   --variables '{"task": "analyze_data", "priority": "high"}'
 ```
 
-### Event Feedback System (2025-07-13)
-**Status**: Fully implemented with non-blocking architecture
+### Event Feedback System
+**Overview**: Agents receive emission results when they emit JSON events, enabling them to react to success/failure and adapt behavior.
 
-**Overview**: Agents receive raw emission results when they emit JSON events, enabling them to react to success/failure and adapt behavior accordingly.
-
-**Implementation**:
-- **JSON Extraction**: `ksi_common.json_extraction` extracts events from agent responses
+**Key Features**:
+- **JSON Extraction**: Extracts events from agent responses automatically
 - **Non-blocking**: Event extraction runs in background tasks
-- **Raw Passthrough**: Complete emission results sent back to agents
-- **Delivery Channel**: Feedback sent via `completion:async` for loose coupling
-- **No Session Awareness**: Feedback system operates without session_id knowledge
+- **Feedback Delivery**: Complete emission results sent back to agents
+- **Loose Coupling**: Feedback sent via `completion:async`
 
 **Feedback Format**:
 ```json
@@ -394,55 +398,7 @@ ksi send agent:spawn --profile worker --orchestration distributed_analysis \
 **Benefits**:
 - Agents learn from event outcomes
 - Natural error handling without explicit retry logic
-- Maintains clean separation between agent and completion systems
 - Enables sophisticated agent behaviors based on system feedback
-
-### Fixed: Async/Await Blocking Operations (2025-07-13)
-**Issue**: High-frequency blocking I/O operations degrading async performance
-**Solution**: Converted synchronous operations to true async using `aiofiles`
-
-**Fixed Operations**:
-1. **Message Bus Logging** (`ksi_daemon/messaging/message_bus.py`):
-   - Converted all `log_event()` calls to async tasks
-   - Replaced synchronous file writes with `aiofiles`
-   - All logging now non-blocking
-
-2. **Token Tracking** (`ksi_daemon/completion/token_tracker.py`):
-   - Converted file appends to async using `aiofiles`
-   - Token usage logging now non-blocking
-   - Preserved synchronous initial load (startup only)
-
-**Implementation Notes**:
-- Added `aiofiles>=23.2.0` to dependencies
-- Used `asyncio.create_task()` for fire-and-forget operations
-- True async I/O instead of `run_in_executor` thread pool
-
-### Fixed: Completion System Parallelism (2025-07-13)
-**Issue**: Understanding parallelism in completion processing
-**Solution**: Simplified to correct model - parallel across conversations, serial within
-
-**Key Insights**:
-1. Each agent has exactly ONE conversation (1:1 mapping)
-2. Different agents = different conversations = can process in parallel
-3. Same agent = same conversation = must process serially
-4. No need for "concurrent per agent" concept - it's always 1
-
-**Changes**:
-1. **Queue Manager** (`ksi_daemon/completion/queue_manager.py`):
-   - One processor per session/conversation
-   - Removed complex processor counting
-   - Simple active/inactive session tracking
-
-2. **Completion Service** (`ksi_daemon/completion/completion_service.py`):
-   - Made conversation locking mandatory for safety
-   - Always acquire/release locks
-   - Proper session continuity via conversation tracker
-
-**Benefits**:
-- Parallel processing across different agents/conversations
-- Serial processing within each conversation (correct model)
-- Simpler, more understandable architecture
-- Respects claude-cli session continuity requirements
 
 ### Tracked Issues
 - **EventClient Discovery** ([#6](https://github.com/durapensa/ksi/issues/6)): Format mismatch, use direct socket
@@ -455,7 +411,7 @@ ksi send agent:spawn --profile worker --orchestration distributed_analysis \
 - **Large changes**: Create PRs for review and testing
 - **Documentation**: Update in same commit as implementation
 
-## Experimental Framework (2025-07-06)
+## Experimental Framework
 
 ### Prompt Testing Tools Created
 - **Safety Framework**: `experiments/safety_utils.py` - Prevents runaway spawning
@@ -598,7 +554,7 @@ format = data.get('format', 'summary')  # Output format: 'summary', 'rankings', 
 - Include workflow hints when helpful
 - Migration tracked in [#1](https://github.com/durapensa/ksi/issues/1)
 
-## Discovery System (2025-07-09)
+## Discovery System
 
 ### Enhanced Discovery Features
 The discovery system now provides richer parameter information:
@@ -624,7 +580,7 @@ The discovery system now provides richer parameter information:
 3. Include allowed values: `format = data.get('format', 'summary')  # Output format: 'summary', 'rankings', 'detailed'`
 4. TypedDict fields are automatically discovered - no need to duplicate in comments
 
-## Autonomous Judge System (2025-07-09)
+## Autonomous Judge System
 
 ### Overview
 Implemented a self-improving evaluation system where AI judges collaborate to improve prompts and their own capabilities.
@@ -705,7 +661,7 @@ var/lib/compositions/prompts/
    - Created session_manager_v2.py to respect this principle
    - Fixed MCP path handling to use absolute paths
 
-### Tournament Results (2025-07-09)
+### Tournament Results
 Successfully ran first complete judge tournament:
 - **Participants**: 6 judges (from fixed list, not bootstrap)
 - **Matches**: 30 complete (each judge evaluated the other 5)
@@ -713,7 +669,7 @@ Successfully ran first complete judge tournament:
 - **Results**: All judges scored 0.85 (simulated scoring)
 - **Next Step**: Implement real evaluation logic in tournament
 
-### Tournament Evaluation System (2025-07-09)
+### Tournament Evaluation System
 **Implementation**: Real evaluation logic for judge tournaments with autonomous scoring.
 
 **Key Components**:
@@ -737,7 +693,7 @@ Successfully ran first complete judge tournament:
 - 🔄 Ground truth test cases being expanded
 - ⏳ Deployment of winning judges to evaluation system
 
-### Autonomous Improvement Cycle (2025-07-09)
+### Autonomous Improvement Cycle
 
 Successfully implemented complete autonomous improvement cycle:
 
@@ -762,7 +718,7 @@ Successfully implemented complete autonomous improvement cycle:
 
 **Full documentation**: See [`docs/AUTONOMOUS_JUDGE_ARCHITECTURE.md`](../../docs/AUTONOMOUS_JUDGE_ARCHITECTURE.md)
 
-## Intelligent Orchestration Patterns (2025-07-10)
+## Intelligent Orchestration Patterns
 
 ### Overview
 Hybrid approach combining intelligent agents as orchestrators with shareable declarative patterns.
@@ -773,7 +729,7 @@ Hybrid approach combining intelligent agents as orchestrators with shareable dec
 - Adaptation happens naturally through agent intelligence
 - Meta-orchestration enables orchestrators to coordinate other orchestrators
 
-### Current Implementation Status (2025-07-11)
+### Current Implementation Status
 **Status**: Implementation partially complete, blocked on composition system redesign
 
 **Completed**:
@@ -820,7 +776,7 @@ Hybrid approach combining intelligent agents as orchestrators with shareable dec
 - Federation-ready for sharing across KSI networks
 - Loose coupling through event-based architecture
 
-### Orchestration Primitives (2025-07-10)
+### Orchestration Primitives
 **Status**: Implemented all 6 core primitives + aggregate planned
 
 **Core Primitives**:
@@ -886,44 +842,28 @@ async def migrate_v1_to_v2(data: Dict[str, Any]) -> Dict[str, Any]:
 - Same loose coupling but more efficient
 - Better performance with less event processing overhead
 
-## Agent JSON Event Emission (2025-07-10)
+## Agent JSON Event Emission
 
 ### Overview
-Agents can now emit events by including JSON objects in their responses. The completion service automatically extracts and emits these events asynchronously.
+Agents emit events by including JSON objects in their responses. The completion service automatically extracts and emits these events asynchronously.
 
 ### How It Works
-1. **Agent outputs JSON**: Agent includes `{"event": "some:event", "data": {...}}` in response
+1. **Agent outputs JSON**: Include `{"event": "some:event", "data": {...}}` in response
 2. **Automatic extraction**: Completion service extracts JSON objects with 'event' field
 3. **Async emission**: Events are emitted in background tasks (non-blocking)
 4. **Metadata added**: System adds `_agent_id` and `_extracted_from_response` fields
 
-### Implementation
-- **New utility**: `ksi_common/json_extraction.py` provides extraction functions
-- **Integration point**: `completion_service.py` calls extraction after getting response
-- **Patterns supported**:
-  - JSON in code blocks: ` ```json {...} ``` `
-  - Standalone JSON objects: `{...}`
-  - Multiple events in single response
+### Supported Patterns
+- JSON in code blocks: ` ```json {...} ``` `
+- Standalone JSON objects: `{...}`
+- Multiple events in single response
 
 ### Benefits
-- **No tools required**: Agents can orchestrate without tool permissions
+- **No tools required**: Agents orchestrate without tool permissions
 - **Natural workflow**: Agents think and emit events in same response
 - **Non-blocking**: Event extraction doesn't delay completion response
-- **Traceable**: Events are marked with source agent and context
-
-### Example Agent Response
-```
-I'll load the tournament pattern and register its transformers.
-
-{"event": "composition:get", "data": {"name": "tournament_orchestration_v1"}}
-
-Now I'll register the transformers defined in the pattern:
-
-{"event": "router:register_transformer", "data": {"transformer": {"source": "tournament:start", "target": "orchestration:send", "mapping": {"to": "all"}}}}
-```
-
-This enables orchestrator agents to coordinate complex workflows naturally without needing explicit event emission tools.
+- **Traceable**: Events marked with source agent and context
 
 ---
-*Last updated: 2025-07-13*
+*Last updated: 2025-07-15*
 *For development practices, see `/Users/dp/projects/ksi/CLAUDE.md`*
