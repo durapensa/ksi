@@ -275,64 +275,65 @@ orchestration_logic:
     TERMINATE test_agent
 ```
 
-## KSI Hook Monitor
-Claude Code has a hook that monitors KSI activity and provides real-time feedback:
+## KSI System Monitoring & Discovery
 
-- **Output format**: `[KSI]` or `[KSI: X events]` or `[KSI: X events, Y agents]`
+### **✅ CURRENT: Use `monitor:get_status` for System Monitoring**
+
+The KSI hook is working but not displaying output due to a Claude Code bug. **Use these commands for immediate system monitoring:**
+
+```bash
+# Get comprehensive system status (recent events + agents)
+ksi send monitor:get_status --limit 10
+
+# Monitor with specific patterns or timeframes
+ksi send monitor:get_status --event-patterns "evaluation:*" --since "2025-07-15T10:00:00"
+ksi send monitor:get_status --include-events --include-agents --limit 5
+```
+
+**Monitor provides:** Recent events with timestamps, active agents with status, event counts, system health
+
+### **Discovery System Usage**
+
+**System Overview & Getting Started:**
+```bash
+ksi help                           # Shows system overview with common commands
+ksi discover                       # Lists all 30 namespaces, 191 total events
+ksi discover --output-format pretty # Human-readable namespace listing
+```
+
+**Namespace Exploration:**
+```bash
+ksi discover --namespace agent     # Filter to agent namespace (20 events)
+ksi discover --namespace monitor   # Monitor namespace (10 events)
+ksi discover --namespace evaluation # Evaluation namespace (12 events)
+```
+
+**Event Details:**
+```bash
+ksi help agent:spawn               # Detailed parameters for agent spawning
+ksi help monitor:get_status        # Parameters for system monitoring
+ksi help evaluation:prompt         # Parameters for prompt evaluation
+```
+
+### **Key Namespaces (30 total)**
+- **agent** (20): Agent lifecycle and management
+- **monitor** (10): Event monitoring and status  
+- **evaluation** (12): Testing and evaluation system
+- **completion** (10): LLM completion handling
+- **composition** (21): Profile and prompt composition
+- **orchestration** (8): Multi-agent orchestration
+- **state** (11): Entity and relationship management
+- **system** (8): Core system functionality
+
+### Legacy Hook Information (For When Fixed)
+
+The hook is working but logs to `/tmp/ksi_hook_diagnostic.log` instead of displaying directly. When fixed, it will show:
+
+- **Format**: `[KSI]` or `[KSI: X events]` or `[KSI: X events, Y agents]`
 - **Status indicators**: ✓ for success, ✗ for errors/failures
-- **Test the hook**: Run `echo ksi_check` to verify hook is working
-- **Hook only triggers on KSI commands**: Regular bash commands show no output
+- **Verbosity control**: `echo ksi_summary`, `echo ksi_verbose`, `echo ksi_errors`
 
-### Verbosity Control Commands
-Control the hook's output verbosity without restarting Claude Code:
-
-```bash
-echo ksi_status    # Check current verbosity mode
-echo ksi_summary   # Default mode - concise output
-echo ksi_verbose   # Show all events with details
-echo ksi_errors    # Only show error events
-echo ksi_silent    # Temporarily disable output
-```
-
-### Hook Output Examples
-
-**Summary mode (default)**:
-```
-[KSI: 3 events]                    # Basic event count
-[KSI: ✗ 1 errors, 5 events]       # Errors highlighted
-[KSI: 2 events, 3 agents]          # Agent activity
-```
-
-**Verbose mode**:
-```
-[KSI: 5 new] 19:45:23 ✓ evaluation:prompt
-19:45:20 completion:* (×6)
-19:45:15 ✓ spawn:agent_123
-19:45:10 ✗ ERROR:event:error
-```
-
-**Errors mode**:
-```
-[KSI: 2 errors] 19:45:10 ✗ ERROR:event:error
-19:43:20 ✗ agent:spawn failed
-```
-
-### Hook Monitoring Protocol
-**After KSI-related commands, Claude should see `[KSI]` output.**
-
-### Examples:
-```bash
-echo ksi_check                     # Should show: [KSI] or [KSI: X events]
-./daemon_control.py status         # Should show: [KSI]
-ls                                 # Shows: nothing (not KSI-related)
-```
-
-### Troubleshooting:
-If no [KSI] output after KSI commands:
-1. Test with `echo ksi_check`
-2. Check current mode with `echo ksi_status`
-3. Check `/tmp/ksi_hook_diagnostic.log` for hook execution
-4. Restart Claude Code and re-enable hook via `/hooks` menu
+**Current workaround**: Use `ksi send monitor:get_status` for the same monitoring functionality.
 
 **Details**: See `ksi_claude_code/ksi_hook_monitor_filters.txt`
 
