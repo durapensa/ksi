@@ -308,7 +308,7 @@ def parse_event_data(args: argparse.Namespace) -> Dict[str, Any]:
     
     # Convert namespace to dict, excluding special attributes
     for key, value in vars(args).items():
-        if key in ['command', 'event', 'func', 'socket_path', 'json', 'output', 'args']:
+        if key in ['command', 'event', 'func', 'socket_path', 'json', 'output_format', 'args']:
             continue
         if value is not None:
             # Try to parse JSON values
@@ -372,8 +372,9 @@ Examples:
     send_parser = subparsers.add_parser("send", help="Send an event to KSI")
     send_parser.add_argument("event", help="Event name (e.g., completion:async)")
     send_parser.add_argument("--json", help="Provide event data as JSON")
-    send_parser.add_argument("--output", choices=["json", "pretty"], default="pretty",
-                           help="Output format")
+    send_parser.add_argument("--output-format", choices=["json", "pretty"], 
+                           default=os.environ.get("KSI_CLI_OUTPUT_FORMAT", "pretty"),
+                           help="Output format (can also be set via KSI_CLI_OUTPUT_FORMAT env var)")
     
     # Dynamic argument parsing for send command
     # We'll add arguments based on what's provided
@@ -449,7 +450,7 @@ Examples:
             result = await cli.send_event(args.event, data)
             
             # Output result - handle REST pattern (single dict or array)
-            if args.output == "json":
+            if args.output_format == "json":
                 print(json.dumps(result, indent=2))
             else:
                 # Handle REST pattern: single object or array
