@@ -661,11 +661,10 @@ class ClaudeCLIProvider(CustomLLM):
         return response
 
     def _extract_prompt_and_model(self, messages, *args, **kwargs):
-        """Extract prompt and model from LiteLLM kwargs - receives pure model name"""
+        """Extract prompt and model from LiteLLM kwargs"""
         prompt = messages[-1]["content"]
         
-        # LiteLLM strips the "claude-cli/" prefix before calling this provider
-        # So we receive only the pure model name (e.g., "claude-sonnet-4-20250514")
+        # Get model name and strip claude-cli/ prefix if present
         model_name = kwargs.get("model")
         if not model_name:
             raise BadRequestError(
@@ -674,8 +673,11 @@ class ClaudeCLIProvider(CustomLLM):
                 llm_provider="claude-cli"
             )
         
-        # Pass the model name directly to claude CLI - no processing needed
-        logger.debug(f"Using model: {model_name}")
+        # Strip claude-cli/ prefix if LiteLLM didn't do it
+        if model_name.startswith("claude-cli/"):
+            model_name = model_name.replace("claude-cli/", "", 1)
+        
+        logger.debug(f"Using model: {model_name} (original: {kwargs.get('model')})")
         return prompt, model_name
 
 

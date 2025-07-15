@@ -12,7 +12,7 @@ import json
 import time
 import uuid
 import fnmatch
-from typing import Any, Dict, TypedDict, List, Literal
+from typing import Any, Dict, TypedDict, List, Literal, Optional
 from datetime import datetime, timezone
 import aiofiles
 

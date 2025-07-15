@@ -108,9 +108,28 @@
             background: rgba(156, 39, 176, 0.1);
         }
         
+        /* Agent-originated events get special styling */
+        .agent-originated .event-type {
+            color: #FFD700; /* Gold color for agent-originated events */
+            font-weight: bold;
+        }
+        
+        /* Client-originated events */
+        .client-originated .event-type {
+            color: #00BCD4; /* Cyan color for client-originated events */
+            font-weight: bold;
+        }
+        
         .event-time {
             color: #666;
             margin-right: 8px;
+        }
+        
+        .event-originator {
+            color: #4CAF50;
+            font-size: 10px;
+            margin-right: 8px;
+            opacity: 0.8;
         }
         
         .event-type {

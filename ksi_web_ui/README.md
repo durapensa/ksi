@@ -57,8 +57,17 @@ Navigate to http://localhost:8080
 ## Features
 
 - **Agent Ecosystem Panel**: Shows agents, their relationships, and message flows
-- **State System Panel**: Displays graph database entities and relationships  
+  - Agent nodes pulse with gold animation when they originate events
+  - Parent-child relationships shown for agent spawning
+  - Active completions highlighted in blue
+  
+- **State System Panel**: Displays graph database entities and relationships
+  
 - **Event Stream Panel**: Real-time log of all KSI events
+  - Agent-originated events marked with 🤖 icon and gold highlighting
+  - Shows originator agent ID for full traceability
+  - Tooltips show full event data and agent IDs
+  - Color-coded by event type (agent, completion, orchestration, state)
 
 ## Architecture
 

@@ -10,6 +10,7 @@ import json
 import argparse
 import logging
 import sys
+import signal
 import uuid
 from pathlib import Path
 
@@ -43,6 +44,12 @@ class WebSocketBridge:
         # Each WebSocket client gets its own KSI connection for true transparency
         self.client_connections = {}  # websocket -> (ksi_reader, ksi_writer) mapping
         
+        # Track all connected WebSockets for clean shutdown
+        self.connected_clients = set()
+        
+        # Shutdown flag
+        self.shutdown_requested = False
+        
     async def handle_websocket(self, websocket):
         """Handle new WebSocket connection - each client gets its own KSI connection."""
         # Check origin for CORS
@@ -58,6 +65,9 @@ class WebSocketBridge:
         
         # Generate unique client ID for this WebSocket connection
         client_id = str(uuid.uuid4())
+        
+        # Track this client
+        self.connected_clients.add(websocket)
         
         # Create dedicated KSI connection for this WebSocket client
         ksi_reader = None
@@ -117,6 +127,9 @@ class WebSocketBridge:
                     except:
                         pass
                 del self.client_connections[websocket]
+            
+            # Remove from client tracking
+            self.connected_clients.discard(websocket)
                 
             self.logger.info(f"Client disconnected from {client_addr}")
     
@@ -179,14 +192,42 @@ class WebSocketBridge:
                     break
                 
                 try:
-                    # Forward raw event to this specific WebSocket client only
+                    # Parse and enhance event data
                     event_str = line.decode('utf-8').strip()
                     if event_str:
-                        await websocket.send(event_str)
+                        event_data = json.loads(event_str)
+                        
+                        # Normalize event structure for web UI compatibility
+                        if isinstance(event_data, dict):
+                            # Convert event_name to event for JavaScript compatibility
+                            if 'event_name' in event_data and 'event' not in event_data:
+                                event_data['event'] = event_data['event_name']
+                                # Remove the original event_name to avoid duplication
+                                del event_data['event_name']
+                            
+                            # Add originator info if available - check both top level and inside data
+                            agent_id = None
+                            if '_agent_id' in event_data:
+                                agent_id = event_data['_agent_id']
+                            elif 'data' in event_data and isinstance(event_data['data'], dict) and '_agent_id' in event_data['data']:
+                                agent_id = event_data['data']['_agent_id']
+                            
+                            if agent_id:
+                                # Mark that this event was originated by an agent
+                                event_data['_originated_by_agent'] = True
+                                event_data['_originator_agent_id'] = agent_id
+                                # Also preserve it in data for spawn relationships
+                                if 'data' in event_data and isinstance(event_data['data'], dict):
+                                    event_data['data']['_originator_agent_id'] = agent_id
+                        
+                        # Forward enhanced event to client
+                        await websocket.send(json.dumps(event_data))
                         self.logger.debug(f"Forwarded KSI event to client {client_addr}")
                         
                 except json.JSONDecodeError as e:
-                    self.logger.warning(f"Invalid JSON from KSI: {e}")
+                    # If it's not JSON, forward as-is
+                    await websocket.send(event_str)
+                    self.logger.warning(f"Forwarding non-JSON from KSI: {e}")
                 except websockets.exceptions.ConnectionClosed:
                     self.logger.info(f"WebSocket closed for client {client_addr}")
                     break
@@ -218,6 +259,55 @@ class WebSocketBridge:
                 
             await asyncio.sleep(30)  # Check every 30 seconds
     
+    async def shutdown_gracefully(self):
+        """Send shutdown message to all connected clients and close server."""
+        self.logger.info("Initiating graceful shutdown...")
+        self.shutdown_requested = True
+        
+        if self.connected_clients:
+            self.logger.info(f"Notifying {len(self.connected_clients)} connected clients of shutdown")
+            
+            # Send shutdown message to all connected clients
+            shutdown_message = json.dumps({
+                "event": "bridge:shutdown",
+                "data": {
+                    "message": "WebSocket bridge is shutting down - please reconnect in a few seconds",
+                    "reason": "restart"
+                }
+            })
+            
+            # Send to all clients in parallel
+            disconnect_tasks = []
+            for client in list(self.connected_clients):
+                try:
+                    disconnect_tasks.append(client.send(shutdown_message))
+                except Exception as e:
+                    self.logger.warning(f"Failed to send shutdown message to client: {e}")
+            
+            # Wait for all shutdown messages to be sent
+            if disconnect_tasks:
+                try:
+                    await asyncio.wait_for(asyncio.gather(*disconnect_tasks, return_exceptions=True), timeout=2.0)
+                except asyncio.TimeoutError:
+                    self.logger.warning("Timeout sending shutdown messages")
+            
+            # Close all client connections
+            close_tasks = []
+            for client in list(self.connected_clients):
+                try:
+                    close_tasks.append(client.close(1001, "Server shutting down"))
+                except Exception as e:
+                    self.logger.warning(f"Failed to close client connection: {e}")
+            
+            # Wait for all closes to complete
+            if close_tasks:
+                try:
+                    await asyncio.wait_for(asyncio.gather(*close_tasks, return_exceptions=True), timeout=3.0)
+                except asyncio.TimeoutError:
+                    self.logger.warning("Timeout closing client connections")
+        
+        self.logger.info("Graceful shutdown complete")
+    
     async def run(self):
         """Main bridge loop with WebSocket server."""
         self.logger.info("Starting WebSocket bridge...")
@@ -240,10 +330,12 @@ class WebSocketBridge:
                 await asyncio.Future()  # Run forever
                 
             except KeyboardInterrupt:
-                self.logger.info("Bridge shutdown requested")
+                self.logger.info("Bridge shutdown requested via KeyboardInterrupt")
+                await self.shutdown_gracefully()
                 health_task.cancel()
 
-def main():
+async def main_async():
+    """Async main function with signal handling."""
     parser = argparse.ArgumentParser(
         description="WebSocket bridge for KSI",
         epilog="""
@@ -271,10 +363,35 @@ Example:
         cors_origins=args.cors_origins
     )
     
+    # Set up signal handlers for graceful shutdown
+    def signal_handler():
+        """Handle shutdown signals."""
+        logging.info("Shutdown signal received, initiating graceful shutdown...")
+        asyncio.create_task(bridge.shutdown_gracefully())
+    
+    # Register signal handlers
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, lambda s, f: signal_handler())
+    
     try:
-        asyncio.run(bridge.run())
+        await bridge.run()
+    except KeyboardInterrupt:
+        logging.info("KeyboardInterrupt received")
+        await bridge.shutdown_gracefully()
+    except Exception as e:
+        logging.error(f"Bridge error: {e}")
+        await bridge.shutdown_gracefully()
+        raise
+
+def main():
+    """Main entry point."""
+    try:
+        asyncio.run(main_async())
     except KeyboardInterrupt:
         print("\nBridge shutdown complete")
+    except Exception as e:
+        print(f"Bridge failed: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
