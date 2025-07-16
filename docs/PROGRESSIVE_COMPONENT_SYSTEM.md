@@ -105,7 +105,100 @@ content: |
 - Integration with existing KSI monitoring and state systems
 - Component versioning and lifecycle management
 
-### Phase 5: Full YAML Components (Future)
+### Phase 5: SQLite-Backed Composition Index
+
+#### Overview
+Fix and enhance the existing SQLite composition index to actually serve as the source of truth for queries, aligning with KSI's architecture pattern where databases handle discovery and files store content.
+
+#### Core Principle
+**The database should be the source of truth for queries**, not the filesystem. Files are only accessed for:
+- Initial indexing
+- Content retrieval when specifically requested
+- Change detection
+
+#### Implementation Approach
+
+##### 1. Fix Existing SQLite Index
+The database schema exists in `composition_index.py` but is underutilized:
+- Currently: Only stores basic metadata, queries still load files
+- Fix: Store complete metadata in database, query from SQL only
+
+##### 2. Enhanced Index Schema
+```sql
+-- Enhance composition_index table
+ALTER TABLE composition_index ADD COLUMN full_metadata JSON;
+ALTER TABLE composition_index ADD COLUMN parsed_content TEXT;
+ALTER TABLE composition_index ADD COLUMN dependencies JSON;
+ALTER TABLE composition_index ADD COLUMN search_text TEXT;
+ALTER TABLE composition_index ADD COLUMN last_modified TEXT;
+ALTER TABLE composition_index ADD COLUMN file_size INTEGER;
+
+-- Add indexes for efficient querying
+CREATE INDEX idx_comp_name ON composition_index(name);
+CREATE INDEX idx_comp_author ON composition_index(author);
+CREATE INDEX idx_comp_modified ON composition_index(last_modified);
+CREATE VIRTUAL TABLE composition_fts USING fts5(
+    full_name, name, description, search_text, content='composition_index'
+);
+```
+
+##### 3. Proper Discovery System Separation
+Clarify the role of discovery at different layers:
+
+**System Layer** (What can I do?):
+```python
+# system:discover returns:
+{
+    "composition": {
+        "description": "Composition management system",
+        "discovery_events": [
+            "composition:discover - Find compositions by criteria",
+            "composition:list - List compositions with filters", 
+            "composition:search - Full-text search compositions"
+        ]
+    }
+}
+```
+
+**Domain Layer** (What's in this domain?):
+- `composition:discover` → Query compositions from SQLite index
+- `composition:list` → List with pagination from database
+- `composition:search` → Full-text search using FTS5
+
+##### 4. Implementation Steps
+
+1. **Enhance index_file()**: Store complete metadata in SQLite
+   ```python
+   # Store full frontmatter, content hash, file stats
+   full_metadata = json.dumps(comp_data)
+   content_hash = hashlib.sha256(content.encode()).hexdigest()
+   file_size = file_path.stat().st_size
+   ```
+
+2. **Rewrite discover()**: Use SQL queries exclusively
+   ```python
+   # No file loading during discovery
+   SELECT * FROM composition_index WHERE type = ? AND ...
+   ```
+
+3. **Add composition:search**: FTS5 full-text search
+   ```sql
+   SELECT * FROM composition_fts WHERE composition_fts MATCH ?
+   ```
+
+**PERFORMANCE TESTING CHECKPOINT**
+- Test with current ~250 compositions
+- Verify no file I/O during discovery/list operations
+- Measure query response times < 100ms
+- Test full-text search functionality
+
+#### Benefits
+1. **Immediate**: Fix timeouts by eliminating file I/O during queries
+2. **Correctness**: Align with KSI's established patterns
+3. **Performance**: Database queries are orders of magnitude faster
+4. **Features**: Enable proper search and complex filtering
+
+### Phase 6: Full YAML Components (Future)
 - Allow `.yaml` component files
 - Support all composition features
 - Enhanced component discovery and validation
@@ -199,6 +292,14 @@ specialized_orchestrator.yaml (full composition)
 3. Test component-based agent spawning
 4. Test monitoring integration
 5. Test component lifecycle management
+
+### Phase 5 Tests
+1. Test pagination with large component sets
+2. Verify all metadata stored in database
+3. Test SQL-based filtering performance
+4. Test full-text search functionality
+5. Benchmark query performance vs file-based approach
+6. Test incremental indexing on file changes
 
 ## Migration Path
 

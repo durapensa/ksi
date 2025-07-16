@@ -82,14 +82,26 @@ Enhanced content with variables.
 - **Test within KSI system** - Use orchestrations and evaluations for testing
 
 ### Discovery-First Development
-```bash
-# Always start with discovery
-ksi discover --namespace composition
-ksi help composition:get_component
 
-# Use KSI CLI (preferred over direct socket)
-ksi send event:name --param value
+**Understanding Discovery Layers**:
+- **System Discovery** (`ksi discover`): Shows what capabilities exist and where to find them
+- **Domain Discovery** (`composition:discover`, `agent:discover`): Queries actual data within that domain
+
+```bash
+# System discovery - what can I do?
+ksi discover                    # Shows all namespaces
+ksi discover --namespace composition  # Points to composition events
+
+# Domain discovery - what's in this domain?
+ksi send composition:discover --type component  # Query components from SQLite
+ksi send composition:list --filter '{"author": "ksi"}'  # List with filters
+ksi send agent:list  # List active agents
+
+# Get help for specific events
+ksi help composition:get_component
 ```
+
+**Key Principle**: System discovery guides you to domain discovery events, it doesn't return domain data itself.
 
 ### Error Handling
 - **No bare except clauses** - Catch specific exceptions

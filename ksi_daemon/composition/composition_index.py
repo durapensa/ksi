@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import format_for_logging
 from ksi_common.config import config
+from ksi_common.frontmatter_utils import parse_frontmatter
 
 logger = get_bound_logger("composition_index")
 
@@ -75,6 +76,7 @@ async def initialize(db_path: Optional[Path] = None):
                 repository_id TEXT NOT NULL,
                 file_path TEXT NOT NULL,
                 file_hash TEXT,
+                file_size INTEGER,
                 version TEXT,
                 description TEXT,
                 author TEXT,
@@ -85,14 +87,34 @@ async def initialize(db_path: Optional[Path] = None):
                 loading_strategy TEXT,
                 mutable BOOLEAN DEFAULT FALSE,
                 ephemeral BOOLEAN DEFAULT FALSE,
+                full_metadata JSON,  -- Complete metadata for filtering
                 indexed_at TEXT NOT NULL,
+                last_modified TEXT,
                 FOREIGN KEY (repository_id) REFERENCES composition_repositories(id)
             )
         ''')
         
+        # Add new columns if they don't exist (migration)
+        try:
+            await conn.execute('ALTER TABLE composition_index ADD COLUMN file_size INTEGER')
+        except:
+            pass  # Column already exists
+        
+        try:
+            await conn.execute('ALTER TABLE composition_index ADD COLUMN full_metadata JSON')
+        except:
+            pass  # Column already exists
+            
+        try:
+            await conn.execute('ALTER TABLE composition_index ADD COLUMN last_modified TEXT')
+        except:
+            pass  # Column already exists
+        
         # Indexes for efficient queries
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_comp_type ON composition_index(type)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_comp_repo ON composition_index(repository_id)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_comp_name ON composition_index(name)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_comp_author ON composition_index(author)')
         
         # Ensure local repository exists
         await conn.execute('''
@@ -112,42 +134,59 @@ async def initialize(db_path: Optional[Path] = None):
 async def index_file(file_path: Path) -> bool:
     """Index a single composition file."""
     try:
-        if not file_path.exists() or file_path.suffix != '.yaml':
+        if not file_path.exists() or file_path.suffix not in ['.yaml', '.yml', '.md']:
             return False
             
-        # Calculate file hash
+        # Calculate file hash and stats
         content = file_path.read_text()
         file_hash = hashlib.sha256(content.encode()).hexdigest()
+        file_stats = file_path.stat()
+        file_size = file_stats.st_size
+        # Convert timestamp to string
+        import datetime
+        last_modified = datetime.datetime.fromtimestamp(file_stats.st_mtime).isoformat()
         
-        # Parse YAML metadata
-        try:
-            comp_data = yaml.safe_load(content)
-        except yaml.YAMLError as e:
-            logger.warning(f"Invalid YAML in {file_path}: {e}")
-            return False
-        
-        if not isinstance(comp_data, dict):
-            return False
+        # Parse metadata based on file type
+        if file_path.suffix == '.md':
+            # Parse markdown with frontmatter
+            post = parse_frontmatter(content)
+            comp_data = post.metadata if post.metadata else {}
+        else:
+            # Parse YAML file
+            try:
+                comp_data = yaml.safe_load(content)
+            except yaml.YAMLError as e:
+                logger.warning(f"Invalid YAML in {file_path}: {e}")
+                return False
+            
+            if not isinstance(comp_data, dict):
+                return False
             
         # Extract metadata
         name = comp_data.get('name', file_path.stem)
-        comp_type = comp_data.get('type', 'unknown')
+        # For markdown files, default to 'component' type
+        default_type = 'component' if file_path.suffix == '.md' else 'unknown'
+        comp_type = comp_data.get('type', default_type)
         full_name = f"local:{name}"
         
         # Extract loading strategy from metadata
         metadata = comp_data.get('metadata', {})
         loading_strategy = metadata.get('loading_strategy', 'single')
         
-        # Index entry
+        # Store complete metadata as JSON for efficient filtering
+        full_metadata = json.dumps(comp_data, default=str)  # default=str handles dates
+        
+        # Index entry with full metadata
         async with _get_db() as conn:
             await conn.execute('''
                 INSERT OR REPLACE INTO composition_index
-                (full_name, name, type, repository_id, file_path, file_hash, 
+                (full_name, name, type, repository_id, file_path, file_hash, file_size,
                  version, description, author, extends, tags, capabilities, 
-                 dependencies, loading_strategy, mutable, ephemeral, indexed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 dependencies, loading_strategy, mutable, ephemeral, full_metadata, 
+                 indexed_at, last_modified)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
-                full_name, name, comp_type, 'local', str(file_path), file_hash,
+                full_name, name, comp_type, 'local', str(file_path), file_hash, file_size,
                 comp_data.get('version', ''),
                 comp_data.get('description', ''),
                 comp_data.get('author', ''),
@@ -158,7 +197,9 @@ async def index_file(file_path: Path) -> bool:
                 loading_strategy,
                 metadata.get('mutable', False),
                 metadata.get('ephemeral', False),
-                format_for_logging()
+                full_metadata,
+                format_for_logging(),
+                last_modified
             ))
             await conn.commit()
         
@@ -186,16 +227,18 @@ async def rebuild(repository_id: str = 'local') -> int:
         return 0
     
     indexed_count = 0
-    for yaml_file in config.compositions_dir.rglob('*.yaml'):
-        if await index_file(yaml_file):
-            indexed_count += 1
+    # Scan for both YAML and Markdown files
+    for pattern in ['*.yaml', '*.yml', '*.md']:
+        for comp_file in config.compositions_dir.rglob(pattern):
+            if await index_file(comp_file):
+                indexed_count += 1
             
     logger.info(f"Indexed {indexed_count} compositions")
     return indexed_count
 
 
 async def discover(query: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Query composition index."""
+    """Query composition index with SQL-based filtering."""
     conditions = []
     params = []
     
@@ -221,21 +264,40 @@ async def discover(query: Dict[str, Any]) -> List[Dict[str, Any]]:
         conditions.append('loading_strategy = ?')
         params.append(query['loading_strategy'])
     
+    # Metadata filtering using JSON functions
+    if 'metadata_filter' in query:
+        for key, value in query['metadata_filter'].items():
+            if isinstance(value, list):
+                # For array values, check if any match
+                sub_conditions = []
+                for v in value:
+                    sub_conditions.append(f"json_extract(full_metadata, '$.{key}') LIKE ?")
+                    params.append(f'%{v}%')
+                conditions.append(f"({' OR '.join(sub_conditions)})")
+            else:
+                # For scalar values, exact match
+                conditions.append(f"json_extract(full_metadata, '$.{key}') = ?")
+                params.append(value)
+    
     where_clause = ' AND '.join(conditions) if conditions else '1=1'
     sql = f"""
         SELECT full_name, name, type, description, version, author, 
-               tags, capabilities, loading_strategy, file_path
+               tags, capabilities, loading_strategy, file_path, full_metadata
         FROM composition_index 
         WHERE {where_clause}
         ORDER BY name
     """
+    
+    # Debug logging
+    logger.debug(f"SQL query: {sql}")
+    logger.debug(f"SQL params: {params}")
     
     results = []
     try:
         async with _get_db() as conn:
             async with conn.execute(sql, params) as cursor:
                 async for row in cursor:
-                    results.append({
+                    result = {
                         'full_name': row[0],
                         'name': row[1], 
                         'type': row[2],
@@ -246,11 +308,42 @@ async def discover(query: Dict[str, Any]) -> List[Dict[str, Any]]:
                         'capabilities': json.loads(row[7] or '[]'),
                         'loading_strategy': row[8],
                         'file_path': row[9]
-                    })
+                    }
+                    
+                    # Include full metadata if requested
+                    if query.get('include_metadata', False) and row[10]:
+                        result['metadata'] = json.loads(row[10])
+                    
+                    results.append(result)
     except Exception as e:
         logger.error(f"Composition discovery failed: {e}")
         
     return results
+
+
+async def get_count(query: Dict[str, Any] = None) -> int:
+    """Get count of compositions matching query."""
+    if query is None:
+        query = {}
+    
+    conditions = []
+    params = []
+    
+    if 'type' in query:
+        conditions.append('type = ?')
+        params.append(query['type'])
+    
+    where_clause = ' AND '.join(conditions) if conditions else '1=1'
+    sql = f"SELECT COUNT(*) FROM composition_index WHERE {where_clause}"
+    
+    try:
+        async with _get_db() as conn:
+            async with conn.execute(sql, params) as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else 0
+    except Exception as e:
+        logger.error(f"Failed to get composition count: {e}")
+        return 0
 
 
 async def get_path(full_name: str) -> Optional[Path]:

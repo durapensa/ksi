@@ -562,75 +562,25 @@ async def handle_discover(raw_data: Dict[str, Any], context: Optional[Dict[str, 
     from ksi_common.event_response_builder import event_response_builder, error_response
     data = event_format_linter(raw_data, dict)  # Simple dict for discovery operations
     try:
-        # Use index for fast discovery
-        discovered = await composition_index.discover(data)
+        # Use index for fast discovery with SQL-based filtering
+        # Include metadata filter in the query
+        query = dict(data)  # Copy to avoid modifying original
+        # Don't include full metadata by default - it makes responses too large
         
-        # Check if evaluation info requested
-        evaluation_detail = data.get('evaluation_detail', 'none')  # none, minimal, summary, detailed
+        discovered = await composition_index.discover(query)
         
-        if evaluation_detail != 'none':
-            # Import here to avoid circular dependencies
-            from ksi_daemon.evaluation.evaluation_index import evaluation_index
-            
-            # Add evaluation info to each composition
-            for comp_info in discovered:
-                comp_type = comp_info.get('type', 'profile')
-                comp_name = comp_info.get('name', '')
-                
-                eval_info = evaluation_index.get_evaluation_info(
-                    comp_type, comp_name, evaluation_detail
-                )
-                
-                # Add evaluation info to composition
-                if eval_info.get('has_evaluations', False):
-                    comp_info['evaluation_info'] = eval_info
+        # TODO: Re-enable evaluation detail when performance is optimized
+        # Currently disabled to prevent timeouts
         
-        # Apply metadata filtering if specified
-        metadata_filter = data.get('metadata_filter')
-        if metadata_filter:
-            filtered_compositions = []
-            for comp_info in discovered:
-                try:
-                    # Load composition to get full metadata
-                    composition = await load_composition(comp_info['name'])
-                    metadata = composition.metadata
-                    
-                    # Check if all filter criteria match
-                    matches = True
-                    for key, expected_value in metadata_filter.items():
-                        actual_value = metadata.get(key)
-                        
-                        if isinstance(expected_value, list):
-                            # For list filters, check if there's any overlap
-                            if not isinstance(actual_value, list):
-                                actual_value = [actual_value] if actual_value else []
-                            if not set(expected_value) & set(actual_value):
-                                matches = False
-                                break
-                        else:
-                            # For scalar filters, check exact match
-                            if actual_value != expected_value:
-                                matches = False
-                                break
-                    
-                    if matches:
-                        # Add metadata to composition info
-                        comp_info_with_metadata = {**comp_info, 'metadata': metadata}
-                        filtered_compositions.append(comp_info_with_metadata)
-                        
-                except Exception as e:
-                    logger.warning(f"Failed to load composition {comp_info['name']} for filtering: {e}")
-                    continue
-            
-            discovered = filtered_compositions
-            logger.debug(f"Filtered compositions by metadata: {len(discovered)} matches")
+        # Metadata filtering is now handled in the SQL query
+        # The index already filtered by metadata if requested
         
         return event_response_builder(
             {
                 'status': 'success',
                 'compositions': discovered,
                 'count': len(discovered),
-                'filtered': metadata_filter is not None
+                'filtered': data.get('metadata_filter') is not None
             },
             context=context
         )
@@ -644,7 +594,7 @@ async def handle_discover(raw_data: Dict[str, Any], context: Optional[Dict[str, 
 
 class CompositionListData(TypedDict):
     """List compositions with filters."""
-    type: NotRequired[Literal['all', 'profile', 'prompt', 'orchestration', 'evaluation']]  # Filter by type
+    type: NotRequired[Literal['all', 'profile', 'prompt', 'orchestration', 'evaluation', 'component']]  # Filter by type
     include_validation: NotRequired[bool]  # Include validation status
     metadata_filter: NotRequired[Dict[str, Any]]  # Filter by metadata
     evaluation_detail: NotRequired[Literal['none', 'minimal', 'summary', 'detailed']]  # Evaluation detail level
@@ -662,15 +612,17 @@ async def handle_list(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]
     compositions = []
     
     if comp_type == 'all':
-        types = ['profile', 'prompt', 'system']
+        types = ['profile', 'prompt', 'orchestration', 'component', 'capability', 'pattern']
     else:
         types = [comp_type]
     
+    # Pass through all query parameters
+    query_params = dict(data)
+    query_params.pop('type', None)  # Remove type since we handle it in the loop
+    
     for t in types:
-        discovered = await handle_discover({
-            'type': t,
-            'include_validation': include_validation
-        }, context)
+        query_params['type'] = t
+        discovered = await handle_discover(query_params, context)
         compositions.extend(discovered.get('compositions', []))
     
     return event_response_builder(

@@ -230,7 +230,50 @@ tests:
 ✅ **Conditional mixins** based on environment variables
 ✅ **Comprehensive caching** with 60x+ speedup on repeated renders
 
-### Phase 4 In Progress: KSI System Integration
+### Phase 4 Complete: KSI System Integration
+✅ **Event handlers** for component_to_profile, spawn_from_component, generate_orchestration
+✅ **Component usage tracking** for analytics and optimization
+✅ **Markdown component support** (.md files now indexed and usable)
+
+## Current Focus: SQLite Composition Index
+
+### Issue
+The composition system has a half-implemented SQLite index that causes timeouts because:
+- Database schema exists but stores minimal metadata
+- Queries still load and parse files instead of using SQL
+- Discovery system confused about its role (system vs domain discovery)
+
+### Solution Approach
+
+#### 1. Fix Existing SQLite Index
+```python
+# Current: Only basic metadata in DB, files loaded for queries
+# Fix: Store complete metadata, query from SQL only
+full_metadata JSON  # Complete frontmatter/metadata
+content_hash TEXT   # For change detection  
+file_size INTEGER   # For monitoring
+```
+
+#### 2. Clarify Discovery System Roles
+- **System discovery**: Points to domain-specific discovery endpoints
+- **Domain discovery**: Actually queries and returns domain data
+```python
+# system:discover should guide users:
+"composition": {
+    "discovery_events": [
+        "composition:discover",  # Query from SQLite
+        "composition:list",     # List with filters
+        "composition:search"    # Full-text search
+    ]
+}
+```
+
+#### 3. Database as Source of Truth
+Align with KSI pattern where databases handle queries:
+- Files: Only for initial indexing, content retrieval, change detection
+- Database: All discovery, listing, searching, filtering operations
+
+### Phase 5 In Progress: SQLite-Backed Composition Index
 Component creation and rendering now integrates deeply with KSI event system:
 
 ```bash

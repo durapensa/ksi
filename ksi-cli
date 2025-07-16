@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# Ensure we're using the virtual environment
 """
 ksi - Command-line interface for KSI daemon
 
@@ -16,8 +15,35 @@ Examples:
 import asyncio
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Dict, Any, Optional
+
+# Ensure KSI modules can be imported from any location
+try:
+    from ksi_client import EventClient
+except ImportError:
+    # Find KSI root and add to path
+    ksi_root = os.environ.get('KSI_ROOT')
+    if not ksi_root:
+        # Try to find KSI root from script location
+        script_path = Path(__file__).resolve()
+        if script_path.parent.name == 'ksi' or (script_path.parent / 'ksi_common').exists():
+            ksi_root = str(script_path.parent)
+        else:
+            # Search upward for ksi_common
+            current = script_path.parent
+            while current != current.parent:
+                if (current / 'ksi_common').exists():
+                    ksi_root = str(current)
+                    break
+                current = current.parent
+    
+    if ksi_root:
+        sys.path.insert(0, ksi_root)
+    else:
+        print("Error: Cannot find KSI root directory. Please set KSI_ROOT or run from within the project.", file=sys.stderr)
+        sys.exit(1)
 
 import click
 from ksi_client import EventClient

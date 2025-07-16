@@ -5,6 +5,7 @@ Provides consistent path resolution across all KSI components.
 
 from pathlib import Path
 from typing import Optional
+from .ksi_root import find_ksi_root
 
 from .constants import (
     DEFAULT_VAR_DIR,
@@ -31,9 +32,14 @@ class KSIPaths:
         """Initialize with optional base directory.
         
         Args:
-            base_dir: Base directory for all paths. Defaults to cwd.
+            base_dir: Base directory for all paths. Defaults to KSI root if found, else cwd.
         """
-        self.base_dir = Path(base_dir) if base_dir else Path.cwd()
+        if base_dir:
+            self.base_dir = Path(base_dir)
+        else:
+            # Try to find KSI root first
+            ksi_root = find_ksi_root()
+            self.base_dir = ksi_root if ksi_root else Path.cwd()
         
         # Create critical directories on initialization
         self._ensure_critical_dirs()

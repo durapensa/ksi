@@ -1,18 +1,30 @@
 #!/usr/bin/env bash
-# ksi - Simple wrapper for ksi-cli during development
+# ksi - Wrapper for ksi-cli that works from any location
 
-# Get the directory containing this script
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+# Get the absolute path to this script, resolving symlinks
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
+    DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE" # if $SOURCE was a relative symlink
+done
+KSI_ROOT="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
 
-# Check if venv exists and activate it if needed
-if [ -f "$SCRIPT_DIR/.venv/bin/python" ]; then
-    PYTHON="$SCRIPT_DIR/.venv/bin/python"
+# Export KSI_ROOT for Python scripts to use
+export KSI_ROOT
+
+# Check if venv exists in KSI root
+if [ -f "$KSI_ROOT/.venv/bin/python" ]; then
+    PYTHON="$KSI_ROOT/.venv/bin/python"
 elif [ -n "$VIRTUAL_ENV" ]; then
     PYTHON="python"
 else
-    echo "Error: No virtual environment found. Please activate your venv or run from project root." >&2
+    echo "Error: No virtual environment found. Please ensure .venv exists in $KSI_ROOT or activate a virtual environment." >&2
     exit 1
 fi
 
+# Set PYTHONPATH to include KSI root so imports work from any location
+export PYTHONPATH="$KSI_ROOT:${PYTHONPATH}"
+
 # Run ksi-cli with all arguments
-exec "$PYTHON" "$SCRIPT_DIR/ksi-cli" "$@"
+exec "$PYTHON" "$KSI_ROOT/ksi-cli" "$@"

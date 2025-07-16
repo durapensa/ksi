@@ -53,6 +53,7 @@ import json
 # Note: Removed stdlib logging import - using pure structlog
 
 from .paths import KSIPaths
+from .ksi_root import find_ksi_root
 from .constants import (
     DEFAULT_VAR_DIR,
     DEFAULT_LOG_DIR,
@@ -357,6 +358,7 @@ class KSIBaseConfig(BaseSettings):
 
 # Global configuration instance
 # This will be imported throughout KSI components
+# KSI root detection is handled by KSIPaths when resolving paths
 config = KSIBaseConfig()
 
 # These functions have been removed per CLAUDE.md: "Never use get_config()"
