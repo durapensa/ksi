@@ -688,12 +688,12 @@ class UnifiedHandlerAnalyzer:
                         validation_info = parse_validation_patterns(access_info['comment'])
                         self.parameters[param_name].update(validation_info)
             
-            # Add required parameters from data["key"] access
+            # Add parameters from data["key"] access - mark as optional by default
             for param_name in analyzer.data_subscripts:
                 if param_name not in self.parameters:
                     self.parameters[param_name] = {
                         'type': 'Any',
-                        'required': True,
+                        'required': False,  # Changed from True - parameters discovered through code analysis are optional by default
                         'description': f"{param_name} parameter"
                     }
             

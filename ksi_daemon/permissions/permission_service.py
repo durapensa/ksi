@@ -128,14 +128,34 @@ async def handle_set_agent_permissions(raw_data: Dict[str, Any], context: Option
         profile_level = data.get("profile", "restricted")
         profile = permission_manager.get_profile(profile_level)
         if not profile:
-            return error_response(f"Profile not found: {profile_level}", context)
-        permissions = profile
+            # Surface error but don't block - create a default restricted profile
+            logger.warning(f"Profile not found: {profile_level}, using minimal default permissions", 
+                         agent_id=agent_id, requested_profile=profile_level)
+            # Create minimal default permissions
+            permissions = AgentPermissions(
+                level=PermissionLevel.RESTRICTED,
+                tools=ToolPermissions(allowed=[], disallowed=[]),
+                filesystem=FilesystemPermissions(),
+                resources=ResourceLimits(),
+                capabilities=Capabilities(multi_agent_todo=False, agent_messaging=False, spawn_agents=False, network_access=False)
+            )
+        else:
+            permissions = profile
     else:
         # Create permissions from data
         try:
             permissions = AgentPermissions.from_dict(perm_data)
         except Exception as e:
-            return error_response(f"Invalid permissions data: {str(e)}", context)
+            # Surface error but don't block - use minimal permissions
+            logger.warning(f"Invalid permissions data: {str(e)}, using minimal default permissions",
+                         agent_id=agent_id, error=str(e))
+            permissions = AgentPermissions(
+                level=PermissionLevel.RESTRICTED,
+                tools=ToolPermissions(allowed=[], disallowed=[]),
+                filesystem=FilesystemPermissions(),
+                resources=ResourceLimits(),
+                capabilities=Capabilities(multi_agent_todo=False, agent_messaging=False, spawn_agents=False, network_access=False)
+            )
     
     # Apply any overrides
     overrides = data.get("overrides", {})

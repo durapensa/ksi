@@ -649,12 +649,12 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
                                 else:
                                     # JSON patterns found but extraction failed
                                     feedback_content = f"=== EVENT EMISSION RESULTS ===\n"
-                                    feedback_content += "⚠️ JSON event patterns detected but extraction failed.\n\n"
+                                    feedback_content += "JSON event patterns detected but extraction failed.\n\n"
                                     feedback_content += "Common issues:\n"
-                                    feedback_content += "- Single quotes instead of double quotes: {'event': 'name'} ❌\n"
-                                    feedback_content += "- Trailing commas: {\"event\": \"name\",} ❌\n"
-                                    feedback_content += "- Missing quotes on keys: {event: \"name\"} ❌\n\n"
-                                    feedback_content += "Correct format: {\"event\": \"event:name\", \"data\": {...}} ✓"
+                                    feedback_content += "- Single quotes instead of double quotes: {'event': 'name'}\n"
+                                    feedback_content += "- Trailing commas: {\"event\": \"name\",}\n"
+                                    feedback_content += "- Missing quotes on keys: {event: \"name\"}\n\n"
+                                    feedback_content += "Correct format: {\"event\": \"event:name\", \"data\": {...}}"
                                 
                                 # Send via completion:async - maintains loose coupling
                                 await event_emitter("completion:async", {

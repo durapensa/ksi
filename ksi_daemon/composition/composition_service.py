@@ -38,6 +38,7 @@ from .evaluation_utils import (
 # Module state
 logger = get_bound_logger("composition_service", version="2.0.0")
 state_manager = None  # For shared state operations only
+event_emitter = None  # For event emission to other services
 
 # Capability schema cache
 _capability_schema_cache = None
@@ -74,12 +75,16 @@ async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, A
     """Receive infrastructure from daemon context."""
     from ksi_common.event_parser import event_format_linter
     data = event_format_linter(raw_data, dict)  # Simple dict for context handler
-    global state_manager
+    global state_manager, event_emitter
     
     state_manager = data.get("state_manager")
+    router = get_router()
+    event_emitter = router.emit if router else None
     
     if state_manager:
         logger.info("Composition service connected to state manager")
+    if event_emitter:
+        logger.info("Composition service connected to event emitter")
 
 
 @event_handler("system:startup")
@@ -425,6 +430,17 @@ async def handle_save_composition(raw_data: Dict[str, Any], context: Optional[Di
         save_result = await _save_composition_to_disk(composition, overwrite)
         
         if save_result['status'] == 'success':
+            # Emit event for profile system integration
+            if event_emitter:
+                try:
+                    await event_emitter("composition:saved", {
+                        'name': composition.name,
+                        'type': composition.type,
+                        'path': save_result['path']
+                    })
+                except Exception as e:
+                    logger.warning(f"Failed to emit composition:saved event: {e}")
+            
             return event_response_builder(
                 {
                     'status': 'success',
@@ -500,6 +516,18 @@ async def handle_update_composition(raw_data: Dict[str, Any], context: Optional[
                 save_result.get('error', 'Update failed'),
                 context=context
             )
+        
+        # Emit event for profile system integration
+        if event_emitter:
+            try:
+                await event_emitter("composition:updated", {
+                    'name': composition.name,
+                    'type': composition.type,
+                    'path': save_result['path'],
+                    'updates_applied': list(updates.keys())
+                })
+            except Exception as e:
+                logger.warning(f"Failed to emit composition:updated event: {e}")
             
         return event_response_builder(
             {

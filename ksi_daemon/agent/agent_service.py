@@ -98,7 +98,7 @@ class AgentSpawnData(TypedDict):
     profile: Required[str]  # Profile name
     agent_id: NotRequired[str]  # Agent ID (auto-generated if not provided)
     # NOTE: session_id removed - managed entirely by completion system
-    prompt: NotRequired[str]  # Initial prompt
+    prompt: NotRequired[str]  # Initial prompt (also accepts initial_prompt)
     context: NotRequired[Dict[str, Any]]  # Additional context
     # Domain-specific fields removed - use metadata instead
     composition: NotRequired[str]  # Composition name
@@ -863,7 +863,7 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
     # Observation patterns removed - handle via orchestration
     
     # Send initial prompt if provided - use composition system for proper message construction
-    interaction_prompt = data.get("prompt")
+    interaction_prompt = data.get("prompt") or data.get("initial_prompt")
     if interaction_prompt and event_emitter:
         logger.info(f"Sending initial prompt to agent {agent_id}")
         

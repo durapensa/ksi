@@ -8,7 +8,7 @@ that may contain embedded JSON for event emission.
 
 import json
 import re
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, Tuple
 import asyncio
 from ksi_common.logging import get_bound_logger
 
@@ -75,6 +75,75 @@ def extract_json_objects(text: str, filter_func: Optional[Callable[[Dict], bool]
     return extracted
 
 
+def _suggest_fix(json_str: str, error: json.JSONDecodeError) -> str:
+    """Provide helpful suggestions for common JSON errors."""
+    error_msg = str(error).lower()
+    
+    if 'expecting property name' in error_msg and "'" in json_str:
+        return "Use double quotes for JSON strings, not single quotes"
+    elif 'extra data' in error_msg:
+        return "Multiple JSON objects found - ensure they're in an array or separate them"
+    elif 'expecting value' in error_msg and json_str.rstrip().endswith(','):
+        return "Remove trailing comma before closing brace/bracket"
+    elif 'unterminated string' in error_msg:
+        return "Check for missing closing quotes in strings"
+    else:
+        return "Ensure valid JSON syntax - use a JSON validator"
+
+
+def extract_json_objects_with_errors(text: str, filter_func: Optional[Callable[[Dict], bool]] = None) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    Extract valid JSON objects and collect parsing errors.
+    
+    Returns:
+        Tuple of (valid_objects, errors)
+        where errors contain pattern, error message, and suggested fixes
+    """
+    extracted = []
+    errors = []
+    
+    # Pattern 1: JSON in code blocks
+    code_block_pattern = r'```(?:json)?\s*(\{[^`]+\})\s*```'
+    for match in re.finditer(code_block_pattern, text, re.DOTALL):
+        json_str = match.group(1)
+        try:
+            obj = json.loads(json_str)
+            if not filter_func or filter_func(obj):
+                extracted.append(obj)
+        except json.JSONDecodeError as e:
+            errors.append({
+                'pattern': json_str[:100] + ('...' if len(json_str) > 100 else ''),
+                'error': str(e),
+                'location': 'code_block',
+                'suggestion': _suggest_fix(json_str, e)
+            })
+    
+    # Pattern 2: Standalone JSON objects
+    json_pattern = r'\{(?:[^{}]|(?:\{[^{}]*\}))*\}'
+    
+    for match in re.finditer(json_pattern, text):
+        json_str = match.group(0)
+        # Skip if already found in code block
+        if any(json_str in error['pattern'] for error in errors):
+            continue
+            
+        try:
+            obj = json.loads(json_str)
+            if not filter_func or filter_func(obj):
+                # Avoid duplicates
+                if obj not in extracted:
+                    extracted.append(obj)
+        except json.JSONDecodeError as e:
+            errors.append({
+                'pattern': json_str[:100] + ('...' if len(json_str) > 100 else ''),
+                'error': str(e),
+                'location': 'inline',
+                'suggestion': _suggest_fix(json_str, e)
+            })
+    
+    return extracted, errors
+
+
 def extract_event_json(text: str) -> List[Dict[str, Any]]:
     """
     Extract JSON objects that look like event emissions.
@@ -101,10 +170,10 @@ async def extract_and_emit_json_events(
     agent_id: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
-    Extract JSON events from text and emit them asynchronously.
+    Extract JSON events from text and emit them asynchronously with error feedback.
     
     This is designed to be called from completion service to automatically
-    emit events found in agent responses.
+    emit events found in agent responses. Provides detailed feedback for malformed JSON.
     
     Args:
         text: Text containing potential JSON events
@@ -115,10 +184,15 @@ async def extract_and_emit_json_events(
     Returns:
         List of events that were emitted
     """
-    events = extract_event_json(text)
+    # Use enhanced extraction with error collection
+    def is_event(obj: Dict) -> bool:
+        return isinstance(obj, dict) and 'event' in obj
+    
+    valid_events, parse_errors = extract_json_objects_with_errors(text, filter_func=is_event)
     emitted = []
     
-    for event_obj in events:
+    # Process valid events
+    for event_obj in valid_events:
         try:
             event_name = event_obj.get('event')
             event_data = event_obj.get('data', {})
@@ -162,6 +236,29 @@ async def extract_and_emit_json_events(
                 'error': str(e),
                 'status': 'failed'
             })
+    
+    # Handle parsing errors by providing feedback
+    if parse_errors and agent_id:
+        try:
+            error_details = []
+            for error in parse_errors:
+                error_details.append(f"• {error['suggestion']} (Found: {error['pattern']})")
+            
+            feedback_content = "=== JSON EXTRACTION FEEDBACK ===\n"
+            if emitted:
+                feedback_content += f"Successfully extracted {len(emitted)} valid JSON events\n\n"
+            
+            if error_details:
+                feedback_content += f"Found {len(error_details)} malformed JSON patterns:\n"
+                feedback_content += "\n".join(error_details) + "\n\n"
+                feedback_content += "Correct format: {\"event\": \"namespace:action\", \"data\": {...}}"
+                
+                # Log the parsing errors
+                logger.warning(f"JSON parsing errors in agent response", 
+                             agent_id=agent_id, 
+                             error_count=len(parse_errors))
+        except Exception as e:
+            logger.error(f"Failed to generate JSON error feedback: {e}")
     
     if emitted:
         logger.debug(f"Extracted and processed {len(emitted)} events from response")
