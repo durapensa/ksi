@@ -183,6 +183,17 @@ def ensure_utc_suffix(timestamp_str: str) -> str:
     return timestamp_str
 
 
+def created_at_timestamp() -> str:
+    """
+    Generate a creation timestamp for metadata.
+    Returns UTC timestamp in ISO format suitable for component metadata.
+    
+    Returns:
+        str: ISO 8601 UTC timestamp with Z suffix
+    """
+    return timestamp_utc()
+
+
 def numeric_to_iso(timestamp: float) -> str:
     """
     Convert numeric timestamp (Unix epoch) to ISO 8601 UTC format with 'Z' suffix

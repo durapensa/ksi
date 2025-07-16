@@ -18,7 +18,7 @@ from . import composition_index
 logger = get_bound_logger("composition_core")
 
 # Path constants
-FRAGMENTS_BASE = config.fragments_dir
+COMPONENTS_BASE = config.components_dir
 COMPOSITIONS_BASE = config.compositions_dir
 SCHEMAS_BASE = config.schemas_dir
 CAPABILITIES_BASE = config.capabilities_dir
@@ -89,13 +89,13 @@ class Composition:
         )
 
 
-def load_fragment(path: str) -> str:
-    """Load a text fragment from disk."""
-    fragment_path = FRAGMENTS_BASE / path
-    if not fragment_path.exists():
-        raise FileNotFoundError(f"Fragment not found: {path}")
+def load_component(path: str) -> str:
+    """Load a text component from disk."""
+    component_path = COMPONENTS_BASE / path
+    if not component_path.exists():
+        raise FileNotFoundError(f"Component not found: {path}")
     
-    return fragment_path.read_text()
+    return component_path.read_text()
 
 
 def substitute_variables(text: str, variables: Dict[str, Any]) -> str:

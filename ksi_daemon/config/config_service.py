@@ -79,8 +79,8 @@ CONFIG_TYPES = {
         'extensions': ['.yaml', '.yml'],
         'format': 'yaml'
     },
-    'fragment': {
-        'base_dir': config.fragments_dir,
+    'component': {
+        'base_dir': config.components_dir,
         'extensions': ['.md', '.yaml', '.yml'],
         'format': 'mixed'
     },

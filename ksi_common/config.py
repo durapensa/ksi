@@ -125,7 +125,7 @@ class KSIBaseConfig(BaseSettings):
     lib_dir: Path = Path(DEFAULT_VAR_DIR) / "lib"
     compositions_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/compositions"
     evaluations_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/evaluations"
-    fragments_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/compositions/fragments"
+    components_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/compositions/components"
     schemas_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/schemas"
     capabilities_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/capabilities"
     
@@ -133,7 +133,7 @@ class KSIBaseConfig(BaseSettings):
     COMPOSITION_TYPE_DIRS: Dict[str, str] = {
         "profile": "profiles",
         "orchestration": "orchestrations",
-        "fragment": "fragments",
+        "component": "components",
         "experiment": "experiments",
         "system": "system"
     }
@@ -264,7 +264,7 @@ class KSIBaseConfig(BaseSettings):
             self.lib_dir,            # var/lib
             self.compositions_dir,   # var/lib/compositions
             self.evaluations_dir,    # var/lib/evaluations
-            self.fragments_dir,      # var/lib/compositions/fragments
+            self.components_dir,      # var/lib/compositions/components
             self.schemas_dir,        # var/lib/schemas
             self.capabilities_dir,   # var/lib/capabilities
             self.daemon_log_dir,     # var/logs/daemon

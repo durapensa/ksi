@@ -19,14 +19,15 @@ from ksi_common.config import config
 from ksi_common.file_utils import save_yaml_file, ensure_directory, load_yaml_file
 from ksi_common.event_utils import extract_single_response
 from ksi_common.git_utils import git_manager
+from datetime import date, datetime
 
 # Import composition modules
 from . import composition_index
 from .composition_core import (
     Composition, CompositionComponent,
-    load_fragment, substitute_variables, evaluate_condition, evaluate_conditions,
+    load_component, substitute_variables, evaluate_condition, evaluate_conditions,
     load_composition as load_composition_file,
-    FRAGMENTS_BASE, COMPOSITIONS_BASE, SCHEMAS_BASE, CAPABILITIES_BASE
+    COMPONENTS_BASE, COMPOSITIONS_BASE, SCHEMAS_BASE, CAPABILITIES_BASE
 )
 from .evaluation_utils import (
     create_evaluation_record, calculate_overall_score, 
@@ -42,6 +43,33 @@ event_emitter = None  # For event emission to other services
 
 # Capability schema cache
 _capability_schema_cache = None
+
+
+def _sanitize_yaml_data(data: Any) -> Any:
+    """
+    Recursively convert date objects to ISO strings for JSON serialization.
+    
+    Args:
+        data: YAML data that may contain date objects
+        
+    Returns:
+        Sanitized data with date objects converted to ISO strings
+    """
+    if isinstance(data, date):
+        # Convert date to ISO string
+        return data.isoformat()
+    elif isinstance(data, datetime):
+        # Convert datetime to ISO string with UTC timezone
+        return data.isoformat()
+    elif isinstance(data, dict):
+        # Recursively sanitize dictionary values
+        return {key: _sanitize_yaml_data(value) for key, value in data.items()}
+    elif isinstance(data, list):
+        # Recursively sanitize list items
+        return [_sanitize_yaml_data(item) for item in data]
+    else:
+        # Return as-is for other types
+        return data
 
 
 # We'll define TypedDict types close to their handlers below
@@ -97,7 +125,7 @@ async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, A
     
     # Ensure directories exist
     ensure_directory(COMPOSITIONS_BASE)
-    ensure_directory(FRAGMENTS_BASE)
+    ensure_directory(COMPONENTS_BASE)
     
     # Initialize and rebuild composition index
     await composition_index.initialize()
@@ -1351,8 +1379,8 @@ async def resolve_composition(
         content = None
         
         if component.source:
-            # Load from fragment file
-            content = load_fragment(component.source)
+            # Load from component file
+            content = load_component(component.source)
             content = substitute_variables(content, comp_vars)
             
         elif component.composition:
@@ -1584,7 +1612,7 @@ class ComponentCreateData(TypedDict):
     """Create a component (fragment, template, etc.) with content."""
     name: Required[str]  # Component name (can include path like "instructions/persona_bypass")
     content: Required[str]  # The actual content (markdown, text, etc.)
-    type: NotRequired[Literal['fragment', 'template', 'instruction']]  # Default: fragment
+    type: NotRequired[Literal['component', 'template', 'instruction']]  # Default: component
     description: NotRequired[str]  # Component description
     metadata: NotRequired[Dict[str, Any]]  # Additional metadata
     overwrite: NotRequired[bool]  # Replace if exists
@@ -1593,7 +1621,7 @@ class ComponentCreateData(TypedDict):
 class ComponentGetData(TypedDict):
     """Get a component with its content."""
     name: Required[str]  # Component name/path
-    type: NotRequired[Literal['fragment', 'template', 'instruction']]  # Default: fragment
+    type: NotRequired[Literal['component', 'template', 'instruction']]  # Default: component
 
 
 class ComponentForkData(TypedDict):
@@ -1608,7 +1636,7 @@ class ComponentUpdateData(TypedDict):
     """Update an existing component."""
     name: Required[str]  # Component name/path
     content: Required[str]  # New content
-    type: NotRequired[Literal['fragment', 'template', 'instruction']]  # Default: fragment
+    type: NotRequired[Literal['component', 'template', 'instruction']]  # Default: component
     message: NotRequired[str]  # Git commit message
 
 
@@ -1623,13 +1651,22 @@ async def handle_create_component(raw_data: Dict[str, Any], context: Optional[Di
         
         name = data['name']
         content = data['content']
-        comp_type = data.get('type', 'fragment')
+        comp_type = data.get('type', 'component')
+        
+        # Validate component name organization
+        if comp_type == 'component':
+            # Require organized subdirectories for components (prevent root-level collisions)
+            if '/' not in name:
+                return error_response(
+                    f"Component name '{name}' must include an organizational subdirectory (e.g., 'core/{name}', 'test/{name}')",
+                    context
+                )
         
         # Determine base path based on type
-        if comp_type == 'fragment':
-            base_path = FRAGMENTS_BASE
+        if comp_type == 'component':
+            base_path = COMPONENTS_BASE
         else:
-            base_path = FRAGMENTS_BASE / comp_type
+            base_path = COMPONENTS_BASE / comp_type
         
         # Create file path
         file_path = base_path / f"{name}.md"
@@ -1687,9 +1724,9 @@ async def handle_create_component(raw_data: Dict[str, Any], context: Optional[Di
         if not git_result.success:
             return error_response(f"Git operation failed: {git_result.error}", context)
         
-        # Update index if it's a composition fragment
-        if comp_type == 'fragment':
-            await composition_index.index_file(file_path.relative_to(FRAGMENTS_BASE.parent))
+        # Update index if it's a composition component
+        if comp_type == 'component':
+            await composition_index.index_file(file_path.relative_to(COMPONENTS_BASE.parent))
         
         logger.info(f"Created component: {name} ({comp_type})")
         
@@ -1716,13 +1753,13 @@ async def handle_get_component(raw_data: Dict[str, Any], context: Optional[Dict[
         data = event_format_linter(raw_data, ComponentGetData)
         
         name = data['name']
-        comp_type = data.get('type', 'fragment')
+        comp_type = data.get('type', 'component')
         
         # Determine base path
-        if comp_type == 'fragment':
-            base_path = FRAGMENTS_BASE
+        if comp_type == 'component':
+            base_path = COMPONENTS_BASE
         else:
-            base_path = FRAGMENTS_BASE / comp_type
+            base_path = COMPONENTS_BASE / comp_type
         
         # Try with .md extension first, then without
         file_path = base_path / f"{name}.md"
@@ -1730,7 +1767,14 @@ async def handle_get_component(raw_data: Dict[str, Any], context: Optional[Dict[
             file_path = base_path / name
         
         if not file_path.exists():
-            return error_response(f"Component {name} not found", context)
+            # Provide helpful error message about organization
+            if comp_type == 'component' and '/' not in name:
+                return error_response(
+                    f"Component '{name}' not found. Components must be organized in subdirectories (e.g., 'core/{name}', 'test/{name}')",
+                    context
+                )
+            else:
+                return error_response(f"Component {name} not found", context)
         
         content = file_path.read_text()
         
@@ -1749,6 +1793,10 @@ async def handle_get_component(raw_data: Dict[str, Any], context: Optional[Dict[
                     frontmatter = yaml.safe_load(frontmatter_text)
                     body_content = content[end_marker + 5:]  # Skip closing --- and newline
                     component_type = 'enhanced'
+                    
+                    # Convert date objects to ISO strings for JSON serialization
+                    frontmatter = _sanitize_yaml_data(frontmatter)
+                    
                 except yaml.YAMLError as e:
                     logger.warning(f"Failed to parse frontmatter in {name}: {e}")
                     # Treat as simple markdown if frontmatter is invalid
@@ -1761,6 +1809,8 @@ async def handle_get_component(raw_data: Dict[str, Any], context: Optional[Dict[
         metadata_path = file_path.with_suffix('.yaml')
         if metadata_path.exists():
             external_metadata = load_yaml_file(metadata_path)
+            # Sanitize external metadata too
+            external_metadata = _sanitize_yaml_data(external_metadata)
         
         # Merge metadata sources (frontmatter takes precedence)
         metadata = external_metadata.copy()
@@ -1806,7 +1856,7 @@ async def handle_fork_component(raw_data: Dict[str, Any], context: Optional[Dict
         create_result = await handle_create_component({
             'name': data['name'],
             'content': content,
-            'type': parent_result.get('type', 'fragment'),
+            'type': parent_result.get('type', 'component'),
             'description': data.get('reason', f"Forked from {data['parent']}"),
             'metadata': {
                 'parent': data['parent'],
@@ -1835,7 +1885,7 @@ async def handle_update_component(raw_data: Dict[str, Any], context: Optional[Di
         # Check if exists
         get_result = await handle_get_component({
             'name': data['name'],
-            'type': data.get('type', 'fragment')
+            'type': data.get('type', 'component')
         }, context)
         
         if get_result['status'] != 'success':
@@ -1845,7 +1895,7 @@ async def handle_update_component(raw_data: Dict[str, Any], context: Optional[Di
         update_result = await handle_create_component({
             'name': data['name'],
             'content': data['content'],
-            'type': data.get('type', 'fragment'),
+            'type': data.get('type', 'component'),
             'overwrite': True
         }, context)
         

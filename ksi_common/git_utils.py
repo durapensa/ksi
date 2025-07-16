@@ -275,8 +275,8 @@ class GitSubmoduleManager:
             return "orchestrations"
         elif content_type == "prompt":
             return "prompts"
-        elif content_type == "fragment":
-            return "fragments"
+        elif content_type == "component":
+            return "components"
         elif content_type == "pattern":
             return "patterns"
         else:
@@ -473,7 +473,7 @@ class GitSubmoduleManager:
     
     async def _find_composition_file(self, repo_path: Path, name: str) -> Optional[Path]:
         """Find a composition file by name in any subdirectory."""
-        subdirs = ["profiles", "orchestrations", "prompts", "fragments", "patterns"]
+        subdirs = ["profiles", "orchestrations", "prompts", "components", "patterns"]
         
         for subdir in subdirs:
             file_path = repo_path / subdir / f"{name}.yaml"
