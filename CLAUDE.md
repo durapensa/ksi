@@ -41,6 +41,33 @@ Essential development practices for Claude Code when working with KSI.
   - Don't create duplicate files in wrong locations
   - Fix the code that has the wrong path, not create the file where it's looking
 
+## Component Creation Pattern
+
+**CRITICAL**: Always use KSI events to create components, not direct file writes!
+
+```bash
+# Create components via events (fragments, templates, instructions)
+ksi send composition:create_component --name "components/test/example" \
+  --content "# Example Component\n\nContent here..." \
+  --description "Example component"
+
+# Get component content
+ksi send composition:get_component --name "components/test/example"
+
+# Fork components
+ksi send composition:fork_component --parent "components/base" \
+  --name "components/variant" --reason "Customization"
+```
+
+**Why**: Event-driven creation ensures:
+- Automatic git commits
+- Index updates where applicable
+- Consistent with KSI philosophy
+- Same tools for agents and humans
+- No direct file manipulation
+
+**Remember**: This pattern applies to all content files (fragments, templates, instructions). For structured compositions (profiles, orchestrations), use `composition:create` or `composition:save`.
+
 ## Discovery-First Development
 
 **CRITICAL**: Always use the discovery system before reading source code. The discovery system is your primary tool for understanding available events and their parameters.

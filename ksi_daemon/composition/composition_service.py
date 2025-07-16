@@ -1579,6 +1579,254 @@ Please proceed as a basic autonomous agent with full autonomy to execute tasks a
         }
 
 
+# Component Management Event Handlers
+class ComponentCreateData(TypedDict):
+    """Create a component (fragment, template, etc.) with content."""
+    name: Required[str]  # Component name (can include path like "instructions/persona_bypass")
+    content: Required[str]  # The actual content (markdown, text, etc.)
+    type: NotRequired[Literal['fragment', 'template', 'instruction']]  # Default: fragment
+    description: NotRequired[str]  # Component description
+    metadata: NotRequired[Dict[str, Any]]  # Additional metadata
+    overwrite: NotRequired[bool]  # Replace if exists
+
+
+class ComponentGetData(TypedDict):
+    """Get a component with its content."""
+    name: Required[str]  # Component name/path
+    type: NotRequired[Literal['fragment', 'template', 'instruction']]  # Default: fragment
+
+
+class ComponentForkData(TypedDict):
+    """Fork a component to create a variant."""
+    parent: Required[str]  # Parent component name/path
+    name: Required[str]  # New component name/path
+    modifications: NotRequired[str]  # Modified content (if not provided, copies parent)
+    reason: NotRequired[str]  # Reason for forking
+
+
+class ComponentUpdateData(TypedDict):
+    """Update an existing component."""
+    name: Required[str]  # Component name/path
+    content: Required[str]  # New content
+    type: NotRequired[Literal['fragment', 'template', 'instruction']]  # Default: fragment
+    message: NotRequired[str]  # Git commit message
+
+
+@event_handler("composition:create_component")
+async def handle_create_component(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Create a component (fragment/template) with content preserved."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    try:
+        data = event_format_linter(raw_data, ComponentCreateData)
+        
+        name = data['name']
+        content = data['content']
+        comp_type = data.get('type', 'fragment')
+        
+        # Determine base path based on type
+        if comp_type == 'fragment':
+            base_path = FRAGMENTS_BASE
+        else:
+            base_path = FRAGMENTS_BASE / comp_type
+        
+        # Create file path
+        file_path = base_path / f"{name}.md"
+        ensure_directory(file_path.parent)
+        
+        # Check if exists
+        if file_path.exists() and not data.get('overwrite', False):
+            return error_response(f"Component {name} already exists", context)
+        
+        # Write content directly
+        file_path.write_text(content)
+        
+        # Write metadata if provided
+        if data.get('metadata'):
+            metadata_path = file_path.with_suffix('.yaml')
+            save_yaml_file(metadata_path, data['metadata'])
+        
+        # Git commit - use direct git operations for markdown files
+        import subprocess
+        repo_path = COMPOSITIONS_BASE
+        relative_path = file_path.relative_to(repo_path)
+        
+        try:
+            # Add file to git
+            subprocess.run(['git', 'add', str(relative_path)], 
+                         cwd=repo_path, check=True, capture_output=True)
+            
+            # Commit
+            commit_msg = f"Create {comp_type} component: {name}"
+            subprocess.run(['git', 'commit', '-m', commit_msg], 
+                         cwd=repo_path, check=True, capture_output=True)
+            
+            git_result = type('GitResult', (), {
+                'success': True,
+                'message': f'Committed {relative_path}'
+            })()
+        except subprocess.CalledProcessError as e:
+            # If nothing to commit, that's ok
+            if b"nothing to commit" in e.stderr:
+                git_result = type('GitResult', (), {
+                    'success': True,
+                    'message': 'No changes to commit'
+                })()
+            else:
+                git_result = type('GitResult', (), {
+                    'success': False,
+                    'error': e.stderr.decode()
+                })()
+        except Exception as e:
+            git_result = type('GitResult', (), {
+                'success': False,
+                'error': str(e)
+            })()
+        
+        if not git_result.success:
+            return error_response(f"Git operation failed: {git_result.error}", context)
+        
+        # Update index if it's a composition fragment
+        if comp_type == 'fragment':
+            await composition_index.index_file(file_path.relative_to(FRAGMENTS_BASE.parent))
+        
+        logger.info(f"Created component: {name} ({comp_type})")
+        
+        return event_response_builder({
+            'status': 'success',
+            'name': name,
+            'type': comp_type,
+            'path': str(file_path.relative_to(config.lib_dir)),
+            'message': f'Created {comp_type} component: {name}'
+        }, context)
+        
+    except Exception as e:
+        logger.error(f"Component creation failed: {e}")
+        return error_response(str(e), context)
+
+
+@event_handler("composition:get_component")
+async def handle_get_component(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Get a component with its content."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    try:
+        data = event_format_linter(raw_data, ComponentGetData)
+        
+        name = data['name']
+        comp_type = data.get('type', 'fragment')
+        
+        # Determine base path
+        if comp_type == 'fragment':
+            base_path = FRAGMENTS_BASE
+        else:
+            base_path = FRAGMENTS_BASE / comp_type
+        
+        # Try with .md extension first, then without
+        file_path = base_path / f"{name}.md"
+        if not file_path.exists():
+            file_path = base_path / name
+        
+        if not file_path.exists():
+            return error_response(f"Component {name} not found", context)
+        
+        content = file_path.read_text()
+        
+        # Get metadata if stored
+        metadata = {}
+        metadata_path = file_path.with_suffix('.yaml')
+        if metadata_path.exists():
+            metadata = load_yaml_file(metadata_path)
+        
+        return event_response_builder({
+            'status': 'success',
+            'name': name,
+            'type': comp_type,
+            'content': content,
+            'metadata': metadata,
+            'path': str(file_path.relative_to(config.lib_dir))
+        }, context)
+        
+    except Exception as e:
+        logger.error(f"Component retrieval failed: {e}")
+        return error_response(str(e), context)
+
+
+@event_handler("composition:fork_component")
+async def handle_fork_component(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Fork a component to create a variant."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    try:
+        data = event_format_linter(raw_data, ComponentForkData)
+        
+        # Get parent component
+        parent_result = await handle_get_component({
+            'name': data['parent']
+        }, context)
+        
+        if parent_result['status'] != 'success':
+            return error_response(f"Parent component not found: {data['parent']}", context)
+        
+        # Create forked component
+        content = data.get('modifications', parent_result['content'])
+        
+        create_result = await handle_create_component({
+            'name': data['name'],
+            'content': content,
+            'type': parent_result.get('type', 'fragment'),
+            'description': data.get('reason', f"Forked from {data['parent']}"),
+            'metadata': {
+                'parent': data['parent'],
+                'fork_reason': data.get('reason', 'variant'),
+                'forked_at': format_for_logging()
+            },
+            'overwrite': False
+        }, context)
+        
+        return create_result
+        
+    except Exception as e:
+        logger.error(f"Component fork failed: {e}")
+        return error_response(str(e), context)
+
+
+@event_handler("composition:update_component") 
+async def handle_update_component(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Update an existing component."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    try:
+        data = event_format_linter(raw_data, ComponentUpdateData)
+        
+        # Check if exists
+        get_result = await handle_get_component({
+            'name': data['name'],
+            'type': data.get('type', 'fragment')
+        }, context)
+        
+        if get_result['status'] != 'success':
+            return error_response(f"Component {data['name']} not found", context)
+        
+        # Update with overwrite
+        update_result = await handle_create_component({
+            'name': data['name'],
+            'content': data['content'],
+            'type': data.get('type', 'fragment'),
+            'overwrite': True
+        }, context)
+        
+        return update_result
+        
+    except Exception as e:
+        logger.error(f"Component update failed: {e}")
+        return error_response(str(e), context)
+
+
 # Pattern Evolution Event Handlers
 
 class CompositionForkData(TypedDict):
