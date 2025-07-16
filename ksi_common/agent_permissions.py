@@ -325,10 +325,14 @@ class PermissionManager:
         self._load_profiles()
     
     def _load_profiles(self) -> None:
-        """Load permission profiles from disk"""
+        """Load permission profiles from disk and create defaults"""
+        # First, create built-in default profiles
+        self._create_default_profiles()
+        
+        # Then try to load custom profiles from disk
         profiles_dir = self.permissions_dir / "profiles"
         if not profiles_dir.exists():
-            logger.warning("Permissions profiles directory not found", path=str(profiles_dir))
+            logger.info("Permissions profiles directory not found, using built-in defaults", path=str(profiles_dir))
             return
         
         for profile_file in profiles_dir.glob("*.yaml"):
@@ -338,6 +342,42 @@ class PermissionManager:
                 logger.info("Loaded permission profile", profile=permissions.level.value)
             except Exception as e:
                 logger.error("Failed to load permission profile", file=str(profile_file), error=str(e))
+    
+    def _create_default_profiles(self) -> None:
+        """Create built-in default permission profiles"""
+        # Restricted profile - minimal permissions
+        restricted = AgentPermissions(
+            level=PermissionLevel.RESTRICTED,
+            tools=ToolPermissions(allowed=["Read", "LS"], disallowed=[]),
+            filesystem=FilesystemPermissions(),
+            resources=ResourceLimits(),
+            capabilities=Capabilities(multi_agent_todo=False, agent_messaging=False, spawn_agents=False, network_access=False)
+        )
+        
+        # Standard profile - basic agent capabilities
+        standard = AgentPermissions(
+            level=PermissionLevel.STANDARD,
+            tools=ToolPermissions(allowed=["Read", "LS", "Grep", "Glob"], disallowed=[]),
+            filesystem=FilesystemPermissions(),
+            resources=ResourceLimits(),
+            capabilities=Capabilities(multi_agent_todo=False, agent_messaging=False, spawn_agents=False, network_access=False)
+        )
+        
+        # Trusted profile - more capabilities for KSI agents
+        trusted = AgentPermissions(
+            level=PermissionLevel.TRUSTED,
+            tools=ToolPermissions(allowed=None, disallowed=["Bash", "Edit", "MultiEdit", "Write"]),
+            filesystem=FilesystemPermissions(),
+            resources=ResourceLimits(),
+            capabilities=Capabilities(multi_agent_todo=True, agent_messaging=True, spawn_agents=True, network_access=True)
+        )
+        
+        self.profiles[PermissionLevel.RESTRICTED] = restricted
+        self.profiles[PermissionLevel.STANDARD] = standard
+        self.profiles[PermissionLevel.TRUSTED] = trusted
+        
+        logger.info("Created built-in permission profiles", 
+                   profiles=[p.value for p in [PermissionLevel.RESTRICTED, PermissionLevel.STANDARD, PermissionLevel.TRUSTED]])
     
     def get_profile(self, level: Union[PermissionLevel, str]) -> Optional[AgentPermissions]:
         """Get a permission profile by level"""

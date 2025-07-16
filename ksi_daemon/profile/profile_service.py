@@ -568,10 +568,36 @@ async def rebuild_index_async(clear_existing: bool = True) -> int:
             
             # Multi-value attributes
             for attr in ['capability', 'tag', 'compatible_provider']:
-                source_key = 'capabilities' if attr == 'capability' else attr + 's'
-                values = profile_data.get(source_key, []) or metadata.get(source_key, [])
-                if values:
-                    attributes[attr] = values if isinstance(values, list) else [values]
+                if attr == 'capability':
+                    # Handle capability extraction from multiple sources
+                    values = []
+                    
+                    # Get from metadata.capabilities (list format)
+                    metadata_caps = metadata.get('capabilities', [])
+                    if isinstance(metadata_caps, list):
+                        values.extend(metadata_caps)
+                    elif metadata_caps:
+                        values.append(metadata_caps)
+                    
+                    # Get from profile.capabilities (dict format) 
+                    profile_caps = profile_data.get('capabilities', {})
+                    if isinstance(profile_caps, dict):
+                        # Extract capability names where value is True
+                        for cap_name, cap_value in profile_caps.items():
+                            if cap_value and cap_name not in values:
+                                values.append(cap_name)
+                    elif isinstance(profile_caps, list):
+                        # Handle list format as well
+                        values.extend(profile_caps)
+                    
+                    if values:
+                        attributes[attr] = values
+                else:
+                    # Handle other multi-value attributes normally
+                    source_key = attr + 's'
+                    values = profile_data.get(source_key, []) or metadata.get(source_key, [])
+                    if values:
+                        attributes[attr] = values if isinstance(values, list) else [values]
             
             # Register profile
             await event_emitter("profile:register", {
@@ -808,10 +834,36 @@ async def _auto_update_profile_index(profile_name: str, file_path: str) -> None:
                     
                     # Multi-value attributes
                     for attr in ['capability', 'tag', 'compatible_provider']:
-                        source_key = 'capabilities' if attr == 'capability' else attr + 's'
-                        values = profile_data.get(source_key, []) or metadata.get(source_key, [])
-                        if values:
-                            attributes[attr] = values if isinstance(values, list) else [values]
+                        if attr == 'capability':
+                            # Handle capability extraction from multiple sources
+                            values = []
+                            
+                            # Get from metadata.capabilities (list format)
+                            metadata_caps = metadata.get('capabilities', [])
+                            if isinstance(metadata_caps, list):
+                                values.extend(metadata_caps)
+                            elif metadata_caps:
+                                values.append(metadata_caps)
+                            
+                            # Get from profile.capabilities (dict format) 
+                            profile_caps = profile_data.get('capabilities', {})
+                            if isinstance(profile_caps, dict):
+                                # Extract capability names where value is True
+                                for cap_name, cap_value in profile_caps.items():
+                                    if cap_value and cap_name not in values:
+                                        values.append(cap_name)
+                            elif isinstance(profile_caps, list):
+                                # Handle list format as well
+                                values.extend(profile_caps)
+                            
+                            if values:
+                                attributes[attr] = values
+                        else:
+                            # Handle other multi-value attributes normally
+                            source_key = attr + 's'
+                            values = profile_data.get(source_key, []) or metadata.get(source_key, [])
+                            if values:
+                                attributes[attr] = values if isinstance(values, list) else [values]
                     
                     # Register profile
                     await event_emitter("profile:register", {
@@ -824,3 +876,350 @@ async def _auto_update_profile_index(profile_name: str, file_path: str) -> None:
                     
     except Exception as e:
         logger.error(f"Failed to auto-update profile index for {profile_name}: {e}")
+
+
+# Capability System Implementation
+
+# Module-level capability cache
+_capability_cache = {}
+
+class CapabilityDefinition:
+    """A capability definition loaded from YAML."""
+    def __init__(self, name: str, data: Dict[str, Any]):
+        self.name = name
+        self.data = data
+        self.extends = data.get('extends')
+        self.permissions = data.get('permissions', {})
+        self.knowledge = data.get('knowledge', {})
+        self.metadata = data.get('metadata', {})
+        self.validation = data.get('validation', {})
+        self.compatibility = data.get('compatibility', {})
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert capability to dictionary."""
+        return {
+            "name": self.name,
+            "extends": self.extends,
+            "permissions": self.permissions,
+            "knowledge": self.knowledge,
+            "metadata": self.metadata,
+            "validation": self.validation,
+            "compatibility": self.compatibility
+        }
+    
+    async def resolve_permissions(self, capability_loader) -> Dict[str, List[str]]:
+        """Recursively resolve all permissions including inherited."""
+        permissions = {}
+        
+        # Load parent capability if exists
+        if self.extends:
+            parent_cap = await capability_loader(self.extends)
+            if parent_cap:
+                parent_permissions = await parent_cap.resolve_permissions(capability_loader)
+                permissions.update(parent_permissions)
+        
+        # Merge own permissions
+        for perm_type, perm_list in self.permissions.items():
+            if perm_type in permissions:
+                # Merge lists, avoiding duplicates
+                combined = list(set(permissions[perm_type] + perm_list))
+                permissions[perm_type] = combined
+            else:
+                permissions[perm_type] = perm_list[:]
+        
+        return permissions
+    
+    async def resolve_knowledge(self, capability_loader) -> Dict[str, str]:
+        """Recursively resolve all knowledge including inherited."""
+        knowledge = {}
+        
+        # Load parent capability if exists
+        if self.extends:
+            parent_cap = await capability_loader(self.extends)
+            if parent_cap:
+                parent_knowledge = await parent_cap.resolve_knowledge(capability_loader)
+                knowledge.update(parent_knowledge)
+        
+        # Merge own knowledge
+        knowledge.update(self.knowledge)
+        
+        return knowledge
+
+
+class CapabilityLoadData(TypedDict):
+    """Load and resolve a capability definition."""
+    name: Required[str]  # Capability name
+    resolve_inheritance: NotRequired[bool]  # Whether to resolve inheritance chain
+
+
+class ProfileResolveCapabilitiesData(TypedDict):
+    """Resolve all capabilities for a profile including inherited."""
+    name: Required[str]  # Profile name
+    include_permissions: NotRequired[bool]  # Include resolved permissions
+    include_knowledge: NotRequired[bool]  # Include resolved knowledge
+
+
+@event_handler("capability:load")
+async def handle_load_capability(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Load and resolve a capability definition."""
+    from ksi_common.event_parser import event_format_linter
+    data = event_format_linter(raw_data, CapabilityLoadData)
+    
+    if not event_emitter:
+        return error_response("Event system not initialized", context)
+    
+    capability_name = data['name']
+    resolve_inheritance = data.get('resolve_inheritance', True)
+    
+    # Check cache first
+    if capability_name in _capability_cache:
+        capability = _capability_cache[capability_name]
+        logger.debug(f"Loaded capability {capability_name} from cache")
+    else:
+        # Load from file
+        capability_path = Path(config.compositions_dir) / "capabilities" / f"{capability_name}.yaml"
+        
+        if not capability_path.exists():
+            return error_response(f"Capability not found: {capability_name}", context)
+        
+        try:
+            capability_data = load_yaml_file(capability_path)
+            capability = CapabilityDefinition(capability_name, capability_data)
+            
+            # Cache the capability
+            _capability_cache[capability_name] = capability
+            
+            logger.debug(f"Loaded capability {capability_name} from file")
+            
+        except Exception as e:
+            return error_response(f"Failed to load capability {capability_name}: {e}", context)
+    
+    # Resolve inheritance if requested
+    result = capability.to_dict()
+    
+    if resolve_inheritance:
+        try:
+            # Create a loader function for recursive resolution
+            async def capability_loader(name: str) -> Optional[CapabilityDefinition]:
+                load_result = await event_emitter("capability:load", {
+                    "name": name,
+                    "resolve_inheritance": False  # Avoid infinite recursion
+                })
+                
+                if load_result and isinstance(load_result, list):
+                    load_result = load_result[0]
+                
+                if load_result and not load_result.get('error'):
+                    # Reconstruct capability from result
+                    return CapabilityDefinition(name, load_result)
+                return None
+            
+            # Resolve permissions and knowledge
+            resolved_permissions = await capability.resolve_permissions(capability_loader)
+            resolved_knowledge = await capability.resolve_knowledge(capability_loader)
+            
+            result['resolved_permissions'] = resolved_permissions
+            result['resolved_knowledge'] = resolved_knowledge
+            
+        except Exception as e:
+            logger.error(f"Failed to resolve inheritance for capability {capability_name}: {e}")
+            # Return basic capability without inheritance resolution
+    
+    return event_response_builder(result, context=context)
+
+
+@event_handler("profile:resolve_capabilities")
+async def handle_resolve_capabilities(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Resolve all capabilities for a profile including inherited."""
+    from ksi_common.event_parser import event_format_linter
+    data = event_format_linter(raw_data, ProfileResolveCapabilitiesData)
+    
+    if not event_emitter:
+        return error_response("Event system not initialized", context)
+    
+    profile_name = data['name']
+    include_permissions = data.get('include_permissions', True)
+    include_knowledge = data.get('include_knowledge', True)
+    
+    try:
+        # Get profile's declared capabilities
+        attr_result = await event_emitter("profile:get_attributes", {
+            "name": profile_name,
+            "attributes": ["capability"]
+        })
+        
+        if attr_result and isinstance(attr_result, list):
+            attr_result = attr_result[0] if attr_result else {}
+        
+        if not attr_result or "attributes" not in attr_result:
+            return event_response_builder({
+                "profile": profile_name,
+                "capabilities": [],
+                "resolved_permissions": {},
+                "resolved_knowledge": {}
+            }, context=context)
+        
+        declared_capabilities = attr_result["attributes"].get("capability", [])
+        if not isinstance(declared_capabilities, list):
+            declared_capabilities = [declared_capabilities] if declared_capabilities else []
+        
+        # Resolve each capability
+        resolved_capabilities = {}
+        merged_permissions = {}
+        merged_knowledge = {}
+        
+        for capability_name in declared_capabilities:
+            # Load capability with inheritance resolution
+            cap_result = await event_emitter("capability:load", {
+                "name": capability_name,
+                "resolve_inheritance": True
+            })
+            
+            if cap_result and isinstance(cap_result, list):
+                cap_result = cap_result[0]
+            
+            if cap_result and not cap_result.get('error'):
+                resolved_capabilities[capability_name] = cap_result
+                
+                # Merge permissions
+                if include_permissions and 'resolved_permissions' in cap_result:
+                    for perm_type, perm_list in cap_result['resolved_permissions'].items():
+                        if perm_type in merged_permissions:
+                            merged_permissions[perm_type] = list(set(merged_permissions[perm_type] + perm_list))
+                        else:
+                            merged_permissions[perm_type] = perm_list[:]
+                
+                # Merge knowledge
+                if include_knowledge and 'resolved_knowledge' in cap_result:
+                    merged_knowledge.update(cap_result['resolved_knowledge'])
+            else:
+                logger.warning(f"Failed to resolve capability {capability_name} for profile {profile_name}")
+        
+        result = {
+            "profile": profile_name,
+            "capabilities": resolved_capabilities,
+            "declared_capabilities": declared_capabilities
+        }
+        
+        if include_permissions:
+            result["resolved_permissions"] = merged_permissions
+        
+        if include_knowledge:
+            result["resolved_knowledge"] = merged_knowledge
+        
+        return event_response_builder(result, context=context)
+        
+    except Exception as e:
+        return error_response(f"Failed to resolve capabilities for profile {profile_name}: {e}", context)
+
+
+@event_handler("capability:list")
+async def handle_list_capabilities(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """List all available capabilities."""
+    if not event_emitter:
+        return error_response("Event system not initialized", context)
+    
+    capabilities_dir = Path(config.compositions_dir) / "capabilities"
+    if not capabilities_dir.exists():
+        return event_response_builder({"capabilities": []}, context=context)
+    
+    try:
+        capabilities = []
+        for yaml_file in capabilities_dir.glob("*.yaml"):
+            try:
+                capability_data = load_yaml_file(yaml_file)
+                if capability_data and 'name' in capability_data:
+                    capabilities.append({
+                        "name": capability_data['name'],
+                        "description": capability_data.get('description', ''),
+                        "extends": capability_data.get('extends'),
+                        "category": capability_data.get('metadata', {}).get('category', 'unknown'),
+                        "tags": capability_data.get('metadata', {}).get('tags', [])
+                    })
+            except Exception as e:
+                logger.warning(f"Failed to load capability from {yaml_file}: {e}")
+                continue
+        
+        return event_response_builder({"capabilities": capabilities}, context=context)
+        
+    except Exception as e:
+        return error_response(f"Failed to list capabilities: {e}", context)
+
+
+@event_handler("capability:validate")
+async def handle_validate_capability(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Validate a capability definition."""
+    from ksi_common.event_parser import event_format_linter
+    data = event_format_linter(raw_data, CapabilityLoadData)
+    
+    if not event_emitter:
+        return error_response("Event system not initialized", context)
+    
+    capability_name = data['name']
+    
+    try:
+        # Load capability
+        cap_result = await event_emitter("capability:load", {
+            "name": capability_name,
+            "resolve_inheritance": True
+        })
+        
+        if cap_result and isinstance(cap_result, list):
+            cap_result = cap_result[0]
+        
+        if cap_result and cap_result.get('error'):
+            return event_response_builder({
+                "capability": capability_name,
+                "valid": False,
+                "errors": [cap_result['error']]
+            }, context=context)
+        
+        # Validation checks
+        errors = []
+        warnings = []
+        
+        if not cap_result:
+            errors.append("Capability could not be loaded")
+        else:
+            # Check required fields
+            required_fields = ['name', 'permissions']
+            for field in required_fields:
+                if field not in cap_result:
+                    errors.append(f"Missing required field: {field}")
+            
+            # Check permissions format
+            if 'permissions' in cap_result:
+                permissions = cap_result['permissions']
+                if not isinstance(permissions, dict):
+                    errors.append("Permissions must be a dictionary")
+                else:
+                    for perm_type, perm_list in permissions.items():
+                        if not isinstance(perm_list, list):
+                            errors.append(f"Permission {perm_type} must be a list")
+            
+            # Check inheritance chain
+            if 'extends' in cap_result and cap_result['extends']:
+                parent_result = await event_emitter("capability:load", {
+                    "name": cap_result['extends'],
+                    "resolve_inheritance": False
+                })
+                
+                if parent_result and isinstance(parent_result, list):
+                    parent_result = parent_result[0]
+                
+                if not parent_result or parent_result.get('error'):
+                    errors.append(f"Parent capability not found: {cap_result['extends']}")
+        
+        is_valid = len(errors) == 0
+        
+        result = {
+            "capability": capability_name,
+            "valid": is_valid,
+            "errors": errors,
+            "warnings": warnings
+        }
+        
+        return event_response_builder(result, context=context)
+        
+    except Exception as e:
+        return error_response(f"Failed to validate capability {capability_name}: {e}", context)
