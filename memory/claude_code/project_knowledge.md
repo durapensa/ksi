@@ -905,6 +905,31 @@ Despite JSON extraction issues, MIPRO pattern successfully demonstrated:
 3. **Resource Awareness**: Each trial spawns multiple agents; plan accordingly
 4. **Explicit Instructions**: Agents interpret DSL literally - be specific about actions
 
+### Session Management & Git Workflows
+**Process Checking**: Use `ps aux | grep claude | grep "??"` to find background agents
+- TTY "??" = KSI-spawned agents (safe to manage)
+- TTY like "ttys000" = Claude Code process (DO NOT KILL)
+
+**Submodule Workflow**: 
+```bash
+# Commit submodule changes first
+cd var/lib/compositions && git add . && git commit -m "message"
+cd /path/to/main/repo && git add . && git commit -m "message"
+```
+
+**JSON Extraction Troubleshooting**:
+1. Check for extracted events: `jq '.events[] | select(.data._extracted_from_response == true)'`
+2. Look for feedback events: `jq '.events[] | select(.data.is_feedback == true)'`
+3. Find response logs: Agent outputs in `var/logs/responses/{session_id}.jsonl`
+4. Get session IDs from completion:result events
+
+### Meta-Pattern: Knowledge Capture
+**CRITICAL**: After discovering useful patterns, immediately update documentation:
+- Add to `memory/claude_code/project_knowledge.md` for technical patterns
+- Add to `CLAUDE.md` for development workflow patterns
+- Include command examples and troubleshooting steps
+- Document the meta-pattern itself to ensure future knowledge capture
+
 ## Event Router Enhancement (Planned)
 
 ### Generic Event Transformation System

@@ -24,6 +24,8 @@ Essential development practices for Claude Code when working with KSI.
 - **Complete migrations** - when implementing new features, migrate entire system, remove ALL old code
 - **Separation of concerns** - Event log (infrastructure) vs Graph database (application data)
 - **Inspect before implementing** - check existing code before writing new functionality
+- **Profile hierarchy** - JSON instructions in base profiles, avoid duplication in specialized profiles
+- **Progressive testing** - Start simple (single agent), progress to complex (multi-agent orchestration)
 
 ### Session ID Management (Critical)
 - **NEVER invent session IDs** - claude-cli only accepts session IDs it has generated
@@ -199,6 +201,46 @@ python monitor_orchestration.py <orchestration_id> [timeout_seconds]
 - Must define concrete agents in `agents:` section
 - DSL in `orchestration_logic:` as natural language with commands
 - Variables accessible throughout pattern
+
+### Troubleshooting Patterns
+
+**Process Management**:
+```bash
+# Check for background Claude processes (safe to manage)
+ps aux | grep claude | grep "??"
+
+# Check for active Claude Code process (DO NOT KILL)
+ps aux | grep claude | grep ttys
+```
+
+**JSON Extraction Issues**:
+```bash
+# Check for extracted events
+ksi send monitor:get_events --event-patterns "*" --limit 100 | \
+  jq '.events[] | select(.data._extracted_from_response == true)'
+
+# Check for agent feedback
+ksi send monitor:get_events --event-patterns "completion:async" --limit 10 | \
+  jq '.events[] | select(.data.is_feedback == true)'
+
+# Find agent response logs
+ls -lt var/logs/responses/ | head -10
+cat var/logs/responses/{session_id}.jsonl | jq
+```
+
+**Git Submodule Workflow**:
+```bash
+# Always commit submodule first, then main repo
+cd var/lib/compositions && git add . && git commit -m "submodule changes"
+cd /path/to/main && git add . && git commit -m "main repo changes"
+```
+
+### Meta-Workflow: Pattern Documentation
+**CRITICAL**: When discovering new useful patterns:
+1. **Immediately document** in CLAUDE.md (workflows) or project_knowledge.md (technical)
+2. **Include examples** - commands, file paths, expected outputs
+3. **Note context** - when to use, when not to use
+4. **Update this meta-pattern** if the documentation process itself improves
 
 ## Common Utilities (ksi_common)
 
