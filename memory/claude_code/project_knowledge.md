@@ -30,9 +30,46 @@ ksi/
 │   ├── run/           # Socket and PID file
 │   ├── logs/          # All system logs
 │   ├── db/            # SQLite databases
-│   └── lib/           # Configurations and schemas
+│   └── lib/           # Git submodules for components
+│       ├── compositions/  # → github.com/durapensa/ksi-compositions
+│       ├── evaluations/  # → github.com/durapensa/ksi-evaluations
+│       └── capabilities/ # → github.com/durapensa/ksi-capabilities
 └── memory/             # Knowledge management
 ```
+
+## Git Integration & Federated Architecture
+
+**Status**: Production ready with automatic git commits for all component operations.
+
+### Architecture
+- **Git Submodules**: Components stored in separate GitHub repositories
+- **Automatic Commits**: Every save/fork operation creates descriptive git commit
+- **Lineage Tracking**: Fork operations preserve parent metadata
+- **Sync Support**: Pull/push operations through KSI events
+
+### Key Events
+- **composition:save**: Saves with automatic git commit
+- **composition:fork**: Creates fork with lineage metadata
+- **composition:sync**: Synchronizes submodules with remotes
+- **composition:git_info**: Returns repository status for all submodules
+
+### Working with Submodules
+```bash
+# Clone with submodules
+git clone --recursive https://github.com/durapensa/ksi.git
+
+# Make changes (auto-committed by KSI)
+./ksi send composition:save --composition '{...}' --overwrite true
+
+# Push submodule changes
+cd var/lib/compositions && git push origin main
+
+# Update parent repo
+cd ../../../ && git add var/lib/compositions
+git commit -m "chore: Update submodule references"
+```
+
+**Full Documentation**: See `memory/claude_code/GIT_SUBMODULE_WORKFLOW.md`
 
 ## Core APIs
 

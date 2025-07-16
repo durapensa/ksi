@@ -21,6 +21,7 @@ KSI provides infrastructure for running and managing AI agents as persistent, au
 - 🌐 **Web Visualization** - Live agent ecosystem and state visualization via WebSocket
 - 🚀 **Production Ready** - Proper daemonization, logging, and error handling
 - 🔧 **MCP Integration** - Model Context Protocol server for tool access
+- 🌐 **Federated Architecture** - Git submodules for collaborative component development
 
 ## Installation
 
@@ -33,9 +34,12 @@ KSI provides infrastructure for running and managing AI agents as persistent, au
 ### Quick Start
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/ksi.git
+# Clone the repository with submodules
+git clone --recursive https://github.com/yourusername/ksi.git
 cd ksi
+
+# Or if already cloned, initialize submodules
+git submodule update --init --recursive
 
 # Set up the environment
 ./setup.sh

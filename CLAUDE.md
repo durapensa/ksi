@@ -165,6 +165,12 @@ ksi send composition:create --name my-prompt --category agent_tasks --content "T
 # List compositions
 ksi send composition:list --category agent_tasks
 
+# Git integration operations
+ksi send composition:save --composition '{...}' --overwrite true  # Auto git commit
+ksi send composition:fork --parent base_agent --name my_agent --reason "customization"
+ksi send composition:sync                                         # Pull from remotes
+ksi send composition:git_info                                     # Check repo status
+
 # Judge bootstrap protocol (for autonomous evaluation)
 python ksi_claude_code/scripts/judge_bootstrap_v2.py --test-suite evaluation/judges --num-variations 5
 ```
@@ -179,6 +185,7 @@ Essential utilities available throughout the codebase:
 - **logging_utils.py**: Structured logging configuration
 - **time_utils.py**: Timestamp formatting and parsing
 - **timestamps.py**: Standard timestamp utilities (numeric_to_iso, parse_iso_timestamp)
+- **git_utils.py**: Git operations for submodules (save_component, fork_component, sync_submodules)
 
 ## Orchestration Patterns
 
@@ -353,6 +360,13 @@ ksi send orchestration:start --pattern simple_echo_test --vars '{"num_messages":
 
 # Use --health flag for verbose output with connection status
 ksi --health discover              # Shows daemon health and discovery results
+
+# Git submodule workflow
+cd var/lib/compositions && git status  # Check submodule status
+git add . && git commit -m "message"   # Commit changes
+git push origin main                   # Push to GitHub
+cd ../../.. && git add var/lib/*      # Update parent repo
+git commit -m "Update submodules"      # Commit submodule references
 ```
 
 ## WebSocket Bridge & Visualization
