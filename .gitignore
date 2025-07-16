@@ -258,3 +258,8 @@ test_spawn*.py
 # Prompt evolution experiments
 prompts/composition_evolution.py
 prompts/fitness_evaluator.py
+
+# Temporary directories from git submodule setup
+ksi_repositories/
+temp_repos/
+var/lib.backup/
