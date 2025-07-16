@@ -1734,18 +1734,47 @@ async def handle_get_component(raw_data: Dict[str, Any], context: Optional[Dict[
         
         content = file_path.read_text()
         
-        # Get metadata if stored
-        metadata = {}
+        # Check for YAML frontmatter (progressive component system)
+        component_type = 'simple'  # Default to simple markdown
+        frontmatter = None
+        body_content = content
+        
+        if content.startswith('---\n'):
+            # Find closing --- for frontmatter
+            end_marker = content.find('\n---\n', 4)
+            if end_marker > 0:
+                try:
+                    # Parse frontmatter
+                    frontmatter_text = content[4:end_marker]
+                    frontmatter = yaml.safe_load(frontmatter_text)
+                    body_content = content[end_marker + 5:]  # Skip closing --- and newline
+                    component_type = 'enhanced'
+                except yaml.YAMLError as e:
+                    logger.warning(f"Failed to parse frontmatter in {name}: {e}")
+                    # Treat as simple markdown if frontmatter is invalid
+                    component_type = 'simple'
+                    frontmatter = None
+                    body_content = content
+        
+        # Get external metadata if stored (legacy support)
+        external_metadata = {}
         metadata_path = file_path.with_suffix('.yaml')
         if metadata_path.exists():
-            metadata = load_yaml_file(metadata_path)
+            external_metadata = load_yaml_file(metadata_path)
+        
+        # Merge metadata sources (frontmatter takes precedence)
+        metadata = external_metadata.copy()
+        if frontmatter:
+            metadata.update(frontmatter)
         
         return event_response_builder({
             'status': 'success',
             'name': name,
             'type': comp_type,
-            'content': content,
-            'metadata': metadata,
+            'component_type': component_type,  # 'simple' or 'enhanced'
+            'content': body_content,  # Content without frontmatter
+            'frontmatter': frontmatter,  # Parsed frontmatter (if any)
+            'metadata': metadata,  # Combined metadata
             'path': str(file_path.relative_to(config.lib_dir))
         }, context)
         
