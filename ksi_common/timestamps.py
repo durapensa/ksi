@@ -207,3 +207,44 @@ def numeric_to_iso(timestamp: float) -> str:
     return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat().replace('+00:00', 'Z')
 
 
+def sanitize_for_json(data: Union[dict, list, str, int, float, bool, None]) -> Union[dict, list, str, int, float, bool, None]:
+    """
+    Recursively convert date/datetime objects to ISO strings for JSON serialization.
+    
+    This function handles the common issue where YAML parsing converts date strings
+    like "2025-01-16" to Python date objects, which then fail JSON serialization.
+    
+    Args:
+        data: Any data structure that may contain date/datetime objects
+        
+    Returns:
+        The same data structure with date/datetime objects converted to ISO strings
+        
+    Example:
+        >>> from datetime import date, datetime
+        >>> data = {"created": date(2025, 1, 16), "updated": datetime.now()}
+        >>> sanitized = sanitize_for_json(data)
+        >>> # {"created": "2025-01-16", "updated": "2025-01-16T12:34:56.789Z"}
+    """
+    from datetime import date, datetime
+    
+    if isinstance(data, datetime):
+        # Convert datetime to ISO string with Z suffix
+        return data.isoformat().replace('+00:00', 'Z') if data.tzinfo else data.isoformat() + 'Z'
+    elif isinstance(data, date):
+        # Convert date to ISO string
+        return data.isoformat()
+    elif isinstance(data, dict):
+        # Recursively process dictionary values
+        return {key: sanitize_for_json(value) for key, value in data.items()}
+    elif isinstance(data, list):
+        # Recursively process list items
+        return [sanitize_for_json(item) for item in data]
+    elif isinstance(data, tuple):
+        # Convert tuples to lists and process
+        return [sanitize_for_json(item) for item in data]
+    else:
+        # Return primitive types as-is
+        return data
+
+

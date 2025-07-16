@@ -4,7 +4,6 @@ Composition Core - Data structures and loading logic
 """
 
 import json
-import yaml
 import re
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Set
@@ -12,7 +11,8 @@ from dataclasses import dataclass, field
 
 from ksi_common.logging import get_bound_logger
 from ksi_common.config import config
-from ksi_common.file_utils import load_yaml_file
+from ksi_common.yaml_utils import load_yaml_file, safe_load
+from ksi_common.json_utils import loads as json_loads, dumps as json_dumps
 from . import composition_index
 
 logger = get_bound_logger("composition_core")
@@ -106,7 +106,7 @@ def substitute_variables(text: str, variables: Dict[str, Any]) -> str:
             value = variables[var_name]
             # Handle different value types
             if isinstance(value, (dict, list)):
-                return json.dumps(value, indent=2)
+                return json_dumps(value)
             return str(value)
         return match.group(0)  # Keep original if not found
     

@@ -9,17 +9,22 @@ Provides consistent patterns for:
 - Atomic file writes
 """
 
-import yaml
-import json
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 import tempfile
 import shutil
 
+# Import new centralized utilities
+from ksi_common.yaml_utils import YAMLProcessor
+from ksi_common.json_utils import JSONProcessor
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import filename_timestamp
 
 logger = get_bound_logger("file_utils")
+
+# Create global processor instances for file operations
+_yaml_processor = YAMLProcessor()
+_json_processor = JSONProcessor()
 
 
 def load_yaml_file(file_path: Union[str, Path]) -> Dict[str, Any]:
@@ -34,26 +39,16 @@ def load_yaml_file(file_path: Union[str, Path]) -> Dict[str, Any]:
         
     Raises:
         FileNotFoundError: If file doesn't exist
-        yaml.YAMLError: If YAML parsing fails
+        YAMLParseError: If YAML parsing fails
     """
-    path = Path(file_path)
-    
-    if not path.exists():
-        raise FileNotFoundError(f"YAML file not found: {path}")
-    
-    try:
-        with open(path, 'r') as f:
-            return yaml.safe_load(f) or {}
-    except yaml.YAMLError as e:
-        logger.error(f"Failed to parse YAML from {path}: {e}")
-        raise
+    return _yaml_processor.load_file(file_path)
 
 
 def save_yaml_file(
     file_path: Union[str, Path], 
     data: Any,
     create_dirs: bool = True,
-    atomic: bool = False
+    atomic: bool = True
 ) -> Path:
     """
     Save data to YAML file with consistent formatting.
@@ -67,29 +62,8 @@ def save_yaml_file(
     Returns:
         Path to saved file
     """
-    path = Path(file_path)
-    
-    if create_dirs:
-        path.parent.mkdir(parents=True, exist_ok=True)
-    
-    if atomic:
-        # Write to temp file in same directory then rename
-        with tempfile.NamedTemporaryFile(
-            mode='w',
-            dir=path.parent,
-            delete=False,
-            suffix='.tmp'
-        ) as tmp_file:
-            yaml.dump(data, tmp_file, default_flow_style=False, sort_keys=False)
-            temp_path = Path(tmp_file.name)
-        
-        # Atomic rename
-        temp_path.replace(path)
-    else:
-        with open(path, 'w') as f:
-            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
-    
-    return path
+    _yaml_processor.save_file(file_path, data, create_dirs=create_dirs, atomic=atomic)
+    return Path(file_path)
 
 
 def load_json_file(file_path: Union[str, Path]) -> Dict[str, Any]:
@@ -104,27 +78,16 @@ def load_json_file(file_path: Union[str, Path]) -> Dict[str, Any]:
         
     Raises:
         FileNotFoundError: If file doesn't exist
-        json.JSONDecodeError: If JSON parsing fails
+        JSONParseError: If JSON parsing fails
     """
-    path = Path(file_path)
-    
-    if not path.exists():
-        raise FileNotFoundError(f"JSON file not found: {path}")
-    
-    try:
-        with open(path, 'r') as f:
-            return json.load(f)
-    except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse JSON from {path}: {e}")
-        raise
+    return _json_processor.load_file(file_path)
 
 
 def save_json_file(
     file_path: Union[str, Path],
     data: Any,
     create_dirs: bool = True,
-    atomic: bool = False,
-    indent: int = 2
+    atomic: bool = True
 ) -> Path:
     """
     Save data to JSON file with consistent formatting.
@@ -134,32 +97,12 @@ def save_json_file(
         data: Data to save
         create_dirs: Create parent directories if needed
         atomic: Use atomic write
-        indent: JSON indentation level
         
     Returns:
         Path to saved file
     """
-    path = Path(file_path)
-    
-    if create_dirs:
-        path.parent.mkdir(parents=True, exist_ok=True)
-    
-    if atomic:
-        with tempfile.NamedTemporaryFile(
-            mode='w',
-            dir=path.parent,
-            delete=False,
-            suffix='.tmp'
-        ) as tmp_file:
-            json.dump(data, tmp_file, indent=indent, sort_keys=True)
-            temp_path = Path(tmp_file.name)
-        
-        temp_path.replace(path)
-    else:
-        with open(path, 'w') as f:
-            json.dump(data, f, indent=indent, sort_keys=True)
-    
-    return path
+    _json_processor.save_file(file_path, data, create_dirs=create_dirs, atomic=atomic)
+    return Path(file_path)
 
 
 def create_timestamped_filename(

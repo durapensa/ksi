@@ -5,7 +5,6 @@ Composition Service Module - Event handlers for composition system
 
 import asyncio
 import json
-import yaml
 import re
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Set, TypedDict, Tuple, Union, Literal
@@ -13,13 +12,15 @@ from typing_extensions import NotRequired, Required
 from dataclasses import dataclass
 
 from ksi_daemon.event_system import event_handler, get_router
-from ksi_common.timestamps import timestamp_utc, format_for_logging
+from ksi_common.timestamps import timestamp_utc, format_for_logging, sanitize_for_json
 from ksi_common.logging import get_bound_logger
 from ksi_common.config import config
-from ksi_common.file_utils import save_yaml_file, ensure_directory, load_yaml_file
+from ksi_common.file_utils import ensure_directory
 from ksi_common.event_utils import extract_single_response
 from ksi_common.git_utils import git_manager
-from datetime import date, datetime
+from ksi_common.yaml_utils import safe_load, safe_dump, load_yaml_file, save_yaml_file
+from ksi_common.json_utils import loads as json_loads, dumps as json_dumps
+from ksi_common.frontmatter_utils import parse_frontmatter, get_component_type, validate_frontmatter
 
 # Import composition modules
 from . import composition_index
@@ -45,31 +46,7 @@ event_emitter = None  # For event emission to other services
 _capability_schema_cache = None
 
 
-def _sanitize_yaml_data(data: Any) -> Any:
-    """
-    Recursively convert date objects to ISO strings for JSON serialization.
-    
-    Args:
-        data: YAML data that may contain date objects
-        
-    Returns:
-        Sanitized data with date objects converted to ISO strings
-    """
-    if isinstance(data, date):
-        # Convert date to ISO string
-        return data.isoformat()
-    elif isinstance(data, datetime):
-        # Convert datetime to ISO string with UTC timezone
-        return data.isoformat()
-    elif isinstance(data, dict):
-        # Recursively sanitize dictionary values
-        return {key: _sanitize_yaml_data(value) for key, value in data.items()}
-    elif isinstance(data, list):
-        # Recursively sanitize list items
-        return [_sanitize_yaml_data(item) for item in data]
-    else:
-        # Return as-is for other types
-        return data
+# Date sanitization function moved to ksi_common.timestamps.sanitize_for_json
 
 
 # We'll define TypedDict types close to their handlers below
@@ -1401,9 +1378,9 @@ async def resolve_composition(
     
     # Resolve any remaining variables in the result
     if isinstance(result, dict):
-        result_str = json.dumps(result)
+        result_str = json_dumps(result)
         result_str = substitute_variables(result_str, variables)
-        result = json.loads(result_str)
+        result = json_loads(result_str)
     
     return result
 
@@ -1443,7 +1420,7 @@ async def compose_prompt(name: str, variables: Optional[Dict[str, Any]] = None) 
             if isinstance(value, str):
                 parts.append(value)
             else:
-                parts.append(json.dumps(value, indent=2))
+                parts.append(json_dumps(value))
         return '\n\n'.join(parts)
     else:
         # Otherwise return as string
@@ -1574,8 +1551,7 @@ Please read and understand your configuration, then self-configure and begin ope
             boilerplate += f"Your initial task: {interaction_prompt}\n\n"
         
         # Format as YAML for agent consumption
-        import yaml
-        composition_yaml = yaml.dump(redacted_context, default_flow_style=False, sort_keys=False)
+        composition_yaml = safe_dump(redacted_context)
         
         # Combine boilerplate with full context
         full_message = boilerplate + "=== YOUR COMPLETE CONTEXT ===\n```yaml\n" + composition_yaml + "\n```\n\nPlease proceed according to your configuration."
@@ -1778,31 +1754,18 @@ async def handle_get_component(raw_data: Dict[str, Any], context: Optional[Dict[
         
         content = file_path.read_text()
         
-        # Check for YAML frontmatter (progressive component system)
-        component_type = 'simple'  # Default to simple markdown
-        frontmatter = None
-        body_content = content
-        
-        if content.startswith('---\n'):
-            # Find closing --- for frontmatter
-            end_marker = content.find('\n---\n', 4)
-            if end_marker > 0:
-                try:
-                    # Parse frontmatter
-                    frontmatter_text = content[4:end_marker]
-                    frontmatter = yaml.safe_load(frontmatter_text)
-                    body_content = content[end_marker + 5:]  # Skip closing --- and newline
-                    component_type = 'enhanced'
-                    
-                    # Convert date objects to ISO strings for JSON serialization
-                    frontmatter = _sanitize_yaml_data(frontmatter)
-                    
-                except yaml.YAMLError as e:
-                    logger.warning(f"Failed to parse frontmatter in {name}: {e}")
-                    # Treat as simple markdown if frontmatter is invalid
-                    component_type = 'simple'
-                    frontmatter = None
-                    body_content = content
+        # Parse frontmatter using modern frontmatter utilities
+        try:
+            post = parse_frontmatter(content, sanitize_dates=True)
+            component_type = get_component_type(content)
+            frontmatter = post.metadata if post.has_frontmatter() else None
+            body_content = post.content
+        except Exception as e:
+            logger.warning(f"Failed to parse frontmatter in {name}: {e}")
+            # Fallback to simple component
+            component_type = 'simple'
+            frontmatter = None
+            body_content = content
         
         # Get external metadata if stored (legacy support)
         external_metadata = {}
@@ -1810,7 +1773,7 @@ async def handle_get_component(raw_data: Dict[str, Any], context: Optional[Dict[
         if metadata_path.exists():
             external_metadata = load_yaml_file(metadata_path)
             # Sanitize external metadata too
-            external_metadata = _sanitize_yaml_data(external_metadata)
+            external_metadata = sanitize_for_json(external_metadata)
         
         # Merge metadata sources (frontmatter takes precedence)
         metadata = external_metadata.copy()
@@ -2296,7 +2259,7 @@ async def handle_track_decision(raw_data: Dict[str, Any], context: Optional[Dict
         # Load existing decisions or create new list
         if decisions_path.exists():
             with open(decisions_path, 'r') as f:
-                decisions = yaml.safe_load(f) or []
+                decisions = safe_load(f.read()) or []
         else:
             decisions = []
         

@@ -24,7 +24,9 @@ classifiers = [
 ]
 
 dependencies = [
-    "PyYAML>=6.0",
+    "ruamel.yaml>=0.17.0",
+    "python-frontmatter>=1.1.0",
+    "pydantic-yaml>=1.0.0",
     "textual>=0.47.0",
     "psutil>=5.9.0",
     "pydantic>=2.5.0",
