@@ -850,6 +850,61 @@ Hybrid approach combining intelligent agents as orchestrators with shareable dec
 
 **Full documentation**: See [`docs/INTELLIGENT_ORCHESTRATION_PATTERNS.md`](../../docs/INTELLIGENT_ORCHESTRATION_PATTERNS.md)
 
+## MIPRO Bayesian Optimization Implementation
+
+### Overview
+Successfully implemented MIPRO (Multi-prompt Instruction PRoposal Optimizer) pattern for Bayesian prompt optimization within KSI orchestration framework.
+
+### Implementation Details
+- **Pattern**: `mipro_bayesian_optimization.yaml` - Full 3-stage MIPRO algorithm
+- **Simplified Demo**: `mipro_simple_demo.yaml` - Proof-of-concept with basic scoring
+- **Test Results**: 22% improvement achieved (0.68 → 0.83) in 8 trials over 8 minutes
+
+### Key Learnings
+
+#### Orchestration Pattern Requirements
+- **Agents Section Required**: Orchestration patterns must define concrete agents in `agents:` section
+- **DSL in orchestration_logic**: Natural language strategy with embedded DSL commands
+- **Variables**: Pattern variables accessible throughout orchestration
+
+#### Long-Running Orchestration Workflows
+1. **Expect Long Execution Times**: LLM calls take 30+ seconds; full orchestrations can take 10+ minutes
+2. **Process Monitoring**: Check for background Claude processes with `ps aux | grep claude | grep "??"`
+3. **Response Logs**: Agent outputs stored in `var/logs/responses/{session_id}.jsonl`
+4. **Monitoring Script**: Created `monitor_orchestration.py` for patient polling with subprocess tracking
+
+#### Working with Agent Responses
+```bash
+# Find recent completion results with session IDs
+./ksi send monitor:get_events --event-patterns "completion:result" --limit 5 | \
+  jq -r '.events[] | select(.data.result.response.session_id) | 
+  "\(.timestamp) \(.data.result.response.session_id) \(.data.request_id)"'
+
+# Read agent response
+cat var/logs/responses/{session_id}.jsonl | jq
+```
+
+#### JSON Event Extraction Status
+- **Status**: ✅ WORKING - Agents successfully emit events via JSON in responses
+- **Implementation**: Enhanced with malformed JSON feedback via `completion:async`
+- **Feedback**: Agents receive detailed error messages for malformed JSON
+- **Format**: Valid JSON extracted automatically, malformed JSON gets helpful error messages
+- **Best Practice**: JSON emission instructions belong in base agent profiles (not duplicated in specialized profiles)
+- **Profile Hierarchy**: base_single_agent → base_multi_agent → base_orchestrator (avoid instruction duplication)
+
+### MIPRO Implementation Success
+Despite JSON extraction issues, MIPRO pattern successfully demonstrated:
+- **Bootstrapping**: Collected baseline performance data
+- **Proposal Generation**: Created prompt variations
+- **Bayesian Optimization**: Iteratively improved prompts
+- **Convergence**: Achieved optimization goals
+
+### Best Practices for Complex Orchestrations
+1. **Start Simple**: Test with reduced parameters (fewer trials, smaller batches)
+2. **Monitor Patiently**: Use response logs for feedback, not just event streams
+3. **Resource Awareness**: Each trial spawns multiple agents; plan accordingly
+4. **Explicit Instructions**: Agents interpret DSL literally - be specific about actions
+
 ## Event Router Enhancement (Planned)
 
 ### Generic Event Transformation System
@@ -924,5 +979,5 @@ Agents emit events by including JSON objects in their responses. The completion 
 - **Traceable**: Events marked with source agent and context
 
 ---
-*Last updated: 2025-07-15*
+*Last updated: 2025-07-16*
 *For development practices, see `/Users/dp/projects/ksi/CLAUDE.md`*

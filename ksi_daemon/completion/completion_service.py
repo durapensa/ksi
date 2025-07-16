@@ -12,6 +12,7 @@ Refactored completion service using focused components:
 
 import asyncio
 import json
+import re
 import time
 import uuid
 from typing import Dict, Any, Optional, List, TypedDict, Literal
@@ -636,10 +637,24 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
                                       agent_id=agent_id,
                                       events=[e['event'] for e in extraction_results])
                             
-                            # Send feedback as separate completion:async if agent_id exists
-                            if agent_id and extraction_results:
-                                feedback_content = f"=== EVENT EMISSION RESULTS ===\n"
-                                feedback_content += json.dumps(extraction_results, indent=2)
+                            # Check if response contains JSON-like patterns
+                            has_json_patterns = bool(re.search(r'\{["\']event["\']:', result_text))
+                            
+                            # Send feedback if we have results OR if JSON patterns were attempted
+                            if agent_id and (extraction_results or has_json_patterns):
+                                # Prepare feedback content
+                                if extraction_results:
+                                    feedback_content = f"=== EVENT EMISSION RESULTS ===\n"
+                                    feedback_content += json.dumps(extraction_results, indent=2)
+                                else:
+                                    # JSON patterns found but extraction failed
+                                    feedback_content = f"=== EVENT EMISSION RESULTS ===\n"
+                                    feedback_content += "⚠️ JSON event patterns detected but extraction failed.\n\n"
+                                    feedback_content += "Common issues:\n"
+                                    feedback_content += "- Single quotes instead of double quotes: {'event': 'name'} ❌\n"
+                                    feedback_content += "- Trailing commas: {\"event\": \"name\",} ❌\n"
+                                    feedback_content += "- Missing quotes on keys: {event: \"name\"} ❌\n\n"
+                                    feedback_content += "Correct format: {\"event\": \"event:name\", \"data\": {...}} ✓"
                                 
                                 # Send via completion:async - maintains loose coupling
                                 await event_emitter("completion:async", {

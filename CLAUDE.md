@@ -173,7 +173,32 @@ ksi send composition:git_info                                     # Check repo s
 
 # Judge bootstrap protocol (for autonomous evaluation)
 python ksi_claude_code/scripts/judge_bootstrap_v2.py --test-suite evaluation/judges --num-variations 5
+
+# Start orchestration pattern
+ksi send orchestration:start --pattern mipro_bayesian_optimization --vars '{"task": "optimize this"}'
+
+# Monitor long-running orchestrations
+python monitor_orchestration.py start <pattern_name> [timeout_seconds]
+python monitor_orchestration.py <orchestration_id> [timeout_seconds]
 ```
+
+### Orchestration Workflows
+
+**Long-Running Operations**: Orchestrations can take 10+ minutes due to LLM latency
+- **Check processes**: `ps aux | grep claude | grep "??"` to find background agents
+- **Find response logs**: Agent outputs in `var/logs/responses/{session_id}.jsonl`
+- **Get session IDs**: 
+  ```bash
+  ksi send monitor:get_events --event-patterns "completion:result" --limit 5 | \
+    jq -r '.events[] | select(.data.result.response.session_id) | 
+    "\(.timestamp) \(.data.result.response.session_id) \(.data.request_id)"'
+  ```
+- **Read responses**: `cat var/logs/responses/{session_id}.jsonl | jq`
+
+**Pattern Requirements**:
+- Must define concrete agents in `agents:` section
+- DSL in `orchestration_logic:` as natural language with commands
+- Variables accessible throughout pattern
 
 ## Common Utilities (ksi_common)
 
