@@ -1963,3 +1963,143 @@ async def handle_agent_needs_continuation(raw_data: Dict[str, Any], context: Opt
     }, context)
 
 
+# KSI System Integration Event Handlers (Phase 4)
+
+class AgentSpawnFromComponentData(TypedDict):
+    """Spawn agent from component."""
+    component: Required[str]  # Component name to use as profile
+    agent_id: NotRequired[str]  # Agent ID (auto-generated if not provided)
+    variables: NotRequired[Dict[str, Any]]  # Variables for component rendering
+    prompt: NotRequired[str]  # Initial prompt
+    context: NotRequired[Dict[str, Any]]  # Additional context
+    model: NotRequired[str]  # Model to use
+    enable_tools: NotRequired[bool]  # Enable tool usage
+    permission_profile: NotRequired[str]  # Permission profile name
+    sandbox_dir: NotRequired[str]  # Sandbox directory
+    mcp_config_path: NotRequired[str]  # MCP configuration path
+    conversation_id: NotRequired[str]  # Conversation ID
+    track_component_usage: NotRequired[bool]  # Track component usage (default: True)
+
+
+@event_handler("agent:spawn_from_component")
+async def handle_spawn_from_component(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Spawn an agent using a component as the profile."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    try:
+        data = event_format_linter(raw_data, AgentSpawnFromComponentData)
+        
+        component_name = data['component']
+        agent_id = data.get('agent_id', f"agent_{uuid.uuid4().hex[:8]}")
+        variables = data.get('variables', {})
+        track_usage = data.get('track_component_usage', True)
+        
+        # Convert component to profile
+        if not event_emitter:
+            return error_response("Event emitter not available", context)
+        
+        profile_result = await event_emitter("composition:component_to_profile", {
+            "component": component_name,
+            "variables": variables,
+            "save_to_disk": True,  # Save to disk for agent spawning
+            "overwrite": True  # Allow overwriting temporary profiles
+        }, context)
+        
+        # Handle both single dict and list of dicts responses
+        if isinstance(profile_result, list) and profile_result:
+            profile_result = profile_result[0]
+        
+        if not profile_result or profile_result.get('status') != 'success':
+            return error_response(f"Failed to convert component {component_name} to profile: {profile_result.get('error', 'Unknown error')}", context)
+        
+        profile_name = profile_result['profile_name']
+        
+        # Prepare agent spawn data
+        spawn_data = {
+            "agent_id": agent_id,
+            "profile": profile_name,
+            "prompt": data.get('prompt', ''),
+            "context": data.get('context', {}),
+            "model": data.get('model'),
+            "enable_tools": data.get('enable_tools'),
+            "permission_profile": data.get('permission_profile'),
+            "sandbox_dir": data.get('sandbox_dir'),
+            "mcp_config_path": data.get('mcp_config_path'),
+            "conversation_id": data.get('conversation_id')
+        }
+        
+        # Remove None values
+        spawn_data = {k: v for k, v in spawn_data.items() if v is not None}
+        
+        # Spawn agent using the converted profile
+        spawn_result = await handle_spawn_agent(spawn_data, context)
+        
+        # Debug: Log the spawn result type and content
+        logger.debug(f"Spawn result type: {type(spawn_result)}, content: {spawn_result}")
+        
+        # Handle both dict and non-dict responses
+        if isinstance(spawn_result, dict):
+            # Check for various success status values
+            status = spawn_result.get('status', '')
+            if status not in ['success', 'created', 'spawned']:
+                # Only treat as error if there's an actual error or failed status
+                if status == 'failed' or 'error' in spawn_result:
+                    return error_response(f"Failed to spawn agent: {spawn_result.get('error', 'Unknown error')}", context)
+            # Extract agent_id from spawn result
+            spawned_agent_id = spawn_result.get('agent_id', agent_id)
+            if spawned_agent_id:
+                agent_id = spawned_agent_id
+        else:
+            # Non-dict response - assume it's an error or check for specific format
+            return error_response(f"Failed to spawn agent: {spawn_result}", context)
+        
+        # Track component usage if enabled
+        if track_usage and event_emitter:
+            try:
+                await event_emitter("composition:track_usage", {
+                    "component": component_name,
+                    "usage_context": "agent_spawn",
+                    "metadata": {
+                        "agent_id": agent_id,
+                        "profile_name": profile_name,
+                        "variables": variables,
+                        "spawn_timestamp": timestamp_utc()
+                    }
+                }, context)
+            except Exception as track_error:
+                logger.warning(f"Failed to track component usage: {track_error}")
+        
+        # Add component metadata to response
+        if isinstance(spawn_result, dict):
+            response = spawn_result.copy()
+            response.update({
+                "source_component": component_name,
+                "profile_name": profile_name,
+                "variables_used": variables,
+                "component_metadata": profile_result.get('render_metadata', {})
+            })
+            # Ensure status is set to success if we got here
+            if response.get('status') in ['created', 'spawned']:
+                response['spawn_status'] = response['status']  # Keep original status
+                response['status'] = 'success'  # Set overall status to success
+        else:
+            response = {
+                "status": "success",
+                "agent_id": agent_id,
+                "spawn_result": spawn_result,
+                "source_component": component_name,
+                "profile_name": profile_name,
+                "variables_used": variables,
+                "component_metadata": profile_result.get('render_metadata', {})
+            }
+        
+        logger.info(f"Spawned agent {agent_id} from component {component_name}")
+        
+        return event_response_builder(response, context)
+        
+    except Exception as e:
+        logger.error(f"Agent spawn from component failed: {e}")
+        return error_response(f"Agent spawn from component failed: {e}", context)
+
+

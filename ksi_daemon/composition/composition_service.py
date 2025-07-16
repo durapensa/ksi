@@ -21,6 +21,7 @@ from ksi_common.git_utils import git_manager
 from ksi_common.yaml_utils import safe_load, safe_dump, load_yaml_file, save_yaml_file
 from ksi_common.json_utils import loads as json_loads, dumps as json_dumps
 from ksi_common.frontmatter_utils import parse_frontmatter, get_component_type, validate_frontmatter
+from ksi_common.component_renderer import get_renderer, ComponentResolutionError, CircularDependencyError
 
 # Import composition modules
 from . import composition_index
@@ -1328,7 +1329,11 @@ async def resolve_composition(
         parent = await resolve_composition(composition.extends, comp_type, variables)
         # Merge parent configuration
         # (simplified - in production would do deep merge)
-        result = parent.copy()
+        if isinstance(parent, dict):
+            result = parent.copy()
+        else:
+            logger.warning(f"Parent composition {composition.extends} returned non-dict: {type(parent)}")
+            result = {}
     else:
         result = {}
     
@@ -1336,9 +1341,12 @@ async def resolve_composition(
     for mixin_name in composition.mixins:
         mixin = await resolve_composition(mixin_name, comp_type, variables)
         # Merge mixin configuration
-        for key, value in mixin.items():
-            if key not in result:
-                result[key] = value
+        if isinstance(mixin, dict):
+            for key, value in mixin.items():
+                if key not in result:
+                    result[key] = value
+        else:
+            logger.warning(f"Mixin composition {mixin_name} returned non-dict: {type(mixin)}")
     
     # Process components
     for component in composition.components:
@@ -1794,6 +1802,65 @@ async def handle_get_component(raw_data: Dict[str, Any], context: Optional[Dict[
     except Exception as e:
         logger.error(f"Component retrieval failed: {e}")
         return error_response(str(e), context)
+
+
+class ComponentRenderData(TypedDict):
+    """Render a component with variable substitution and mixin resolution."""
+    name: str  # Component name to render
+    variables: NotRequired[Dict[str, Any]]  # Variables for substitution
+    include_metadata: NotRequired[bool]  # Include metadata in response
+
+
+@event_handler("composition:render_component")
+async def handle_render_component(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Render a component with full mixin resolution and variable substitution."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    try:
+        data = event_format_linter(raw_data, ComponentRenderData)
+        
+        name = data['name']
+        variables = data.get('variables', {})
+        include_metadata = data.get('include_metadata', False)
+        
+        # Ensure variables is a dictionary
+        if isinstance(variables, str):
+            try:
+                variables = json_loads(variables)
+            except Exception:
+                variables = {}
+        elif not isinstance(variables, dict):
+            variables = {}
+        
+        # Get renderer and render component
+        renderer = get_renderer()
+        rendered_content = renderer.render(name, variables)
+        
+        response_data = {
+            'status': 'success',
+            'name': name,
+            'type': 'component',
+            'rendered_content': rendered_content,
+            'variables': variables
+        }
+        
+        # Include metadata if requested
+        if include_metadata:
+            cache_stats = renderer.get_cache_stats()
+            response_data['cache_stats'] = cache_stats
+            
+        return event_response_builder(response_data, context)
+        
+    except CircularDependencyError as e:
+        logger.error(f"Circular dependency in component {name}: {e}")
+        return error_response(f"Circular dependency detected: {e}", context)
+    except ComponentResolutionError as e:
+        logger.error(f"Component resolution failed for {name}: {e}")
+        return error_response(f"Component resolution failed: {e}", context)
+    except Exception as e:
+        logger.error(f"Component rendering failed: {e}")
+        return error_response(f"Component rendering failed: {e}", context)
 
 
 @event_handler("composition:fork_component")
@@ -2308,3 +2375,318 @@ async def handle_track_decision(raw_data: Dict[str, Any], context: Optional[Dict
     except Exception as e:
         logger.error(f"Failed to track decision: {e}")
         return error_response(e, context)
+
+
+# KSI System Integration Event Handlers (Phase 4)
+
+class ComponentToProfileData(TypedDict):
+    """Convert component to agent profile."""
+    component: Required[str]  # Component name to convert
+    profile_name: NotRequired[str]  # Optional profile name (default: temp_profile_{hash})
+    variables: NotRequired[Dict[str, Any]]  # Variables for component rendering
+    save_to_disk: NotRequired[bool]  # Whether to save profile to disk (default: False)
+    overwrite: NotRequired[bool]  # Whether to overwrite existing profile (default: False)
+
+
+@event_handler("composition:component_to_profile")
+async def handle_component_to_profile(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Convert a component to an agent profile for spawning."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    try:
+        data = event_format_linter(raw_data, ComponentToProfileData)
+        
+        component_name = data['component']
+        variables = data.get('variables', {})
+        save_to_disk = data.get('save_to_disk', False)
+        overwrite = data.get('overwrite', False)
+        
+        # Generate profile name if not provided
+        profile_name = data.get('profile_name')
+        if not profile_name:
+            # Create a temporary profile name based on component name and hash
+            import hashlib
+            var_hash = hashlib.sha256(json_dumps(variables).encode()).hexdigest()[:8]
+            profile_name = f"temp_profile_{component_name.replace('/', '_')}_{var_hash}"
+        
+        # Render the component with variables
+        render_result = await handle_render_component({
+            'name': component_name,
+            'variables': variables,
+            'include_metadata': True
+        }, context)
+        
+        if render_result['status'] != 'success':
+            return error_response(f"Failed to render component {component_name}: {render_result.get('error')}", context)
+        
+        rendered_content = render_result['rendered_content']
+        component_metadata = render_result.get('cache_stats', {})
+        
+        # Create profile structure in proper composition format
+        profile_data = {
+            'name': profile_name,
+            'type': 'profile',
+            'version': '1.0.0',
+            'description': f'Profile generated from component {component_name}',
+            'author': 'composition:component_to_profile',
+            'components': [
+                {
+                    'name': 'agent_config',
+                    'inline': {
+                        'model': 'sonnet',
+                        'capabilities': ['conversation', 'analysis', 'task_execution'],
+                        'message_queue_size': 100,
+                        'priority': 'normal'
+                    }
+                },
+                {
+                    'name': 'generated_content',
+                    'inline': {
+                        'system_prompt': rendered_content
+                    }
+                }
+            ],
+            'variables': variables if isinstance(variables, dict) else {},
+            'metadata': {
+                'source_component': component_name,
+                'component_metadata': component_metadata,
+                'render_timestamp': format_for_logging(),
+                'generated_by': 'composition:component_to_profile'
+            }
+        }
+        
+        # Save to disk if requested
+        if save_to_disk:
+            # Check if profile already exists
+            profiles_dir = config.compositions_dir / 'profiles'
+            profile_path = profiles_dir / f"{profile_name}.yaml"
+            
+            if profile_path.exists() and not overwrite:
+                return error_response(f"Profile {profile_name} already exists. Use overwrite=true to replace.", context)
+            
+            # Ensure directory exists
+            ensure_directory(profiles_dir)
+            
+            # Save profile to disk
+            save_yaml_file(profile_path, profile_data)
+            
+            # Commit to git
+            try:
+                git_result = await git_manager.save_component(
+                    component_type="profiles",
+                    component_name=profile_name,
+                    component_data=profile_data
+                )
+                
+                if git_result.success:
+                    logger.info(f"Saved profile {profile_name} from component {component_name} (commit: {git_result.commit_hash})")
+                else:
+                    logger.warning(f"Failed to commit profile {profile_name}: {git_result.error}")
+                    
+            except Exception as git_error:
+                logger.warning(f"Git commit failed for profile {profile_name}: {git_error}")
+        
+        return event_response_builder({
+            'status': 'success',
+            'profile_name': profile_name,
+            'profile_data': profile_data,
+            'source_component': component_name,
+            'variables_used': variables,
+            'saved_to_disk': save_to_disk,
+            'render_metadata': render_result.get('cache_stats', {})
+        }, context)
+        
+    except Exception as e:
+        logger.error(f"Component to profile conversion failed: {e}")
+        return error_response(f"Component to profile conversion failed: {e}", context)
+
+
+class ComponentGenerateOrchestrationData(TypedDict):
+    """Generate orchestration pattern from component."""
+    component: Required[str]  # Component name to use as orchestration template
+    pattern_name: NotRequired[str]  # Generated pattern name (default: orchestration_{component})
+    variables: NotRequired[Dict[str, Any]]  # Variables for component rendering
+    save_to_disk: NotRequired[bool]  # Whether to save orchestration to disk (default: False)
+    overwrite: NotRequired[bool]  # Whether to overwrite existing orchestration (default: False)
+    agent_profile: NotRequired[str]  # Default agent profile to use (default: base_single_agent)
+
+
+@event_handler("composition:generate_orchestration")
+async def handle_generate_orchestration(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Generate an orchestration pattern from a component."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    try:
+        data = event_format_linter(raw_data, ComponentGenerateOrchestrationData)
+        
+        component_name = data['component']
+        variables = data.get('variables', {})
+        save_to_disk = data.get('save_to_disk', False)
+        overwrite = data.get('overwrite', False)
+        agent_profile = data.get('agent_profile', 'base_single_agent')
+        
+        # Generate pattern name if not provided
+        pattern_name = data.get('pattern_name')
+        if not pattern_name:
+            pattern_name = f"orchestration_{component_name.replace('/', '_')}"
+        
+        # Render the component with variables
+        render_result = await handle_render_component({
+            'name': component_name,
+            'variables': variables,
+            'include_metadata': True
+        }, context)
+        
+        if render_result['status'] != 'success':
+            return error_response(f"Failed to render component {component_name}: {render_result.get('error')}", context)
+        
+        rendered_content = render_result['rendered_content']
+        
+        # Generate orchestration pattern structure
+        orchestration_data = {
+            'name': pattern_name,
+            'type': 'orchestration',
+            'description': f"Generated orchestration pattern from component {component_name}",
+            'agents': {
+                'main_agent': {
+                    'profile': agent_profile,
+                    'vars': {
+                        'initial_prompt': rendered_content
+                    }
+                }
+            },
+            'orchestration_logic': {
+                'strategy': f"""
+                    # Generated orchestration from component: {component_name}
+                    
+                    SPAWN main_agent WITH initial_prompt=\"{rendered_content[:100]}...\"
+                    AWAIT main_agent COMPLETION
+                    TRACK results
+                    CLEANUP all agents
+                """.strip()
+            },
+            'variables': variables,
+            'metadata': {
+                'source_component': component_name,
+                'component_metadata': render_result.get('cache_stats', {}),
+                'generation_timestamp': format_for_logging(),
+                'generated_by': 'composition:generate_orchestration'
+            }
+        }
+        
+        # Save to disk if requested
+        if save_to_disk:
+            # Check if orchestration already exists
+            orchestrations_dir = config.compositions_dir / 'orchestrations'
+            orchestration_path = orchestrations_dir / f"{pattern_name}.yaml"
+            
+            if orchestration_path.exists() and not overwrite:
+                return error_response(f"Orchestration {pattern_name} already exists. Use overwrite=true to replace.", context)
+            
+            # Ensure directory exists
+            ensure_directory(orchestrations_dir)
+            
+            # Save orchestration to disk
+            save_yaml_file(orchestration_path, orchestration_data)
+            
+            # Commit to git
+            try:
+                git_result = await git_manager.save_component(
+                    component_type="orchestrations",
+                    component_name=pattern_name,
+                    component_data=orchestration_data
+                )
+                
+                if git_result.success:
+                    logger.info(f"Saved orchestration {pattern_name} from component {component_name} (commit: {git_result.commit_hash})")
+                else:
+                    logger.warning(f"Failed to commit orchestration {pattern_name}: {git_result.error}")
+                    
+            except Exception as git_error:
+                logger.warning(f"Git commit failed for orchestration {pattern_name}: {git_error}")
+        
+        return event_response_builder({
+            'status': 'success',
+            'pattern_name': pattern_name,
+            'orchestration_data': orchestration_data,
+            'source_component': component_name,
+            'variables_used': variables,
+            'saved_to_disk': save_to_disk,
+            'render_metadata': render_result.get('cache_stats', {})
+        }, context)
+        
+    except Exception as e:
+        logger.error(f"Orchestration generation failed: {e}")
+        return error_response(f"Orchestration generation failed: {e}", context)
+
+
+class ComponentTrackUsageData(TypedDict):
+    """Track component usage for analytics."""
+    component: Required[str]  # Component name that was used
+    usage_context: Required[str]  # Context of usage (agent_spawn, orchestration, profile_creation, etc.)
+    metadata: NotRequired[Dict[str, Any]]  # Additional metadata about the usage
+    timestamp: NotRequired[str]  # Timestamp of usage (auto-generated if not provided)
+
+
+@event_handler("composition:track_usage")
+async def handle_track_usage(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Track component usage for analytics."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    try:
+        data = event_format_linter(raw_data, ComponentTrackUsageData)
+        
+        component_name = data['component']
+        usage_context = data['usage_context']
+        metadata = data.get('metadata', {})
+        timestamp = data.get('timestamp', format_for_logging())
+        
+        # Create usage record
+        usage_record = {
+            'component': component_name,
+            'usage_context': usage_context,
+            'metadata': metadata,
+            'timestamp': timestamp,
+            'agent_id': context.get('agent_id') if context else None,
+            'request_id': context.get('request_id') if context else None
+        }
+        
+        # Store usage record in the monitoring system via event emission
+        if event_emitter:
+            try:
+                await event_emitter("monitor:record_component_usage", usage_record, context)
+            except Exception as monitor_error:
+                logger.warning(f"Failed to record usage in monitoring system: {monitor_error}")
+        
+        # Store usage record in component usage file
+        usage_dir = config.compositions_dir / 'usage_analytics'
+        ensure_directory(usage_dir)
+        
+        # Create daily usage log file
+        from datetime import datetime
+        date_str = datetime.now().strftime('%Y-%m-%d')
+        usage_file = usage_dir / f"component_usage_{date_str}.jsonl"
+        
+        # Append usage record to daily log
+        try:
+            with open(usage_file, 'a') as f:
+                f.write(json_dumps(usage_record) + '\n')
+        except Exception as file_error:
+            logger.warning(f"Failed to write usage record to file: {file_error}")
+        
+        logger.debug(f"Tracked component usage: {component_name} in {usage_context}")
+        
+        return event_response_builder({
+            'status': 'success',
+            'tracked_component': component_name,
+            'usage_context': usage_context,
+            'timestamp': timestamp,
+            'usage_file': str(usage_file)
+        }, context)
+        
+    except Exception as e:
+        logger.error(f"Component usage tracking failed: {e}")
+        return error_response(f"Component usage tracking failed: {e}", context)

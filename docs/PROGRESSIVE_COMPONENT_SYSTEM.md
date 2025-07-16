@@ -91,17 +91,25 @@ content: |
 - Validate variable definitions
 - Store metadata appropriately
 
-### Phase 3: Rendering Support
+### Phase 3: Rendering Support ✅ COMPLETED
 - Implement recursive mixin resolution
 - Apply variable substitution at render time
 - Handle circular dependency detection
 - Support conditional mixins
+- Performance testing with deep inheritance (up to 10 levels)
 
-### Phase 4: Full YAML Components
+### Phase 4: KSI System Integration
+- Event-driven component updates and notifications
+- Orchestration pattern generation from component hierarchies
+- Component-based agent spawning and profile management
+- Integration with existing KSI monitoring and state systems
+- Component versioning and lifecycle management
+
+### Phase 5: Full YAML Components (Future)
 - Allow `.yaml` component files
 - Support all composition features
-- Enable component versioning
-- Add component discovery enhancements
+- Enhanced component discovery and validation
+- Component marketplace and sharing
 
 ## Usage Examples
 
@@ -179,11 +187,18 @@ specialized_orchestrator.yaml (full composition)
 2. Create component with circular dependencies, verify detection
 3. Test variable validation
 
-### Phase 3 Tests
+### Phase 3 Tests ✅ COMPLETED
 1. Test recursive mixin resolution
 2. Test variable substitution in mixed components
 3. Test conditional mixin application
 4. Performance test deep inheritance chains
+
+### Phase 4 Tests
+1. Test event-driven component updates
+2. Test orchestration pattern generation
+3. Test component-based agent spawning
+4. Test monitoring integration
+5. Test component lifecycle management
 
 ## Migration Path
 
@@ -208,6 +223,108 @@ specialized_orchestrator.yaml (full composition)
 - Track which components are used most
 - Identify common patterns for extraction
 - Suggest refactoring opportunities
+
+## Phase 4: KSI System Integration
+
+### Event-Driven Component Updates
+Components can respond to KSI events and trigger updates:
+
+```yaml
+# components/adaptive_agent_profile.md
+---
+extends: base_agent_profile
+event_subscriptions:
+  - pattern: "agent:context_update"
+    variable_mappings:
+      context: "{{event.data.context}}"
+      capabilities: "{{event.data.capabilities}}"
+  - pattern: "orchestration:vars_changed"
+    variable_mappings:
+      environment: "{{event.data.environment}}"
+variables:
+  context: "default"
+  capabilities: "[]"
+  environment: "development"
+---
+# Dynamic Agent Profile
+
+Your context: {{context}}
+Your capabilities: {{capabilities}}
+Environment: {{environment}}
+```
+
+### Orchestration Pattern Generation
+Generate orchestration patterns from component hierarchies:
+
+```bash
+# Generate orchestration from component
+ksi send composition:generate_orchestration \
+  --component "components/complex_workflow" \
+  --pattern_name "workflow_orchestration"
+
+# Use component as orchestration template
+ksi send orchestration:start \
+  --component "components/multi_step_process" \
+  --vars '{"priority": "high", "deadline": "2024-12-31"}'
+```
+
+### Component-Based Agent Spawning
+Spawn agents directly from components:
+
+```bash
+# Spawn agent using component as profile
+ksi send agent:spawn_from_component \
+  --component "components/specialized_analyst" \
+  --vars '{"domain": "financial", "depth": "detailed"}'
+
+# Create temporary profile from component
+ksi send composition:component_to_profile \
+  --component "components/task_executor" \
+  --profile_name "temp_executor_profile"
+```
+
+### Integration Points
+
+1. **Composition Service Extension**
+   - Add `composition:render_component` event handler
+   - Implement `composition:component_to_profile` for agent spawning
+   - Add `composition:generate_orchestration` for pattern creation
+
+2. **Agent Service Integration**
+   - Add `agent:spawn_from_component` event handler
+   - Support component-based profile resolution
+   - Dynamic profile updates from component changes
+
+3. **Orchestration Service Integration**
+   - Pattern generation from component hierarchies
+   - Component-based orchestration templates
+   - Dynamic orchestration variable injection
+
+4. **Monitoring Integration**
+   - Component usage tracking
+   - Performance metrics for component rendering
+   - Component dependency analysis
+
+### Component Lifecycle Management
+Track component versions and usage:
+
+```bash
+# Version components
+ksi send composition:version_component \
+  --component "components/critical_instruction" \
+  --version "1.2.0" \
+  --changelog "Added error handling"
+
+# Track component usage
+ksi send composition:track_usage \
+  --component "components/base_agent" \
+  --usage_context "agent_spawn" \
+  --metadata '{"agent_id": "agent_123"}'
+
+# Component dependency analysis
+ksi send composition:analyze_dependencies \
+  --component "components/complex_workflow"
+```
 
 ## Implementation Notes
 

@@ -1,0 +1,150 @@
+{
+  "depth_performance": [
+    {
+      "depth": 1,
+      "component": "test/phase3/deep_level_1",
+      "execution_time": 0.00043504172936081886,
+      "memory_current": 8048,
+      "memory_peak": 18503,
+      "cache_stats": {
+        "cached_components": 1,
+        "cache_keys": [
+          "test/phase3/deep_level_1#11c293dbae27d8b5"
+        ]
+      },
+      "content_length": 151
+    },
+    {
+      "depth": 3,
+      "component": "test/phase3/deep_level_3",
+      "execution_time": 0.000724125187844038,
+      "memory_current": 11605,
+      "memory_peak": 22343,
+      "cache_stats": {
+        "cached_components": 4,
+        "cache_keys": [
+          "test/phase3/deep_level_1#640f84ebdfd21b50",
+          "test/phase3/deep_level_2#640f84ebdfd21b50",
+          "test/phase3/greeting_mixin#640f84ebdfd21b50",
+          "test/phase3/deep_level_3#af63a81e5af8d675"
+        ]
+      },
+      "content_length": 170
+    },
+    {
+      "depth": 5,
+      "component": "test/phase3/deep_level_5",
+      "execution_time": 0.0009867092594504356,
+      "memory_current": 15989,
+      "memory_peak": 24591,
+      "cache_stats": {
+        "cached_components": 6,
+        "cache_keys": [
+          "test/phase3/deep_level_1#98a187978fc64152",
+          "test/phase3/deep_level_2#98a187978fc64152",
+          "test/phase3/greeting_mixin#98a187978fc64152",
+          "test/phase3/deep_level_3#98a187978fc64152",
+          "test/phase3/deep_level_4#98a187978fc64152",
+          "test/phase3/deep_level_5#758ce8f08890b53c"
+        ]
+      },
+      "content_length": 170
+    },
+    {
+      "depth": 7,
+      "component": "test/phase3/deep_level_7",
+      "execution_time": 0.0013069165870547295,
+      "memory_current": 20053,
+      "memory_peak": 28344,
+      "cache_stats": {
+        "cached_components": 8,
+        "cache_keys": [
+          "test/phase3/deep_level_1#0a64e77fab11af46",
+          "test/phase3/deep_level_2#0a64e77fab11af46",
+          "test/phase3/greeting_mixin#0a64e77fab11af46",
+          "test/phase3/deep_level_3#0a64e77fab11af46",
+          "test/phase3/deep_level_4#0a64e77fab11af46",
+          "test/phase3/deep_level_5#0a64e77fab11af46",
+          "test/phase3/deep_level_6#0a64e77fab11af46",
+          "test/phase3/deep_level_7#d1710f3f574fd2ea"
+        ]
+      },
+      "content_length": 170
+    },
+    {
+      "depth": 10,
+      "component": "test/phase3/deep_level_10",
+      "execution_time": 0.0019275411032140255,
+      "memory_current": 27468,
+      "memory_peak": 35221,
+      "cache_stats": {
+        "cached_components": 11,
+        "cache_keys": [
+          "test/phase3/deep_level_1#daf963623914eacf",
+          "test/phase3/deep_level_2#daf963623914eacf",
+          "test/phase3/greeting_mixin#daf963623914eacf",
+          "test/phase3/deep_level_3#daf963623914eacf",
+          "test/phase3/deep_level_4#daf963623914eacf",
+          "test/phase3/deep_level_5#daf963623914eacf",
+          "test/phase3/deep_level_6#daf963623914eacf",
+          "test/phase3/deep_level_7#daf963623914eacf",
+          "test/phase3/deep_level_8#daf963623914eacf",
+          "test/phase3/deep_level_9#daf963623914eacf",
+          "test/phase3/deep_level_10#e925ab9cb2b45ea8"
+        ]
+      },
+      "content_length": 171
+    }
+  ],
+  "cache_effectiveness": {
+    "cold_performance": {
+      "result": "## Greeting Section\n\nHello, Cache Test User! Welcome to the KSI system.\n\nCurrent mode: default\n\n### Additional Features\n- Feature 1: Enabled\n- Feature 2: Disabled",
+      "execution_time": 0.001948375254869461,
+      "memory_current": 27459,
+      "memory_peak": 35197
+    },
+    "warm_performance": {
+      "result": "## Greeting Section\n\nHello, Cache Test User! Welcome to the KSI system.\n\nCurrent mode: default\n\n### Additional Features\n- Feature 1: Enabled\n- Feature 2: Disabled",
+      "execution_time": 3.170780837535858e-05,
+      "memory_current": 1067,
+      "memory_peak": 3119
+    },
+    "speedup": 61.44780590965165,
+    "memory_savings": 32078,
+    "cache_stats": {
+      "cached_components": 11,
+      "cache_keys": [
+        "test/phase3/deep_level_1#0d100c38467ecf6d",
+        "test/phase3/deep_level_2#0d100c38467ecf6d",
+        "test/phase3/greeting_mixin#0d100c38467ecf6d",
+        "test/phase3/deep_level_3#0d100c38467ecf6d",
+        "test/phase3/deep_level_4#0d100c38467ecf6d",
+        "test/phase3/deep_level_5#0d100c38467ecf6d",
+        "test/phase3/deep_level_6#0d100c38467ecf6d",
+        "test/phase3/deep_level_7#0d100c38467ecf6d",
+        "test/phase3/deep_level_8#0d100c38467ecf6d",
+        "test/phase3/deep_level_9#0d100c38467ecf6d",
+        "test/phase3/deep_level_10#ceb58b705ed28cc9"
+      ]
+    }
+  },
+  "variable_complexity": {
+    "simple_performance": {
+      "result": "## Greeting Section\n\nHello, Simple Test! Welcome to the KSI system.\n\nCurrent mode: default\n\n### Additional Features\n- Feature 1: Enabled\n- Feature 2: Disabled",
+      "execution_time": 0.001835417002439499,
+      "memory_current": 27455,
+      "memory_peak": 35181
+    },
+    "complex_performance": {
+      "result": "## Greeting Section\n\nHello, Complex Test! Welcome to the KSI system.\n\nCurrent mode: default\n\n### Additional Features\n- Feature 1: Enabled\n- Feature 2: Disabled",
+      "execution_time": 0.0023426669649779797,
+      "memory_current": 27680,
+      "memory_peak": 35389
+    },
+    "overhead": 0.0005072499625384808
+  },
+  "circular_dependency": {
+    "detection_successful": true,
+    "error_type": "ComponentResolutionError"
+  }
+}

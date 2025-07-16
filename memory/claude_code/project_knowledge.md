@@ -220,31 +220,47 @@ tests:
         weight: 1.0
 ```
 
-## Component Creation (Event-Driven)
+## Progressive Component System
 
-### Creating Components via Events
+### Phase 3 Complete: Advanced Rendering
+✅ **ComponentRenderer system** with recursive mixin resolution
+✅ **Variable substitution** with complex data types and defaults
+✅ **Circular dependency detection** prevents infinite loops
+✅ **Performance tested** up to 10-level inheritance chains
+✅ **Conditional mixins** based on environment variables
+✅ **Comprehensive caching** with 60x+ speedup on repeated renders
+
+### Phase 4 In Progress: KSI System Integration
+Component creation and rendering now integrates deeply with KSI event system:
+
 ```bash
-# Create a fragment/component
+# Create components
 ksi send composition:create_component \
   --name "components/instructions/my_instruction" \
   --content "# My Instruction\n\nDo this specific thing..." \
   --description "Custom instruction component"
 
-# Get component
-ksi send composition:get_component --name "components/instructions/my_instruction"
+# Render components with variables
+ksi send composition:render_component \
+  --component "components/adaptive_agent" \
+  --vars '{"mode": "analysis", "environment": "production"}'
 
-# Fork component
-ksi send composition:fork_component \
-  --parent "components/base" \
-  --name "components/variant" \
-  --reason "Customizing for specific use case"
+# Generate orchestration from component
+ksi send composition:generate_orchestration \
+  --component "components/complex_workflow" \
+  --pattern_name "workflow_orchestration"
+
+# Spawn agent from component
+ksi send agent:spawn_from_component \
+  --component "components/specialized_analyst" \
+  --vars '{"domain": "financial", "depth": "detailed"}'
 ```
 
-### Why Event-Driven Component Creation?
-- Consistent with KSI philosophy
-- Automatic git commits
-- Same tools for agents and humans
-- No direct file manipulation
+### Component System Architecture
+- **ksi_common/component_renderer.py**: Core rendering with caching
+- **ksi_common/frontmatter_utils.py**: Robust frontmatter parsing
+- **ksi_common/yaml_utils.py**: Modern YAML processing
+- **ksi_daemon/composition/composition_service.py**: Event handlers
 
 ## Common Operations
 
