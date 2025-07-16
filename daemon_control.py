@@ -291,11 +291,24 @@ class DaemonController:
                 # Shutdown command was sent but we didn't get the notification
                 # Socket may have closed before sending notification
                 print("Shutdown command sent")
-                # Check if process is still running
-                if not self._is_process_running(pid):
-                    print("✓ Daemon stopped")
-                    return 0
-                print("Daemon still running after shutdown command")
+                # Wait for graceful shutdown using config timeout
+                grace_period = config.daemon_shutdown_grace_period
+                waited = 0.0
+                check_interval = 0.1
+                
+                while waited < grace_period:
+                    if not self._is_process_running(pid):
+                        print(f"✓ Daemon stopped gracefully after {waited:.1f}s")
+                        # Clean up files
+                        if self.pid_file.exists():
+                            self.pid_file.unlink()
+                        if self.socket_path.exists():
+                            self.socket_path.unlink()
+                        return 0
+                    await asyncio.sleep(check_interval)
+                    waited += check_interval
+                
+                print(f"Daemon still running after {grace_period}s grace period")
         else:
             # Socket already closed or unreachable
             print("Socket not responding, checking process...")
@@ -305,12 +318,34 @@ class DaemonController:
             os.kill(pid, signal.SIGTERM)
             print("Sent SIGTERM to force shutdown")
             
-            # Simple check - no waiting
+            # Wait for process to terminate using config timeout
+            wait_time = config.daemon_kill_timeout
+            check_interval = 0.1
+            waited = 0.0
+            
+            while waited < wait_time:
+                if not self._is_process_running(pid):
+                    print(f"✓ Daemon stopped after {waited:.1f}s")
+                    # Clean up PID file if it exists
+                    if self.pid_file.exists():
+                        self.pid_file.unlink()
+                    # Clean up socket file if it exists
+                    if self.socket_path.exists():
+                        self.socket_path.unlink()
+                    return 0
+                await asyncio.sleep(check_interval)
+                waited += check_interval
+            
+            # If still running after wait, check one more time
             if not self._is_process_running(pid):
                 print("✓ Daemon stopped")
+                if self.pid_file.exists():
+                    self.pid_file.unlink()
+                if self.socket_path.exists():
+                    self.socket_path.unlink()
                 return 0
             else:
-                print("✗ Daemon may still be running")
+                print(f"✗ Daemon still running after {wait_time}s wait")
                 return 1
                 
         except (OSError, ProcessLookupError) as e:
@@ -319,6 +354,9 @@ class DaemonController:
             # Clean up stale PID file
             if self.pid_file.exists():
                 self.pid_file.unlink()
+            # Clean up stale socket file
+            if self.socket_path.exists():
+                self.socket_path.unlink()
             return 0
     
     async def restart(self, debug: bool = False) -> int:

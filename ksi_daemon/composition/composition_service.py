@@ -393,12 +393,18 @@ async def _save_composition_to_disk(composition: Composition, overwrite: bool = 
         }
 
 
+class CompositionSaveData(TypedDict):
+    """Save a composition to disk with git commit."""
+    composition: Required[Dict[str, Any]]  # Complete composition object or dict
+    overwrite: NotRequired[bool]  # Replace existing file if True
+
+
 @event_handler("composition:save")
 async def handle_save_composition(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Save a composition to disk."""
     from ksi_common.event_parser import event_format_linter
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, dict)  # Using dict for flexible save operations
+    data = event_format_linter(raw_data, CompositionSaveData)
     try:
         comp_data = data.get('composition')  # Complete composition object or dict
         if not comp_data:

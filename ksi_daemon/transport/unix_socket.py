@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Callable, TypedDict, Literal
 from typing_extensions import NotRequired, Required
 
-from ksi_daemon.event_system import event_handler, EventPriority, get_router
+from ksi_daemon.event_system import event_handler, EventPriority, get_router, shutdown_handler
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 
@@ -423,7 +423,7 @@ class SystemShutdownData(TypedDict):
     pass
 
 
-@event_handler("system:shutdown")
+@shutdown_handler("unix_socket_transport", priority=EventPriority.HIGH)
 async def handle_shutdown(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle shutdown - notify clients and then close socket."""
     from ksi_common.event_parser import extract_system_handler_data
@@ -457,6 +457,11 @@ async def handle_shutdown(raw_data: Dict[str, Any], context: Optional[Dict[str, 
         await transport_instance.stop()
     
     logger.info("Unix socket transport shutdown complete - socket closed")
+    
+    # Acknowledge shutdown completion - required for shutdown_handler
+    router = get_router()
+    await router.acknowledge_shutdown("unix_socket_transport")
+    
     return event_response_builder(
         {"status": "unix_socket_transport_stopped"},
         context=context
