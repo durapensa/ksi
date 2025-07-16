@@ -262,10 +262,22 @@ async def system_handler(raw_data: Dict[str, Any], context: Optional[Dict[str, A
 - **Log Naming**: Response files named by session_id
 
 ### Capability System
-- **Declarative**: Use capability flags in profiles
-- **Mappings**: `var/lib/capability_mappings.yaml`
-- **Inheritance**: base → specialized profiles
-- **Runtime Enforcement**: capability_enforcer validates
+- **Hierarchical**: Capabilities inherit from parent capabilities (e.g., orchestration → base)
+- **Location**: `var/lib/compositions/capabilities/` directory
+- **Format**: YAML files defining permissions, knowledge, and inheritance
+- **Profile Integration**: Profiles declare capabilities which are resolved at runtime
+- **Knowledge Injection**: Capabilities provide instructions and examples to agents
+- **Permission Merging**: Automatic deduplication when combining capabilities
+- **Key Events**: capability:load, capability:list, capability:validate, profile:resolve_capabilities
+
+### Profile Discovery System  
+- **EAV Storage**: Profile metadata stored in state system using Entity-Attribute-Value pattern
+- **Git Source**: Profiles in `var/lib/compositions/profiles/` (Git submodule)
+- **Auto-indexing**: Profiles indexed on save via composition:saved events
+- **Smart Router**: Unified APIs route to composition system for full profile data
+- **Inheritance**: Profiles extend other profiles with proper chain resolution
+- **Capability Resolution**: Profiles declare capabilities that expand to permissions/knowledge
+- **Key Events**: profile:discover, profile:get_full, profile:rebuild_index
 
 ### Development Mode
 ```bash

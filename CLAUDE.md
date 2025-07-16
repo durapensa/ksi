@@ -254,6 +254,52 @@ Essential utilities available throughout the codebase:
 - **timestamps.py**: Standard timestamp utilities (numeric_to_iso, parse_iso_timestamp)
 - **git_utils.py**: Git operations for submodules (save_component, fork_component, sync_submodules)
 
+## Capability System
+
+### Overview
+The capability system provides modular permission and knowledge management for agent profiles:
+- **Location**: `var/lib/compositions/capabilities/` directory
+- **Inheritance**: Capabilities extend other capabilities (e.g., orchestration → base)
+- **Documentation**: See `docs/CAPABILITY_SYSTEM_USAGE.md` for full guide
+
+### Common Operations
+```bash
+# Load and inspect capabilities
+ksi send capability:load --name orchestration
+ksi send capability:list
+ksi send capability:validate --name orchestration
+
+# Resolve profile capabilities
+ksi send profile:resolve_capabilities --name "system/orchestrator"
+```
+
+### Creating Capabilities
+1. **Create YAML file** in `var/lib/compositions/capabilities/`
+2. **Define permissions** - what events the capability grants access to
+3. **Add knowledge** - instructions and examples for using those permissions
+4. **Set inheritance** - extend from base or other capabilities
+5. **Test loading** - `ksi send capability:load --name your_capability`
+
+### Profile Integration
+```yaml
+# In profile YAML - declare capabilities
+metadata:
+  capabilities:
+    - orchestration
+    - pattern_discovery
+
+capabilities:
+  orchestration: true
+  pattern_discovery: true
+```
+
+### Built-in Capabilities
+- **base**: Fundamental operations (state:get/set, monitor:*)
+- **orchestration**: Multi-agent coordination (agent:spawn, orchestration:*)
+- **pattern_discovery**: Pattern adaptation (composition:discover/fork)
+- **agent_messaging**: Inter-agent communication
+- **decision_tracking**: Orchestration analytics
+
 ## Orchestration Patterns
 
 For intelligent multi-agent orchestration:
