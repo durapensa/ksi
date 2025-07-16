@@ -20,7 +20,7 @@ class CapabilityResolver:
     
     def __init__(self, mapping_file: Optional[Path] = None):
         """Initialize with capability mapping file."""
-        self.mapping_file = mapping_file or config.lib_dir / "capability_mappings.yaml"
+        self.mapping_file = mapping_file or config.lib_dir / "capabilities" / "capability_mappings.yaml"
         self.mappings = self._load_mappings()
         self._build_reverse_index()
         

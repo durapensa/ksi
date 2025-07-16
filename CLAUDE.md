@@ -36,6 +36,10 @@ Essential development practices for Claude Code when working with KSI.
 - **NO bare except clauses** - Always catch specific exceptions
 - **Clean as you go** - remove dead code immediately when found
 - **Complete transitions** - when moving features, verify functionality then remove old locations
+- **Investigate failures** - NEVER create workarounds for errors; instead find and fix root causes
+  - When a file is not found, check if the path reference is correct
+  - Don't create duplicate files in wrong locations
+  - Fix the code that has the wrong path, not create the file where it's looking
 
 ## Discovery-First Development
 
