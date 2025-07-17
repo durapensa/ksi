@@ -849,6 +849,12 @@ async def handle_rebuild_index(raw_data: Dict[str, Any], context: Optional[Dict[
     data = event_format_linter(raw_data, dict)  # Simple dict for rebuild operations
     try:
         indexed_count = await composition_index.rebuild()
+        
+        # Clear component renderer cache to ensure fresh components are loaded
+        renderer = get_renderer()
+        renderer.clear_cache()
+        logger.debug("Cleared component renderer cache after index rebuild")
+        
         return event_response_builder(
             {
                 'status': 'success',
@@ -1663,6 +1669,11 @@ async def handle_create_component(raw_data: Dict[str, Any], context: Optional[Di
         # Update index if it's a composition component
         if comp_type == 'component':
             await composition_index.index_file(file_path.relative_to(COMPONENTS_BASE.parent))
+        
+        # Clear component renderer cache to ensure fresh component is loaded
+        renderer = get_renderer()
+        renderer.clear_cache()
+        logger.debug(f"Cleared component renderer cache after creating/updating component: {name}")
         
         logger.info(f"Created component: {name} ({comp_type})")
         
