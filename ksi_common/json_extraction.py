@@ -221,7 +221,7 @@ async def extract_and_emit_json_events(
                 try:
                     # Import the route_to_originator function
                     from ksi_daemon.agent.agent_service import route_to_originator
-                    await route_to_originator(agent_id, event_name, emission_result)
+                    await route_to_originator(agent_id, event_name, event_data)
                 except Exception as route_error:
                     logger.debug(f"Failed to route event {event_name} to originator: {route_error}")
                     # Don't fail the whole process if routing fails

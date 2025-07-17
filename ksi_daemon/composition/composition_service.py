@@ -555,16 +555,33 @@ async def handle_update_composition(raw_data: Dict[str, Any], context: Optional[
         )
 
 
+class CompositionDiscoverData(TypedDict):
+    """Discover compositions with filters and limits."""
+    type: NotRequired[Literal['all', 'profile', 'prompt', 'orchestration', 'evaluation', 'component']]  # Filter by type
+    name: NotRequired[str]  # Filter by name (supports partial matching)
+    capabilities: NotRequired[List[str]]  # Filter by capabilities
+    tags: NotRequired[List[str]]  # Filter by tags
+    loading_strategy: NotRequired[str]  # Filter by loading strategy
+    metadata_filter: NotRequired[Dict[str, Any]]  # Filter by metadata
+    include_metadata: NotRequired[bool]  # Include full metadata in response
+    limit: NotRequired[int]  # Limit number of results (default: no limit)
+
+
 @event_handler("composition:discover")
 async def handle_discover(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Discover available compositions using index."""
     from ksi_common.event_parser import event_format_linter
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, dict)  # Simple dict for discovery operations
+    data = event_format_linter(raw_data, CompositionDiscoverData)
     try:
         # Use index for fast discovery with SQL-based filtering
         # Include metadata filter in the query
         query = dict(data)  # Copy to avoid modifying original
+        
+        # Apply default limit if none specified to prevent timeouts
+        if 'limit' not in query:
+            query['limit'] = 50  # Sensible default to prevent timeouts
+        
         # Don't include full metadata by default - it makes responses too large
         
         discovered = await composition_index.discover(query)

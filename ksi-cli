@@ -573,6 +573,15 @@ async def send(ctx, event_name, json_data, output_format):
                                     data[key] = value.split(',')
                             else:
                                 data[key] = value.split(',')
+                        elif 'dict' in param_type or key in ['originator', 'variables', 'context']:
+                            # Parse as JSON for dict parameters and known JSON fields
+                            if value.startswith('{'):
+                                try:
+                                    data[key] = json.loads(value)
+                                except json.JSONDecodeError:
+                                    data[key] = value  # Fall back to string if JSON parsing fails
+                            else:
+                                data[key] = value
                         else:
                             # Default to string
                             data[key] = value

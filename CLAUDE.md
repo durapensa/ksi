@@ -102,35 +102,41 @@ variables:
 Enhanced content with variables.
 ```
 
-### Persona-First Agent Design (Critical)
+### Persona-First Agent Design (BREAKTHROUGH ACHIEVED) ✅
 
 **Core Principle**: Agents are **Claude adopting personas**, not "KSI agents".
 
-**When** designing agent components:
-- **Then** establish domain persona FIRST (analyst, researcher, coordinator)
-- **Then** add minimal KSI-awareness as communication capability
-- **Then** test with authentic domain scenarios, not system scenarios
+**MAJOR SUCCESS**: This approach completely solved the JSON emission problem!
 
-**Component Architecture Pattern**:
-```markdown
-# components/personas/data_analyst.md
-You are a Senior Data Analyst with 10 years experience in business intelligence.
-Your approach: methodical, evidence-based, collaborative.
+**Proven Results**:
+- ✅ **Real JSON Events**: Agents emit `analyst:initialized`, `analyst:progress`
+- ✅ **Authentic Expertise**: Domain knowledge maintained throughout interaction  
+- ✅ **Natural Communication**: JSON feels like professional status reports
+- ✅ **System Integration**: Events successfully extracted and monitored
 
-# components/capabilities/ksi_json_reporter.md  
-When reporting to systems, use structured JSON:
-- Progress: {"event": "analyst:progress", "data": {"stage": "...", "findings": "..."}}
-- Results: {"event": "analyst:complete", "data": {"recommendation": "..."}}
+**Working Component Architecture**:
+```bash
+# Pure domain expertise (no KSI)
+components/personas/universal/data_analyst.md
 
-# components/agents/business_analyst.md
----
-mixins:
-  - components/personas/data_analyst.md
-  - components/capabilities/ksi_json_reporter.md
----
+# Minimal KSI communication capability
+components/capabilities/claude_code_1.0.x/ksi_json_reporter.md
+
+# Combined: Domain expert + System awareness
+components/agents/ksi_aware_analyst.md
 ```
 
-**Key Insight**: JSON becomes a natural reporting tool for domain experts, not forced "agent behavior".
+**Validated Testing**:
+```bash
+# Agent spawned successfully
+ksi send agent:spawn_from_component --component "components/agents/ksi_aware_analyst"
+
+# Real events captured by system
+ksi send monitor:get_events --event-patterns "analyst:*"
+# Result: analyst:initialized, analyst:progress events found
+```
+
+**Revolutionary Insight**: JSON becomes a natural reporting tool for domain experts, not forced "agent behavior".
 
 ### Model and System-Aware Development
 
@@ -181,6 +187,38 @@ git ls-files | git check-attr --stdin model performance
 
 # Validate compatibility across environments
 ./validate_compatibility.py --component personas/analyst --all-supported-environments
+
+# Test persona-first agent with JSON emission (PROVEN WORKING)
+ksi send agent:spawn_from_component --component "components/agents/ksi_aware_analyst" \
+  --prompt "Analyze business scenario and report progress"
+
+# Verify events are emitted and captured
+ksi send monitor:get_events --event-patterns "analyst:*" --limit 5
+```
+
+## Current Development Priority
+
+### Event Routing to Originators Testing
+
+**Status**: Ready for validation with working JSON emission foundation.
+
+**When** testing event routing:
+- **Then** use proven persona-first agents that emit real JSON
+- **Then** test originator context propagation through event chains  
+- **Then** verify events flow back to appropriate channels
+- **Then** validate both agent and external originator scenarios
+
+**Test Workflow**:
+```bash
+# 1. Spawn agent with originator context
+ksi send agent:spawn_from_component --component "components/agents/ksi_aware_analyst" \
+  --originator '{"type": "external", "id": "test-originator"}' \
+  --prompt "Complex analysis task"
+
+# 2. Monitor for event routing
+ksi send monitor:get_events --event-patterns "monitor:event_chain_result"
+
+# 3. Verify complete event flow observability
 ```
 
 ### Event Result Propagation

@@ -280,12 +280,18 @@ async def discover(query: Dict[str, Any]) -> List[Dict[str, Any]]:
                 params.append(value)
     
     where_clause = ' AND '.join(conditions) if conditions else '1=1'
+    
+    # Add LIMIT clause if specified
+    limit_clause = ""
+    if 'limit' in query and isinstance(query['limit'], int) and query['limit'] > 0:
+        limit_clause = f" LIMIT {query['limit']}"
+    
     sql = f"""
         SELECT full_name, name, type, description, version, author, 
                tags, capabilities, loading_strategy, file_path, full_metadata
         FROM composition_index 
         WHERE {where_clause}
-        ORDER BY name
+        ORDER BY name{limit_clause}
     """
     
     # Debug logging
