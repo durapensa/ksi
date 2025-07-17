@@ -666,6 +666,75 @@ async def handle_shutdown(raw_data: Dict[str, Any], context: Optional[Dict[str, 
     )
 
 
+class MonitorEventChainResultData(TypedDict):
+    """Handle event chain result for external originators."""
+    originator_id: Required[str]  # External originator ID
+    source_agent: Required[str]  # Agent that generated the event
+    event: Required[str]  # Event name
+    data: Required[Dict[str, Any]]  # Event data
+    timestamp: NotRequired[str]  # Event timestamp
+    chain_id: NotRequired[str]  # Chain ID for correlation
+
+
+@event_handler("monitor:event_chain_result")
+async def handle_event_chain_result(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Handle event chain results for external originators.
+    
+    This handler receives events that are being streamed back to external originators
+    (like Claude Code) and makes them available through monitoring interfaces.
+    """
+    try:
+        # Extract clean business data and system metadata
+        from ksi_common.event_parser import extract_system_handler_data
+        clean_data, system_metadata = extract_system_handler_data(raw_data)
+        
+        originator_id = clean_data.get("originator_id")
+        source_agent = clean_data.get("source_agent")
+        event_name = clean_data.get("event")
+        event_data = clean_data.get("data", {})
+        timestamp = clean_data.get("timestamp")
+        chain_id = clean_data.get("chain_id")
+        
+        if not all([originator_id, source_agent, event_name]):
+            return error_response(
+                "Missing required fields: originator_id, source_agent, event",
+                context=context
+            )
+        
+        # Store the event chain result for external access
+        # For now, we'll log it and make it available via event broadcasting
+        logger.info(f"Event chain result: {originator_id} <- {source_agent}:{event_name}")
+        logger.debug(f"Event chain data: {event_data}")
+        
+        # Broadcast this as a special monitor event so external clients can see it
+        if client_subscriptions:
+            broadcast_event = {
+                "event_type": "event_chain_result",
+                "originator_id": originator_id,
+                "source_agent": source_agent,
+                "event": event_name,
+                "data": event_data,
+                "timestamp": timestamp,
+                "chain_id": chain_id
+            }
+            
+            # Broadcast to subscribed clients
+            await broadcast_to_subscribed_clients("monitor:event_chain_result", broadcast_event)
+        
+        # Return success response
+        return event_response_builder({
+            "status": "processed",
+            "originator_id": originator_id,
+            "source_agent": source_agent,
+            "event": event_name,
+            "chain_id": chain_id
+        }, context)
+        
+    except Exception as e:
+        logger.error(f"Failed to handle event chain result: {e}")
+        return error_response(f"Failed to process event chain result: {str(e)}", context)
+
+
 class MonitorGetStatusData(TypedDict):
     """Get consolidated KSI daemon status including recent events and agent info."""
     event_patterns: NotRequired[List[str]]  # Event name patterns (supports wildcards) [CLI:option,completion=event]

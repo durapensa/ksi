@@ -273,7 +273,44 @@ Align with KSI pattern where databases handle queries:
 - Files: Only for initial indexing, content retrieval, change detection
 - Database: All discovery, listing, searching, filtering operations
 
-### Phase 5 In Progress: SQLite-Backed Composition Index
+### Phase 5 Complete: SQLite-Backed Composition Index
+✅ **Database stores full metadata** - No file I/O during queries
+✅ **Markdown components indexed** - .md files work as components
+✅ **Performance fixed** - No more timeouts on large lists
+
+## Current Focus: Streaming Event Architecture
+
+### Core Insight
+Events should flow continuously back to their originators, creating true event-driven orchestration:
+- **No final results** - All results are intermediate in a continuous stream
+- **Errors are events** - Propagate like any other event
+- **Real-time feedback** - Originators see events as they happen
+
+### Implementation Pattern
+```python
+# Every spawned agent carries originator context
+context = {
+    "_originator": {
+        "type": "agent|external|system",
+        "id": "originator_id",
+        "return_path": "completion:async",
+        "chain_id": "unique_chain_id"
+    }
+}
+
+# Events flow back based on originator type:
+- Agent originators: Results injected via completion:async
+- External originators: Results sent to monitor:event_chain_result
+- System originators: Results logged/monitored
+```
+
+### Benefits
+1. **Progressive results** - See progress as it happens
+2. **Natural orchestration** - Agents can spawn sub-agents and get results
+3. **Complete observability** - Full event chains are traceable
+4. **Error visibility** - Errors surface immediately
+
+### Phase 6 In Progress: Streaming Event Implementation
 Component creation and rendering now integrates deeply with KSI event system:
 
 ```bash

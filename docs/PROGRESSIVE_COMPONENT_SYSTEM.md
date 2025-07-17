@@ -327,6 +327,55 @@ specialized_orchestrator.yaml (full composition)
 
 ## Phase 4: KSI System Integration
 
+### Streaming Event Architecture
+
+Components and agents now support continuous event streaming back to their originators:
+
+#### Core Concept
+Every event emitted by an agent flows back to its originator in real-time:
+- No "final result" - all results are intermediate results in a continuous stream
+- Errors propagate the same as success events
+- Enables true orchestration with progressive feedback
+
+#### Implementation Pattern
+```python
+# Originator context propagates through event chain
+context = {
+    "_originator": {
+        "type": "agent|external|system",
+        "id": "originator_id",
+        "return_path": "completion:async",  # For agents
+        "chain_id": "unique_chain_id"
+    }
+}
+
+# Every event result flows back
+Originator → Spawns Agent
+          ← Initial completion flows back
+          ← Event A result flows back
+          ← Event B result flows back
+          ← Error event flows back
+          ← Event C result flows back
+          ... continuous stream ...
+```
+
+#### Example Flow
+```bash
+# External orchestrator spawns agent
+ksi send agent:spawn_from_component \
+  --component data_analyzer \
+  --prompt "Analyze dataset.csv" \
+  --originator '{"type": "external", "id": "claude-code-123"}'
+
+# All these events flow back to originator:
+→ completion:result (initial response)
+→ file:read (reading dataset.csv)  
+→ state:update (found 1000 rows)
+→ data:analysis_progress (25% complete)
+→ error:occurred (malformed row 567)
+→ data:analysis_complete (results)
+```
+
 ### Event-Driven Component Updates
 Components can respond to KSI events and trigger updates:
 
@@ -405,6 +454,8 @@ ksi send composition:component_to_profile \
    - Component usage tracking
    - Performance metrics for component rendering
    - Component dependency analysis
+   - Event chain result streaming for external originators
+   - Complete event flow observability
 
 ### Component Lifecycle Management
 Track component versions and usage:

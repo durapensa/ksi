@@ -98,7 +98,7 @@ class AgentSpawnData(TypedDict):
     profile: Required[str]  # Profile name
     agent_id: NotRequired[str]  # Agent ID (auto-generated if not provided)
     # NOTE: session_id removed - managed entirely by completion system
-    prompt: NotRequired[str]  # Initial prompt (also accepts initial_prompt)
+    prompt: NotRequired[str]  # Initial prompt
     context: NotRequired[Dict[str, Any]]  # Additional context
     # Domain-specific fields removed - use metadata instead
     composition: NotRequired[str]  # Composition name
@@ -250,6 +250,102 @@ async def save_identities():
         logger.debug(f"Saved {len(identities)} identities")
     except Exception as e:
         logger.error(f"Failed to save identities: {e}")
+
+
+async def route_to_originator(agent_id: str, event_name: str, event_data: Dict[str, Any]) -> None:
+    """Route an event result back to the originator of an agent spawn chain."""
+    if not event_emitter:
+        logger.warning("Cannot route to originator: event_emitter not available")
+        return
+    
+    agent_info = agents.get(agent_id)
+    if not agent_info:
+        logger.warning(f"Cannot route to originator: agent {agent_id} not found")
+        return
+    
+    originator_context = agent_info.get("originator_context")
+    if not originator_context:
+        # No originator context - event was not spawned through streaming architecture
+        return
+    
+    originator_type = originator_context.get("type")
+    originator_id = originator_context.get("id")
+    
+    try:
+        if originator_type == "agent":
+            # Route back to originating agent via completion:async
+            return_path = originator_context.get("return_path", "completion:async")
+            
+            # Inject event result into originating agent's completion stream
+            await event_emitter(return_path, {
+                "agent_id": originator_id,
+                "event_result": {
+                    "source_agent": agent_id,
+                    "event": event_name,
+                    "data": event_data,
+                    "timestamp": timestamp_utc(),
+                    "chain_id": originator_context.get("chain_id")
+                }
+            })
+            logger.debug(f"Routed event {event_name} from {agent_id} to agent {originator_id}")
+            
+        elif originator_type == "external":
+            # Route to external originator via monitor:event_chain_result
+            await event_emitter("monitor:event_chain_result", {
+                "originator_id": originator_id,
+                "source_agent": agent_id,
+                "event": event_name,
+                "data": event_data,
+                "timestamp": timestamp_utc(),
+                "chain_id": originator_context.get("chain_id")
+            })
+            logger.debug(f"Routed event {event_name} from {agent_id} to external {originator_id}")
+            
+        elif originator_type == "system":
+            # Route to system monitoring/logging
+            await event_emitter("monitor:system_event", {
+                "source_agent": agent_id,
+                "event": event_name,
+                "data": event_data,
+                "timestamp": timestamp_utc(),
+                "chain_id": originator_context.get("chain_id")
+            })
+            logger.debug(f"Routed event {event_name} from {agent_id} to system monitoring")
+            
+        else:
+            logger.warning(f"Unknown originator type: {originator_type}")
+            
+    except Exception as e:
+        logger.error(f"Failed to route event {event_name} from {agent_id} to originator: {e}")
+
+
+async def agent_emit_event(agent_id: str, event_name: str, event_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Any:
+    """Agent-aware event emitter that routes ALL results back to originator.
+    
+    This function replaces direct event_emitter calls for agents, ensuring that
+    ALL event results (success and errors) flow back to the originating agent or external system.
+    """
+    if not event_emitter:
+        logger.error(f"Agent {agent_id} cannot emit event {event_name}: event_emitter not available")
+        return {"error": "Event emitter not available"}
+    
+    try:
+        # Emit the event normally
+        result = await event_emitter(event_name, event_data, context)
+        
+        # Route result back to originator (for ALL events)
+        await route_to_originator(agent_id, event_name, result)
+        
+        return result
+        
+    except Exception as e:
+        error_result = {"error": str(e), "event": event_name}
+        logger.error(f"Agent {agent_id} event {event_name} failed: {e}")
+        
+        # Route error back to originator too
+        await route_to_originator(agent_id, event_name, error_result)
+        
+        return error_result
 
 
 # System event handlers
@@ -596,7 +692,7 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
         # Use composition selection service
         logger.debug("Using dynamic composition selection")
         
-        select_result = await event_emitter("composition:select", {
+        select_result = await agent_emit_event(agent_id, "composition:select", {
             "agent_id": agent_id,
             "role": selection_context.get("role"),
             "capabilities": selection_context.get("required_capabilities", []),
@@ -655,7 +751,7 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
             comp_vars.update(data["context"])
         
         # Try to compose profile
-        compose_result = await event_emitter("composition:profile", {
+        compose_result = await agent_emit_event(agent_id, "composition:profile", {
             "name": compose_name,
             "variables": comp_vars
         }, propagate_agent_context(context))
@@ -731,7 +827,7 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
     
     # Set agent permissions
     if event_emitter:
-        perm_result = await event_emitter("permission:set_agent", {
+        perm_result = await agent_emit_event(agent_id, "permission:set_agent", {
             "agent_id": agent_id,
             "profile": permission_profile,
             "overrides": data.get("permission_overrides", {})
@@ -747,7 +843,7 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
     
     # Create sandbox
     if event_emitter:
-        sandbox_result = await event_emitter("sandbox:create", {
+        sandbox_result = await agent_emit_event(agent_id, "sandbox:create", {
             "agent_id": agent_id,
             "config": sandbox_config
         }, propagate_agent_context(context))
@@ -763,6 +859,9 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
     
     # Extract metadata to store in state system
     metadata = data.get("metadata", {})
+    
+    # Extract originator context from data for event streaming
+    originator_context = data.get("context", {}).get("_originator")
     
     # Create MCP config for agent if MCP is enabled
     mcp_config_path = None
@@ -805,7 +904,9 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
         "mcp_config_path": str(mcp_config_path) if mcp_config_path else None,
         "conversation_id": conversation_id if 'conversation_id' in locals() else None,
         # Metadata will be stored in state system, not in memory
-        "metadata_namespace": f"metadata:agent:{agent_id}\""
+        "metadata_namespace": f"metadata:agent:{agent_id}\"",
+        # Originator context for event streaming
+        "originator_context": originator_context
     }
     
     # Register agent
@@ -824,7 +925,7 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
             "mcp_config_path": str(mcp_config_path) if mcp_config_path else None
         }
         
-        entity_result = await event_emitter("state:entity:create", {
+        entity_result = await agent_emit_event(agent_id, "state:entity:create", {
             "id": agent_id,
             "type": "agent",
             "properties": entity_props
@@ -840,7 +941,7 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
         
         # Store metadata in state system namespace
         if metadata:
-            metadata_result = await event_emitter("state:set", {
+            metadata_result = await agent_emit_event(agent_id, "state:set", {
                 "namespace": f"metadata:agent:{agent_id}",
                 "data": metadata
             }, propagate_agent_context(context))
@@ -863,12 +964,12 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
     # Observation patterns removed - handle via orchestration
     
     # Send initial prompt if provided - use composition system for proper message construction
-    interaction_prompt = data.get("prompt") or data.get("initial_prompt")
+    interaction_prompt = data.get("prompt")
     if interaction_prompt and event_emitter:
         logger.info(f"Sending initial prompt to agent {agent_id}")
         
         # Use composition service to create self-configuring agent context
-        compose_result = await event_emitter("composition:agent_context", {
+        compose_result = await agent_emit_event(agent_id, "composition:agent_context", {
             "profile": compose_name,
             "agent_id": agent_id,
             "interaction_prompt": interaction_prompt,
@@ -883,7 +984,7 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
             agent_context_message = compose_result["agent_context_message"]
             
             # Send self-configuring context message through agent:send_message channel
-            initial_result = await event_emitter("agent:send_message", {
+            initial_result = await agent_emit_event(agent_id, "agent:send_message", {
                 "agent_id": agent_id,
                 "message": {
                     "role": "user", 
@@ -907,7 +1008,7 @@ I encountered an error loading your composition configuration.
 
 Please proceed as a basic autonomous agent with full autonomy to execute tasks and emit JSON events."""
             
-            initial_result = await event_emitter("agent:send_message", {
+            initial_result = await agent_emit_event(agent_id, "agent:send_message", {
                 "agent_id": agent_id,
                 "message": {
                     "role": "user", 
@@ -1079,13 +1180,13 @@ async def _terminate_single_agent(agent_id: str, force: bool = False, context: O
     # Clean up sandbox and permissions asynchronously
     if event_emitter:
         # Remove sandbox
-        await event_emitter("sandbox:remove", {
+        await agent_emit_event(agent_id, "sandbox:remove", {
             "agent_id": agent_id,
             "force": force
         }, propagate_agent_context(context))
         
         # Remove permissions
-        await event_emitter("permission:remove_agent", {
+        await agent_emit_event(agent_id, "permission:remove_agent", {
             "agent_id": agent_id
         }, propagate_agent_context(context))
     
@@ -1099,7 +1200,7 @@ async def _terminate_single_agent(agent_id: str, force: bool = False, context: O
     
     # Update agent entity status in state
     if event_emitter:
-        update_result = await event_emitter("state:entity:update", {
+        update_result = await agent_emit_event(agent_id, "state:entity:update", {
             "id": agent_id,
             "properties": {
                 "status": "terminated",
@@ -1118,7 +1219,7 @@ async def _terminate_single_agent(agent_id: str, force: bool = False, context: O
         
         # IMPORTANT: Clean up agent session in ConversationTracker
         # This ensures new agents with the same ID start fresh
-        await event_emitter("completion:clear_agent_session", {
+        await agent_emit_event(agent_id, "completion:clear_agent_session", {
             "agent_id": agent_id
         }, propagate_agent_context(context))
     
@@ -1272,9 +1373,11 @@ async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
             
             # Session continuity is now handled automatically by completion service
             # Mark this as agent-originated for observation
-            await event_emitter("completion:async", completion_data, {
+            completion_result = await agent_emit_event(agent_id, "completion:async", completion_data, {
                 "_agent_id": agent_id  # Agent is the originator
             })
+            
+            # Note: route_to_originator is now handled automatically in agent_emit_event
     
     # Remove tournament-specific handling - this belongs in orchestration patterns
     # Agents should be domain-agnostic infrastructure
@@ -1383,7 +1486,7 @@ async def handle_list_agents(raw_data: Dict[str, Any], context: Optional[Dict[st
         
         # Optionally fetch metadata from state system
         if include_metadata and event_emitter:
-            metadata_result = await event_emitter("state:get", {
+            metadata_result = await agent_emit_event(agent_id, "state:get", {
                 "namespace": f"metadata:agent:{agent_id}"
             }, propagate_agent_context(context))
             if metadata_result and isinstance(metadata_result, list):
@@ -1680,7 +1783,7 @@ async def handle_send_message(raw_data: Dict[str, Any], context: Optional[Dict[s
         
         # Emit completion event directly
         # Mark this as agent-originated for observation  
-        result = await event_emitter("completion:async", completion_data, 
+        result = await agent_emit_event(agent_id, "completion:async", completion_data, 
                                     propagate_agent_context(context))
         
         # Handle list response format
@@ -1764,7 +1867,7 @@ async def handle_update_composition(raw_data: Dict[str, Any], context: Optional[
     current_comp = agent_info.get("composition", agent_info.get("profile"))
     if current_comp:
         # Get composition metadata
-        comp_result = await event_emitter("composition:get", {
+        comp_result = await agent_emit_event(agent_id, "composition:get", {
             "name": current_comp
         }, propagate_agent_context(context))
         
@@ -1777,7 +1880,7 @@ async def handle_update_composition(raw_data: Dict[str, Any], context: Optional[
                 return error_response("Current composition does not allow self-modification", context, {"status": "denied"})
     
     # Compose new profile
-    compose_result = await event_emitter("composition:profile", {
+    compose_result = await agent_emit_event(agent_id, "composition:profile", {
         "name": new_composition,
         "variables": {
             "agent_id": agent_id,
@@ -1979,6 +2082,7 @@ class AgentSpawnFromComponentData(TypedDict):
     mcp_config_path: NotRequired[str]  # MCP configuration path
     conversation_id: NotRequired[str]  # Conversation ID
     track_component_usage: NotRequired[bool]  # Track component usage (default: True)
+    originator: NotRequired[Dict[str, Any]]  # Originator context for event streaming
 
 
 @event_handler("agent:spawn_from_component")
@@ -1999,7 +2103,7 @@ async def handle_spawn_from_component(raw_data: Dict[str, Any], context: Optiona
         if not event_emitter:
             return error_response("Event emitter not available", context)
         
-        profile_result = await event_emitter("composition:component_to_profile", {
+        profile_result = await agent_emit_event(agent_id, "composition:component_to_profile", {
             "component": component_name,
             "variables": variables,
             "save_to_disk": True,  # Save to disk for agent spawning
@@ -2015,6 +2119,9 @@ async def handle_spawn_from_component(raw_data: Dict[str, Any], context: Optiona
         
         profile_name = profile_result['profile_name']
         
+        # Extract originator context for event streaming
+        originator = data.get('originator')
+        
         # Prepare agent spawn data
         spawn_data = {
             "agent_id": agent_id,
@@ -2029,11 +2136,22 @@ async def handle_spawn_from_component(raw_data: Dict[str, Any], context: Optiona
             "conversation_id": data.get('conversation_id')
         }
         
+        # Add originator to spawn data context for event streaming
+        if originator:
+            spawn_context = spawn_data.get('context', {})
+            spawn_context['_originator'] = originator
+            spawn_data['context'] = spawn_context
+        
         # Remove None values
         spawn_data = {k: v for k, v in spawn_data.items() if v is not None}
         
+        # Create propagated context with originator
+        propagated_context = context.copy() if context else {}
+        if originator:
+            propagated_context['_originator'] = originator
+        
         # Spawn agent using the converted profile
-        spawn_result = await handle_spawn_agent(spawn_data, context)
+        spawn_result = await handle_spawn_agent(spawn_data, propagated_context)
         
         # Debug: Log the spawn result type and content
         logger.debug(f"Spawn result type: {type(spawn_result)}, content: {spawn_result}")
@@ -2057,7 +2175,7 @@ async def handle_spawn_from_component(raw_data: Dict[str, Any], context: Optiona
         # Track component usage if enabled
         if track_usage and event_emitter:
             try:
-                await event_emitter("composition:track_usage", {
+                await agent_emit_event(agent_id, "composition:track_usage", {
                     "component": component_name,
                     "usage_context": "agent_spawn",
                     "metadata": {

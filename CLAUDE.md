@@ -74,6 +74,20 @@ variables:
 Enhanced content with variables.
 ```
 
+### Event Result Propagation
+
+**When** agents emit events:
+- **Then** check if there's an originator in context
+- **Then** route results back via appropriate channel:
+  - Agent originators: `completion:async` injection
+  - External originators: `monitor:event_chain_result`
+  - System originators: Logging/monitoring
+
+**When** spawning agents from agents:
+- **Then** propagate originator context
+- **Then** spawned agent's events flow back to parent
+- **Then** parent can orchestrate based on real-time feedback
+
 ## Development Workflow
 
 ### Task Management

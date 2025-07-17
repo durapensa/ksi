@@ -216,6 +216,16 @@ async def extract_and_emit_json_events(
             # Emit the event with proper context
             emission_result = await event_emitter(event_name, event_data, emission_context)
             
+            # Route event result back to originator if this agent has originator context
+            if agent_id:
+                try:
+                    # Import the route_to_originator function
+                    from ksi_daemon.agent.agent_service import route_to_originator
+                    await route_to_originator(agent_id, event_name, emission_result)
+                except Exception as route_error:
+                    logger.debug(f"Failed to route event {event_name} to originator: {route_error}")
+                    # Don't fail the whole process if routing fails
+            
             # Pass through raw emission result to agent
             emitted.append({
                 'event': event_name,
