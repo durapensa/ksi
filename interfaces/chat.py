@@ -48,14 +48,14 @@ async def send_cleanup(cleanup_type: str) -> str:
     except Exception as e:
         return f"Error: {e}"
 
-async def send_prompt(prompt: str, session_id: str = None) -> tuple:
+async def send_prompt(prompt: str, agent_id: str = None) -> tuple:
     """Send prompt to Claude via daemon using event protocol"""
     try:
         async with EventChatClient(socket_path=SOCKET_PATH) as client:
-            # Send prompt and get response
+            # Send prompt and get response - let completion system handle sessions
             response_text, new_session_id = await client.send_prompt(
                 prompt=prompt,
-                session_id=session_id,
+                agent_id=agent_id,
                 model="claude-cli/sonnet"
             )
             

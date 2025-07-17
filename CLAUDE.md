@@ -336,6 +336,34 @@ ksi send orchestration:start --pattern test_pattern
 2. **Each completion returns NEW session_id** - Use it for next request
 3. **Response logs** use session_id as filename: `var/logs/responses/{session_id}.jsonl`
 
+### Session ID Architectural Boundary (2025-07-17)
+
+**Architectural Principle**: Session IDs must NEVER leak outside completion system!
+- **Agents are the ONLY abstraction** - External systems use `agent_id` only
+- **Session IDs are internal** - Completion system manages them privately
+- **Boundary violations fixed** - Orchestration, injection, client interfaces
+
+```bash
+# ✅ CORRECT: External APIs use agent_id
+ksi send completion:async --agent-id my_agent --prompt "..."
+
+# ❌ WRONG: Session IDs should never be exposed
+ksi send completion:async --session-id 943a3864-d5bb... --prompt "..."
+```
+
+### Critical Session Mystery (2025-07-17) 🚨
+
+**New Bug**: Claude CLI losing sessions between agent requests
+- First completion: Success (session created)
+- Second completion: "No conversation found with session ID"
+
+**Immediate Investigation Required**:
+1. Check claude CLI version for recent updates
+2. Debug `claude_cli_litellm_provider.py` session handling
+3. Verify completion system session storage/retrieval
+
+**Impact**: Breaking agent conversation continuity!
+
 ## Git Workflow
 
 ### Submodule Management

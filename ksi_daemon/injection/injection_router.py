@@ -493,10 +493,9 @@ async def handle_injection_process_result(raw_data: Dict[str, Any], context: Opt
 
 class InjectionExecuteData(TypedDict):
     """Execute a queued injection."""
-    session_id: NotRequired[str]  # Session ID
     content: Required[str]  # Content to inject
     request_id: NotRequired[str]  # Original request ID
-    target_sessions: NotRequired[List[str]]  # Target sessions (defaults to [session_id])
+    agent_id: NotRequired[str]  # Target agent (completion system resolves session)
     model: NotRequired[str]  # Model to use (default: 'claude-cli/sonnet')
     priority: NotRequired[Literal["high", "normal", "low"]]  # Priority
     injection_type: NotRequired[str]  # Type of injection (default: 'system_reminder')
@@ -507,10 +506,9 @@ async def execute_injection(raw_data: Dict[str, Any], context: Optional[Dict[str
     """Execute a queued injection by creating a new completion request."""
     data = event_format_linter(raw_data, InjectionExecuteData)
     
-    session_id = data.get('session_id')
+    agent_id = data.get('agent_id')
     content = data.get('content')
     request_id = data.get('request_id')
-    target_sessions = data.get('target_sessions', [session_id] if session_id else [])
     
     if not content:
         logger.error("No content provided for injection")
@@ -520,51 +518,43 @@ async def execute_injection(raw_data: Dict[str, Any], context: Optional[Dict[str
         logger.error("Event emitter not available for injection")
         return error_response("Event emitter not available", context)
     
-    logger.info(f"Executing injection for session {session_id}")
+    if not agent_id:
+        logger.error("No agent_id provided for injection")
+        return error_response("No agent_id provided", context)
     
-    # Create completion requests for each target session
-    results = []
-    for target_session in target_sessions:
-        try:
-            # Construct the completion request
-            completion_data = {
-                "prompt": content,
-                "session_id": target_session,
-                "model": data.get('model', 'claude-cli/sonnet'),  # Default model
-                "originator_id": "injection_router",
-                "request_id": f"inj_{request_id}_{target_session}" if request_id else f"inj_{int(time.time() * 1000)}_{target_session}",
-                "priority": data.get('priority', 'normal'),
-                "injection_metadata": {
-                    "source_request": request_id,
-                    "injection_type": data.get('injection_type', 'system_reminder'),
-                    "timestamp": time.time()
-                }
+    logger.info(f"Executing injection for agent {agent_id}")
+    
+    try:
+        # Construct the completion request - let completion system handle session
+        completion_data = {
+            "prompt": content,
+            "agent_id": agent_id,  # Let completion system resolve session internally
+            "model": data.get('model', 'claude-cli/sonnet'),
+            "originator_id": "injection_router",
+            "request_id": f"inj_{request_id}_{agent_id}" if request_id else f"inj_{int(time.time() * 1000)}_{agent_id}",
+            "priority": data.get('priority', 'normal'),
+            "injection_metadata": {
+                "source_request": request_id,
+                "injection_type": data.get('injection_type', 'system_reminder'),
+                "timestamp": time.time()
             }
-            
-            # Emit the completion request
-            result = await event_emitter("completion:async", completion_data)
-            results.append({
-                "target_session": target_session,
-                "status": "queued",
-                "request_id": completion_data["request_id"],
-                "result": result
-            })
-            
-            logger.info(f"Injected completion request {completion_data['request_id']} into session {target_session}")
-            
-        except Exception as e:
-            logger.error(f"Failed to inject into session {target_session}: {e}")
-            results.append({
-                "target_session": target_session,
-                "status": "error",
-                "error": str(e)
-            })
-    
-    return event_response_builder({
-        "status": "injection_executed",
-        "target_count": len(target_sessions),
-        "results": results
-    }, context)
+        }
+        
+        # Emit the completion request
+        result = await event_emitter("completion:async", completion_data)
+        
+        logger.info(f"Injected completion request {completion_data['request_id']} for agent {agent_id}")
+        
+        return event_response_builder({
+            "status": "injection_executed",
+            "agent_id": agent_id,
+            "request_id": completion_data["request_id"],
+            "result": result
+        }, context)
+        
+    except Exception as e:
+        logger.error(f"Failed to inject for agent {agent_id}: {e}")
+        return error_response(f"Failed to inject for agent {agent_id}: {e}", context)
 
 
 # Unified injection helper functions

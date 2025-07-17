@@ -777,3 +777,43 @@ components/
 
 **Next Phase Ready**: Event routing to originators with working JSON emission foundation.
 
+### Session ID Architectural Boundary Enforcement (2025-07-17)
+
+**Critical Discovery**: Session IDs were leaking outside completion system boundaries, violating core architectural principles.
+
+**Architectural Principle**:
+- **Agents are the ONLY abstraction** known outside completion system
+- **Session IDs are internal implementation details** of completion system
+- **No external system should ever see or handle session IDs**
+
+**Boundary Violations Fixed**:
+1. **Orchestration Service** - Removed artificial session ID creation
+2. **Injection System** - Changed to use `agent_id` instead of `session_id`
+3. **Client Interfaces** - Updated to use `agent_id` parameters only
+4. **External APIs** - Now properly encapsulated, only `agent_id` visible
+
+**Correct Architecture Enforced**:
+```python
+# ✅ CORRECT: External systems only know about agents
+completion:async --agent-id boundary_test_agent --prompt "..."
+
+# ❌ WRONG: Session IDs should never be exposed
+completion:async --session-id 943a3864-d5bb-43d8-a2bc-fa6fdbdcdd4e --prompt "..."
+```
+
+### Critical Mystery: Claude CLI Session Management (2025-07-17) 🚨
+
+**New Bug Discovered**: Completion system session lifecycle management failing with Claude CLI.
+
+**Symptoms**:
+- First completion succeeds, creates session `9fe58b14-add3-4fc3-b1ba-788f41323098`
+- Second completion fails: `"No conversation found with session ID: 9fe58b14-add3-4fc3-b1ba-788f41323098"`
+- Session appears to expire or disappear between requests
+
+**Potential Causes**:
+1. **Recent Claude CLI update** - New version may have changed session persistence behavior
+2. **KSI completion system bug** - Session tracking/storage may be broken
+3. **LiteLLM provider bug** - `claude_cli_litellm_provider.py` may have session handling issues
+
+**Critical Investigation Required**: Session continuity is essential for agent conversations. The completion system correctly manages sessions internally but claude-cli appears to be losing sessions between requests.
+

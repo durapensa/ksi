@@ -728,6 +728,31 @@ cat var/logs/responses/{session_id}.jsonl | jq
 3. **Response logs** use session_id as filename
 4. **Agent logs** in `var/logs/responses/{session_id}.jsonl`
 
+## Session ID Architectural Boundary (2025-07-17)
+
+### Principle Enforced
+- **Agents are the ONLY abstraction** outside completion system
+- **Session IDs are internal** to completion system
+- **External systems use agent_id only**
+
+### Boundary Violations Fixed
+1. **Orchestration Service** (`orchestration_service.py:369`) - Removed `session_id: f"{orchestration_id}_session"`
+2. **Injection System** (`injection_router.py:496-557`) - Changed from `session_id` to `agent_id`
+3. **Client Interfaces** (`interfaces/chat.py:51`) - Parameter changed from `session_id` to `agent_id`
+
+### Critical Mystery: Claude CLI Session Loss (2025-07-17) 🚨
+
+**Bug Symptoms**:
+- First agent completion: Success, session `9fe58b14-add3-4fc3-b1ba-788f41323098` created
+- Second agent completion: `"No conversation found with session ID: 9fe58b14-add3-4fc3-b1ba-788f41323098"`
+
+**Investigation Required**:
+1. **Claude CLI version bug** - Recent update may have broken session persistence
+2. **LiteLLM provider bug** - `claude_cli_litellm_provider.py` session handling
+3. **Completion system bug** - Session storage/retrieval logic
+
+**Impact**: Agent conversation continuity broken - critical for multi-turn interactions
+
 ---
 *This is a living document. Update immediately when discovering new patterns.*
 *For user-facing documentation, see CLAUDE.md*

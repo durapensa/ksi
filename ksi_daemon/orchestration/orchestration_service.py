@@ -365,8 +365,7 @@ class OrchestrationModule:
             # Prepare spawn data
             spawn_data = {
                 "agent_id": agent_id,
-                "profile": agent_info.profile,
-                "session_id": f"{instance.orchestration_id}_session"
+                "profile": agent_info.profile
             }
             
             # Add prompt template if specified
