@@ -519,3 +519,197 @@ if content.startswith('---\n'):
 ---
 
 *This system embodies KSI's philosophy: start simple, enhance progressively, maintain clarity.*
+
+## Critical Discoveries
+
+### Agent JSON Emission Behavior (2025-07-17)
+
+**Major Finding**: Through systematic debugging, we discovered that agents **simulate event emission** rather than **actually emit JSON events**.
+
+**Evidence**:
+- Agents claim: "Emitted `worker:initialized` event" 
+- Reality: No actual JSON objects in response text
+- Debug logging shows single claude-cli calls (not the claimed "13 turns")
+- All technical systems (JSON extraction, caching, streaming) work correctly
+
+**Root Cause Analysis**: Agent behavioral pattern to **describe** actions rather than **perform** them when asked to emit JSON.
+
+**Impact**: This explains why no `worker:*` events appear in monitors despite agent claims.
+
+**Status**: Technical architecture validated. Issue is prompting/instruction design, not system bugs.
+
+### Persona-First Architecture Solution (2025-07-17)
+
+**Critical Insight**: Agents are **Claude adopting personas**, not "KSI agents" trying to emit JSON.
+
+**Architecture Principle**: 
+- **Primary Identity**: Domain expert persona (analyst, researcher, coordinator, etc.)
+- **Secondary Capability**: KSI-awareness as a communication tool
+- **Result**: Natural JSON emission as part of authentic domain work
+
+**Design Pattern**:
+```markdown
+# components/personas/financial_analyst.md
+---
+mixins:
+  - components/capabilities/ksi_communication.md
+variables:
+  analysis_depth: detailed
+---
+# Financial Analysis Expert
+
+You are an experienced financial analyst with {{analysis_depth}} expertise.
+Your primary focus is delivering accurate financial insights.
+
+## Communication Tools
+When sharing progress or results, you can emit structured events:
+- Analysis updates: {"event": "analysis:progress", "data": {"stage": "data_review", "findings": "..."}}
+- Results: {"event": "analysis:complete", "data": {"recommendation": "...", "confidence": 0.95}}
+```
+
+**Benefits**:
+1. **Authentic Behavior**: Agents act as genuine domain experts
+2. **Natural Communication**: JSON becomes a communication tool, not forced behavior
+3. **Maintainable**: Persona expertise separated from system capabilities
+4. **Scalable**: Can create diverse expert personas with shared KSI capabilities
+
+**Implementation Strategy**:
+1. Create base persona components (domain experts)
+2. Create KSI capability mixins (communication tools)
+3. Combine personas with capabilities for specific use cases
+4. Test with authentic domain scenarios
+
+**Next Steps**: Design and implement persona-first component library with minimal KSI-awareness as communication capability.
+
+## Model and System-Aware Component Versioning
+
+### Multi-Model Reality
+
+KSI components must work across different Claude models and system versions:
+- **Claude Opus-4**: Excels at long context, complex reasoning, deep analysis
+- **Claude Sonnet-4**: Optimized for efficiency, speed, clear communication
+- **Claude Code Versions**: Evolving capabilities and interfaces (currently 1.0.54)
+- **Future Models**: Haiku-4, new Claude versions, other LLMs
+
+### Hybrid Git Architecture
+
+Combining multiple git features for comprehensive component lifecycle management:
+
+#### 1. **Branches for Model Optimization**
+```bash
+# Long-lived branches for major optimization targets
+main                    # Model-agnostic components
+claude-opus-optimized   # Deep reasoning, long context variants  
+claude-sonnet-optimized # Efficiency, speed variants
+claude-haiku-optimized  # Minimal, fast variants (future)
+```
+
+**Benefits**:
+- Components evolve separately per model
+- Cross-pollination via selective merging
+- Parallel development of optimization strategies
+
+#### 2. **Git Attributes for Compatibility Metadata**
+```gitattributes
+# .gitattributes - declare component characteristics
+components/personas/deep_researcher.md model=claude-opus performance=reasoning context=long
+components/personas/quick_analyst.md model=claude-sonnet performance=speed context=short
+components/capabilities/ksi_json_*.md system=claude-code-1.0.54+
+```
+
+**Benefits**:
+- File-level granularity for compatibility
+- Queryable with standard git tools
+- Lightweight metadata that travels with repository
+
+#### 3. **Conventional Commits for Change Tracking**
+```bash
+git commit -m "perf(claude-sonnet): optimize analyst persona for faster responses
+- Reduced prompt complexity by 30%
+- Improved JSON emission reliability  
+- Tested with claude-sonnet-4 + claude-code-1.0.54"
+```
+
+**Benefits**:
+- Clear compatibility impact in commit history
+- Automated tooling support
+- Enables semantic versioning
+
+#### 4. **Automated Tagging for Releases**
+```bash
+# CI automatically creates tags based on conventional commits
+git tag v1.2.0-claude-sonnet-optimized
+git tag v1.2.0-claude-opus-optimized
+git tag claude-code-1.0.54-compatible
+```
+
+### Enhanced Component Discovery
+
+```bash
+# Find components optimized for current environment
+ksi send composition:discover --branch claude-sonnet-optimized --compatible-with current
+
+# Query by git attributes
+git ls-files -z | git check-attr --stdin -z model | grep claude-opus
+
+# Component evolution history
+git log --oneline --grep="claude-opus" components/personas/
+
+# Automatic compatibility detection
+ksi send composition:discover --optimize-for speed --model sonnet-4
+ksi send composition:discover --optimize-for capability --model opus-4
+```
+
+### Implementation Strategy
+
+#### Phase 1: Git Infrastructure
+1. **Set up model optimization branches**
+2. **Create .gitattributes with compatibility metadata**
+3. **Establish conventional commit patterns**
+4. **Implement SQLite indexing of git metadata**
+
+#### Phase 2: Component Library
+1. **Base personas per model type**:
+   - `personas/claude_opus/` - Deep reasoning experts
+   - `personas/claude_sonnet/` - Efficient specialists
+2. **System capabilities per version**:
+   - `capabilities/claude_code_1.0.x/` - Current system features
+   - `capabilities/claude_code_1.1.x/` - Future features
+3. **Cross-model base components**:
+   - `personas/universal/` - Model-agnostic experts
+
+#### Phase 3: Automated Workflows
+1. **Compatibility testing**: Validate components against target environments
+2. **Performance benchmarking**: Measure response quality per model
+3. **Migration assistance**: Upgrade paths for system version changes
+
+### Example Component Organization
+
+```
+var/lib/compositions/
+├── .gitattributes                 # Compatibility metadata
+├── components/
+│   ├── personas/
+│   │   ├── universal/             # Model-agnostic (main branch)
+│   │   │   ├── data_analyst.md
+│   │   │   └── researcher.md
+│   │   ├── claude_opus/           # opus-optimized branch
+│   │   │   ├── deep_researcher.md # Long context + complex reasoning
+│   │   │   └── strategic_analyst.md
+│   │   └── claude_sonnet/         # sonnet-optimized branch
+│   │       ├── quick_analyst.md   # Efficient + clear
+│   │       └── task_coordinator.md
+│   └── capabilities/
+│       ├── ksi_json_v1.0.54.md   # Current Claude Code
+│       └── ksi_json_v1.1.0.md    # Future Claude Code
+```
+
+### Benefits
+
+1. **Performance Optimization**: Components tuned for specific model strengths
+2. **Future-Proofing**: Clear evolution and upgrade paths
+3. **Quality Assurance**: Systematic compatibility validation
+4. **Community Growth**: Model-optimized components can be shared
+5. **Developer Experience**: Automatic selection of optimal components
+6. **Maintainability**: Clear separation of optimization concerns
+

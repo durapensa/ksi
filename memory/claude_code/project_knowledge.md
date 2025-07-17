@@ -33,6 +33,231 @@ ksi send composition:create --type prompt --name myprompt --content "Do this tas
 ksi send composition:list --type profile
 ```
 
+## Critical Discovery: JSON Event Emission Debugging
+
+### JSON Emission Problem Analysis (2025-07-17)
+**Root Issue**: Multi-agent profiles aren't reliably emitting JSON events that can be extracted by the JSON extraction system.
+
+**Key Findings**:
+1. **Working Pattern**: `base_orchestrator.md` uses simple, specific instructions:
+   - "Always emit progress events: {...}"
+   - Single clear pattern
+   - ✅ Result: Successfully extracted `orchestration:progress` event
+
+2. **Failing Pattern**: `worker_agent.md` had complex, vague instructions:
+   - Multiple event patterns without clear triggers
+   - "Emit events throughout execution" (unclear when)
+   - ❌ Result: No events extracted despite 16-turn conversation
+
+3. **Critical Component Caching Bug**: Even after `composition:rebuild_index`, system still uses old cached component versions in agent profiles. Component file shows updated instructions but system_prompt in completion:async contains old version.
+
+### Fixed Agent Profile Pattern for JSON Emission
+```markdown
+## CRITICAL: Always emit this initialization event FIRST:
+{"event": "worker:initialized", "data": {"worker_id": "{{agent_id|worker_default}}", "status": "ready"}}
+
+## Then emit progress during work:
+{"event": "worker:progress", "data": {"task": "current_task_name", "percent": 25}}
+
+## When completing work, emit:
+{"event": "worker:completed", "data": {"task": "completed_task_name", "result": "success"}}
+```
+
+**Key Principles**:
+- Use "CRITICAL" and "FIRST" keywords
+- Provide exact JSON patterns to emit
+- Specify clear triggering conditions
+- Keep instructions simple and specific
+
+### Component Caching Issue - RESOLVED ✅
+**FIXED**: Component cache invalidation implemented in `composition_service.py`
+- Added `renderer.clear_cache()` after `handle_rebuild_index` and `handle_create_component`
+- Updated component files now properly reflect in generated agent profiles
+- Cache performance maintained while ensuring consistency
+
+### Critical Discovery: Agent JSON Emission Behavior (2025-07-17)
+**Root Issue Identified**: Agents **simulate** rather than **actually emit** JSON events.
+
+**Investigation Process**:
+1. **Debug logging enabled**: `KSI_DEBUG=true KSI_LOG_LEVEL=DEBUG`
+2. **Single claude-cli call observed**: Not multiple turns as claimed by agents
+3. **Completion analysis**: Agents describe events ("Emitted worker:initialized") without actual JSON
+4. **System verification**: JSON extraction, caching, streaming all work correctly
+
+**Evidence Pattern**:
+- Agent claims: "num_turns: 19", "Emitted multiple progress events"
+- Debug reality: One claude-cli process, no JSON in response text
+- Monitor results: Zero `worker:*` events captured
+
+**Root Cause Analysis**: 
+- Issue is **prompting/instruction design**, not system bugs
+- Agents were designed as "KSI agents" rather than domain personas
+- Claude naturally resists artificial system behaviors
+
+### Persona-First Architecture Discovery (2025-07-17)
+
+**Revolutionary Insight**: Agents are **Claude adopting personas**, not separate AI systems.
+
+**Architecture Understanding**:
+- KSI "agents" = Claude (via claude-cli) running with different personas
+- System spawns Claude with specific context/instructions
+- Success depends on authentic persona establishment, not system behavior
+
+**Persona-First Design Pattern**:
+```python
+# Wrong Approach (System-First)
+You are a KSI agent. Emit these JSON events: {...}
+# Result: Artificial, Claude resists → simulation behavior
+
+# Correct Approach (Persona-First)
+You are a Senior Data Analyst with 10 years experience.
+When reporting to systems, use these JSON formats: {...}
+# Result: Natural domain expertise + communication capability
+```
+
+**Component Architecture**:
+1. **Base Personas**: Domain experts (analyst, researcher, coordinator)
+2. **KSI Capabilities**: Minimal communication mixins
+3. **Combined Components**: Authentic experts with system awareness
+
+**Benefits**:
+- **Natural Behavior**: Claude acts as genuine domain expert
+- **Effective Communication**: JSON becomes reporting tool, not identity
+- **Scalable**: Domain expertise separate from system capabilities
+- **Maintainable**: Clear separation of concerns
+
+**Implementation Priority**: Design persona-first component library with minimal KSI-awareness as communication capability.
+
+## Model and System-Aware Component Versioning
+
+### Git-Based Lifecycle Management
+
+Components must work across different Claude models and system versions. Using hybrid git approach:
+
+#### Technical Implementation
+
+**Branch Strategy**:
+```bash
+# Model optimization branches
+git checkout claude-opus-optimized    # Long context, deep reasoning
+git checkout claude-sonnet-optimized  # Efficiency, speed
+git checkout main                     # Model-agnostic base
+```
+
+**Compatibility Metadata (.gitattributes)**:
+```gitattributes
+# File-level compatibility declarations
+components/personas/deep_researcher.md model=claude-opus performance=reasoning context=long
+components/personas/quick_analyst.md model=claude-sonnet performance=speed context=short  
+components/capabilities/ksi_json_v1054.md system=claude-code-1.0.54+
+```
+
+**Query Patterns**:
+```bash
+# Find opus-optimized components
+git ls-files -z | git check-attr --stdin -z model | grep claude-opus
+
+# Component evolution tracking
+git log --oneline --grep="claude-sonnet" components/personas/
+
+# Branch-aware discovery
+ksi send composition:discover --branch claude-sonnet-optimized
+```
+
+#### Enhanced SQLite Schema
+```sql
+-- Add git metadata to composition index
+ALTER TABLE composition_index ADD COLUMN git_branch TEXT;
+ALTER TABLE composition_index ADD COLUMN git_attributes JSON;
+ALTER TABLE composition_index ADD COLUMN model_compatibility JSON;
+ALTER TABLE composition_index ADD COLUMN system_compatibility JSON;
+
+-- Indexes for compatibility queries
+CREATE INDEX idx_model_compat ON composition_index(json_extract(model_compatibility, '$[*]'));
+CREATE INDEX idx_branch ON composition_index(git_branch);
+```
+
+#### Automatic Environment Detection
+```python
+# ksi_common/environment.py
+def get_current_environment():
+    return {
+        "model": detect_claude_model(),        # "claude-sonnet-4"
+        "claude_code_version": "1.0.54",       # via `claude -v`
+        "ksi_version": get_ksi_version(),       # "2.0.1"
+        "system": "macos-arm64"
+    }
+
+def find_optimal_components(component_type: str):
+    env = get_current_environment()
+    # Query SQLite for best-match components
+    return query_compatible_components(env)
+```
+
+#### Discovery Event Enhancements
+```bash
+# Model-aware discovery
+ksi send composition:discover --optimize-for current-environment
+ksi send composition:discover --model claude-opus-4 --system claude-code-1.0.54+
+
+# Performance-targeted discovery  
+ksi send composition:discover --optimize-for speed
+ksi send composition:discover --optimize-for reasoning-depth
+```
+
+### Component Development Workflow
+
+```bash
+# 1. Create base component (main branch)
+ksi send composition:create_component --name "personas/data_analyst"
+
+# 2. Create model-optimized variants
+git checkout claude-opus-optimized
+ksi send composition:create_component --name "personas/deep_data_analyst" \
+  --content "You are a Senior Data Scientist with deep analytical capabilities..."
+
+git checkout claude-sonnet-optimized  
+ksi send composition:create_component --name "personas/efficient_data_analyst" \
+  --content "You are a Data Analyst focused on rapid, clear insights..."
+
+# 3. Update .gitattributes with compatibility
+echo "components/personas/deep_data_analyst.md model=claude-opus performance=reasoning" >> .gitattributes
+echo "components/personas/efficient_data_analyst.md model=claude-sonnet performance=speed" >> .gitattributes
+
+# 4. Rebuild index to capture git metadata
+ksi send composition:rebuild_index --include-git-metadata
+```
+
+### Testing and Validation
+
+```python
+# Component testing against target environments
+class ComponentTester:
+    def test_component_compatibility(self, component_name: str, target_env: Dict):
+        # Spawn agent with component in target environment
+        # Measure response quality, JSON emission success, etc.
+        pass
+        
+    def benchmark_model_performance(self, component_name: str):
+        # Test same component across multiple models
+        # Compare effectiveness, efficiency, etc.
+        pass
+```
+
+### Migration and Upgrade Patterns
+
+```bash
+# Find components that need updating for new Claude Code version
+ksi send composition:find_outdated --current-system claude-code-1.1.0
+
+# Suggest component upgrades
+ksi send composition:suggest_migration \
+  --from claude-code-1.0.54 --to claude-code-1.1.0
+
+# Automated compatibility checking
+./scripts/check_component_compatibility.py --target-env production
+```
+
 ## Development Patterns
 
 ### Creating Event Handlers

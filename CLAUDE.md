@@ -20,6 +20,19 @@ This document serves as your primary instructions for KSI development. For techn
 4. **Test with minimal cases** - Isolate the problem
 5. **Fix the root cause** - Don't bypass or work around issues
 
+### Advanced Debugging Techniques
+
+**Enable Debug Logging**: For deep system investigation
+```bash
+export KSI_DEBUG=true && export KSI_LOG_LEVEL=DEBUG && ./daemon_control.py restart
+```
+
+**Agent Behavior Investigation**: When agents claim to perform actions:
+1. **Verify actual vs claimed behavior** - Check logs for real activity
+2. **Count claude-cli spawns** - Should match claimed conversation turns
+3. **Examine completion results** - Look for actual JSON vs descriptions
+4. **Use monitor events** - Verify claimed events actually appear
+
 ### Example: Timeout Investigation
 
 Recent example of proper investigation:
@@ -35,7 +48,22 @@ ksi send composition:get_component --name "complex_component"
 4. Result: Timeout resolved, proper error handling added
 ```
 
-**Remember**: Timeouts, connection issues, and serialization errors are symptoms of underlying problems. Always investigate and fix the root cause.
+### Example: Agent JSON Emission Investigation (2025-07-17)
+
+Critical discovery about agent behavior patterns:
+```bash
+# Agent claims: "Emitted worker:initialized event"
+# Monitor shows: No worker:* events
+
+# Investigation steps:
+1. Enable debug logging: KSI_DEBUG=true KSI_LOG_LEVEL=DEBUG
+2. Check claude-cli spawns: Only 1 process, not claimed "13 turns"
+3. Examine completion result: Descriptions only, no actual JSON
+4. Root cause: Agents simulate/describe rather than actually emit JSON
+5. Fix: Revise prompting to force actual JSON emission
+```
+
+**Remember**: Timeouts, connection issues, and serialization errors are symptoms of underlying problems. Always investigate and fix the root cause. **Agent claims must be verified against actual system behavior.**
 
 ## Core Development Principles
 
@@ -72,6 +100,87 @@ variables:
 # {{title|Default Title}}
 
 Enhanced content with variables.
+```
+
+### Persona-First Agent Design (Critical)
+
+**Core Principle**: Agents are **Claude adopting personas**, not "KSI agents".
+
+**When** designing agent components:
+- **Then** establish domain persona FIRST (analyst, researcher, coordinator)
+- **Then** add minimal KSI-awareness as communication capability
+- **Then** test with authentic domain scenarios, not system scenarios
+
+**Component Architecture Pattern**:
+```markdown
+# components/personas/data_analyst.md
+You are a Senior Data Analyst with 10 years experience in business intelligence.
+Your approach: methodical, evidence-based, collaborative.
+
+# components/capabilities/ksi_json_reporter.md  
+When reporting to systems, use structured JSON:
+- Progress: {"event": "analyst:progress", "data": {"stage": "...", "findings": "..."}}
+- Results: {"event": "analyst:complete", "data": {"recommendation": "..."}}
+
+# components/agents/business_analyst.md
+---
+mixins:
+  - components/personas/data_analyst.md
+  - components/capabilities/ksi_json_reporter.md
+---
+```
+
+**Key Insight**: JSON becomes a natural reporting tool for domain experts, not forced "agent behavior".
+
+### Model and System-Aware Development
+
+**When** working with components across different environments:
+- **Then** use git branches for model-specific optimizations
+- **Then** declare compatibility in .gitattributes for discoverability  
+- **Then** test components against target model/system combinations
+
+**Model Optimization Workflow**:
+```bash
+# Work on Opus-optimized components
+git checkout claude-opus-optimized
+ksi send composition:create_component --name "personas/deep_researcher" \
+  --content "You are a Senior Research Scientist with deep analytical capabilities..."
+
+# Work on Sonnet-optimized components  
+git checkout claude-sonnet-optimized
+ksi send composition:create_component --name "personas/quick_analyst" \
+  --content "You are a Data Analyst focused on rapid, actionable insights..."
+
+# Update compatibility metadata
+echo "components/personas/deep_researcher.md model=claude-opus performance=reasoning" >> .gitattributes
+echo "components/personas/quick_analyst.md model=claude-sonnet performance=speed" >> .gitattributes
+
+# Rebuild index to capture git metadata
+ksi send composition:rebuild_index --include-git-metadata
+```
+
+**Discovery with Model Awareness**:
+```bash
+# Find components for current environment
+ksi send composition:discover --compatible-with current
+
+# Find speed-optimized components
+ksi send composition:discover --optimize-for speed --model sonnet-4
+
+# Find reasoning-optimized components
+ksi send composition:discover --optimize-for capability --model opus-4
+
+# Query by git attributes
+git ls-files | git check-attr --stdin model performance
+```
+
+**Component Testing Pattern**:
+```bash
+# Test component with specific model
+./test_component.py --component personas/analyst --model claude-opus-4 --system claude-code-1.0.54
+
+# Validate compatibility across environments
+./validate_compatibility.py --component personas/analyst --all-supported-environments
 ```
 
 ### Event Result Propagation
