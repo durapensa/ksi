@@ -14,6 +14,7 @@ import structlog
 from .frontmatter_utils import parse_frontmatter, load_component_with_frontmatter
 from .yaml_utils import safe_load
 from .json_utils import loads as json_loads, dumps as json_dumps
+from .template_utils import substitute_variables
 from .timestamps import sanitize_for_json
 import hashlib
 import json
@@ -296,46 +297,8 @@ class ComponentRenderer:
         - {{variable|default}} - with default value
         - {{variable.key}} - nested access
         """
-        def replace_var(match):
-            var_expr = match.group(1)
-            
-            # Handle default values
-            if '|' in var_expr:
-                var_name, default_value = var_expr.split('|', 1)
-                var_name = var_name.strip()
-                default_value = default_value.strip()
-            else:
-                var_name = var_expr.strip()
-                default_value = ""
-            
-            # Handle nested variables (e.g., user.name)
-            if '.' in var_name:
-                value = self._get_nested_value(variables, var_name)
-            else:
-                value = variables.get(var_name, default_value)
-            
-            # Convert complex types to appropriate string representation
-            if isinstance(value, (dict, list)):
-                return json_dumps(value)
-            elif value is None:
-                return default_value
-            else:
-                return str(value)
-        
-        return re.sub(r'\{\{([^}]+)\}\}', replace_var, content)
+        return substitute_variables(content, variables)
     
-    def _get_nested_value(self, data: Dict[str, Any], key_path: str) -> Any:
-        """Get nested value from dictionary using dot notation."""
-        keys = key_path.split('.')
-        current = data
-        
-        for key in keys:
-            if isinstance(current, dict) and key in current:
-                current = current[key]
-            else:
-                return None
-        
-        return current
     
     def _handle_special_placeholders(self, content: str, context: ComponentContext) -> str:
         """Handle special placeholders like {{base_content}}."""

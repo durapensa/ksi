@@ -13,6 +13,7 @@ from ksi_common.logging import get_bound_logger
 from ksi_common.config import config
 from ksi_common.yaml_utils import load_yaml_file, safe_load
 from ksi_common.json_utils import loads as json_loads, dumps as json_dumps
+from ksi_common.template_utils import substitute_variables as template_substitute_variables
 from . import composition_index
 
 logger = get_bound_logger("composition_core")
@@ -104,17 +105,7 @@ def load_component(path: str) -> str:
 
 def substitute_variables(text: str, variables: Dict[str, Any]) -> str:
     """Substitute {{variable}} placeholders in text."""
-    def replace_var(match):
-        var_name = match.group(1).strip()
-        if var_name in variables:
-            value = variables[var_name]
-            # Handle different value types
-            if isinstance(value, (dict, list)):
-                return json_dumps(value)
-            return str(value)
-        return match.group(0)  # Keep original if not found
-    
-    return re.sub(r'\{\{([^}]+)\}\}', replace_var, text)
+    return template_substitute_variables(text, variables)
 
 
 def evaluate_condition(condition: str, variables: Dict[str, Any]) -> bool:

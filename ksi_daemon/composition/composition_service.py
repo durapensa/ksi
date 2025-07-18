@@ -1507,9 +1507,31 @@ async def compose_agent_context(
     
     try:
         # Build complete agent context
+        profile_data = await load_composition_raw(profile_name, 'profile')
+        
+        # Apply agent spawn-time variable substitution
+        spawn_vars = {
+            'agent_id': agent_id,
+            **variables  # Include any passed variables
+        }
+        
+        # Substitute variables in the system_prompt if present
+        if isinstance(profile_data, dict):
+            # Look for system_prompt in components
+            if 'components' in profile_data:
+                for component in profile_data['components']:
+                    if isinstance(component, dict) and 'inline' in component:
+                        inline_data = component['inline']
+                        if isinstance(inline_data, dict) and 'system_prompt' in inline_data:
+                            # Substitute variables in system_prompt
+                            inline_data['system_prompt'] = substitute_variables(
+                                inline_data['system_prompt'], 
+                                spawn_vars
+                            )
+        
         context = {
             'agent_id': agent_id,
-            'agent_profile': await load_composition_raw(profile_name, 'profile')
+            'agent_profile': profile_data
         }
         
         # Add full orchestration context if available
