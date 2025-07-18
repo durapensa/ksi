@@ -315,6 +315,38 @@ git commit -m "Update composition submodule"
 - **Comprehensive cleanup completed**: No old agent instructions linger in system
 - **Production ready architecture**: All major technical challenges resolved
 
+## Document Maintenance Patterns
+
+### EVOLVE WORKFLOWS, DON'T EXPAND
+
+**ENHANCE EXISTING PATTERNS**: When updating this document:
+- **Improve existing workflows** instead of adding new workflow sections
+- **Update investigation examples** rather than accumulating case studies
+- **Evolve principles in place** instead of creating new principle categories
+- **Replace outdated practices** when better approaches are discovered
+
+### What Belongs Here
+- **Development Workflows**: Investigation methods, debugging patterns, development practices
+- **Proven Patterns**: Component creation, agent design, testing approaches
+- **Meta-Principles**: Knowledge capture, code quality, testing philosophy
+- **System Management**: Daemon control, monitoring, troubleshooting
+
+### What Doesn't Belong Here
+- **Technical Architecture**: Belongs in PROGRESSIVE_COMPONENT_SYSTEM.md
+- **Implementation Details**: Belongs in project_knowledge.md
+- **Development History**: Belongs in git commits
+- **Accomplishment Lists**: Remove when they become outdated
+- **Progress Reports**: Temporary information that doesn't improve workflows
+
+### Update Patterns
+- **Workflow Improvements**: Update existing sections with better practices
+- **New Discoveries**: Enhance existing principles rather than create new sections
+- **Investigation Examples**: Replace old examples with more relevant cases
+- **Status Updates**: Update current status, remove completed milestones
+- **Meta-Pattern Evolution**: Improve knowledge capture patterns in place
+
+**Principle**: This document should help Claude Code work more effectively, not document what was accomplished.
+
 ---
 
 **Remember**: This is your workflow guide. For technical details, implementation patterns, and architecture, always refer to `memory/claude_code/project_knowledge.md`.

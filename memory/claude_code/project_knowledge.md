@@ -161,6 +161,31 @@ echo "personas/deep_analyst.md model=claude-opus performance=reasoning" >> .gita
 - **Components**: `var/lib/compositions/components/`
 - **Logs**: `var/logs/daemon/daemon.log`, `var/logs/responses/{session_id}.jsonl`
 
+## Document Maintenance Patterns
+
+### CRITICAL: Keep Lean (Target: ~100 lines)
+
+**REPLACE, DON'T ACCUMULATE**: When updating this document:
+- **Replace outdated status** instead of adding "Recent Updates" sections
+- **Update patterns in place** rather than documenting pattern evolution
+- **Remove resolved issues** when problems are fixed
+- **Consolidate discoveries** into existing sections
+
+### What Belongs Here
+- **Current System Status**: Production readiness, major accomplishments
+- **Critical Patterns**: Proven working approaches, essential technical knowledge
+- **Key Locations**: File paths, important commands, debugging approaches
+- **Immediate Development Needs**: Current standards, working examples
+
+### What Doesn't Belong Here
+- **Development History**: Belongs in git commits only
+- **Completed Tasks**: Remove when finished, don't accumulate
+- **Detailed Architecture**: Belongs in PROGRESSIVE_COMPONENT_SYSTEM.md
+- **Workflow Instructions**: Belongs in CLAUDE.md
+- **Session Details**: Temporary information that becomes outdated
+
+**Update Pattern**: When discoveries are made, update existing sections rather than adding new ones. Remove content that's no longer essential for immediate development.
+
 ---
 
 *Essential development knowledge only - for workflow instructions see CLAUDE.md*

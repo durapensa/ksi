@@ -264,6 +264,37 @@ During work, emit progress:
 
 The Progressive Component System provides a robust foundation for consistent, scalable AI agent development with reliable JSON event emission and comprehensive error handling.
 
+## Document Maintenance Patterns
+
+### Update Principles
+
+**CONSOLIDATE, DON'T APPEND**: When updating this document:
+- **Replace outdated information** instead of adding new sections
+- **Update existing patterns** rather than documenting new approaches
+- **Evolve technical standards** in place, don't create parallel standards
+- **Remove obsolete content** when patterns are superseded
+
+### What Belongs Here
+- **Core Architecture**: System design principles and technical foundations
+- **Performance Characteristics**: Benchmarks, complexity analysis, optimization patterns
+- **Component Standards**: Current patterns, frontmatter requirements, best practices
+- **API Patterns**: Event-driven integration, development workflows
+
+### What Doesn't Belong Here
+- **Development History**: Belongs in git commits and project_knowledge.md
+- **Implementation Details**: Specific code examples belong in project_knowledge.md
+- **Workflow Instructions**: Belongs in CLAUDE.md
+- **Progress Reports**: Temporary information that becomes outdated
+- **Experimental Results**: Unless they establish new production standards
+
+### Update Patterns
+- **Technical Changes**: Update relevant architecture sections, don't add "New Feature" sections
+- **Performance Updates**: Replace old metrics with current benchmarks
+- **Standard Evolution**: Modify existing best practices, remove deprecated patterns
+- **System Status**: Update production readiness indicators, remove completed milestones
+
+**Target**: Maintain ~270 lines focused on essential technical architecture
+
 ---
 
 *Technical Architecture Reference*
