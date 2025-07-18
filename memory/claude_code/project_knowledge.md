@@ -155,6 +155,9 @@ echo "personas/deep_analyst.md model=claude-opus performance=reasoning" >> .gita
 - **Persona-First Architecture**: Proven natural JSON emission
 - **Composition Cleanup**: 40 obsolete files removed, all components modernized
 
+### Known Issues
+- **Discovery --level full timeout**: Processing 220+ events with detailed analysis takes >30s (client timeout). Use namespace filters or redirect output.
+
 ### Key File Locations
 - **Core Systems**: `ksi_common/json_utils.py`, `ksi_common/component_renderer.py`
 - **Event Handlers**: `ksi_daemon/composition/composition_service.py`

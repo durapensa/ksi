@@ -385,6 +385,11 @@ async def discover(ctx, namespace, detail, event, module, level, format_style, o
             click.echo("Error: --detail requires --namespace or --event filter to prevent timeouts", err=True)
             ctx.exit(1)
         
+        # Check for --level full without filters
+        if level == "full" and not (namespace or event):
+            click.echo("Error: --level full requires --namespace or --event filter to prevent timeouts and massive output", err=True)
+            ctx.exit(1)
+        
         # Setup client
         global ksi_client
         ksi_client = KSIClickClient(ctx.obj['socket_path'])

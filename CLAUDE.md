@@ -132,22 +132,32 @@ ksi send monitor:get_events --event-patterns "agent:*"
 
 **MANDATORY**: You MUST use discovery BEFORE attempting any task. NO EXCEPTIONS.
 
+**Progressive Discovery Methodology** (saves tokens/context):
+1. **Start broad**: `ksi discover` - Get namespace overview
+2. **Narrow focus**: `ksi discover --namespace <name>` - Explore specific area
+3. **Get details**: `ksi help <event:name>` - Understand specific events
+4. **NEVER use --level full without redirect**: Output can be massive
+
 **Understanding Discovery Layers**:
 - **System Discovery** (`ksi discover`): MUST run this first to understand capabilities
 - **Domain Discovery** (`composition:discover`, `agent:discover`): MUST use for actual data queries
 
 ```bash
-# MANDATORY: Run system discovery first
-ksi discover                    # MUST check all namespaces
-ksi discover --namespace composition  # MUST explore specific namespaces
+# MANDATORY: Progressive Discovery Pattern (saves tokens/context)
+ksi discover                    # Start with summary view
+ksi discover --namespace composition  # Explore specific namespace
+ksi help composition:get_component  # Get event details
+
+# WARNING: --level full produces HUGE output AND can timeout
+# Analysis of 220+ events takes >30s
+ksi discover --level full > discovery_full.json 2>&1  # NEVER run without redirect
+# Alternative: Use namespace filters to reduce scope
+ksi discover --level full --namespace agent > discovery_agent_full.json
 
 # MANDATORY: Use domain discovery for data
 ksi send composition:discover --type component  # Query components from SQLite
 ksi send composition:list --filter '{"author": "ksi"}'  # List with filters
 ksi send agent:list  # List active agents
-
-# MANDATORY: Check event parameters before use
-ksi help composition:get_component
 ```
 
 **CRITICAL RULE**: System discovery guides you to domain discovery events, it NEVER returns domain data itself.

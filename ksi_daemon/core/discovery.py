@@ -23,11 +23,15 @@ from ksi_common.parameter_utils import (
 from ksi_common.type_utils import format_type_annotation, extract_literal_values
 from ksi_daemon.event_system import event_handler, get_router
 from .discovery_utils import HandlerAnalyzer, extract_summary
+from .discovery_cache import get_discovery_cache
 
 logger = get_bound_logger("discovery", version="2.0.0")
 
 # Cache for mined examples
 _example_cache = {}
+
+# Cache for batch mined examples
+_batch_example_cache = {}
 
 # Format style constants
 FORMAT_VERBOSE = "verbose"
@@ -345,6 +349,54 @@ class EmitEventVisitor(ast.NodeVisitor):
         return None
 
 
+async def mine_examples_batch(event_names: List[str]) -> Dict[str, List[Dict[str, Any]]]:
+    """Mine examples for multiple events in a single efficient query."""
+    # Check if we've already batch mined
+    if _batch_example_cache:
+        return {event: _batch_example_cache.get(event, []) for event in event_names}
+    
+    # Query event log for all events at once
+    from ksi_daemon.core.monitor import EventLogDB
+    from ksi_common.config import config
+    
+    db = EventLogDB(config.event_log_dir)
+    
+    # Build IN clause for SQL query
+    placeholders = ','.join('?' for _ in event_names)
+    query = f"""
+        SELECT event_name, data, timestamp 
+        FROM events 
+        WHERE event_name IN ({placeholders})
+        ORDER BY timestamp DESC
+        LIMIT 500
+    """
+    
+    examples_by_event = {event: [] for event in event_names}
+    
+    try:
+        rows = await db.execute_query(query, event_names)
+        for row in rows:
+            event_name, data_json, timestamp = row
+            if event_name in examples_by_event and len(examples_by_event[event_name]) < 2:
+                try:
+                    data = json.loads(data_json) if data_json else {}
+                    examples_by_event[event_name].append({
+                        "data": data,
+                        "timestamp": timestamp,
+                        "source": "event_log"
+                    })
+                except json.JSONDecodeError:
+                    pass
+                    
+        # Update batch cache
+        _batch_example_cache.update(examples_by_event)
+        
+    except Exception as e:
+        logger.warning(f"Failed to batch mine examples: {e}")
+        
+    return examples_by_event
+
+
 class ExampleMiner:
     """Mines real usage examples from codebase for event discovery."""
     
@@ -472,6 +524,18 @@ class UnifiedHandlerAnalyzer:
         
     def analyze(self) -> Dict[str, Any]:
         """Perform unified analysis combining TypedDict and AST."""
+        # Check cache first
+        cache = get_discovery_cache()
+        if self.event_name:
+            cached_analysis = cache.get_cached_analysis(self.event_name)
+            if cached_analysis:
+                logger.debug(f"Using cached analysis for {self.event_name}")
+                return cached_analysis
+        
+        # Get module path for cache validation
+        module_path = inspect.getfile(self.func)
+        handler_name = self.func.__name__
+        
         # Get TypedDict class if not provided
         if not self.typed_dict_class:
             self.typed_dict_class = self._find_typed_dict_class()
@@ -488,8 +552,14 @@ class UnifiedHandlerAnalyzer:
         
         # Step 4: Mine real usage examples
         if self.event_name:
-            miner = ExampleMiner(self.event_name)
-            self.examples = miner.mine_examples(limit=2)
+            # Check example cache first
+            cached_examples = cache.get_cached_examples(self.event_name)
+            if cached_examples:
+                self.examples = cached_examples
+            else:
+                miner = ExampleMiner(self.event_name)
+                self.examples = miner.mine_examples(limit=2)
+                # Cache examples will be updated in batch later
         
         result = {
             "parameters": self.parameters,
@@ -499,6 +569,15 @@ class UnifiedHandlerAnalyzer:
         # Add examples if found
         if self.examples:
             result["examples"] = self.examples
+        
+        # Cache the analysis result
+        if self.event_name:
+            cache.update_cache_entry(
+                self.event_name,
+                module_path,
+                handler_name,
+                result
+            )
             
         return result
     
@@ -872,6 +951,13 @@ async def handle_discover(raw_data: Dict[str, Any], context: Optional[Dict[str, 
             "--detail requires --namespace or --event filter to prevent timeouts",
             context=context
         )
+    
+    # Prevent --level full without filters to avoid timeouts and massive output
+    if level == "full" and not (namespace_filter or event_filter):
+        return error_response(
+            "--level full requires --namespace or --event filter to prevent timeouts and massive output",
+            context=context
+        )
 
     from ksi_daemon.event_system import get_router
 
@@ -896,8 +982,31 @@ async def handle_discover(raw_data: Dict[str, Any], context: Optional[Dict[str, 
         # For full level, always include detail
         if level == "full":
             include_detail = True
-
+        
+        # Collect event names that need analysis
+        events_to_analyze = []
         for event_name, handlers in router._handlers.items():
+            # Apply filters early to reduce work
+            if namespace_filter and ':' in event_name:
+                ns = event_name.split(':', 1)[0]
+                if ns != namespace_filter:
+                    continue
+            if event_filter and event_filter != event_name:
+                continue
+            if module_filter:
+                handler = handlers[0]
+                if module_filter not in handler.module:
+                    continue
+                    
+            events_to_analyze.append((event_name, handlers))
+        
+        # Batch mine examples if we're including detail
+        if include_detail and events_to_analyze:
+            event_names = [event_name for event_name, _ in events_to_analyze]
+            # TODO: Make this async properly
+            # await mine_examples_batch(event_names)
+
+        for event_name, handlers in events_to_analyze:
             handler = handlers[0]  # Use first handler
 
             handler_info = {
