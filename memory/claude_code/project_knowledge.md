@@ -348,14 +348,29 @@ ksi send composition:suggest_migration \
 
 **Detailed Analysis**: See `docs/PROGRESSIVE_COMPONENT_SYSTEM.md` "Event Routing Validation Results" section for complete investigation findings.
 
-### Next Priority: Agent Behavioral Consistency 🔄
+### Agent Behavioral Consistency Testing (2025-07-18) ✅ **FINDINGS DOCUMENTED**
 
-**Challenge**: Identical component profiles produce different agent behaviors:
-- Some agents emit real JSON events
-- Others describe/simulate JSON emission
-- This is an LLM consistency issue, not a technical problem
+**Challenge Addressed**: Identical component profiles produce different agent behaviors.
 
-**Approach**: Manual prompt optimization to achieve consistent KSI-operating behavior from `claude -p`.
+**Testing Results**:
+- Tested 5 prompt patterns using KSI agent system
+- **Success**: "imperative_start" pattern emitted real JSON events
+- **Key Finding**: Strong imperative language ("MANDATORY: Start your response with this exact JSON:") works
+- **Evidence**: Agent successfully emitted `state:entity:update` and `agent:status` events
+
+**Successful Pattern Template**:
+```markdown
+## MANDATORY: Start your response with this exact JSON:
+{"event": "agent:status", "data": {"agent_id": "{{agent_id}}", "status": "initialized"}}
+```
+
+**Success Factors**:
+1. Strong imperative language (not conditional "when")
+2. Direct instruction to start response with JSON
+3. Complete JSON examples in prompt
+4. Allow sufficient processing time (32 turns, ~52 seconds)
+
+**Documentation**: See PROMPT_OPTIMIZATION_FINDINGS.md for detailed analysis.
 
 ## Development Patterns
 

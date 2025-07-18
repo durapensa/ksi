@@ -1,0 +1,32 @@
+{
+  "imperative_original": {
+    "agent_id": "agent_c9fd6c99",
+    "events_found": false,
+    "event_count": 0,
+    "events": []
+  },
+  "imperative_without_mandatory": {
+    "agent_id": "agent_0519bac7",
+    "events_found": false,
+    "event_count": 0,
+    "events": []
+  },
+  "imperative_with_must": {
+    "agent_id": "agent_3e71a65b",
+    "events_found": false,
+    "event_count": 0,
+    "events": []
+  },
+  "conditional_when": {
+    "agent_id": "agent_d5c703ed",
+    "events_found": false,
+    "event_count": 0,
+    "events": []
+  },
+  "direct_json_first": {
+    "agent_id": "agent_9130c2e6",
+    "events_found": false,
+    "event_count": 0,
+    "events": []
+  }
+}

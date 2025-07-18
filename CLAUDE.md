@@ -237,22 +237,34 @@ ksi send monitor:get_events --event-patterns "analyst:*" --limit 5
 - `components/agents/prefill_optimized_analyst` ✅ 
 - `components/agents/xml_structured_analyst` ✅
 
-### Agent Behavioral Consistency Testing
+### Agent Behavioral Consistency Testing (2025-07-18) ✅ **FINDINGS DOCUMENTED**
 
-**New Priority**: Manual prompt optimization to achieve consistent KSI-operating behavior.
+**Completed**: Manual prompt optimization testing achieved successful JSON emission.
 
-**Challenge**: With JSON extraction working, focus shifts to LLM consistency:
-- Technical infrastructure is solid
-- Need to optimize prompts for reliable instruction following
-- Test patterns that ensure consistent JSON emission behavior
+**Proven Pattern**: Strong imperative language ensures consistent behavior:
+```markdown
+## MANDATORY: Start your response with this exact JSON:
+{"event": "agent:status", "data": {"agent_id": "{{agent_id}}", "status": "initialized"}}
+```
 
-**Approach**: Direct `claude -p` prompt optimization to enforce consistent instruction following.
+**Success Factors Discovered**:
+- ✅ **Imperative Language**: "MANDATORY:", "MUST" work better than conditional "when"
+- ✅ **Direct Instructions**: "Start your response with" not "emit when starting"
+- ✅ **Complete JSON Examples**: Provide exact JSON structures
+- ✅ **Processing Time**: Allow 30-60 seconds (may need 20+ turns)
 
-**When** working on agent consistency:
-- **Then** test prompt variations for reliable JSON emission
-- **Then** identify patterns that ensure consistent behavior
-- **Then** update component instructions based on proven patterns
-- **Then** validate fixes with the working JSON extraction system
+**Testing Results**:
+- **imperative_start** pattern: Successfully emitted JSON events
+- **baseline_legitimate** pattern: Failed with conditional language
+- **no_preamble** pattern: Completed but no JSON emission
+
+**When** creating agent components:
+- **Then** use MANDATORY/imperative language for JSON instructions
+- **Then** provide exact JSON structures agents should emit
+- **Then** allow sufficient processing time for complex tasks
+- **Then** test with monitor to verify actual event emission
+
+See PROMPT_OPTIMIZATION_FINDINGS.md for detailed analysis.
 
 ## Development Workflow
 

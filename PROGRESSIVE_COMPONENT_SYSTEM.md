@@ -355,6 +355,45 @@ ksi send monitor:get_events --event-patterns "agent:*" --limit 5
 </legitimate_events>
 ```
 
+### Prompt Optimization Findings (2025-07-18)
+
+**Breakthrough**: Strong imperative language ensures consistent JSON emission.
+
+**Successful Pattern**:
+```markdown
+## MANDATORY: Start your response with this exact JSON:
+{"event": "agent:status", "data": {"agent_id": "{{agent_id}}", "status": "initialized"}}
+```
+
+**Key Success Factors**:
+1. **Imperative Language**: Use "MANDATORY:", "MUST", not conditional "when"
+2. **Direct Instructions**: "Start your response with" not "emit when starting"  
+3. **Complete JSON Examples**: Provide exact structures agents should emit
+4. **Processing Time**: Allow 30-60 seconds (may require 20+ turns)
+
+**Testing Evidence**:
+- **imperative_start** pattern: Successfully emitted `state:entity:update` and `agent:status` events
+- **baseline_legitimate** pattern: Failed with conditional language ("When starting work")
+- **no_preamble** pattern: Completed but didn't emit JSON
+
+**Implementation Template**:
+```markdown
+# [Persona/Role]
+
+## MANDATORY: Start your response with this exact JSON:
+{"event": "agent:status", "data": {"agent_id": "{{agent_id}}", "status": "initialized", "task": "[task]"}}
+
+[Main instructions]
+
+During work, emit progress:
+{"event": "state:entity:update", "data": {"id": "{{agent_id}}_progress", "properties": {"percent": 50}}}
+
+End with:
+{"event": "agent:status", "data": {"agent_id": "{{agent_id}}", "status": "completed", "result": "success"}}
+```
+
+See PROMPT_OPTIMIZATION_FINDINGS.md for detailed analysis.
+
 ### Error Handling
 
 **JSON Extraction Errors**:
