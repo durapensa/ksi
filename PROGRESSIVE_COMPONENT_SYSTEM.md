@@ -1,187 +1,83 @@
 # Progressive Component System
 
-Comprehensive documentation for KSI's progressive component system architecture, evolution, and the critical JSON extraction system fix.
+Technical architecture documentation for KSI's progressive component system with persona-first design, advanced JSON extraction, and model-aware development.
 
-## System Overview
+## System Architecture
 
-The Progressive Component System is KSI's foundational architecture for managing reusable AI agent components with support for:
-- **Persona-First Design**: Domain experts with system communication capabilities
-- **Model-Aware Development**: Components optimized for specific Claude models
-- **Git-Based Versioning**: Branch-based optimization and compatibility metadata
-- **Event-Driven Integration**: Complete KSI system integration via JSON event emission
+The Progressive Component System provides:
+- **Persona-First Design**: Domain experts with minimal system integration
+- **Enhanced JSON Extraction**: Balanced brace parsing for arbitrary nesting
+- **Model-Aware Development**: Git-based component optimization and compatibility
+- **SQLite Index**: Database-driven discovery with full metadata storage
+- **Event-Driven Integration**: Complete KSI system integration via legitimate events
 
-## Architecture Phases
+## JSON Extraction Architecture
 
-### Phase 1: Basic Component Support ✅
-- Component creation via KSI events
-- Markdown file storage and indexing
-- Basic frontmatter parsing
+### Enhanced Balanced Brace Parsing
 
-### Phase 2: Enhanced Rendering ✅
-- Recursive mixin resolution
-- Variable substitution with complex data types
-- Circular dependency detection
-- Performance optimization with caching
+**Core Implementation**: `ksi_common/json_utils.py` with `JSONExtractor` class handles arbitrary JSON nesting levels.
 
-### Phase 3: Advanced Features ✅
-- SQLite composition index as source of truth
-- Git-based model compatibility metadata
-- Streaming event architecture integration
-- Component usage analytics
+**Technical Capability**:
+- **Balanced Brace Algorithm**: Processes any nesting depth with linear time complexity
+- **String-Aware Parsing**: Correctly handles escaped quotes and nested structures
+- **Error Feedback**: Comprehensive error responses via `agent:json_extraction_error` events
 
-### Phase 4: JSON Extraction System Fix ✅
-- **Critical breakthrough**: Fixed fundamental JSON parsing limitation
-- Enhanced balanced brace parsing for arbitrary nesting levels
-- Comprehensive error feedback system
-- Component upgrades to use legitimate KSI events
-
-## Critical Discovery: JSON Extraction System Limitation
-
-### The Problem (2025-07-18)
-
-**Root Cause**: The JSON extraction system had a fundamental limitation that prevented consistent agent behavior.
-
-**Technical Issue**:
-- **Regex Pattern Limitation**: Original pattern `r'\{(?:[^{}]|(?:\{[^{}]*\}))*\}'` could only handle 1 level of nesting
-- **Legitimate KSI Events**: Have 3 levels of nesting:
-  ```json
-  {
-    "event": "state:entity:update",
-    "data": {
-      "id": "agent_123_progress",
-      "properties": {
-        "percent": 50,
-        "stage": "analysis",
-        "findings": "data_quality_good"
-      }
+**Legitimate KSI Events Structure**:
+```json
+{
+  "event": "state:entity:update",
+  "data": {
+    "id": "agent_123_progress",
+    "properties": {
+      "percent": 50,
+      "stage": "analysis"
     }
   }
-  ```
-- **Silent Failures**: Complex events were ignored without error messages, causing inconsistent agent behavior
-
-### The Solution (2025-07-18)
-
-**Enhanced JSON Extraction with Balanced Brace Parsing**:
-
-1. **New Architecture**: Created `ksi_common/json_utils.py` with `JSONExtractor` class
-2. **Balanced Brace Parsing**: `_extract_balanced_object()` method handles arbitrary nesting levels
-3. **Error Feedback**: Comprehensive error responses sent back to agents via `agent:json_extraction_error`
-4. **Backward Compatibility**: Maintains existing API while fixing core limitation
-
-**Key Technical Implementation**:
-```python
-def _extract_balanced_object(self, text: str, start_pos: int) -> Tuple[Optional[str], int]:
-    """Extract a balanced JSON object starting at the given position."""
-    if start_pos >= len(text) or text[start_pos] != '{':
-        return None, start_pos + 1
-    
-    brace_count = 0
-    bracket_count = 0
-    in_string = False
-    escape_next = False
-    
-    # ... balanced brace parsing algorithm ...
-    
-    return json_str, i + 1
+}
 ```
 
-### Component Upgrades
-
-**Components Fixed**: All old components updated to use legitimate KSI system events:
-
-- `components/agents/ksi_aware_analyst` ✅
-- `components/agents/optimized_ksi_analyst` ✅
-- `components/agents/prefill_optimized_analyst` ✅ 
-- `components/agents/xml_structured_analyst` ✅
-
-**Event Migration**:
-- ❌ **Before**: Non-existent `analyst:*` events (`analyst:initialized`, `analyst:progress`, `analyst:findings`, `analyst:complete`)
-- ✅ **After**: Legitimate KSI events (`agent:status`, `state:entity:update`, `message:publish`)
-
-**Example Corrected Component Pattern**:
-```markdown
-<legitimate_events>
-**When starting work, emit agent status:**
-{"event": "agent:status", "data": {"agent_id": "{{agent_id}}", "status": "initialized", "task": "analysis"}}
-
-**For progress updates, use state system:**
-{"event": "state:entity:update", "data": {"id": "{{agent_id}}_progress", "properties": {"percent": 25, "stage": "data_loading", "findings": "initial_data_quality_check"}}}
-
-**To message system (if no spawning agent):**
-{"event": "message:publish", "data": {"agent_id": "{{agent_id}}", "event_type": "DIRECT_MESSAGE", "message": {"to": "system", "content": "Analysis complete: correlation coefficient 0.85"}}}
-
-**When completing work:**
-{"event": "agent:status", "data": {"agent_id": "{{agent_id}}", "status": "completed", "task": "analysis", "result": "success"}}
-</legitimate_events>
-```
-
-### Validation Results
-
-**Technical Validation**:
-- ✅ **JSON Extraction Working**: Successfully extracts deeply nested KSI events
-- ✅ **Agent Events Captured**: Monitor shows events with `_extracted_from_response: true`
-- ✅ **System Integration**: Events flow correctly through KSI monitoring system
-- ✅ **Error Feedback**: Malformed JSON triggers comprehensive error responses
-
-**Behavioral Validation**:
-```bash
-# Test agent spawning with corrected component
-ksi send agent:spawn_from_component --component "components/agents/corrected_ksi_analyst" \
-  --prompt "Please analyze the current system status and emit legitimate KSI events"
-
-# Verify events are extracted
-ksi send monitor:get_events --event-patterns "agent:*" --limit 10
-# Result: Multiple agent:status events with _extracted_from_response: true
-```
+**Performance Characteristics**:
+- **Linear Time**: O(n) text processing
+- **Memory Efficient**: Streaming approach without regex limitations
+- **Error Recovery**: Detailed feedback for malformed JSON
 
 ## Persona-First Architecture
 
-### Core Principle
+### Core Design Principle
 
-**Revolutionary Insight**: Agents are **Claude adopting personas**, not separate AI systems.
+**Foundation**: Agents are Claude adopting authentic domain personas, not artificial system behaviors.
 
-**Architecture Design**:
-1. **Pure Personas**: Domain experts without system awareness
-2. **KSI Capabilities**: Minimal communication mixins
-3. **Combined Components**: Authentic expertise + system integration
+**Three-Layer Architecture**:
+1. **Pure Personas**: Authentic domain expertise (`components/personas/universal/`)
+2. **KSI Capabilities**: Minimal system communication mixins (`components/capabilities/`)
+3. **Combined Agents**: Complete personas with system awareness (`components/agents/`)
 
-### Component Structure
-
-**Base Personas** (Domain Expertise):
-```bash
-components/personas/universal/data_analyst.md
-components/personas/universal/researcher.md
-components/personas/universal/coordinator.md
+**Component Structure**:
+```
+components/
+├── personas/universal/
+│   ├── data_analyst.md        # Pure domain expertise
+│   └── researcher.md          # No system awareness
+├── capabilities/claude_code_1.0.x/
+│   └── ksi_json_reporter.md   # Minimal KSI integration
+└── agents/
+    └── ksi_aware_analyst.md   # Persona + capability
 ```
 
-**KSI Capabilities** (System Integration):
-```bash
-components/capabilities/claude_code_1.0.x/ksi_json_reporter.md
-components/capabilities/claude_code_1.0.x/multi_agent_coordinator.md
-```
-
-**Combined Agents** (Complete System):
-```bash
-components/agents/ksi_aware_analyst.md
-components/agents/multi_agent_orchestrator.md
-```
-
-### Benefits
-
-- **Natural Behavior**: Claude acts as genuine domain expert
-- **Effective Communication**: JSON becomes natural reporting, not forced behavior
-- **Scalable Architecture**: Domain expertise separate from system capabilities
-- **Maintainable**: Clear separation of concerns
+**Benefits**:
+- **Natural JSON Emission**: Reporting becomes professional communication
+- **Authentic Expertise**: Domain knowledge maintained throughout interactions
+- **Scalable Design**: Clean separation enables modular composition
+- **Maintainable**: Clear boundaries between expertise and system integration
 
 ## Model-Aware Development
 
-### Git-Based Lifecycle Management
+### Git-Based Component Optimization
 
 **Branch Strategy**:
 ```bash
-# Model optimization branches
-git checkout claude-opus-optimized    # Long context, deep reasoning
-git checkout claude-sonnet-optimized  # Efficiency, speed
+git checkout claude-opus-optimized    # Deep reasoning, long context
+git checkout claude-sonnet-optimized  # Speed, efficiency
 git checkout main                     # Model-agnostic base
 ```
 
@@ -192,266 +88,183 @@ components/personas/quick_analyst.md model=claude-sonnet performance=speed
 components/capabilities/ksi_json_v1054.md system=claude-code-1.0.54+
 ```
 
-### Discovery Integration
-
-**Model-Aware Discovery**:
+**Environment-Aware Discovery**:
 ```bash
-# Find components for current environment
+# Find optimal components for current environment
 ksi send composition:discover --compatible-with current
 
-# Find performance-optimized components
+# Target specific performance characteristics
 ksi send composition:discover --optimize-for speed --model sonnet-4
 ksi send composition:discover --optimize-for reasoning --model opus-4
 ```
 
 ## Event-Driven Integration
 
-### Component Creation
+### Component Lifecycle
 
-**Create Components via Events**:
+**Creation and Management**:
 ```bash
-# Create component using KSI events
+# Create component via KSI events
 ksi send composition:create_component --name "components/test/example" \
-  --content "# Example Component\n\nContent here..." \
-  --description "Custom component for testing"
+  --content "# Example Component\n\nContent here..."
 
-# Update existing component
-ksi send composition:update_component --name "components/test/example" \
-  --content "# Updated Example Component\n\nNew content..."
-```
-
-### Agent Spawning
-
-**Spawn Agents from Components**:
-```bash
 # Spawn agent from component
-ksi send agent:spawn_from_component --component "components/agents/corrected_ksi_analyst" \
-  --prompt "Analyze business data and report progress"
-
-# Spawn with variables
 ksi send agent:spawn_from_component --component "components/agents/ksi_aware_analyst" \
-  --vars '{"domain": "financial", "depth": "detailed"}' \
-  --prompt "Perform detailed financial analysis"
+  --vars '{"domain": "financial"}' --prompt "Analyze business data"
 ```
 
-## Performance Characteristics
-
-### Caching System
-
-**Component Rendering Cache**:
-- **60x+ speedup** on repeated renders
-- **Intelligent invalidation** on component updates
-- **Memory efficient** with LRU eviction
-
-### SQLite Index
-
-**Database as Source of Truth**:
-- **No file I/O** during queries
-- **Full metadata storage** for rapid discovery
-- **Git metadata integration** for compatibility queries
-
-### JSON Extraction Performance
-
-**Balanced Brace Parsing**:
-- **Arbitrary nesting** support without regex limitations
-- **Linear time complexity** O(n) for text processing
-- **Memory efficient** streaming approach
-
-## Usage Analytics
-
-### Component Usage Tracking
-
-**Analytics Collection**:
-```bash
-# View component usage patterns
-cat var/lib/compositions/usage_analytics/component_usage_2025-07-18.jsonl
-
-# Example analytics data
-{
-  "component": "components/agents/corrected_ksi_analyst",
-  "usage_context": "agent_spawn",
-  "metadata": {
-    "agent_id": "agent_92e80232",
-    "profile_name": "temp_profile_components_agents_corrected_ksi_analyst_44136fa3",
-    "spawn_timestamp": "2025-07-18T12:49:41.326739Z"
-  }
-}
+**Progressive Frontmatter**:
+```yaml
+---
+version: 2.1.0
+author: ksi_system
+mixins:
+  - capabilities/claude_code_1.0.x/ksi_json_reporter
+variables:
+  agent_id: "{{agent_id}}"
+  expertise_level: "advanced"
+---
 ```
 
-### Optimization Insights
+## Performance Architecture
 
-**Usage Patterns**:
-- **Most popular components**: Track component adoption
-- **Performance metrics**: Measure rendering and execution times
-- **Error patterns**: Identify problematic components or usage contexts
+### Component Rendering
+- **60x+ speedup**: LRU cache with intelligent invalidation
+- **Mixin Resolution**: Recursive composition with circular dependency detection
+- **Variable Substitution**: Complex data types with default values
+
+### SQLite Composition Index
+- **Database-First**: Full metadata storage eliminates file I/O during queries
+- **Git Integration**: Branch and compatibility metadata for model-aware discovery
+- **Performance**: Sub-millisecond component discovery and filtering
+
+### JSON Extraction
+- **Balanced Brace Parsing**: Linear O(n) time complexity for arbitrary nesting
+- **Error Recovery**: Comprehensive feedback for malformed JSON
+- **Memory Efficiency**: Streaming approach without regex limitations
+
+## Component Standards
+
+### Frontmatter Requirements
+
+**Modern Component Structure**:
+```yaml
+---
+version: 2.1.0
+author: ksi_system
+description: "Component purpose and capabilities"
+mixins:
+  - capabilities/claude_code_1.0.x/ksi_json_reporter
+variables:
+  agent_id: "{{agent_id}}"
+  expertise_level: "advanced"
+---
+```
+
+**Event Emission Patterns**:
+- **Legitimate Events**: Use only real KSI events (`agent:*`, `state:*`, `message:*`)
+- **MANDATORY Language**: Imperative instructions for consistent behavior
+- **Complete JSON**: Provide exact structures agents should emit
 
 ## Development Workflow
 
-### Component Development
+### Component Creation
 
-**1. Create Base Component**:
+**Base Component**:
 ```bash
+# 1. Create persona
 ksi send composition:create_component --name "personas/data_analyst" \
   --content "# Senior Data Analyst\n\nExpert in statistical analysis..."
-```
 
-**2. Create Model Variants**:
-```bash
-# Switch to model-optimized branch
+# 2. Create model variants
 git checkout claude-opus-optimized
-
-# Create deep reasoning variant
 ksi send composition:create_component --name "personas/deep_data_analyst" \
   --content "# Senior Data Scientist\n\nDeep analytical capabilities..."
 
-# Update compatibility metadata
+# 3. Update compatibility
 echo "personas/deep_data_analyst.md model=claude-opus performance=reasoning" >> .gitattributes
+git add . && git commit -m "Add deep reasoning data analyst for Opus"
 ```
 
-**3. Test and Validate**:
-```bash
-# Test component with JSON extraction
-ksi send agent:spawn_from_component --component "personas/deep_data_analyst" \
-  --prompt "Analyze complex dataset and emit progress events"
-
-# Verify events are captured
-ksi send monitor:get_events --event-patterns "agent:*" --limit 5
-```
-
-### Testing Patterns
+### Validation
 
 **Component Testing**:
 ```bash
-# Test JSON emission consistency
-./test_component_json_emission.py --component "components/agents/corrected_ksi_analyst" \
-  --iterations 10 --validation-pattern "agent:*"
+# Test JSON emission
+ksi send agent:spawn_from_component --component "personas/deep_data_analyst" \
+  --prompt "Analyze complex dataset and emit progress events"
 
-# Test across models
-./test_component_models.py --component "components/agents/ksi_aware_analyst" \
-  --models claude-sonnet-4,claude-opus-4
+# Verify event extraction
+ksi send monitor:get_events --event-patterns "agent:*" --limit 5
 ```
 
 ## Best Practices
 
-### Component Design
+### Component Design Principles
 
-1. **Persona-First**: Start with authentic domain expertise
-2. **System Integration**: Add minimal KSI capabilities as mixins
-3. **Clear Instructions**: Provide specific, actionable JSON emission patterns
-4. **Legitimate Events**: Use only real KSI system events (`agent:*`, `state:*`, `message:*`)
+1. **Persona-First**: Authentic domain expertise before system integration
+2. **Minimal KSI Integration**: Add capabilities as mixins, not core identity
+3. **MANDATORY Language**: Use imperative instructions for reliable JSON emission
+4. **Legitimate Events**: Only real KSI events (`agent:*`, `state:*`, `message:*`)
 
-### JSON Event Patterns
+### Proven JSON Emission Pattern
 
-**Reliable Event Emission**:
-```markdown
-## CRITICAL: KSI System Communication
-
-<legitimate_events>
-**When starting work, emit agent status:**
-{"event": "agent:status", "data": {"agent_id": "{{agent_id}}", "status": "initialized", "task": "analysis"}}
-
-**For progress updates, use state system:**
-{"event": "state:entity:update", "data": {"id": "{{agent_id}}_progress", "properties": {"percent": 25, "stage": "data_loading"}}}
-</legitimate_events>
-```
-
-### Prompt Optimization Findings (2025-07-18)
-
-**Breakthrough**: Strong imperative language ensures consistent JSON emission.
-
-**Successful Pattern**:
+**Reliable Template**:
 ```markdown
 ## MANDATORY: Start your response with this exact JSON:
 {"event": "agent:status", "data": {"agent_id": "{{agent_id}}", "status": "initialized"}}
-```
 
-**Key Success Factors**:
-1. **Imperative Language**: Use "MANDATORY:", "MUST", not conditional "when"
-2. **Direct Instructions**: "Start your response with" not "emit when starting"  
-3. **Complete JSON Examples**: Provide exact structures agents should emit
-4. **Processing Time**: Allow 30-60 seconds (may require 20+ turns)
-
-**Testing Evidence**:
-- **imperative_start** pattern: Successfully emitted `state:entity:update` and `agent:status` events
-- **baseline_legitimate** pattern: Failed with conditional language ("When starting work")
-- **no_preamble** pattern: Completed but didn't emit JSON
-
-**Implementation Template**:
-```markdown
-# [Persona/Role]
-
-## MANDATORY: Start your response with this exact JSON:
-{"event": "agent:status", "data": {"agent_id": "{{agent_id}}", "status": "initialized", "task": "[task]"}}
-
-[Main instructions]
+[Domain expertise content]
 
 During work, emit progress:
 {"event": "state:entity:update", "data": {"id": "{{agent_id}}_progress", "properties": {"percent": 50}}}
-
-End with:
-{"event": "agent:status", "data": {"agent_id": "{{agent_id}}", "status": "completed", "result": "success"}}
 ```
 
-See PROMPT_OPTIMIZATION_FINDINGS.md for detailed analysis.
+**Success Factors**:
+- **Imperative Language**: "MANDATORY:" not conditional "when"
+- **Direct Instructions**: "Start your response with" not "emit when starting"
+- **Complete JSON**: Exact structures, not abstract descriptions
+- **Processing Time**: Allow 30-60 seconds for complex tasks
 
 ### Error Handling
 
 **JSON Extraction Errors**:
-- **Comprehensive feedback**: Agents receive detailed error messages
-- **Automatic retry**: Malformed JSON triggers improvement suggestions
-- **Logging**: All extraction failures logged for analysis
+- **Comprehensive Feedback**: Detailed error messages via `agent:json_extraction_error`
+- **Recovery Guidance**: Specific suggestions for JSON correction
+- **System Logging**: All extraction failures tracked for pattern analysis
 
-## Migration Guide
+## System Status
 
-### Updating Old Components
+### Production Ready Components
 
-**Step 1: Identify Components with Non-Existent Events**:
-```bash
-# Search for analyst:* events
-ksi send composition:discover --content-pattern "analyst:" --type component
-```
+**Component Library** (2025 Standards):
+- `components/personas/universal/` - Pure domain expertise
+- `components/capabilities/claude_code_1.0.x/` - KSI integration mixins
+- `components/agents/` - Complete persona + capability combinations
+- `orchestrations/` - Game theory experiments, MIPRO optimization
 
-**Step 2: Replace with Legitimate Events**:
-```bash
-# Update component to use legitimate KSI events
-ksi send composition:update_component --name "components/agents/old_analyst" \
-  --content "$(cat corrected_component_content.md)"
-```
+**Validated Features**:
+- ✅ **JSON Extraction**: Balanced brace parsing for arbitrary nesting
+- ✅ **Persona-First Architecture**: Proven natural JSON emission
+- ✅ **Model-Aware Development**: Git-based optimization and compatibility
+- ✅ **SQLite Index**: Database-driven discovery with full metadata
+- ✅ **Event-Driven Integration**: Complete KSI system integration
 
-**Step 3: Test Updated Component**:
-```bash
-# Verify JSON extraction works
-ksi send agent:spawn_from_component --component "components/agents/old_analyst" \
-  --prompt "Test JSON emission with corrected events"
-```
+### Technical Foundation
 
-## Future Enhancements
+**Core Systems**:
+- `ksi_common/json_utils.py`: Enhanced JSON extraction with error feedback
+- `ksi_common/component_renderer.py`: 60x+ cached rendering performance
+- `ksi_daemon/composition/composition_service.py`: Event-driven component lifecycle
 
-### Planned Features
+**Performance Characteristics**:
+- **Component Rendering**: Sub-millisecond cached access
+- **JSON Extraction**: Linear O(n) balanced brace parsing
+- **Discovery**: Database-first queries eliminate file I/O overhead
 
-1. **Automated Component Testing**: Continuous validation of JSON emission patterns
-2. **Performance Profiling**: Detailed analytics on component execution efficiency
-3. **Advanced Model Targeting**: Automatic component selection based on task requirements
-4. **Component Composition**: Dynamic combination of multiple components at runtime
-
-### Research Directions
-
-1. **Behavioral Consistency**: Prompt optimization for reliable LLM instruction following
-2. **Model Adaptation**: Automatic component adjustment based on model capabilities
-3. **Performance Optimization**: Advanced caching and precompilation techniques
-
-## Conclusion
-
-The Progressive Component System with the JSON extraction fix represents a major breakthrough in KSI architecture:
-
-- **Technical Foundation**: Solid JSON extraction with balanced brace parsing
-- **Persona-First Design**: Natural domain expertise with system integration
-- **Model Awareness**: Optimized components for different Claude models
-- **Event-Driven Integration**: Complete KSI system integration via legitimate events
-
-The system now provides a robust foundation for consistent, scalable AI agent development with reliable JSON event emission and comprehensive error handling.
+The Progressive Component System provides a robust foundation for consistent, scalable AI agent development with reliable JSON event emission and comprehensive error handling.
 
 ---
 
-*Last updated: 2025-07-18*
-*Status: Production Ready*
+*Technical Architecture Reference*
+*Status: Production Ready - 2025 Standards*
