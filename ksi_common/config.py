@@ -117,6 +117,9 @@ class KSIBaseConfig(BaseSettings):
     event_retention_days: int = 30
     event_recovery: bool = False  # Set KSI_EVENT_RECOVERY=true to enable
     
+    # Composition index database
+    composition_index_db_path: Path = Path(DEFAULT_DB_DIR) / "composition_index.db"
+    
     # Reference-based event log configuration
     event_log_dir: Path = Path(DEFAULT_LOG_DIR) / "events"
     event_reference_threshold: int = 5 * 1024  # 5KB - payloads larger than this are stored as references

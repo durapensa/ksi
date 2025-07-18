@@ -105,8 +105,8 @@ async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, A
     ensure_directory(COMPOSITIONS_BASE)
     ensure_directory(COMPONENTS_BASE)
     
-    # Initialize and rebuild composition index
-    await composition_index.initialize()
+    # Initialize and rebuild composition index with dedicated database
+    await composition_index.initialize(config.composition_index_db_path)
     indexed_count = await composition_index.rebuild()
     
     logger.info(f"Composition service started - indexed {indexed_count} compositions")
@@ -1314,14 +1314,28 @@ async def resolve_composition(
     
     # Process mixins
     for mixin_name in composition.mixins:
-        mixin = await resolve_composition(mixin_name, comp_type, variables)
-        # Merge mixin configuration
-        if isinstance(mixin, dict):
-            for key, value in mixin.items():
-                if key not in result:
-                    result[key] = value
+        # Check if mixin is a component (markdown file)
+        if mixin_name.endswith('.md') or mixin_name.startswith('components/'):
+            # Load as component content
+            try:
+                component_content = load_component(mixin_name)
+                # Add component content to appropriate field
+                if 'system_prompt_base' not in result:
+                    result['system_prompt_base'] = component_content
+                else:
+                    result['system_prompt_base'] += '\n\n' + component_content
+            except FileNotFoundError:
+                logger.error(f"Mixin component not found: {mixin_name}")
         else:
-            logger.warning(f"Mixin composition {mixin_name} returned non-dict: {type(mixin)}")
+            # Load as composition
+            mixin = await resolve_composition(mixin_name, comp_type, variables)
+            # Merge mixin configuration
+            if isinstance(mixin, dict):
+                for key, value in mixin.items():
+                    if key not in result:
+                        result[key] = value
+            else:
+                logger.warning(f"Mixin composition {mixin_name} returned non-dict: {type(mixin)}")
     
     # Process components
     for component in composition.components:

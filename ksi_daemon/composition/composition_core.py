@@ -91,6 +91,10 @@ class Composition:
 
 def load_component(path: str) -> str:
     """Load a text component from disk."""
+    # Strip leading 'components/' if present to avoid double-prefixing
+    if path.startswith('components/'):
+        path = path[11:]  # len('components/') = 11
+    
     component_path = COMPONENTS_BASE / path
     if not component_path.exists():
         raise FileNotFoundError(f"Component not found: {path}")

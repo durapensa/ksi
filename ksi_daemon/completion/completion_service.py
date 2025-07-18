@@ -638,7 +638,7 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
                                       events=[e['event'] for e in extraction_results])
                             
                             # Check if response contains JSON-like patterns
-                            has_json_patterns = bool(re.search(r'\{["\']event["\']:', result_text))
+                            has_json_patterns = bool(re.search(r'\{["\']event["\']:', response_text))
                             
                             # Send feedback if we have results OR if JSON patterns were attempted
                             if agent_id and (extraction_results or has_json_patterns):

@@ -437,6 +437,7 @@ async def handle_ready(raw_data: Dict[str, Any], context: Optional[Dict[str, Any
                     # NOTE: session_id removed - agents have no awareness of sessions
                     "permission_profile": props.get("permission_profile", "standard"),
                     "sandbox_dir": props.get("sandbox_dir"),
+                    "sandbox_uuid": props.get("sandbox_uuid", str(uuid.uuid4())),  # Restore or generate
                     "mcp_config_path": props.get("mcp_config_path"),
                     "conversation_id": None,
                     "message_queue": asyncio.Queue(),
@@ -560,6 +561,7 @@ async def handle_checkpoint_collect(raw_data: Dict[str, Any], context: Optional[
                 # session_id removed - managed by completion system
                 "permission_profile": agent_info.get("permission_profile"),
                 "sandbox_dir": agent_info.get("sandbox_dir"),
+                "sandbox_uuid": agent_info.get("sandbox_uuid"),  # Include sandbox UUID
                 "mcp_config_path": agent_info.get("mcp_config_path"),
                 "conversation_id": agent_info.get("conversation_id"),
                 # Metadata stored in state system
@@ -901,6 +903,7 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
         "message_queue": asyncio.Queue(),
         "permission_profile": permission_profile,
         "sandbox_dir": sandbox_dir,
+        "sandbox_uuid": str(uuid.uuid4()),  # Persistent sandbox identifier
         "mcp_config_path": str(mcp_config_path) if mcp_config_path else None,
         "conversation_id": conversation_id if 'conversation_id' in locals() else None,
         # Metadata will be stored in state system, not in memory
@@ -922,6 +925,7 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
             "capabilities": expanded_capabilities,
             "permission_profile": permission_profile,
             "sandbox_dir": sandbox_dir,
+            "sandbox_uuid": agent_info["sandbox_uuid"],  # Store sandbox UUID
             "mcp_config_path": str(mcp_config_path) if mcp_config_path else None
         }
         
@@ -1358,6 +1362,7 @@ async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
             ksi_body = {
                 "agent_id": agent_id,
                 "sandbox_dir": agent_info.get("sandbox_dir"),
+                "sandbox_uuid": agent_info.get("sandbox_uuid"),  # Pass sandbox UUID
                 "permissions": permissions,
                 "allowed_events": agent_config.get("allowed_events", [])  # Add resolved events
                 # session_id removed - completion system manages
@@ -1775,6 +1780,8 @@ async def handle_send_message(raw_data: Dict[str, Any], context: Optional[Dict[s
                 "conversation_id": f"agent_conversation_{agent_id}",
                 "tools": agent_config.get("allowed_claude_tools", []),
                 "agent_id": agent_id,
+                "sandbox_dir": agent_info.get("sandbox_dir"),
+                "sandbox_uuid": agent_info.get("sandbox_uuid"),  # Pass sandbox UUID
                 "construct_id": agent_info.get("construct_id"),
                 "agent_role": agent_config.get("role", "assistant"),
                 "enable_tools": agent_config.get("enable_tools", True)

@@ -162,12 +162,16 @@ async def index_file(file_path: Path) -> bool:
             if not isinstance(comp_data, dict):
                 return False
             
+        # Calculate relative path from compositions directory
+        relative_path = file_path.relative_to(config.compositions_dir)
+        
         # Extract metadata
-        name = comp_data.get('name', file_path.stem)
+        # For deeply nested files, use the relative path (without extension) as the name
+        name = comp_data.get('name', str(relative_path.with_suffix('')))
         # For markdown files, default to 'component' type
         default_type = 'component' if file_path.suffix == '.md' else 'unknown'
         comp_type = comp_data.get('type', default_type)
-        full_name = f"local:{name}"
+        full_name = name  # Use the full relative path as the identifier
         
         # Extract loading strategy from metadata
         metadata = comp_data.get('metadata', {})
@@ -186,7 +190,7 @@ async def index_file(file_path: Path) -> bool:
                  indexed_at, last_modified)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
-                full_name, name, comp_type, 'local', str(file_path), file_hash, file_size,
+                full_name, name, comp_type, 'local', str(relative_path), file_hash, file_size,
                 comp_data.get('version', ''),
                 comp_data.get('description', ''),
                 comp_data.get('author', ''),
@@ -357,11 +361,15 @@ async def get_path(full_name: str) -> Optional[Path]:
     try:
         async with _get_db() as conn:
             async with conn.execute(
-                'SELECT file_path FROM composition_index WHERE full_name = ?', 
-                (full_name,)
+                'SELECT file_path FROM composition_index WHERE full_name = ? OR name = ?', 
+                (full_name, full_name)
             ) as cursor:
                 row = await cursor.fetchone()
-                return Path(row[0]) if row else None
+                if row:
+                    # Convert relative path back to absolute
+                    relative_path = Path(row[0])
+                    return config.compositions_dir / relative_path
+                return None
     except Exception as e:
         logger.error(f"Failed to get path for {full_name}: {e}")
         return None

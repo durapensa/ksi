@@ -81,31 +81,47 @@ async def handle_litellm_completion(data: Dict[str, Any]) -> Tuple[str, Dict[str
             
             # Only handle sandbox if not already specified
             if "sandbox_dir" not in ksi_params and getattr(config, "sandbox_enabled", True):
-                # Create temporary sandbox for non-agent requests
+                # Create sandbox - use sandbox_uuid for agents, request_id for temporary
                 global sandbox_manager
                 if not sandbox_manager:
                     sandbox_manager = SandboxManager(config.sandbox_dir)
                 
                 sandbox_config = SandboxConfig(
                     mode=SandboxMode.ISOLATED
-                    # Temporary sandboxes are isolated with no sharing
+                    # Both agent and temporary sandboxes are isolated
                 )
                 
-                # Create sandbox in temp directory
-                sandbox_id = f"temp/{request_id}"
+                # Check for sandbox_uuid from agent
+                sandbox_uuid = ksi_params.get("sandbox_uuid")
+                
+                if sandbox_uuid:
+                    # Agent sandbox - use UUID for consistent location
+                    sandbox_id = f"agents/{sandbox_uuid}"
+                    logger.debug(f"Using agent sandbox UUID {sandbox_uuid} for agent {agent_id}")
+                elif agent_id:
+                    # This is an error - agents should always have sandbox_uuid
+                    raise ValueError(f"Agent {agent_id} missing required sandbox_uuid - this indicates a bug in agent creation")
+                else:
+                    # Temporary sandbox for non-agent requests
+                    sandbox_id = f"temp/{request_id}"
+                    logger.debug(f"Creating temporary sandbox for request {request_id}")
+                
                 sandbox = sandbox_manager.create_sandbox(sandbox_id, sandbox_config)
                 sandbox_dir = str(sandbox.path.absolute())
                 
-                logger.info(f"Created temporary sandbox", request_id=request_id, sandbox_dir=sandbox_dir)
-                
-                # Schedule mock cleanup
-                async def mock_cleanup():
-                    await asyncio.sleep(getattr(config, "sandbox_temp_ttl", 3600))
-                    logger.info(f"[MOCK] Would clean up temporary sandbox", 
-                               request_id=request_id, sandbox_dir=sandbox_dir)
-                    # In production: sandbox_manager.remove_sandbox(sandbox_id)
-                
-                asyncio.create_task(mock_cleanup())
+                if agent_id:
+                    logger.info(f"Using agent sandbox", agent_id=agent_id, sandbox_dir=sandbox_dir)
+                else:
+                    logger.info(f"Created temporary sandbox", request_id=request_id, sandbox_dir=sandbox_dir)
+                    
+                    # Schedule cleanup only for temporary sandboxes
+                    async def mock_cleanup():
+                        await asyncio.sleep(getattr(config, "sandbox_temp_ttl", 3600))
+                        logger.info(f"[MOCK] Would clean up temporary sandbox", 
+                                   request_id=request_id, sandbox_dir=sandbox_dir)
+                        # In production: sandbox_manager.remove_sandbox(sandbox_id)
+                    
+                    asyncio.create_task(mock_cleanup())
                 
                 # Add sandbox_dir to extra_body
                 if "extra_body" not in data:
@@ -122,7 +138,15 @@ async def handle_litellm_completion(data: Dict[str, Any]) -> Tuple[str, Dict[str
             if "ksi" not in data["extra_body"]:
                 data["extra_body"]["ksi"] = {}
             data["extra_body"]["ksi"]["session_id"] = data["session_id"]
-            logger.debug(f"Added session_id to extra_body for custom provider", session_id=data["session_id"])
+            logger.info(f"Added session_id to extra_body for custom provider", 
+                       session_id=data["session_id"],
+                       agent_id=agent_id,
+                       ksi_keys=list(data.get("extra_body", {}).get("ksi", {}).keys()))
+        else:
+            logger.warning(f"No session_id in data to pass to provider",
+                          agent_id=agent_id,
+                          has_session_id="session_id" in data,
+                          session_id_value=data.get("session_id"))
         
         # Call litellm asynchronously
         response = await litellm.acompletion(**data)

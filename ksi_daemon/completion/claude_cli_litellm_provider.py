@@ -323,8 +323,13 @@ class ClaudeCLIProvider(CustomLLM):
         ksi_params = extra_body.get("ksi", {})
         
         # Debug logging to trace session_id
-        logger.debug(
-            "Extracted KSI params",
+        logger.info(
+            "Claude CLI provider received kwargs",
+            kwargs_keys=list(kwargs.keys()),
+            has_optional_params="optional_params" in kwargs,
+            optional_params_keys=list(optional_params.keys()) if optional_params else [],
+            has_extra_body="extra_body" in optional_params,
+            extra_body_keys=list(extra_body.keys()) if extra_body else [],
             ksi_params_keys=list(ksi_params.keys()),
             has_session_id_in_ksi="session_id" in ksi_params,
             has_session_id_in_kwargs="session_id" in kwargs,
