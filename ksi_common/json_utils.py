@@ -155,14 +155,29 @@ class JSONExtractor:
         
     def extract_json_objects(self, text: str, 
                            filter_func: Optional[Callable] = None) -> List[Dict[str, Any]]:
-        """Extract all valid JSON objects from text."""
+        """Extract all valid JSON objects from text using balanced brace parsing."""
+        return self.extract_json_objects_balanced(text, filter_func=filter_func)
+    
+    def extract_json_objects_balanced(self, text: str, 
+                                    filter_func: Optional[Callable] = None) -> List[Dict[str, Any]]:
+        """Extract all valid JSON objects from text using balanced brace parsing.
+        
+        This method can handle deeply nested JSON objects by using proper brace balancing
+        instead of regex patterns that fail on complex nesting.
+        
+        Args:
+            text: Text to extract JSON from
+            filter_func: Optional filter function to apply to extracted objects
+            
+        Returns:
+            List of extracted JSON objects
+        """
         objects = []
         
-        # Pattern to match JSON objects (simplified but effective)
-        json_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
-        
-        for match in re.finditer(json_pattern, text):
-            json_str = match.group()
+        # First, check for JSON in code blocks
+        code_block_pattern = r'```(?:json)?\s*(\{[^`]+\})\s*```'
+        for match in re.finditer(code_block_pattern, text, re.DOTALL):
+            json_str = match.group(1)
             try:
                 obj = self.processor.loads(json_str)
                 if isinstance(obj, dict):
@@ -180,18 +195,137 @@ class JSONExtractor:
                     except JSONParseError:
                         continue
         
+        # Extract JSON objects using balanced brace parsing
+        extracted_strings = self._extract_balanced_json_strings(text)
+        
+        for json_str in extracted_strings:
+            # Skip if this was already found in a code block
+            if any(json_str in str(obj) for obj in objects):
+                continue
+                
+            try:
+                obj = self.processor.loads(json_str)
+                if isinstance(obj, dict):
+                    if filter_func is None or filter_func(obj):
+                        # Avoid duplicates
+                        if obj not in objects:
+                            objects.append(obj)
+            except JSONParseError:
+                # Try to fix common issues
+                fixed_json = self._attempt_fix(json_str)
+                if fixed_json:
+                    try:
+                        obj = self.processor.loads(fixed_json)
+                        if isinstance(obj, dict):
+                            if filter_func is None or filter_func(obj):
+                                if obj not in objects:
+                                    objects.append(obj)
+                    except JSONParseError:
+                        continue
+        
         return objects
+    
+    def _extract_balanced_json_strings(self, text: str) -> List[str]:
+        """Extract JSON strings using balanced brace parsing.
+        
+        This method can handle arbitrary levels of nesting by properly balancing
+        braces, brackets, and quotes.
+        
+        Args:
+            text: Text to extract JSON strings from
+            
+        Returns:
+            List of potential JSON strings
+        """
+        json_strings = []
+        i = 0
+        
+        while i < len(text):
+            # Look for opening brace
+            if text[i] == '{':
+                json_str, end_pos = self._extract_balanced_object(text, i)
+                if json_str:
+                    json_strings.append(json_str)
+                    i = end_pos
+                else:
+                    i += 1
+            else:
+                i += 1
+        
+        return json_strings
+    
+    def _extract_balanced_object(self, text: str, start_pos: int) -> Tuple[Optional[str], int]:
+        """Extract a balanced JSON object starting at the given position.
+        
+        Args:
+            text: Text containing the JSON object
+            start_pos: Starting position (should be at an opening brace)
+            
+        Returns:
+            Tuple of (json_string, end_position) or (None, start_pos+1) if invalid
+        """
+        if start_pos >= len(text) or text[start_pos] != '{':
+            return None, start_pos + 1
+        
+        brace_count = 0
+        bracket_count = 0
+        in_string = False
+        escape_next = False
+        i = start_pos
+        
+        while i < len(text):
+            char = text[i]
+            
+            if escape_next:
+                escape_next = False
+                i += 1
+                continue
+            
+            if char == '\\' and in_string:
+                escape_next = True
+                i += 1
+                continue
+            
+            if char == '"' and not escape_next:
+                in_string = not in_string
+                i += 1
+                continue
+            
+            if not in_string:
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        # Found the end of the JSON object
+                        json_str = text[start_pos:i+1]
+                        return json_str, i + 1
+                    elif brace_count < 0:
+                        # Unbalanced braces
+                        return None, start_pos + 1
+                elif char == '[':
+                    bracket_count += 1
+                elif char == ']':
+                    bracket_count -= 1
+                    if bracket_count < 0:
+                        # Unbalanced brackets
+                        return None, start_pos + 1
+            
+            i += 1
+        
+        # Reached end of text without closing the object
+        return None, start_pos + 1
     
     def extract_json_objects_with_errors(self, text: str, 
                                        filter_func: Optional[Callable] = None) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-        """Extract JSON objects and collect parsing errors with suggestions."""
+        """Extract JSON objects and collect parsing errors with suggestions using balanced brace parsing."""
         objects = []
         errors = []
         
-        json_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
-        
-        for match in re.finditer(json_pattern, text):
-            json_str = match.group()
+        # First, check for JSON in code blocks
+        code_block_pattern = r'```(?:json)?\s*(\{[^`]+\})\s*```'
+        for match in re.finditer(code_block_pattern, text, re.DOTALL):
+            json_str = match.group(1)
             try:
                 obj = self.processor.loads(json_str)
                 if isinstance(obj, dict):
@@ -199,10 +333,11 @@ class JSONExtractor:
                         objects.append(obj)
             except JSONParseError as e:
                 errors.append({
-                    'json_str': json_str,
+                    'json_str': json_str[:200] + ('...' if len(json_str) > 200 else ''),
                     'error': str(e),
                     'suggestion': e.suggestion,
-                    'position': match.start()
+                    'position': match.start(),
+                    'location': 'code_block'
                 })
                 
                 # Try to fix and extract anyway
@@ -216,6 +351,45 @@ class JSONExtractor:
                                 # Mark as fixed
                                 errors[-1]['fixed'] = True
                                 errors[-1]['fixed_json'] = fixed_json
+                    except JSONParseError:
+                        pass
+        
+        # Extract JSON objects using balanced brace parsing
+        extracted_strings = self._extract_balanced_json_strings(text)
+        
+        for json_str in extracted_strings:
+            # Skip if this was already found in a code block
+            if any(json_str in str(obj) for obj in objects):
+                continue
+                
+            try:
+                obj = self.processor.loads(json_str)
+                if isinstance(obj, dict):
+                    if filter_func is None or filter_func(obj):
+                        # Avoid duplicates
+                        if obj not in objects:
+                            objects.append(obj)
+            except JSONParseError as e:
+                errors.append({
+                    'json_str': json_str[:200] + ('...' if len(json_str) > 200 else ''),
+                    'error': str(e),
+                    'suggestion': e.suggestion,
+                    'position': text.find(json_str),
+                    'location': 'inline'
+                })
+                
+                # Try to fix and extract anyway
+                fixed_json = self._attempt_fix(json_str)
+                if fixed_json:
+                    try:
+                        obj = self.processor.loads(fixed_json)
+                        if isinstance(obj, dict):
+                            if filter_func is None or filter_func(obj):
+                                if obj not in objects:
+                                    objects.append(obj)
+                                    # Mark as fixed
+                                    errors[-1]['fixed'] = True
+                                    errors[-1]['fixed_json'] = fixed_json
                     except JSONParseError:
                         pass
         

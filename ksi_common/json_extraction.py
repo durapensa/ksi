@@ -11,17 +11,24 @@ import re
 from typing import List, Dict, Any, Optional, Callable, Tuple
 import asyncio
 from ksi_common.logging import get_bound_logger
+from ksi_common.json_utils import JSONExtractor, JSONParseError
 
 logger = get_bound_logger("json_extraction")
 
 
+# Global extractor instance using enhanced balanced brace parsing
+_extractor = JSONExtractor()
+
 def extract_json_objects(text: str, filter_func: Optional[Callable[[Dict], bool]] = None) -> List[Dict[str, Any]]:
     """
-    Extract all valid JSON objects from text.
+    Extract all valid JSON objects from text using enhanced balanced brace parsing.
+    
+    This function now uses the improved JSONExtractor from json_utils.py that can handle
+    deeply nested JSON objects using balanced brace parsing instead of regex patterns.
     
     Looks for JSON in various formats:
     - Code blocks: ```json ... ```
-    - Plain JSON objects: {...}
+    - Plain JSON objects: {...} (with arbitrary nesting levels)
     - Multiple JSON objects in a single response
     
     Args:
@@ -31,48 +38,11 @@ def extract_json_objects(text: str, filter_func: Optional[Callable[[Dict], bool]
     Returns:
         List of extracted JSON objects
     """
-    extracted = []
-    
-    # Pattern 1: JSON in code blocks
-    code_block_pattern = r'```(?:json)?\s*(\{[^`]+\})\s*```'
-    for match in re.finditer(code_block_pattern, text, re.DOTALL):
-        try:
-            obj = json.loads(match.group(1))
-            if not filter_func or filter_func(obj):
-                extracted.append(obj)
-        except json.JSONDecodeError:
-            logger.debug(f"Failed to parse JSON in code block: {match.group(1)[:100]}...")
-    
-    # Pattern 2: Standalone JSON objects (with nested objects)
-    # This regex handles nested braces
-    json_pattern = r'\{(?:[^{}]|(?:\{[^{}]*\}))*\}'
-    
-    # Find all potential JSON objects
-    for match in re.finditer(json_pattern, text):
-        json_str = match.group(0)
-        # Skip if this was already found in a code block
-        if any(json_str in str(obj) for obj in extracted):
-            continue
-            
-        try:
-            obj = json.loads(json_str)
-            if not filter_func or filter_func(obj):
-                # Avoid duplicates
-                if obj not in extracted:
-                    extracted.append(obj)
-        except json.JSONDecodeError:
-            # Try to handle common issues like trailing commas
-            try:
-                # Remove trailing commas before closing braces/brackets
-                cleaned = re.sub(r',\s*([}\]])', r'\1', json_str)
-                obj = json.loads(cleaned)
-                if not filter_func or filter_func(obj):
-                    if obj not in extracted:
-                        extracted.append(obj)
-            except json.JSONDecodeError:
-                logger.debug(f"Failed to parse potential JSON: {json_str[:100]}...")
-    
-    return extracted
+    try:
+        return _extractor.extract_json_objects(text, filter_func=filter_func)
+    except Exception as e:
+        logger.error(f"Error during JSON extraction: {e}")
+        return []
 
 
 def _suggest_fix(json_str: str, error: json.JSONDecodeError) -> str:
@@ -93,60 +63,25 @@ def _suggest_fix(json_str: str, error: json.JSONDecodeError) -> str:
 
 def extract_json_objects_with_errors(text: str, filter_func: Optional[Callable[[Dict], bool]] = None) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
-    Extract valid JSON objects and collect parsing errors.
+    Extract valid JSON objects and collect parsing errors using enhanced balanced brace parsing.
+    
+    This function now uses the improved JSONExtractor from json_utils.py that can handle
+    deeply nested JSON objects and provides better error reporting.
     
     Returns:
         Tuple of (valid_objects, errors)
         where errors contain pattern, error message, and suggested fixes
     """
-    extracted = []
-    errors = []
-    
-    # Pattern 1: JSON in code blocks
-    code_block_pattern = r'```(?:json)?\s*(\{[^`]+\})\s*```'
-    for match in re.finditer(code_block_pattern, text, re.DOTALL):
-        json_str = match.group(1)
-        try:
-            obj = json.loads(json_str)
-            if not filter_func or filter_func(obj):
-                extracted.append(obj)
-        except json.JSONDecodeError as e:
-            errors.append({
-                'pattern': json_str[:100] + ('...' if len(json_str) > 100 else ''),
-                'error': str(e),
-                'location': 'code_block',
-                'suggestion': _suggest_fix(json_str, e)
-            })
-    
-    # Pattern 2: Standalone JSON objects
-    json_pattern = r'\{(?:[^{}]|(?:\{[^{}]*\}))*\}'
-    
-    for match in re.finditer(json_pattern, text):
-        json_str = match.group(0)
-        # Skip if already found in code block
-        if any(json_str in error['pattern'] for error in errors):
-            continue
-            
-        try:
-            obj = json.loads(json_str)
-            if not filter_func or filter_func(obj):
-                # Avoid duplicates
-                if obj not in extracted:
-                    extracted.append(obj)
-        except json.JSONDecodeError as e:
-            errors.append({
-                'pattern': json_str[:100] + ('...' if len(json_str) > 100 else ''),
-                'error': str(e),
-                'location': 'inline',
-                'suggestion': _suggest_fix(json_str, e)
-            })
-    
-    return extracted, errors
+    try:
+        return _extractor.extract_json_objects_with_errors(text, filter_func=filter_func)
+    except Exception as e:
+        logger.error(f"Error during JSON extraction with errors: {e}")
+        return [], [{'error': str(e), 'suggestion': 'Check JSON extraction system', 'location': 'system'}]
 
 
 def extract_event_json(text: str) -> List[Dict[str, Any]]:
     """
-    Extract JSON objects that look like event emissions.
+    Extract JSON objects that look like event emissions using enhanced balanced brace parsing.
     
     Looks for JSON objects with an 'event' field, which indicates
     an intent to emit an event to the KSI system.
@@ -157,10 +92,11 @@ def extract_event_json(text: str) -> List[Dict[str, Any]]:
     Returns:
         List of event JSON objects
     """
-    def is_event(obj: Dict) -> bool:
-        return isinstance(obj, dict) and 'event' in obj
-    
-    return extract_json_objects(text, filter_func=is_event)
+    try:
+        return _extractor.extract_event_json(text)
+    except Exception as e:
+        logger.error(f"Error during event JSON extraction: {e}")
+        return []
 
 
 async def extract_and_emit_json_events(
@@ -250,12 +186,15 @@ async def extract_and_emit_json_events(
                 'status': 'failed'
             })
     
-    # Handle parsing errors by providing feedback
+    # Handle parsing errors by providing feedback to the originating agent
     if parse_errors and agent_id:
         try:
             error_details = []
             for error in parse_errors:
-                error_details.append(f"• {error['suggestion']} (Found: {error['pattern']})")
+                if error.get('suggestion'):
+                    error_details.append(f"• {error['suggestion']} (Found: {error.get('json_str', 'pattern')})")
+                else:
+                    error_details.append(f"• JSON parsing error: {error.get('error', 'Unknown error')}")
             
             feedback_content = "=== JSON EXTRACTION FEEDBACK ===\n"
             if emitted:
@@ -266,10 +205,25 @@ async def extract_and_emit_json_events(
                 feedback_content += "\n".join(error_details) + "\n\n"
                 feedback_content += "Correct format: {\"event\": \"namespace:action\", \"data\": {...}}"
                 
+                # Send error feedback back to the originating agent
+                try:
+                    await event_emitter("agent:json_extraction_error", {
+                        'agent_id': agent_id,
+                        'error_count': len(parse_errors),
+                        'feedback': feedback_content,
+                        'errors': parse_errors,
+                        '_extracted_from_response': True,
+                        '_context': context or {}
+                    })
+                    logger.info(f"Sent JSON extraction error feedback to agent {agent_id}")
+                except Exception as feedback_error:
+                    logger.error(f"Failed to send JSON extraction error feedback to agent {agent_id}: {feedback_error}")
+                
                 # Log the parsing errors
                 logger.warning(f"JSON parsing errors in agent response", 
                              agent_id=agent_id, 
                              error_count=len(parse_errors))
+                             
         except Exception as e:
             logger.error(f"Failed to generate JSON error feedback: {e}")
     
