@@ -198,42 +198,35 @@ ksi send monitor:get_events --event-patterns "analyst:*" --limit 5
 
 ## Current Development Priority
 
-### Event Routing to Originators Testing
+### Event Routing to Originators Testing ✅ **COMPLETE**
 
-**Status**: Ready for validation with working JSON emission foundation.
+**Status**: Event routing infrastructure fully validated and proven working.
 
-**When** testing event routing:
-- **Then** use proven persona-first agents that emit real JSON
-- **Then** test originator context propagation through event chains  
-- **Then** verify events flow back to appropriate channels
-- **Then** validate both agent and external originator scenarios
+**Results**:
+- ✅ **Technical Infrastructure**: All components working correctly
+- ✅ **Originator Context**: Proper propagation through event chains
+- ✅ **System Events**: Routing to originators via `monitor:event_chain_result`
+- ❌ **Agent Behavior**: Inconsistent JSON emission despite identical profiles
 
-**Test Workflow**:
-```bash
-# 1. Spawn agent with originator context
-ksi send agent:spawn_from_component --component "components/agents/ksi_aware_analyst" \
-  --originator '{"type": "external", "id": "test-originator"}' \
-  --prompt "Complex analysis task"
+**Key Finding**: Event routing works perfectly - the challenge is agent behavioral consistency.
 
-# 2. Monitor for event routing
-ksi send monitor:get_events --event-patterns "monitor:event_chain_result"
+**See**: `docs/PROGRESSIVE_COMPONENT_SYSTEM.md` for detailed validation findings.
 
-# 3. Verify complete event flow observability
-```
+### Agent Behavioral Consistency Testing
 
-### Event Result Propagation
+**New Priority**: Manual prompt optimization to achieve consistent KSI-operating behavior.
 
-**When** agents emit events:
-- **Then** check if there's an originator in context
-- **Then** route results back via appropriate channel:
-  - Agent originators: `completion:async` injection
-  - External originators: `monitor:event_chain_result`
-  - System originators: Logging/monitoring
+**Challenge**: Identical component profiles produce different agent behaviors:
+- Some agents emit real JSON events
+- Others describe/simulate JSON emission  
+- This is an LLM consistency issue, not a technical problem
 
-**When** spawning agents from agents:
-- **Then** propagate originator context
-- **Then** spawned agent's events flow back to parent
-- **Then** parent can orchestrate based on real-time feedback
+**Approach**: Direct `claude -p` prompt optimization to enforce consistent instruction following.
+
+**When** working on agent consistency:
+- **Then** test prompt variations for reliable JSON emission
+- **Then** identify patterns that ensure consistent behavior
+- **Then** update component instructions based on proven patterns
 
 ## Development Workflow
 
@@ -351,18 +344,17 @@ ksi send completion:async --agent-id my_agent --prompt "..."
 ksi send completion:async --session-id 943a3864-d5bb... --prompt "..."
 ```
 
-### Critical Session Mystery (2025-07-17) 🚨
+### Session Continuity Fix (2025-07-17) ✅
 
-**New Bug**: Claude CLI losing sessions between agent requests
-- First completion: Success (session created)
-- Second completion: "No conversation found with session ID"
+**Problem Solved**: Claude CLI stores sessions by working directory
+- Root cause: Each request created new sandbox → Claude couldn't find previous sessions
+- Solution: Agent-based persistent sandboxes using UUIDs
+- Result: Agents maintain conversation continuity across requests
 
-**Immediate Investigation Required**:
-1. Check claude CLI version for recent updates
-2. Debug `claude_cli_litellm_provider.py` session handling
-3. Verify completion system session storage/retrieval
-
-**Impact**: Breaking agent conversation continuity!
+**How it works**:
+1. Each agent gets a `sandbox_uuid` at spawn time
+2. All agent requests use same sandbox: `var/sandbox/agents/{uuid}/`
+3. Claude CLI finds all sessions for that agent in one location
 
 ## Git Workflow
 

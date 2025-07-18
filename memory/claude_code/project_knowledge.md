@@ -298,26 +298,28 @@ ksi send composition:suggest_migration \
 5. **Git-Based Model Versioning**: Branch infrastructure and compatibility metadata
 6. **Working Component Library**: Universal personas, KSI capabilities, combined agents
 
-### Current Priority: Event Routing Validation 🔄
+### Current Priority: Event Routing Validation ✅ **COMPLETE**
 
-With working JSON emission now proven, the next critical validation is **event routing to originators**:
+**Status**: Event routing infrastructure fully validated and proven working.
 
-**Test Scenario**:
-```bash
-# Spawn agent with originator context
-ksi send agent:spawn_from_component \
-  --component "components/agents/ksi_aware_analyst" \
-  --prompt "Analyze customer data and report progress" \
-  --originator '{"type": "external", "id": "claude-code-test"}'
+**Key Results**:
+- ✅ **Technical Infrastructure**: All components working correctly
+- ✅ **System Events**: Proper routing to originators via `monitor:event_chain_result`
+- ✅ **JSON Extraction**: Permissive system accepts any `{"event": "name", "data": {...}}` format
+- ❌ **Agent Behavior**: Inconsistent JSON emission despite identical profiles
 
-# Expect: All analyst:* events route back to originator
-```
+**Critical Finding**: Agent behavioral consistency is the remaining challenge, not technical architecture.
 
-**Success Criteria**:
-- Agent emits real JSON events (proven working)
-- Events flow back to originator via appropriate channel
-- External originators receive events via `monitor:event_chain_result`
-- Complete event chain observability maintained
+**Detailed Analysis**: See `docs/PROGRESSIVE_COMPONENT_SYSTEM.md` "Event Routing Validation Results" section for complete investigation findings.
+
+### Next Priority: Agent Behavioral Consistency 🔄
+
+**Challenge**: Identical component profiles produce different agent behaviors:
+- Some agents emit real JSON events
+- Others describe/simulate JSON emission
+- This is an LLM consistency issue, not a technical problem
+
+**Approach**: Manual prompt optimization to achieve consistent KSI-operating behavior from `claude -p`.
 
 ## Development Patterns
 
@@ -740,18 +742,36 @@ cat var/logs/responses/{session_id}.jsonl | jq
 2. **Injection System** (`injection_router.py:496-557`) - Changed from `session_id` to `agent_id`
 3. **Client Interfaces** (`interfaces/chat.py:51`) - Parameter changed from `session_id` to `agent_id`
 
-### Critical Mystery: Claude CLI Session Loss (2025-07-17) 🚨
+### Session Continuity Fix (2025-07-17) 🔄
 
-**Bug Symptoms**:
-- First agent completion: Success, session `9fe58b14-add3-4fc3-b1ba-788f41323098` created
-- Second agent completion: `"No conversation found with session ID: 9fe58b14-add3-4fc3-b1ba-788f41323098"`
+**Root Cause Identified**: Claude CLI stores sessions by working directory, not by session ID alone.
+- Sessions stored in: `~/.claude/projects/{sanitized-working-directory}/`
+- KSI created new sandbox directories for each request
+- Result: Sessions created in one sandbox couldn't be found from another
 
-**Investigation Required**:
-1. **Claude CLI version bug** - Recent update may have broken session persistence
-2. **LiteLLM provider bug** - `claude_cli_litellm_provider.py` session handling
-3. **Completion system bug** - Session storage/retrieval logic
+**Solution Implemented**: Agent-based persistent sandboxes using UUIDs
+1. **Agent spawn**: Generate `sandbox_uuid` and store in agent state
+2. **Sandboxes**: Use `agents/{sandbox_uuid}` path for all agent requests
+3. **Persistence**: Same sandbox directory across all agent completions
+4. **Checkpoint/restore**: sandbox_uuid included in agent state
 
-**Impact**: Agent conversation continuity broken - critical for multi-turn interactions
+**Code Changes**:
+- `agent_service.py`: Added `sandbox_uuid` to agent info, entity props, checkpoint data
+- `litellm.py`: Use `sandbox_uuid` to create/retrieve persistent agent sandboxes
+- Non-agent requests still use temporary sandboxes
+
+**Critical Issue During Testing (2025-07-17)**:
+- **Problem**: Session ID not propagating from litellm.py to claude_cli_provider
+- **Debug finding**: litellm.py adds session_id to extra_body, but provider receives null
+- **Hypothesis**: LiteLLM may not pass extra_body to custom providers correctly
+- **User decision**: Reinstall Claude Code (~/.claude) due to potential corruption
+- **Status**: Paused for Claude Code reinstallation
+
+**Next Steps After Reinstall**:
+1. Test basic `claude -p` session continuity manually
+2. Verify session_id propagation through LiteLLM chain
+3. Check if sandbox_uuid persistence enables multi-turn conversations
+4. Validate complete agent conversation continuity
 
 ---
 *This is a living document. Update immediately when discovering new patterns.*

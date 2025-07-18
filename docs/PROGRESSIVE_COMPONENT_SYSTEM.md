@@ -817,3 +817,64 @@ completion:async --session-id 943a3864-d5bb-43d8-a2bc-fa6fdbdcdd4e --prompt "...
 
 **Critical Investigation Required**: Session continuity is essential for agent conversations. The completion system correctly manages sessions internally but claude-cli appears to be losing sessions between requests.
 
+### Event Routing Validation Results (2025-07-18)
+
+**Comprehensive Investigation Complete**: Full validation of event routing infrastructure from agents to external originators.
+
+**Key Findings**:
+
+#### Technical Infrastructure: Fully Validated ✅
+1. **System Event Routing**: Events like `completion:async`, `agent:send_message`, `composition:track_usage` properly flow back to originators
+2. **JSON Extraction System**: Permissive design accepts any `{"event": "name", "data": {...}}` format 
+3. **Universal Event Processing**: `@event_handler("*")` captures all events, including user-defined ones
+4. **Event Storage & Broadcasting**: All events properly logged and made available through monitor system
+5. **Originator Context Propagation**: Events successfully routed to correct originators via `monitor:event_chain_result`
+
+#### Agent Behavioral Consistency: Partially Validated ❌
+**Critical Discovery**: Agent behavior varies despite identical component composition.
+
+**Evidence from Comparative Analysis**:
+- **Agent A** (`test_simple_spawn`): Successfully emitted real JSON events
+  ```json
+  {"event": "analyst:initialized", "data": {"status": "ready", "planned_approach": "systematic_analysis"}}
+  ```
+- **Agent B** (`event_routing_test`): Only described event emission without actual JSON
+  ```
+  Event Emission Summary:
+  - analyst:initialized - Analysis startup
+  - analyst:progress (multiple) - Progress tracking
+  ```
+
+**Root Cause Analysis**:
+- Both agents received **identical profiles** (`temp_profile_components_agents_ksi_aware_analyst_44136fa3`)
+- Both agents had **identical component content** and **identical cache keys**
+- **Composition system working correctly** - no technical issues with profile generation
+- **Difference is in Claude's behavioral interpretation** of identical instructions
+
+#### Technical Architecture Validation Results
+
+**Event Routing Chain Proven**:
+1. ✅ **Agent spawning** with originator context works correctly
+2. ✅ **Component composition** generates consistent profiles  
+3. ✅ **System events** (completion, agent operations) route back to originators
+4. ✅ **JSON extraction** processes agent-emitted events when present
+5. ✅ **Event broadcasting** delivers events to monitoring system
+6. ✅ **Originator routing** delivers events back to external systems
+
+**Remaining Challenge**: Ensuring consistent agent behavior across identical profiles.
+
+#### Impact Assessment
+
+**For Event Routing**: **Technically Complete** ✅
+- All infrastructure components validated and working
+- Event routing architecture is sound and reliable
+- System ready for production use with consistent agents
+
+**For Persona-First Architecture**: **Behavioral Reliability Issue** ❌
+- Technical foundation is solid
+- Agent behavioral consistency remains variable
+- Some agents emit real JSON, others simulate/describe
+- This is an LLM consistency challenge, not a technical architecture issue
+
+**Strategic Conclusion**: The event routing system is technically proven and ready. The challenge is ensuring consistent agent behavior, which is inherent to working with LLM systems and requires prompt engineering solutions rather than technical fixes.
+
