@@ -47,6 +47,13 @@ event_emitter = None  # For event emission to other services
 _capability_schema_cache = None
 
 
+def _normalize_component_name(name: str) -> str:
+    """Normalize component name by stripping 'components/' prefix if present."""
+    if name.startswith('components/'):
+        return name[11:]  # len('components/') = 11
+    return name
+
+
 # Date sanitization function moved to ksi_common.timestamps.sanitize_for_json
 
 
@@ -1644,7 +1651,7 @@ async def handle_create_component(raw_data: Dict[str, Any], context: Optional[Di
     try:
         data = event_format_linter(raw_data, ComponentCreateData)
         
-        name = data['name']
+        name = _normalize_component_name(data['name'])
         content = data['content']
         comp_type = data.get('type', 'component')
         
@@ -1752,7 +1759,7 @@ async def handle_get_component(raw_data: Dict[str, Any], context: Optional[Dict[
     try:
         data = event_format_linter(raw_data, ComponentGetData)
         
-        name = data['name']
+        name = _normalize_component_name(data['name'])
         comp_type = data.get('type', 'component')
         
         # Determine base path
@@ -1836,7 +1843,7 @@ async def handle_render_component(raw_data: Dict[str, Any], context: Optional[Di
     try:
         data = event_format_linter(raw_data, ComponentRenderData)
         
-        name = data['name']
+        name = _normalize_component_name(data['name'])
         variables = data.get('variables', {})
         include_metadata = data.get('include_metadata', False)
         

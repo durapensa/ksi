@@ -2104,6 +2104,8 @@ async def handle_spawn_from_component(raw_data: Dict[str, Any], context: Optiona
         component_name = data['component']
         agent_id = data.get('agent_id', f"agent_{uuid.uuid4().hex[:8]}")
         variables = data.get('variables', {})
+        # Add agent_id to variables for template substitution
+        variables['agent_id'] = agent_id
         track_usage = data.get('track_component_usage', True)
         
         # Convert component to profile
