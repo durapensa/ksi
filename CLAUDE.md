@@ -148,11 +148,12 @@ ksi discover                    # Start with summary view
 ksi discover --namespace composition  # Explore specific namespace
 ksi help composition:get_component  # Get event details
 
-# WARNING: --level full produces HUGE output AND can timeout
-# Analysis of 220+ events takes >30s
-ksi discover --level full > discovery_full.json 2>&1  # NEVER run without redirect
-# Alternative: Use namespace filters to reduce scope
-ksi discover --level full --namespace agent > discovery_agent_full.json
+# --level full REQUIRES namespace or event filter
+ksi discover --level full --namespace agent  # ✅ Fast with cache (0.1-1.5s)
+ksi discover --level full --event agent:spawn  # ✅ Single event detail
+
+# First run builds cache, subsequent runs 78-90% faster
+# Cache invalidates automatically when code changes
 
 # MANDATORY: Use domain discovery for data
 ksi send composition:discover --type component  # Query components from SQLite

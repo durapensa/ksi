@@ -156,11 +156,18 @@ echo "personas/deep_analyst.md model=claude-opus performance=reasoning" >> .gita
 - **Composition Cleanup**: 40 obsolete files removed, all components modernized
 
 ### Known Issues
-- **Discovery --level full timeout**: Processing 220+ events with detailed analysis takes >30s (client timeout). Use namespace filters or redirect output.
+- **Discovery --level full timeout**: FIXED - Now requires namespace/event filter. With cache: 78-90% faster on subsequent runs.
+
+### Discovery Cache System ✅
+- **SQLite cache**: `var/db/discovery_cache.db` caches expensive TypedDict/AST analysis
+- **Automatic invalidation**: Tracks file mtime, invalidates when code changes
+- **Performance**: 78-90% faster on cached lookups (0.13s vs 0.6-1.5s)
+- **Requirements**: `--level full` now requires `--namespace` or `--event` filter
 
 ### Key File Locations
 - **Core Systems**: `ksi_common/json_utils.py`, `ksi_common/component_renderer.py`
 - **Event Handlers**: `ksi_daemon/composition/composition_service.py`
+- **Discovery Cache**: `ksi_daemon/core/discovery_cache.py`
 - **Components**: `var/lib/compositions/components/`
 - **Logs**: `var/logs/daemon/daemon.log`, `var/logs/responses/{session_id}.jsonl`
 
