@@ -294,6 +294,20 @@ ksi send completion:async --session-id 943a3864-d5bb... --prompt "..."
 2. All agent requests use same sandbox: `var/sandbox/agents/{uuid}/`
 3. Claude CLI finds all sessions for that agent in one location
 
+## Major Accomplishments (2025) ✅
+
+### Complete Profile → Component Migration
+- **Eliminated entire profile system** - No profiles directory remains
+- **Updated all orchestrations** - Every orchestration uses component paths
+- **Created missing components** - All referenced profiles now have component equivalents
+- **Clean unified architecture** - Single component system throughout
+
+### DSL Meta-Optimization System
+- **Created DSL optimization orchestrations** - MIPRO can now optimize the orchestration language itself
+- **Hybrid prompt-DSL patterns** - Discovered optimal blending of natural language with DSL structure
+- **Meta-linguistic evolution** - The orchestration language can now evolve and improve
+- **See**: `/docs/DSL_PATTERNS_AND_OPTIMIZATION.md` for complete analysis
+
 ## Git Workflow
 
 ### Submodule Management
@@ -363,6 +377,7 @@ git commit -m "Update composition submodule"
 
 ### Major Accomplishments (2025)
 - ✅ **Unified Component Architecture**: Everything is a component with type attribute
+- ✅ **Profile Migration Complete**: All profiles removed, system uses only components
 - ✅ **Hybrid Evaluation System**: Component definitions + runtime data separation
 - ✅ **JSON Extraction Fix**: Balanced brace parsing for arbitrary nesting
 - ✅ **Persona-First Architecture**: Proven natural JSON emission
@@ -411,4 +426,4 @@ git commit -m "Update composition submodule"
 
 **Remember**: This is your workflow guide. For technical details, implementation patterns, and architecture, always refer to `memory/claude_code/project_knowledge.md`.
 
-*Last updated: 2025-07-18*
+*Last updated: 2025-01-18*

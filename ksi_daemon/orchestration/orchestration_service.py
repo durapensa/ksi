@@ -206,7 +206,11 @@ class OrchestrationModule:
                 errors.append(f"Agent '{agent_name}' must be a dictionary with at least a 'profile' field")
                 continue
                 
-            profile = agent_config.get('profile')
+            # Support both 'profile' and 'component' fields
+            profile = agent_config.get('profile') or agent_config.get('component')
+            if agent_config.get('component'):
+                # Component field takes precedence
+                profile = agent_config.get('component')
             if not profile:
                 errors.append(f"Agent '{agent_name}' missing required 'profile' field. "
                             f"Available profiles include: base_multi_agent, hello_agent, goodbye_agent, debater, etc.")
@@ -299,7 +303,8 @@ class OrchestrationModule:
                 agent_id = f"{orchestration_id}_{agent_name}"
                 instance.agents[agent_id] = AgentInfo(
                     agent_id=agent_id,
-                    profile=agent_config.get('profile', 'default'),
+                    # Support both 'profile' and 'component' fields
+                    profile=agent_config.get('profile') or agent_config.get('component', 'default'),
                     prompt_template=agent_config.get('prompt_template'),
                     vars={**vars, **agent_config.get('vars', {})}
                 )
@@ -362,12 +367,25 @@ class OrchestrationModule:
         
         spawn_tasks = []
         for agent_id, agent_info in instance.agents.items():
-            # Prepare spawn data
-            spawn_data = {
-                "agent_id": agent_id,
-                "profile": agent_info.profile
-            }
-            
+            # Detect if this is a component path
+            if agent_info.profile.startswith("components/"):
+                # Use component-based spawning
+                spawn_event = "agent:spawn_from_component"
+                spawn_data = {
+                    "agent_id": agent_id,
+                    "component": agent_info.profile,
+                    "model": agent_info.vars.get('model', 'claude-cli/sonnet')
+                }
+            else:
+                # Use traditional profile spawning
+                spawn_event = "agent:spawn" 
+                spawn_data = {
+                    "agent_id": agent_id,
+                    "profile": agent_info.profile
+                }
+                if 'model' in agent_info.vars:
+                    spawn_data['model'] = agent_info.vars['model']
+                    
             # Add prompt template if specified
             if agent_info.prompt_template:
                 spawn_data["composition"] = agent_info.prompt_template
@@ -381,7 +399,7 @@ class OrchestrationModule:
             }
             
             # Spawn agent
-            spawn_task = event_emitter("agent:spawn", spawn_data)
+            spawn_task = event_emitter(spawn_event, spawn_data)
             spawn_tasks.append((agent_id, spawn_task))
         
         # Wait for all spawns

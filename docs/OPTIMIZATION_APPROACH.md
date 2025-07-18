@@ -89,3 +89,83 @@ DSPy and MIPRO work naturally in this architecture:
 4. **Bootstrapping** - Orchestration logic filters high-quality examples
 
 The key insight: DSPy/MIPRO are techniques that agents use, not systems that need to control KSI. The orchestration system provides all the coordination needed.
+
+## LLM-as-Judge Integration
+
+KSI extends optimization with sophisticated judge-based evaluation:
+
+1. **Pairwise Comparison** - Judges compare strategy pairs for relative ranking
+2. **Elo Rating System** - Build dynamic skill ratings from comparisons
+3. **Multi-Judge Ensembles** - Specialized judges for different aspects
+4. **Meta-Judge Aggregation** - Resolve disagreements and extract insights
+
+### Judge Personas
+- `components/personas/judges/game_theory_pairwise_judge.md` - Strategic comparison
+- `components/personas/judges/optimization_technique_judge.md` - Technique evaluation
+
+## Hybrid Optimization Architecture
+
+The most powerful approach combines multiple optimization techniques:
+
+### 1. Optimization Marketplace
+Run different techniques in parallel during bootstrapping:
+- **DSPy/MIPRO** - Systematic search with programmatic metrics
+- **LLM-as-Judge** - Nuanced evaluation with relative ranking
+- **Hybrid Approaches** - DSPy generation with judge evaluation
+
+### 2. Empirical Technique Selection
+The system learns which techniques work best:
+- Test techniques head-to-head on real tasks
+- Track performance by domain (game theory, code gen, creative)
+- Build meta-knowledge about technique-domain mappings
+
+### 3. Co-Evolutionary Optimization
+Techniques improve together:
+- Better prompts → richer evaluation data
+- Better judges → more effective optimization
+- Hybrid insights → novel optimization strategies
+
+### Example Orchestrations
+- `orchestrations/mipro_judge_based_optimization.yaml` - Pure judge approach
+- `orchestrations/hybrid_optimization_marketplace.yaml` - Technique comparison
+- `orchestrations/test_hybrid_optimization.yaml` - Simple hybrid demo
+
+## Key Patterns
+
+### Bootstrap Competition
+```yaml
+Phase 1: Run techniques in parallel
+- DSPy generates systematic variants
+- Judges evaluate with pairwise comparison
+- Hybrid combines both approaches
+
+Phase 2: Empirical comparison
+- Cross-evaluate outputs from each technique
+- Identify unique strengths and weaknesses
+- Select best approach for production
+```
+
+### Hybrid Integration
+```yaml
+DSPy Strengths:
+- Systematic parameter exploration
+- Efficient search algorithms
+- Programmatic correctness metrics
+
+Judge Strengths:
+- Contextual understanding
+- Strategic reasoning evaluation
+- Emergent insight discovery
+
+Hybrid Value:
+- Use DSPy for structured generation
+- Use judges for nuanced evaluation
+- Feed insights bidirectionally
+```
+
+## Benefits of Hybrid Approach
+
+1. **Empirical Discovery** - Learn what works rather than assuming
+2. **Domain Adaptation** - Different techniques for different problems
+3. **Continuous Improvement** - System gets smarter over time
+4. **Best of Both Worlds** - Combine algorithmic efficiency with human-like judgment

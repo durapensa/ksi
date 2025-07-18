@@ -2719,3 +2719,37 @@ async def handle_track_usage(raw_data: Dict[str, Any], context: Optional[Dict[st
     except Exception as e:
         logger.error(f"Component usage tracking failed: {e}")
         return error_response(f"Component usage tracking failed: {e}", context)
+
+
+class GetComponentTypesData(TypedDict):
+    """Get all unique component types from the index."""
+    # No required parameters - returns all types
+
+
+@event_handler("composition:get_component_types")
+async def handle_get_component_types(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Get all unique component types from the index."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    try:
+        # Import here to avoid circular imports
+        from ksi_daemon.composition.composition_index import get_unique_component_types
+        
+        # Validate input (no required parameters)
+        data = event_format_linter(raw_data, GetComponentTypesData)
+        
+        # Get unique component types from index
+        component_types = await get_unique_component_types()
+        
+        logger.debug(f"Retrieved {len(component_types)} unique component types")
+        
+        return event_response_builder({
+            'status': 'success',
+            'component_types': component_types,
+            'count': len(component_types)
+        }, context)
+        
+    except Exception as e:
+        logger.error(f"Get component types failed: {e}")
+        return error_response(f"Get component types failed: {e}", context)

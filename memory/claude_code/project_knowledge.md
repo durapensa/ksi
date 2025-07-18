@@ -33,6 +33,20 @@ Essential technical reference for developing with KSI (Knowledge System Infrastr
 **Solution**: Persistent agent sandboxes using `sandbox_uuid` in `var/sandbox/agents/{uuid}/`
 **Result**: Agents maintain conversation continuity across multiple requests.
 
+### Profile to Component Migration (COMPLETE) ✅
+**Problem**: Dual system (profiles + components) created confusion and inconsistency.
+**Solution**: Full migration to component-only system.
+**Status**: COMPLETE - All profiles removed, system uses only components.
+**Impact**: 139 files changed, 1487 insertions(+), 4185 deletions(-) - massive simplification!
+
+### DSL Meta-Optimization System ✅
+**Innovation**: The orchestration DSL itself can now be optimized using MIPRO.
+**Implementation**: 
+  - `dsl_optimization_with_mipro.yaml` - Optimizes DSL constructs for LLM interpretability
+  - `prompt_dsl_hybrid_optimization.yaml` - Blends natural language with DSL structure
+**Potential**: Self-improving orchestration language, optimal human-AI communication patterns.
+**See**: `/docs/DSL_PATTERNS_AND_OPTIMIZATION.md` for complete analysis.
+
 ## Optimization Architecture (2025) ✅
 
 ### Philosophy: Minimal Utilities, Maximum Composability
@@ -47,7 +61,24 @@ Essential technical reference for developing with KSI (Knowledge System Infrastr
 - `optimization:format_examples` - Convert data for frameworks
 - `optimization:get_git_info` - Track experiments
 
-**Pattern**: Create orchestrations that coordinate optimization workflows using existing systems.
+### LLM-as-Judge System ✅
+**Breakthrough**: Replace programmatic metrics with nuanced judge evaluation
+- **Pairwise Comparison**: Judges compare strategies for relative ranking
+- **Elo Rating System**: Dynamic skill ratings from comparisons
+- **Judge Personas**: `game_theory_pairwise_judge`, `optimization_technique_judge`
+- **Co-Evolutionary**: Judges and strategies improve together
+
+### Hybrid Optimization Marketplace ✅
+**Innovation**: Run optimization techniques in parallel, select empirically
+- **Technique Competition**: DSPy vs Judge vs Hybrid approaches
+- **Domain Learning**: System discovers which technique works where
+- **Meta-Optimization**: Build knowledge about technique-domain mappings
+- **Key Orchestrations**:
+  - `mipro_judge_based_optimization.yaml` - Pure judge approach
+  - `hybrid_optimization_marketplace.yaml` - Technique comparison
+  - `test_hybrid_optimization.yaml` - Simple hybrid demo
+
+**Pattern**: Let techniques compete during bootstrapping, use winner for production.
 
 ## Component Architecture (Everything is a Component)
 
@@ -227,3 +258,4 @@ echo "personas/deep_analyst.md model=claude-opus performance=reasoning" >> .gita
 ---
 
 *Essential development knowledge only - for workflow instructions see CLAUDE.md*
+*Last updated: 2025-01-18*
