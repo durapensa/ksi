@@ -180,6 +180,9 @@ class EventDaemonCore:
         import ksi_daemon.evaluation.prompt_evaluation
         import ksi_daemon.evaluation.tournament_bootstrap_integration
         
+        # Optimization modules
+        import ksi_daemon.optimization.optimization_service
+        
         logger.info("All modules imported and auto-registered")
     
     async def handle_event(self, event_name: str, data: dict, context: dict) -> Any:

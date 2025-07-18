@@ -9,9 +9,10 @@ Essential technical reference for developing with KSI (Knowledge System Infrastr
 - **Discovery first**: `ksi discover` shows capabilities, `ksi help event:name` for parameters
 - **Socket communication**: Events flow through `var/run/daemon.sock`
 
-### Component System (Production Ready ✅)
+### Component System (Unified Architecture 2025 ✅)
+- **Everything is a component**: Single unified model with `component_type` attribute
 - **Event-driven creation**: `ksi send composition:create_component --name "path" --content "..."`
-- **Progressive frontmatter**: YAML metadata with mixins, variables, version control
+- **Progressive frontmatter**: YAML metadata with type, dependencies, capabilities
 - **SQLite index**: Database-first discovery, no file I/O during queries
 - **60x+ cached rendering**: LRU cache with intelligent invalidation
 
@@ -32,27 +33,53 @@ Essential technical reference for developing with KSI (Knowledge System Infrastr
 **Solution**: Persistent agent sandboxes using `sandbox_uuid` in `var/sandbox/agents/{uuid}/`
 **Result**: Agents maintain conversation continuity across multiple requests.
 
-## Component Architecture
+## Optimization Architecture (2025) ✅
 
-### Current Standards (2025)
+### Philosophy: Minimal Utilities, Maximum Composability
+**Key Insight**: Optimization = Orchestration + Evaluation + Minimal Utilities
+- **No new abstractions**: Use existing KSI systems
+- **Composable patterns**: Mix and match components
+- **See**: `/docs/OPTIMIZATION_APPROACH.md` for full architecture
+
+### Optimization Events (Minimal)
+- `optimization:get_framework_info` - Query available frameworks
+- `optimization:validate_setup` - Check if ready
+- `optimization:format_examples` - Convert data for frameworks
+- `optimization:get_git_info` - Track experiments
+
+**Pattern**: Create orchestrations that coordinate optimization workflows using existing systems.
+
+## Component Architecture (Everything is a Component)
+
+### New Unified Model (2025)
 ```yaml
 ---
-version: 2.1.0
-author: ksi_system
-mixins:
-  - capabilities/claude_code_1.0.x/ksi_json_reporter
-variables:
-  agent_id: "{{agent_id}}"
+component_type: persona  # Required: persona|behavior|orchestration|evaluation|tool|core
+name: data_analyst      # Component identifier
+version: 2.0.0         # Semantic versioning
+description: Senior data analyst with statistical expertise
+dependencies:          # Other components this needs
+  - core/base_agent
+  - behaviors/communication/mandatory_json
+capabilities:          # What this component provides
+  - statistical_analysis
+  - data_visualization
 ---
 ## MANDATORY: Start your response with this exact JSON:
 {"event": "agent:status", "data": {"agent_id": "{{agent_id}}", "status": "initialized"}}
 ```
 
-### Working Component Library
-- `components/personas/universal/` - Pure domain expertise (no KSI awareness)
-- `components/capabilities/claude_code_1.0.x/` - KSI integration mixins
-- `components/agents/` - Complete agents (persona + capability)
-- `orchestrations/` - Game theory experiments, MIPRO optimization (modernized)
+### Component Organization
+- `components/core/` - Essential building blocks (base_agent, json_emitter)
+- `components/personas/` - Domain expertise & personalities (analysts, developers, thinkers)
+- `components/behaviors/` - Reusable mixins (communication, coordination, integration)
+- `components/orchestrations/` - Multi-agent patterns (optimization, tournaments, workflows)
+- `components/evaluations/` - Quality assessments (metrics, judges, suites)
+- `components/tools/` - External integrations (MCP, Git, APIs)
+
+### Hybrid Evaluation Architecture
+- **Component definitions**: Test suites, judge schemas → `components/evaluations/`
+- **Runtime data**: Results, bootstrap data → `var/lib/evaluations/`
 
 ## Development Patterns
 
@@ -149,11 +176,11 @@ echo "personas/deep_analyst.md model=claude-opus performance=reasoning" >> .gita
 ## System Status (Current)
 
 ### Production Ready ✅
-- **Component System**: Full event-driven lifecycle, SQLite index, caching
+- **Unified Component System**: Everything is a component with type attribute (2025 reorganization)
 - **JSON Extraction**: Balanced brace parsing, error feedback
 - **Session Continuity**: Agent-based persistent sandboxes
 - **Persona-First Architecture**: Proven natural JSON emission
-- **Composition Cleanup**: 40 obsolete files removed, all components modernized
+- **Hybrid Evaluation**: Component definitions + runtime data separation
 
 ### Known Issues
 - **Discovery --level full timeout**: FIXED - Now requires namespace/event filter. With cache: 78-90% faster on subsequent runs.
@@ -168,7 +195,8 @@ echo "personas/deep_analyst.md model=claude-opus performance=reasoning" >> .gita
 - **Core Systems**: `ksi_common/json_utils.py`, `ksi_common/component_renderer.py`
 - **Event Handlers**: `ksi_daemon/composition/composition_service.py`
 - **Discovery Cache**: `ksi_daemon/core/discovery_cache.py`
-- **Components**: `var/lib/compositions/components/`
+- **Components**: `var/lib/compositions/components/` (organized by type)
+- **Evaluation Data**: `var/lib/evaluations/` (runtime results)
 - **Logs**: `var/logs/daemon/daemon.log`, `var/logs/responses/{session_id}.jsonl`
 
 ## Document Maintenance Patterns

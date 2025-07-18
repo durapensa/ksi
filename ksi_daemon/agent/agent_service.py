@@ -1215,20 +1215,21 @@ async def _terminate_single_agent(agent_id: str, force: bool = False, context: O
         
         if update_result and isinstance(update_result, list):
             update_result = update_result[0] if update_result else {}
-        
-        if update_result and update_result.get("status") == "updated":
-            logger.debug(f"Updated agent entity {agent_id} to terminated")
-        else:
-            logger.warning(f"Failed to update agent entity status: {update_result}")
-        
-        # IMPORTANT: Clean up agent session in ConversationTracker
-        # This ensures new agents with the same ID start fresh
-        await agent_emit_event(agent_id, "completion:clear_agent_session", {
-            "agent_id": agent_id
-        }, propagate_agent_context(context))
     
-    # Remove from active agents
+    # Remove agent from active agents dictionary
     del agents[agent_id]
+    logger.info(f"Agent {agent_id} terminated and removed from active agents")
+    
+    if update_result and update_result.get("status") == "updated":
+        logger.debug(f"Updated agent entity {agent_id} to terminated")
+    else:
+        logger.warning(f"Failed to update agent entity status: {update_result}")
+    
+    # IMPORTANT: Clean up agent session in ConversationTracker
+    # This ensures new agents with the same ID start fresh
+    await agent_emit_event(agent_id, "completion:clear_agent_session", {
+        "agent_id": agent_id
+    }, propagate_agent_context(context))
     
     logger.debug(f"Terminated agent {agent_id}")
     

@@ -143,7 +143,7 @@ async def handle_compose(raw_data: Dict[str, Any], context: Optional[Dict[str, A
     from ksi_common.event_response_builder import event_response_builder, error_response
     data = event_format_linter(raw_data, CompositionComposeData)
     name = data.get('name')
-    comp_type = data.get('type', 'profile')
+    comp_type = data.get('type', 'component')
     variables = data.get('variables', {})
     
     try:
@@ -492,7 +492,7 @@ async def handle_update_composition(raw_data: Dict[str, Any], context: Optional[
                 context=context
             )
             
-        comp_type = data.get('type', 'profile')  # Composition type
+        comp_type = data.get('type', 'component')  # Composition type
         updates = data.get('updates', {})  # Properties to update (metadata, version, etc)
         merge_metadata = data.get('merge_metadata', True)  # Merge vs replace metadata
         
@@ -636,10 +636,7 @@ async def handle_list(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]
     compositions = []
     
     if comp_type == 'all':
-        # Discover types dynamically from index
-        types = await composition_index.get_unique_component_types()
-        if not types:  # Fallback for empty index
-            types = ['component']  # Everything is a component
+        types = ['profile', 'prompt', 'orchestration', 'component', 'capability', 'pattern']
     else:
         types = [comp_type]
     
@@ -1056,7 +1053,7 @@ async def handle_create_composition(raw_data: Dict[str, Any], context: Optional[
             import uuid
             name = f"dynamic_{uuid.uuid4().hex[:8]}"
         
-        comp_type = data.get('type', 'profile')  # Composition type (profile, orchestration, etc)
+        comp_type = data.get('type', 'component')  # Composition type (profile, orchestration, etc)
         base_composition = data.get('extends', 'base_agent')  # Base composition to extend
         
         # Build composition structure

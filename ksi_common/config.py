@@ -214,6 +214,16 @@ class KSIBaseConfig(BaseSettings):
     summary_default_model: str = f"claude-cli/{DEFAULT_MODEL}"
     semantic_eval_default_model: str = f"claude-cli/{DEFAULT_MODEL}"
     
+    # Optimization Configuration
+    optimization_prompt_model: str = "claude-cli/opus"  # Model for generating optimized prompts
+    optimization_task_model: str = f"claude-cli/{DEFAULT_MODEL}"  # Model for evaluation tasks
+    optimization_auto_mode: str = "medium"  # Default MIPROv2 auto mode: light, medium, heavy
+    optimization_max_bootstrapped_demos: int = 4  # Max bootstrapped examples
+    optimization_max_labeled_demos: int = 4  # Max labeled examples  
+    optimization_num_candidates: int = 10  # Number of prompt candidates to try
+    optimization_init_temperature: float = 0.5  # Initial sampling temperature
+    optimization_metric_threshold: Optional[float] = None  # Minimum metric score threshold
+    
     # Claude CLI progressive timeouts (in seconds)
     claude_timeout_attempts: List[int] = [300, 900, 1800]  # 5min, 15min, 30min
     claude_progress_timeout: int = 300     # 5 minutes without progress

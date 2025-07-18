@@ -59,17 +59,25 @@ export KSI_DEBUG=true && export KSI_LOG_LEVEL=DEBUG && ./daemon_control.py resta
 - **Use discovery system first** - `ksi discover`, `ksi help event:name`
 - **Event handlers use TypedDict** - For parameter documentation and validation
 
-### Component Creation (Event-Driven)
-**CRITICAL**: Always use KSI events to create components, not direct file writes!
+### Component Creation (Unified Architecture 2025)
+**CRITICAL**: Everything is a component with a `component_type` attribute!
 
 ```bash
-# Create components via events
-ksi send composition:create_component --name "components/test/example" \
-  --content "# Example Component\n\nContent here..."
+# Create components via events with proper type
+ksi send composition:create_component --name "personas/analysts/data_analyst" \
+  --content "---\ncomponent_type: persona\nname: data_analyst\nversion: 2.0.0\n---\n# Senior Data Analyst\n..."
 
-# Get component content (handles progressive frontmatter)
-ksi send composition:get_component --name "components/test/example"
+# Component types: core|persona|behavior|orchestration|evaluation|tool
+# Organization: components/{type}/{category}/{name}.md
 ```
+
+**New Component Organization**:
+- `core/` - Essential building blocks (base_agent, json_emitter)
+- `personas/` - Domain expertise (analysts/, developers/, thinkers/)
+- `behaviors/` - Reusable mixins (communication/, coordination/)
+- `orchestrations/` - Multi-agent patterns (optimization/, workflows/)
+- `evaluations/` - Quality assessments (metrics/, judges/, suites/)
+- `tools/` - External integrations (mcp/, git/, apis/)
 
 ### Persona-First Agent Design (PROVEN WORKING) ✅
 
@@ -170,27 +178,45 @@ ksi send agent:list  # List active agents
 
 ## Component Development Patterns
 
-### Modern Component Standards (2025)
+### Modern Component Standards (Unified Architecture 2025)
 
 **When** creating components:
-- **Then** use progressive frontmatter with version, mixins, variables
+- **Then** specify `component_type` attribute (MANDATORY)
+- **Then** use proper directory structure by type
+- **Then** declare dependencies and capabilities
 - **Then** apply MANDATORY imperative patterns for JSON emission
-- **Then** use only legitimate KSI events (`agent:*`, `state:*`, `message:*`)
 - **Then** test with actual agent spawning and monitor verification
 
-**Component Structure**:
+**Component Frontmatter Standard**:
 ```yaml
 ---
-version: 2.1.0
-author: ksi_system
-mixins:
-  - capabilities/claude_code_1.0.x/ksi_json_reporter
-variables:
-  agent_id: "{{agent_id}}"
+component_type: persona  # MANDATORY: core|persona|behavior|orchestration|evaluation|tool
+name: data_analyst      # Component identifier
+version: 2.0.0         # Semantic versioning
+description: Senior data analyst with statistical expertise
+dependencies:          # Components this needs
+  - core/base_agent
+  - behaviors/communication/mandatory_json
+capabilities:          # What this provides
+  - statistical_analysis
+  - data_visualization
 ---
 ## MANDATORY: Start your response with this exact JSON:
 {"event": "agent:status", "data": {"agent_id": "{{agent_id}}", "status": "initialized"}}
 ```
+
+**Hybrid Evaluation Architecture**:
+- **Test suite definitions** → `components/evaluations/suites/`
+- **Runtime results** → `var/lib/evaluations/` (separate from components)
+
+### Optimization Development Pattern
+
+**When** implementing optimization features (MIPRO, DSPy, etc.):
+- **Then** create orchestration patterns, not new coordination systems
+- **Then** use evaluation components for metrics, not embedded scoring
+- **Then** provide minimal utilities only (framework config, data formatting)
+- **Then** leverage agent conversation continuity for iterative optimization
+- **See** `/docs/OPTIMIZATION_APPROACH.md` for architecture philosophy
 
 ### Model-Aware Development
 
@@ -308,6 +334,13 @@ git commit -m "Update composition submodule"
 - **Frontmatter parsing errors**: Check YAML syntax, investigate date handling
 - **Git operations failing**: Check submodule initialization
 
+**KSI Hook Monitor Issues**:
+- **Hook output not visible in Claude Code** (Known issue - awaiting Claude Code fix)
+  - **Workaround**: Check diagnostic log: `tail -f /tmp/ksi_hook_diagnostic.log`
+  - **Verify hook is active**: `echo ksi_check` (check diagnostic log for response)
+  - **Hook modes**: `echo ksi_verbose`, `echo ksi_summary`, `echo ksi_silent`
+  - **Fix tracking**: https://raw.githubusercontent.com/anthropics/claude-code/refs/heads/main/CHANGELOG.md
+
 ## Meta-Principles
 
 ### Knowledge Capture (MANDATORY)
@@ -329,17 +362,18 @@ git commit -m "Update composition submodule"
 ## System Status (Current)
 
 ### Major Accomplishments (2025)
-- ✅ **Component System Cleanup**: 40 obsolete files removed, all components modernized
+- ✅ **Unified Component Architecture**: Everything is a component with type attribute
+- ✅ **Hybrid Evaluation System**: Component definitions + runtime data separation
 - ✅ **JSON Extraction Fix**: Balanced brace parsing for arbitrary nesting
 - ✅ **Persona-First Architecture**: Proven natural JSON emission
 - ✅ **Session Continuity**: Agent-based persistent sandboxes
-- ✅ **Event Routing**: Complete originator context propagation
 - ✅ **MANDATORY Patterns**: Reliable imperative JSON emission instructions
 
 ### Current Standards
-- **Components follow 2025 patterns**: Progressive frontmatter, legitimate events, MANDATORY language
-- **Comprehensive cleanup completed**: No old agent instructions linger in system
-- **Production ready architecture**: All major technical challenges resolved
+- **Unified component model**: All pieces are components with `component_type`
+- **Clear organization**: Components organized by type and purpose
+- **Hybrid evaluation**: Test definitions as components, results as data
+- **Production ready**: All major architectural improvements complete
 
 ## Document Maintenance Patterns
 
