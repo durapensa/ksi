@@ -2,23 +2,36 @@
 
 Essential development practices and workflow for Claude Code when working with KSI.
 
+## MANDATORY WORKFLOW RULES
+
+1. **MUST read `memory/claude_code/project_knowledge.md` FIRST** - NO EXCEPTIONS
+2. **MUST run `ksi discover` BEFORE any development** - NO EXCEPTIONS  
+3. **MUST investigate errors immediately** - NEVER create workarounds
+4. **MUST use TodoWrite for multi-step tasks** - NO EXCEPTIONS
+5. **MUST complete ALL steps**: Code + Test + Deploy + Verify
+6. **MUST update documentation IMMEDIATELY when discovering patterns**
+7. **MUST use discovery system BEFORE attempting tasks**
+8. **MUST verify agent claims against actual system behavior**
+
 ## Session Start Protocol
 
-**ALWAYS**: Read `memory/claude_code/project_knowledge.md` first for technical details, current patterns, and validated examples.
+**MANDATORY**: You MUST read `memory/claude_code/project_knowledge.md` FIRST before any KSI development work. NO EXCEPTIONS.
+
+**MANDATORY**: You MUST run `ksi discover` to understand system capabilities BEFORE attempting any development tasks.
 
 This document serves as your primary instructions for KSI development. For technical reference, architecture details, and implementation patterns, see `memory/claude_code/project_knowledge.md`.
 
 ## Investigation-First Philosophy
 
-**CRITICAL**: When encountering errors, timeouts, or unexpected behavior - investigate immediately, don't create workarounds.
+**MANDATORY**: When encountering errors, timeouts, or unexpected behavior - you MUST investigate immediately. NEVER create workarounds. NEVER bypass issues.
 
-### Investigation Process
+### Investigation Process (REQUIRED STEPS)
 
-1. **Read the error message carefully** - It often contains the exact problem
-2. **Check daemon logs** - `tail -f var/logs/daemon/daemon.log`
-3. **Look for patterns** - Search logs for related errors
-4. **Test with minimal cases** - Isolate the problem
-5. **Fix the root cause** - Don't bypass or work around issues
+1. **MUST read the error message carefully** - It often contains the exact problem
+2. **MUST check daemon logs** - `tail -f var/logs/daemon/daemon.log`
+3. **MUST search for patterns** - Search logs for related errors
+4. **MUST test with minimal cases** - Isolate the problem
+5. **MUST fix the root cause** - NEVER bypass or work around issues
 
 ### Advanced Debugging Techniques
 
@@ -110,32 +123,34 @@ ksi send monitor:get_events --event-patterns "agent:*"
 
 ## Development Workflow
 
-### Task Management
-- **Use TodoWrite tool** - Track progress on all multi-step tasks
-- **Completion = Code + Test + Deploy + Verify** - Not just code creation
-- **Test within KSI system** - Use orchestrations and evaluations for testing
+### Task Management (MANDATORY)
+- **MUST use TodoWrite tool** - Track progress on ALL multi-step tasks. NO EXCEPTIONS.
+- **MUST complete ALL steps**: Code + Test + Deploy + Verify - NEVER stop at code creation
+- **MUST test within KSI system** - Use orchestrations and evaluations for testing
 
-### Discovery-First Development
+### Discovery-First Development (MANDATORY)
+
+**MANDATORY**: You MUST use discovery BEFORE attempting any task. NO EXCEPTIONS.
 
 **Understanding Discovery Layers**:
-- **System Discovery** (`ksi discover`): Shows what capabilities exist and where to find them
-- **Domain Discovery** (`composition:discover`, `agent:discover`): Queries actual data within that domain
+- **System Discovery** (`ksi discover`): MUST run this first to understand capabilities
+- **Domain Discovery** (`composition:discover`, `agent:discover`): MUST use for actual data queries
 
 ```bash
-# System discovery - what can I do?
-ksi discover                    # Shows all namespaces
-ksi discover --namespace composition  # Points to composition events
+# MANDATORY: Run system discovery first
+ksi discover                    # MUST check all namespaces
+ksi discover --namespace composition  # MUST explore specific namespaces
 
-# Domain discovery - what's in this domain?
+# MANDATORY: Use domain discovery for data
 ksi send composition:discover --type component  # Query components from SQLite
 ksi send composition:list --filter '{"author": "ksi"}'  # List with filters
 ksi send agent:list  # List active agents
 
-# Get help for specific events
+# MANDATORY: Check event parameters before use
 ksi help composition:get_component
 ```
 
-**Key Principle**: System discovery guides you to domain discovery events, it doesn't return domain data itself.
+**CRITICAL RULE**: System discovery guides you to domain discovery events, it NEVER returns domain data itself.
 
 ### Error Handling
 - **No bare except clauses** - Catch specific exceptions
@@ -284,11 +299,11 @@ git commit -m "Update composition submodule"
 
 ## Meta-Principles
 
-### Knowledge Capture (CRITICAL)
-**When** discovering new patterns or fixing issues:
-1. **Update this CLAUDE.md** immediately for workflow patterns
-2. **Update project_knowledge.md** for technical details
-3. **Document the meta-pattern** to ensure future knowledge capture
+### Knowledge Capture (MANDATORY)
+**MANDATORY**: When discovering new patterns or fixing issues, you MUST:
+1. **Update this CLAUDE.md** IMMEDIATELY for workflow patterns - NO DELAYS
+2. **Update project_knowledge.md** IMMEDIATELY for technical details - NO EXCEPTIONS
+3. **Document the meta-pattern** IMMEDIATELY to ensure future knowledge capture
 
 ### Testing Philosophy
 - **Test within KSI** - Use orchestrations and evaluations
