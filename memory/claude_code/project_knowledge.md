@@ -94,6 +94,42 @@ ksi send composition:list --type profile
 - Agents were designed as "KSI agents" rather than domain personas
 - Claude naturally resists artificial system behaviors
 
+### JSON Extraction System Fix (2025-07-18) ✅ **COMPLETE**
+
+**Root Cause Discovered**: The JSON extraction system had a fundamental limitation in handling deeply nested JSON objects.
+
+**Technical Issue**: 
+- **Regex Pattern Limitation**: Original pattern `r'\{(?:[^{}]|(?:\{[^{}]*\}))*\}'` could only handle 1 level of nesting
+- **Legitimate KSI Events**: Have 3 levels of nesting (e.g., `{"event": "state:entity:update", "data": {"id": "...", "properties": {"percent": 50}}}`)
+- **Silent Failure**: Complex events were ignored without error, causing inconsistent behavior
+
+**Solution Implemented**:
+1. **Enhanced JSON Extraction**: Created `ksi_common/json_utils.py` with balanced brace parsing
+2. **Arbitrary Nesting Support**: Can handle deeply nested JSON objects of any complexity
+3. **Error Feedback System**: Comprehensive error responses sent back to originating agents
+4. **Backward Compatibility**: Maintains existing API while fixing core limitation
+
+**Key Technical Changes**:
+- **ksi_common/json_utils.py**: New `JSONExtractor` class with `_extract_balanced_object()` method
+- **ksi_common/json_extraction.py**: Updated to use enhanced balanced brace parsing
+- **Error Response**: `agent:json_extraction_error` events with detailed feedback
+
+**Validation Results**:
+- ✅ **Deeply Nested JSON**: Successfully extracts complex KSI events
+- ✅ **Agent Events Working**: `agent:status`, `state:entity:update`, `message:publish` properly extracted
+- ✅ **System Integration**: Events flow correctly through KSI monitoring system
+- ✅ **Component Upgrades**: All old components updated to use legitimate KSI events
+
+**Components Fixed**:
+- `components/agents/ksi_aware_analyst` ✅
+- `components/agents/optimized_ksi_analyst` ✅
+- `components/agents/prefill_optimized_analyst` ✅ 
+- `components/agents/xml_structured_analyst` ✅
+
+**Before vs After**:
+- ❌ **Before**: Non-existent `analyst:*` events, regex extraction failures
+- ✅ **After**: Legitimate `agent:*`, `state:*`, `message:*` events, balanced brace parsing
+
 ### Persona-First Architecture Discovery (2025-07-17)
 
 **Revolutionary Insight**: Agents are **Claude adopting personas**, not separate AI systems.

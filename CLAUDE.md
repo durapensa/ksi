@@ -212,14 +212,39 @@ ksi send monitor:get_events --event-patterns "analyst:*" --limit 5
 
 **See**: `docs/PROGRESSIVE_COMPONENT_SYSTEM.md` for detailed validation findings.
 
+### JSON Extraction System Fix (2025-07-18) ✅ **COMPLETE**
+
+**Problem Solved**: Root cause of inconsistent JSON event extraction was a fundamental limitation in the JSON parsing system.
+
+**Technical Issue**: 
+- **Regex Pattern Limitation**: Could only handle 1 level of nesting, but legitimate KSI events have 3 levels
+- **Silent Failures**: Complex events were ignored without error messages
+- **Component Issues**: Multiple components using non-existent `analyst:*` events
+
+**Solution Implemented**:
+1. **Enhanced JSON Extraction**: Created balanced brace parsing for arbitrary nesting levels
+2. **Error Feedback System**: Comprehensive error responses sent back to agents
+3. **Component Upgrades**: All old components updated to use legitimate KSI events (`agent:*`, `state:*`, `message:*`)
+
+**Results**:
+- ✅ **JSON Extraction Working**: Deeply nested events properly extracted
+- ✅ **Agent Events Captured**: Monitor shows legitimate KSI events with `_extracted_from_response: true`
+- ✅ **System Integration**: Events flow correctly through KSI monitoring system
+
+**Components Fixed**:
+- `components/agents/ksi_aware_analyst` ✅
+- `components/agents/optimized_ksi_analyst` ✅
+- `components/agents/prefill_optimized_analyst` ✅ 
+- `components/agents/xml_structured_analyst` ✅
+
 ### Agent Behavioral Consistency Testing
 
 **New Priority**: Manual prompt optimization to achieve consistent KSI-operating behavior.
 
-**Challenge**: Identical component profiles produce different agent behaviors:
-- Some agents emit real JSON events
-- Others describe/simulate JSON emission  
-- This is an LLM consistency issue, not a technical problem
+**Challenge**: With JSON extraction working, focus shifts to LLM consistency:
+- Technical infrastructure is solid
+- Need to optimize prompts for reliable instruction following
+- Test patterns that ensure consistent JSON emission behavior
 
 **Approach**: Direct `claude -p` prompt optimization to enforce consistent instruction following.
 
@@ -227,6 +252,7 @@ ksi send monitor:get_events --event-patterns "analyst:*" --limit 5
 - **Then** test prompt variations for reliable JSON emission
 - **Then** identify patterns that ensure consistent behavior
 - **Then** update component instructions based on proven patterns
+- **Then** validate fixes with the working JSON extraction system
 
 ## Development Workflow
 
