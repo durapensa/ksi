@@ -325,70 +325,144 @@ class GraphStateManager:
                            include: Optional[List[str]] = None,
                            order_by: Optional[str] = None,
                            limit: Optional[int] = None) -> List[Dict[str, Any]]:
-        """Internal implementation of query_entities with optimized single-query approach."""
+        """Internal implementation of query_entities using JSON aggregation for optimal performance."""
         include = include or ['properties']
         
         async with self._get_db() as conn:
-            # Build query
-            query = "SELECT DISTINCT e.* FROM entities e"
+            # Build optimized single query using JSON aggregation
+            base_query = """
+            SELECT 
+                e.id as entity_id,
+                e.type,
+                e.created_at,
+                e.updated_at
+            """
+            
+            # Add JSON aggregation for properties if requested
+            if 'properties' in include:
+                base_query += """,
+                json_group_object(
+                    p.property, 
+                    json_object('value', p.value, 'type', p.value_type)
+                ) FILTER (WHERE p.property IS NOT NULL) as properties_json"""
+            
+            # Add JSON aggregation for relationships if requested
+            if 'relationships' in include:
+                base_query += """,
+                json_group_array(
+                    json_object(
+                        'relation_type', r.relation_type,
+                        'to_id', r.to_id,
+                        'metadata', r.metadata,
+                        'created_at', r.created_at
+                    )
+                ) FILTER (WHERE r.relation_type IS NOT NULL) as relationships_json"""
+            
+            # FROM clause with necessary joins
+            from_clause = "\nFROM entities e"
+            if 'properties' in include or where:
+                from_clause += "\nLEFT JOIN properties p ON e.id = p.entity_id"
+            if 'relationships' in include:
+                from_clause += "\nLEFT JOIN relationships r ON e.id = r.from_id"
+            
+            query = base_query + from_clause
+            
+            # Build WHERE conditions
             conditions = []
             params = []
             
-            # Join properties if filtering by them
-            if where:
-                query += " LEFT JOIN properties p ON e.id = p.entity_id"
-            
-            # Add type filter
             if entity_type:
                 conditions.append("e.type = ?")
                 params.append(entity_type)
             
-            # Add property filters
+            # For property filters, we need a subquery approach
             if where:
                 for prop, value in where.items():
-                    conditions.append("(p.property = ? AND p.value = ?)")
+                    # Create a subquery for each property filter
+                    conditions.append("""
+                        e.id IN (
+                            SELECT entity_id FROM properties 
+                            WHERE property = ? AND value = ?
+                        )
+                    """)
                     serialized, _ = self._serialize_value(value)
                     params.extend([prop, serialized])
             
-            # Apply conditions
             if conditions:
-                query += " WHERE " + " AND ".join(conditions)
+                query += "\nWHERE " + " AND ".join(conditions)
+            
+            # GROUP BY for aggregation
+            query += "\nGROUP BY e.id, e.type, e.created_at, e.updated_at"
             
             # Add ordering
             if order_by:
-                query += f" ORDER BY e.{order_by}"
+                query += f"\nORDER BY e.{order_by}"
             else:
-                query += " ORDER BY e.created_at DESC"
+                query += "\nORDER BY e.created_at DESC"
             
             # Add limit
             if limit:
-                query += f" LIMIT {limit}"
+                query += f"\nLIMIT {limit}"
             
-            self.logger.debug(f"Executing query: {query} with params: {params}")
+            self.logger.debug(f"Executing optimized query: {query} with params: {params}")
             
-            # Execute query with timeout
+            # Execute the single optimized query
             try:
-                entity_ids = []
                 cursor = await asyncio.wait_for(conn.execute(query, params), timeout=5.0)
+                results = []
+                
                 async with cursor:
                     async for row in cursor:
-                        entity_ids.append(row['id'])
+                        # Build entity dict from row
+                        entity = {
+                            'entity_id': row['entity_id'],  # This is e.id from the query
+                            'entity_type': row['type'],
+                            'created_at': row['created_at'],
+                            'updated_at': row['updated_at']
+                        }
+                        
+                        # Parse JSON properties if included
+                        if 'properties' in include:
+                            properties_json = row['properties_json'] if 'properties_json' in row.keys() else None
+                            if properties_json:
+                                try:
+                                    props_data = json.loads(properties_json)
+                                    entity['properties'] = {}
+                                    for prop_name, prop_info in props_data.items():
+                                        entity['properties'][prop_name] = self._deserialize_value(
+                                            prop_info['value'], 
+                                            prop_info['type']
+                                        )
+                                except json.JSONDecodeError:
+                                    self.logger.warning(f"Failed to parse properties JSON for entity {entity['entity_id']}")
+                                    entity['properties'] = {}
+                            else:
+                                entity['properties'] = {}
+                        
+                        # Parse JSON relationships if included
+                        if 'relationships' in include:
+                            relationships_json = row['relationships_json'] if 'relationships_json' in row.keys() else None
+                            if relationships_json:
+                                try:
+                                    rels_data = json.loads(relationships_json)
+                                    entity['relationships'] = []
+                                    for rel in rels_data:
+                                        # Deserialize metadata if it's JSON
+                                        if rel.get('metadata'):
+                                            try:
+                                                rel['metadata'] = json.loads(rel['metadata'])
+                                            except:
+                                                pass  # Keep as string if not valid JSON
+                                        entity['relationships'].append(rel)
+                                except json.JSONDecodeError:
+                                    self.logger.warning(f"Failed to parse relationships JSON for entity {entity['entity_id']}")
+                                    entity['relationships'] = []
+                            else:
+                                entity['relationships'] = []
+                        
+                        results.append(entity)
                 
-                if not entity_ids:
-                    self.logger.debug(f"Query returned no results for type:{entity_type}, where:{where}")
-                    return []
-                
-                # Now efficiently fetch all entity data
-                results = []
-                for entity_id in entity_ids:
-                    try:
-                        entity = await asyncio.wait_for(self.get_entity(entity_id, include=include), timeout=2.0)
-                        if entity:
-                            results.append(entity)
-                    except asyncio.TimeoutError:
-                        self.logger.error(f"Timeout fetching entity {entity_id}")
-                        continue
-                
+                self.logger.info(f"Query returned {len(results)} entities in single query (was N+1 before)")
                 return results
                 
             except asyncio.TimeoutError:
