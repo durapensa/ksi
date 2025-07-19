@@ -18,6 +18,7 @@ class KSIVisualizer {
         this.eventLog = document.getElementById('event-log');
         this.statusElement = document.getElementById('connection-status');
         this.maxEventLogEntries = 1000;
+        this.showAllEvents = true; // Show all events by default
         
         // Generate unique client ID for this browser session
         this.clientId = this.generateClientId();
@@ -28,7 +29,8 @@ class KSIVisualizer {
         // Event handlers map
         this.eventHandlers = {
             'agent:spawn': this.handleAgentSpawn.bind(this),
-            'agent:spawned': this.handleAgentSpawn.bind(this), 
+            'agent:spawned': this.handleAgentSpawn.bind(this),
+            'agent:spawn_from_component': this.handleAgentSpawn.bind(this), // Add handler for component spawning
             'agent:list': this.handleAgentList.bind(this),
             'agent:terminate': this.handleAgentTerminate.bind(this),
             'agent:terminated': this.handleAgentTerminate.bind(this),
@@ -44,8 +46,7 @@ class KSIVisualizer {
             'state:entity:query': this.handleStateEntityQuery.bind(this),
             'state:relationship:create': this.handleRelationshipCreated.bind(this),
             'state:relationship:created': this.handleRelationshipCreated.bind(this),
-            'bridge:connected': this.handleBridgeConnected.bind(this),
-            'bridge:ksi_connected': this.handleKSIConnected.bind(this),
+            'transport:connected': this.handleTransportConnected.bind(this),
             'bridge:ksi_disconnected': this.handleKSIDisconnected.bind(this),
             'bridge:shutdown': this.handleBridgeShutdown.bind(this),
             'monitor:subscribe': this.handleSubscriptionResponse.bind(this)
@@ -75,7 +76,8 @@ class KSIVisualizer {
     
     sendSubscriptionRequest() {
         if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-            console.warn('Cannot subscribe: WebSocket not connected');
+            console.warn('❌ Cannot subscribe: WebSocket not connected');
+            console.warn('WebSocket state:', this.ws ? this.ws.readyState : 'null');
             return;
         }
         
@@ -87,9 +89,10 @@ class KSIVisualizer {
             }
         };
         
-        console.log('Sending subscription request:', subscribeMsg);
+        console.log('📤 Sending subscription request:', subscribeMsg);
         this.ws.send(JSON.stringify(subscribeMsg));
-        this.subscribed = true;
+        // Don't set subscribed=true until we get confirmation
+        console.log('⏳ Waiting for subscription confirmation...');
     }
     
     requestAgentList() {
@@ -250,7 +253,8 @@ class KSIVisualizer {
             
             this.ws.onopen = () => {
                 this.updateStatus('connected');
-                console.log('Connected to KSI WebSocket bridge');
+                console.log('✅ Connected to KSI WebSocket bridge');
+                console.log('WebSocket state:', this.ws.readyState);
                 if (this.reconnectTimeout) {
                     clearTimeout(this.reconnectTimeout);
                     this.reconnectTimeout = null;
@@ -260,6 +264,8 @@ class KSIVisualizer {
             this.ws.onmessage = (event) => {
                 try {
                     const data = JSON.parse(event.data);
+                    // Log all incoming events for debugging
+                    console.log('WS received:', data.event || data.event_name || 'unknown', data);
                     this.handleEvent(data);
                 } catch (e) {
                     console.error('Failed to parse event:', e, event.data);
@@ -316,25 +322,28 @@ class KSIVisualizer {
             data.event = data.event_name;
         }
         
-        // Log event
-        this.logEvent(data);
+        // Log event with enhanced metadata context
+        this.logEventWithMetadata(data);
         
-        // Debug logging
-        if (eventName && eventName.startsWith('agent:')) {
-            console.log('Agent event received:', eventName, data);
+        // Minimal debug logging for important events only
+        if (eventName && (eventName.startsWith('agent:') || eventName.startsWith('error:') || eventName === 'bridge:ksi_disconnected')) {
+            console.log(`[${eventName}]`, data.data);
         }
         
-        // Visual feedback for agent-originated events
-        const originatorId = data._originator_agent_id || data._agent_id;
+        // Visual feedback for agent-originated events using daemon metadata
+        const originatorId = data._agent_id;
         if (originatorId && !eventName.startsWith('observe:')) {
             this.showAgentActivity(originatorId);
         }
+        
+        // Update agent hierarchy from daemon metadata
+        this.updateAgentHierarchy(data);
         
         // Route to specific handler
         const handler = this.eventHandlers[eventName];
         if (handler) {
             try {
-                handler(data.data || {});
+                handler(data.data || {}, data); // Pass full event for metadata access
             } catch (e) {
                 console.error(`Error handling ${eventName}:`, e, data);
             }
@@ -343,56 +352,88 @@ class KSIVisualizer {
         }
     }
     
-    logEvent(data) {
+    logEventWithMetadata(data) {
+        // Enhanced event logging with daemon metadata awareness
         const entry = document.createElement('div');
         entry.className = 'event-entry';
         
-        // Determine event category for styling
-        const eventName = data.event || data.event_name || '';
-        if (eventName.startsWith('agent:')) {
-            entry.classList.add('event-agent');
-        } else if (eventName.startsWith('completion:')) {
-            entry.classList.add('event-completion');
-        } else if (eventName.startsWith('orchestration:')) {
-            entry.classList.add('event-orchestration');
-        } else if (eventName.startsWith('state:')) {
-            entry.classList.add('event-state');
+        const eventName = data.event || data.event_name;
+        
+        // Convert Unix timestamp (seconds) to milliseconds for JavaScript Date
+        let timestampMs = Date.now();
+        if (data._event_timestamp) {
+            timestampMs = data._event_timestamp * 1000;
+        } else if (data.timestamp) {
+            timestampMs = data.timestamp * 1000;
         }
         
-        // Mark agent-originated events - check both top level and inside data
-        if (data._originated_by_agent || data._agent_id || 
-            (data.data && (data.data._originated_by_agent || data.data._agent_id))) {
-            entry.classList.add('agent-originated');
-        } else if (data._client_id || (data.data && data.data._client_id)) {
-            entry.classList.add('client-originated');
-        }
+        const timestamp = new Date(timestampMs).toLocaleTimeString('en-US', {
+            timeZone: 'America/New_York',
+            hour12: true,
+            hour: 'numeric',
+            minute: '2-digit',
+            second: '2-digit'
+        });
         
-        // Format timestamp - KSI uses Unix epoch seconds
-        let time = 'No timestamp';
-        if (data.timestamp) {
-            // Convert seconds to milliseconds and format with full precision
-            const date = new Date(data.timestamp * 1000);
-            time = date.toLocaleTimeString('en-US', { 
-                hour12: false, 
-                hour: '2-digit', 
-                minute: '2-digit', 
-                second: '2-digit',
-                fractionalSecondDigits: 3 
-            });
-        }
+        // Extract metadata for enriched display
+        const agentId = data._agent_id;
+        const clientId = data._client_id;
+        const orchestrationId = data.data?.orchestration_id;
+        const depth = data.data?.orchestration_depth;
         
-        // Build entry content with enhanced tooltips
-        const eventDataStr = JSON.stringify(data.data || {});
-        const truncatedData = eventDataStr.length > 100 ? 
-            eventDataStr.substring(0, 100) + '...' : eventDataStr;
-        
+        // Create rich HTML display without emojis
         entry.innerHTML = `
-            <span class="event-time">${time}</span>
+            <span class="event-time">[${timestamp} EST]</span>
             <span class="event-type">${eventName}</span>
-            <span class="event-data" title="${eventDataStr.replace(/"/g, '&quot;')}">${truncatedData}</span>
         `;
         
-        // Add to log (prepend for newest first)
+        // Add metadata badges
+        if (agentId) {
+            entry.innerHTML += ` <span class="event-badge agent-badge">agent:${agentId.substring(0, 8)}</span>`;
+        }
+        
+        if (clientId && clientId !== this.clientId) {
+            entry.innerHTML += ` <span class="event-badge client-badge">client:${clientId.substring(0, 8)}</span>`;
+        }
+        
+        if (orchestrationId) {
+            entry.innerHTML += ` <span class="event-badge orch-badge">orch:${orchestrationId.substring(0, 8)}`;
+            if (depth !== undefined) {
+                entry.innerHTML += `:L${depth}`;
+            }
+            entry.innerHTML += `</span>`;
+        }
+        
+        // Add data preview if available
+        if (data.data && Object.keys(data.data).length > 0) {
+            const dataPreview = this.createDataPreview(data.data);
+            if (dataPreview) {
+                entry.innerHTML += ` <span class="event-data-preview">${dataPreview}</span>`;
+            }
+        }
+        
+        // Enhanced color coding based on event type
+        if (eventName?.startsWith('agent:')) {
+            entry.classList.add('event-agent');
+        } else if (eventName?.startsWith('orchestration:')) {
+            entry.classList.add('event-orchestration');
+        } else if (eventName?.startsWith('completion:')) {
+            entry.classList.add('event-completion');
+        } else if (eventName?.startsWith('state:')) {
+            entry.classList.add('event-state');
+        } else if (eventName?.startsWith('monitor:')) {
+            entry.classList.add('event-monitor');
+        } else if (eventName?.startsWith('bridge:')) {
+            entry.classList.add('event-bridge');
+        } else if (agentId) {
+            entry.classList.add('agent-originated');
+        }
+        
+        // Add tooltip with full metadata
+        const tooltip = this.buildMetadataTooltip(data);
+        entry.title = tooltip;
+        
+        // Add to log
         this.eventLog.insertBefore(entry, this.eventLog.firstChild);
         
         // Limit log size
@@ -401,32 +442,161 @@ class KSIVisualizer {
         }
     }
     
+    buildMetadataTooltip(data) {
+        // Build comprehensive metadata tooltip
+        const lines = [];
+        
+        lines.push(`Event: ${data.event || data.event_name}`);
+        
+        // Daemon metadata
+        if (data._agent_id) lines.push(`Agent ID: ${data._agent_id}`);
+        if (data._client_id) lines.push(`Client ID: ${data._client_id}`);
+        if (data._event_id) lines.push(`Event ID: ${data._event_id}`);
+        if (data._correlation_id) lines.push(`Correlation: ${data._correlation_id}`);
+        
+        // Hierarchical metadata from data
+        if (data.data) {
+            if (data.data.orchestration_id) lines.push(`Orchestration: ${data.data.orchestration_id}`);
+            if (data.data.orchestration_depth !== undefined) lines.push(`Depth: ${data.data.orchestration_depth}`);
+            if (data.data.parent_agent_id) lines.push(`Parent: ${data.data.parent_agent_id}`);
+            if (data.data.event_subscription_level) lines.push(`Sub Level: ${data.data.event_subscription_level}`);
+        }
+        
+        return lines.join('\n');
+    }
+    
+    createDataPreview(data) {
+        // Create a concise preview of event data
+        const previewParts = [];
+        
+        // Show key fields in a readable format
+        if (data.agent_id) previewParts.push(`agent:${data.agent_id.substring(0, 8)}`);
+        if (data.status) previewParts.push(`status:${data.status}`);
+        if (data.message) previewParts.push(`"${data.message.substring(0, 30)}..."`);
+        if (data.count !== undefined) previewParts.push(`count:${data.count}`);
+        if (data.pattern) previewParts.push(`pattern:${data.pattern}`);
+        if (data.component) previewParts.push(`component:${data.component.split('/').pop()}`);
+        if (data.profile) previewParts.push(`profile:${data.profile}`);
+        if (data.error) previewParts.push(`error:${data.error.substring(0, 30)}`);
+        if (data.result) previewParts.push(`result:${JSON.stringify(data.result).substring(0, 30)}...`);
+        
+        // Show array lengths
+        if (data.agents && Array.isArray(data.agents)) previewParts.push(`agents:[${data.agents.length}]`);
+        if (data.entities && Array.isArray(data.entities)) previewParts.push(`entities:[${data.entities.length}]`);
+        if (data.patterns && Array.isArray(data.patterns)) previewParts.push(`patterns:[${data.patterns.join(',')}]`);
+        
+        return previewParts.length > 0 ? `{${previewParts.join(', ')}}` : null;
+    }
+    
+    updateAgentHierarchy(data) {
+        // Update agent hierarchy visualization based on daemon metadata
+        const agentId = data._agent_id;
+        if (!agentId) return;
+        
+        const eventData = data.data || {};
+        
+        // Update agent metadata if it exists in graph
+        const agentNode = this.agentGraph.getElementById(agentId);
+        if (agentNode.length > 0) {
+            const currentData = agentNode.data();
+            
+            // Enhance metadata with daemon information
+            const enhancedMetadata = {
+                ...currentData.metadata,
+                orchestration_id: eventData.orchestration_id,
+                orchestration_depth: eventData.orchestration_depth,
+                parent_agent_id: eventData.parent_agent_id,
+                event_subscription_level: eventData.event_subscription_level,
+                error_subscription_level: eventData.error_subscription_level,
+                last_activity: data._event_timestamp || Date.now()
+            };
+            
+            agentNode.data('metadata', enhancedMetadata);
+            
+            // Update visual styling based on hierarchy depth
+            if (eventData.orchestration_depth !== undefined) {
+                agentNode.removeClass('depth-0 depth-1 depth-2 depth-3 depth-4+');
+                const depthClass = eventData.orchestration_depth > 4 ? 'depth-4+' : `depth-${eventData.orchestration_depth}`;
+                agentNode.addClass(depthClass);
+            }
+        }
+        
+        // Create orchestration relationships if metadata indicates hierarchy
+        if (eventData.orchestration_id && eventData.parent_agent_id && eventData.parent_agent_id !== agentId) {
+            this.createOrchestrationEdge(eventData.parent_agent_id, agentId, eventData.orchestration_id);
+        }
+    }
+    
+    createOrchestrationEdge(parentId, childId, orchestrationId) {
+        // Create edge representing orchestration hierarchy
+        const edgeId = `${parentId}-orch-${childId}`;
+        
+        if (!this.agentGraph.getElementById(edgeId).length) {
+            this.agentGraph.add({
+                data: {
+                    id: edgeId,
+                    source: parentId,
+                    target: childId,
+                    type: 'orchestration',
+                    orchestration_id: orchestrationId
+                }
+            });
+        }
+    }
+
+    buildAgentLabel(agentId, metadata) {
+        // Build intelligent agent labels using available metadata
+        const shortId = agentId.substring(0, 12);
+        
+        if (metadata.inferred) {
+            return `${shortId}\n(inferred)`;
+        }
+        
+        // Use component info if available
+        if (metadata.component) {
+            const componentName = metadata.component.split('/').pop() || 'unknown';
+            return `${shortId}\n(${componentName})`;
+        }
+        
+        // Use profile info as fallback
+        if (metadata.profile) {
+            return `${shortId}\n(${metadata.profile})`;
+        }
+        
+        // Show orchestration depth if available
+        if (metadata.orchestration_depth !== undefined) {
+            return `${shortId}\nL${metadata.orchestration_depth}`;
+        }
+        
+        return `${shortId}\n(agent)`;
+    }
+    
+    logEvent(data) {
+        // Legacy method - delegate to enhanced version
+        this.logEventWithMetadata(data);
+    }
+    
     // Event Handlers
     
-    handleBridgeConnected(data) {
-        console.log('Bridge confirmed connection:', data.message);
-        console.log('Using client ID:', this.clientId);
+    handleTransportConnected(data) {
+        console.log('🚀 Transport connected:', data.message);
+        console.log('🆔 Client ID:', data.client_id);
+        console.log('🔌 Transport type:', data.transport);
         
-        // Subscribe to events when bridge connection is established
+        this.ksiConnected = true;
+        this.updateStatus('connected', 'Connected (Native WebSocket)');
+        
+        // Subscribe to events when transport connection is established
+        console.log('📋 Step 1: Subscribing to events...');
         this.sendSubscriptionRequest();
         
         // Request current agent list to populate initial state
+        console.log('📋 Step 2: Requesting agent list...');
         this.requestAgentList();
         
         // Request current state entities to populate state graph
+        console.log('📋 Step 3: Requesting state entities...');
         this.requestStateEntities();
-    }
-    
-    handleKSIConnected(data) {
-        console.log('KSI daemon connected:', data.message);
-        this.ksiConnected = true;
-        this.updateStatus('connected', 'Connected (KSI Active)');
-        
-        // Re-subscribe when KSI daemon reconnects (handles daemon restarts)
-        console.log('Re-subscribing after KSI daemon reconnection');
-        this.sendSubscriptionRequest();
-        
-        // Don't clear state - daemon checkpoint restore should handle consistency
     }
     
     handleKSIDisconnected(data) {
@@ -460,62 +630,76 @@ class KSIVisualizer {
         }
     }
     
-    handleAgentSpawn(data) {
+    handleAgentSpawn(data, eventMetadata) {
         const agentId = data.agent_id;
         if (!agentId) return;
         
-        console.log('handleAgentSpawn - data:', data);
+        console.log('handleAgentSpawn - data:', data, 'eventMetadata:', eventMetadata);
         
-        // Track agent
-        this.agents.set(agentId, data);
+        // Enhanced metadata from daemon
+        const enhancedData = {
+            ...data,
+            orchestration_id: data.orchestration_id,
+            orchestration_depth: data.orchestration_depth,
+            parent_agent_id: data.parent_agent_id,
+            event_subscription_level: data.event_subscription_level,
+            component: data.component,
+            _event_source: eventMetadata?._agent_id, // Who triggered this spawn
+        };
         
-        // Add node to graph
+        // Track agent with enhanced metadata
+        this.agents.set(agentId, enhancedData);
+        
+        // Add node to graph with rich metadata
         this.agentGraph.add({
             data: {
                 id: agentId,
-                label: agentId.substring(0, 12) + '\n(' + (data.profile || 'unknown') + ')',
+                label: this.buildAgentLabel(agentId, enhancedData),
                 type: 'agent',
-                metadata: data
+                metadata: enhancedData
             }
         });
         
-        // Add relationship if spawned by another agent
-        // Check both _originator_agent_id (from enhanced websocket) and _agent_id (direct from KSI)
-        const originatorId = data._originator_agent_id || data._agent_id || data.parent_agent_id;
-        if (originatorId && originatorId !== agentId) {
-            // Ensure originator exists in graph
-            if (!this.agentGraph.getElementById(originatorId).length) {
+        // Add hierarchical relationships using daemon metadata
+        const parentId = data.parent_agent_id || eventMetadata?._agent_id;
+        if (parentId && parentId !== agentId) {
+            // Ensure parent exists in graph
+            if (!this.agentGraph.getElementById(parentId).length) {
                 this.agentGraph.add({
                     data: {
-                        id: originatorId,
-                        label: originatorId.substring(0, 12) + '\n(inferred)',
+                        id: parentId,
+                        label: this.buildAgentLabel(parentId, { inferred: true }),
                         type: 'agent',
                         metadata: { inferred: true }
                     }
                 });
             }
             
-            console.log(`Creating spawn edge from ${originatorId} to ${agentId}`);
+            console.log(`Creating hierarchical edge from ${parentId} to ${agentId}`);
+            
+            // Determine edge type based on metadata
+            const edgeType = data.orchestration_id ? 'orchestration' : 'spawn';
+            
             this.agentGraph.add({
                 data: {
-                    id: `${originatorId}-spawns-${agentId}`,
-                    source: originatorId,
+                    id: `${parentId}-${edgeType}-${agentId}`,
+                    source: parentId,
                     target: agentId,
-                    type: 'spawned'
+                    type: edgeType,
+                    orchestration_id: data.orchestration_id
                 }
             });
-        } else {
-            console.log(`No originator found for ${agentId} - originatorId: ${originatorId}`);
         }
         
-        // Run layout with dagre for hierarchical display
+        // Apply hierarchical layout with improved spacing
         this.agentGraph.layout({ 
             name: 'dagre', 
             animate: true,
-            padding: 10,
-            spacingFactor: 1.5,
-            nodeSep: 50,
-            rankSep: 100
+            padding: 20,
+            spacingFactor: 1.8,
+            nodeSep: 60,
+            rankSep: 120,
+            rankDir: 'TB' // Top to bottom for hierarchy
         }).run();
     }
     
@@ -778,7 +962,15 @@ class KSIVisualizer {
     handleStateEntityQuery(data) {
         console.log('Received state entities:', data);
         
-        if (!data.entities || !Array.isArray(data.entities)) {
+        // Check if this is a response with entities
+        if (!data.entities && !data.results) {
+            console.warn('State entity query - waiting for response with entities');
+            return;
+        }
+        
+        // Handle both 'entities' and 'results' field names
+        const entities = data.entities || data.results;
+        if (!entities || !Array.isArray(entities)) {
             console.warn('Invalid state entities data:', data);
             return;
         }
@@ -787,7 +979,7 @@ class KSIVisualizer {
         this.stateGraph.elements().remove();
         
         // Filter out agent entities - they're shown in Agent Ecosystem
-        const nonAgentEntities = data.entities.filter(entity => entity.type !== 'agent');
+        const nonAgentEntities = entities.filter(entity => entity.type !== 'agent');
         
         console.log(`Filtered ${data.entities.length} entities to ${nonAgentEntities.length} non-agent entities`);
         
@@ -880,5 +1072,12 @@ class KSIVisualizer {
 
 // Initialize visualizer when page loads
 document.addEventListener('DOMContentLoaded', () => {
-    window.ksiVisualizer = new KSIVisualizer();
+    console.log('🚀 DOMContentLoaded - Initializing KSI Visualizer...');
+    try {
+        window.ksiVisualizer = new KSIVisualizer();
+        console.log('✅ KSI Visualizer initialized successfully');
+    } catch (error) {
+        console.error('❌ Failed to initialize KSI Visualizer:', error);
+        console.error('Stack trace:', error.stack);
+    }
 });

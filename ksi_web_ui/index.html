@@ -83,46 +83,87 @@
         }
         
         .event-entry {
-            margin-bottom: 2px;
-            padding: 2px 4px;
-            border-left: 3px solid transparent;
+            margin-bottom: 4px;
+            padding: 4px 8px;
+            border-left: 4px solid transparent;
+            font-size: 12px;
+            line-height: 1.6;
         }
         
         .event-agent {
             border-left-color: #4CAF50;
-            background: rgba(76, 175, 80, 0.1);
+            background: rgba(76, 175, 80, 0.05);
+        }
+        
+        .event-agent .event-type {
+            color: #4CAF50;
+            font-weight: 600;
         }
         
         .event-completion {
             border-left-color: #2196F3;
-            background: rgba(33, 150, 243, 0.1);
+            background: rgba(33, 150, 243, 0.05);
+        }
+        
+        .event-completion .event-type {
+            color: #2196F3;
+            font-weight: 600;
         }
         
         .event-orchestration {
             border-left-color: #FF9800;
-            background: rgba(255, 152, 0, 0.1);
+            background: rgba(255, 152, 0, 0.05);
+        }
+        
+        .event-orchestration .event-type {
+            color: #FF9800;
+            font-weight: 600;
         }
         
         .event-state {
             border-left-color: #9C27B0;
-            background: rgba(156, 39, 176, 0.1);
+            background: rgba(156, 39, 176, 0.05);
         }
         
-        /* Agent-originated events get special styling */
+        .event-state .event-type {
+            color: #9C27B0;
+            font-weight: 600;
+        }
+        
+        .event-monitor {
+            border-left-color: #607D8B;
+            background: rgba(96, 125, 139, 0.05);
+        }
+        
+        .event-monitor .event-type {
+            color: #607D8B;
+            font-weight: 600;
+        }
+        
+        .event-bridge {
+            border-left-color: #795548;
+            background: rgba(121, 85, 72, 0.05);
+        }
+        
+        .event-bridge .event-type {
+            color: #795548;
+            font-weight: 600;
+        }
+        
+        /* Agent-originated events (not categorized above) */
+        .agent-originated {
+            border-left-color: #FFC107;
+            background: rgba(255, 193, 7, 0.05);
+        }
+        
         .agent-originated .event-type {
-            color: #FFD700; /* Gold color for agent-originated events */
-            font-weight: bold;
-        }
-        
-        /* Client-originated events */
-        .client-originated .event-type {
-            color: #00BCD4; /* Cyan color for client-originated events */
-            font-weight: bold;
+            color: #FFC107;
         }
         
         .event-time {
-            color: #666;
+            color: #888;
             margin-right: 8px;
+            font-size: 11px;
         }
         
         .event-originator {
@@ -133,9 +174,42 @@
         }
         
         .event-type {
-            color: #4CAF50;
-            font-weight: bold;
+            font-weight: 600;
             margin-right: 8px;
+        }
+        
+        .event-badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 10px;
+            margin-left: 4px;
+            font-family: 'Monaco', 'Menlo', monospace;
+        }
+        
+        .agent-badge {
+            background: rgba(76, 175, 80, 0.2);
+            color: #4CAF50;
+            border: 1px solid rgba(76, 175, 80, 0.3);
+        }
+        
+        .client-badge {
+            background: rgba(0, 188, 212, 0.2);
+            color: #00BCD4;
+            border: 1px solid rgba(0, 188, 212, 0.3);
+        }
+        
+        .orch-badge {
+            background: rgba(255, 152, 0, 0.2);
+            color: #FF9800;
+            border: 1px solid rgba(255, 152, 0, 0.3);
+        }
+        
+        .event-data-preview {
+            color: #aaa;
+            font-size: 11px;
+            margin-left: 8px;
+            font-style: italic;
         }
         
         #connection-status {
@@ -165,6 +239,48 @@
         .status-connected:has-text("KSI Offline") {
             color: #FFC107;
         }
+        
+        /* Enhanced event styling for metadata-aware display */
+        .agent-event {
+            border-left-color: #4CAF50;
+            background: rgba(76, 175, 80, 0.15);
+        }
+        
+        .orchestration-event {
+            border-left-color: #FF9800;
+            background: rgba(255, 152, 0, 0.15);
+        }
+        
+        .agent-originated-event {
+            border-left-color: #FFD700;
+            background: rgba(255, 215, 0, 0.1);
+        }
+        
+        /* Hierarchical depth styling for agents */
+        .depth-0 {
+            background-color: #E8F5E8 !important;
+            border-color: #4CAF50 !important;
+        }
+        
+        .depth-1 {
+            background-color: #FFF3E0 !important;
+            border-color: #FF9800 !important;
+        }
+        
+        .depth-2 {
+            background-color: #E3F2FD !important;
+            border-color: #2196F3 !important;
+        }
+        
+        .depth-3 {
+            background-color: #F3E5F5 !important;
+            border-color: #9C27B0 !important;
+        }
+        
+        .depth-4+ {
+            background-color: #FFEBEE !important;
+            border-color: #F44336 !important;
+        }
     </style>
 </head>
 <body>
@@ -187,6 +303,7 @@
         </div>
     </div>
     
+    <!-- Our visualizer -->
     <script src="ksi-visualizer.js"></script>
 </body>
 </html>
