@@ -1364,6 +1364,14 @@ async def resolve_composition(
         if content is not None:
             result[component.name] = content
     
+    # Extract generated_content.system_prompt to prompt field for agent spawning compatibility
+    if isinstance(result, dict) and 'generated_content' in result:
+        generated_content = result.get('generated_content', {})
+        if isinstance(generated_content, dict) and 'system_prompt' in generated_content:
+            # Extract the system_prompt to the prompt field that agent spawning expects
+            result['prompt'] = generated_content['system_prompt']
+            logger.info(f"Extracted system_prompt from generated_content for composition {name}")
+    
     # Resolve any remaining variables in the result
     if isinstance(result, dict):
         result_str = json_dumps(result)

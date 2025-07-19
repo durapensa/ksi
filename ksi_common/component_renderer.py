@@ -30,6 +30,7 @@ class ComponentContext:
     frontmatter: Dict[str, Any]
     variables: Dict[str, Any] = field(default_factory=dict)
     mixins: List[str] = field(default_factory=list)
+    dependencies: List[str] = field(default_factory=list)
     extends: Optional[str] = None
     conditions: List[Dict[str, Any]] = field(default_factory=list)
 
@@ -128,8 +129,9 @@ class ComponentRenderer:
                 parent_context = self._load_component_with_resolution(context.extends, merged_variables)
                 context = self._merge_contexts(parent_context, context)
             
-            # Resolve mixins
+            # Resolve mixins and dependencies
             resolved_mixins = self._resolve_mixins(context.frontmatter.get('mixins', []), merged_variables)
+            resolved_dependencies = self._resolve_mixins(context.frontmatter.get('dependencies', []), merged_variables)
             
             # Apply conditional mixins
             conditional_mixins = self._evaluate_conditional_mixins(
@@ -137,8 +139,8 @@ class ComponentRenderer:
                 merged_variables
             )
             
-            # Merge all mixin content
-            all_mixins = resolved_mixins + conditional_mixins
+            # Merge all mixin and dependency content
+            all_mixins = resolved_mixins + resolved_dependencies + conditional_mixins
             for mixin_name in all_mixins:
                 mixin_context = self._load_component_with_resolution(mixin_name, merged_variables)
                 context = self._merge_contexts(context, mixin_context)
@@ -169,6 +171,7 @@ class ComponentRenderer:
                 frontmatter=frontmatter,
                 extends=frontmatter.get('extends'),
                 mixins=frontmatter.get('mixins', []),
+                dependencies=frontmatter.get('dependencies', []),
                 conditions=frontmatter.get('conditions', [])
             )
             
