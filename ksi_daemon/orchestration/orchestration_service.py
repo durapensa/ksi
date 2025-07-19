@@ -141,17 +141,75 @@ class OrchestrationModule:
     
     async def load_pattern(self, pattern_name: str, load_transformers: bool = True) -> Dict[str, Any]:
         """Load an orchestration pattern from YAML."""
-        pattern_file = self.patterns_dir / f"{pattern_name}.yaml"
-        
-        if not pattern_file.exists():
-            # Try with .yml extension
-            pattern_file = self.patterns_dir / f"{pattern_name}.yml"
+        # Try to load via composition service first
+        if event_emitter:
+            try:
+                logger.info(f"Attempting to load orchestration pattern: {pattern_name}")
+                # Try exact match first
+                results = await event_emitter("composition:get", {
+                    "name": pattern_name,
+                    "type": "orchestration"
+                })
+                # event_emitter returns a list of results from handlers
+                result = results[0] if results else None
+                logger.info(f"composition:get result for {pattern_name}: {result.get('status') if result else 'None'}")
+                if result and result.get('status') == 'success' and 'composition' in result:
+                    pattern = result['composition']
+                    logger.debug(f"Loaded orchestration pattern {pattern_name} via composition service")
+                    # Continue to validation and transformer loading below
+                else:
+                    # If exact match fails, try to discover it
+                    logger.debug(f"Exact match failed for {pattern_name}, trying discovery")
+                    discover_results = await event_emitter("composition:discover", {
+                        "type": "orchestration",
+                        "filter": {"name": pattern_name}
+                    })
+                    discover_result = discover_results[0] if discover_results else None
+                    if discover_result and discover_result.get('status') == 'success' and discover_result.get('compositions'):
+                        compositions = discover_result['compositions']
+                        if len(compositions) == 1:
+                            # Found exactly one match, use its full name
+                            full_name = compositions[0].get('full_name', '').replace('orchestrations/', '', 1)
+                            logger.debug(f"Found pattern via discovery: {full_name}")
+                            # Try loading with the full path
+                            results = await event_emitter("composition:get", {
+                                "name": full_name,
+                                "type": "orchestration"
+                            })
+                            result = results[0] if results else None
+                            if result and result.get('status') == 'success' and 'composition' in result:
+                                pattern = result['composition']
+                                logger.debug(f"Loaded orchestration pattern {full_name} via composition service")
+                            else:
+                                raise FileNotFoundError(f"Pattern not found via composition service: {pattern_name}")
+                        elif len(compositions) > 1:
+                            # Multiple matches, provide helpful error
+                            names = [c.get('full_name', '') for c in compositions]
+                            raise ValueError(f"Multiple orchestration patterns match '{pattern_name}': {names}. Please use the full path.")
+                        else:
+                            raise FileNotFoundError(f"Pattern not found via composition service: {pattern_name}")
+                    else:
+                        raise FileNotFoundError(f"Pattern not found via composition service: {pattern_name}")
+            except Exception as e:
+                logger.error(f"Failed to load pattern '{pattern_name}' via composition service: {e}")
+                # Fall through to direct file access
+                pattern = None
+        else:
+            pattern = None
             
-        if not pattern_file.exists():
-            raise FileNotFoundError(f"Orchestration pattern not found: {pattern_name}")
-        
-        with open(pattern_file, 'r') as f:
-            pattern = yaml.safe_load(f)
+        # Fallback to direct file access
+        if pattern is None:
+            pattern_file = self.patterns_dir / f"{pattern_name}.yaml"
+            
+            if not pattern_file.exists():
+                # Try with .yml extension
+                pattern_file = self.patterns_dir / f"{pattern_name}.yml"
+                
+            if not pattern_file.exists():
+                raise FileNotFoundError(f"Orchestration pattern not found: {pattern_name}")
+            
+            with open(pattern_file, 'r') as f:
+                pattern = yaml.safe_load(f)
         
         # Validate required fields (relaxed - only name is truly required)
         if 'name' not in pattern:
@@ -192,7 +250,8 @@ class OrchestrationModule:
         available_profiles = set()
         if event_emitter:
             try:
-                result = await event_emitter("composition:list", {"composition_type": "profile"})
+                results = await event_emitter("composition:list", {"composition_type": "profile"})
+                result = results[0] if results else None
                 if result and isinstance(result, dict) and 'compositions' in result:
                     for comp in result['compositions']:
                         available_profiles.add(comp.get('name', ''))
@@ -531,9 +590,10 @@ class OrchestrationModule:
             if initial_message_ref:
                 try:
                     # Get the composition content
-                    comp_result = await event_emitter("composition:get", {
+                    comp_results = await event_emitter("composition:get", {
                         "name": initial_message_ref
                     })
+                    comp_result = comp_results[0] if comp_results else None
                     
                     if comp_result and 'content' in comp_result:
                         # Send the initial message
