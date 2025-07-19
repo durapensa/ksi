@@ -29,23 +29,14 @@ async def check_composition():
         if 'error' in compose_result:
             print(f"ERROR in compose: {compose_result['error']}")
         
-        # Also try composition:profile
-        profile_result = await client.send_single('composition:profile', {
-            'name': 'base_single_agent'
-        })
-        
-        print(f"\nProfile result keys: {list(profile_result.keys())}")
-        if 'error' in profile_result:
-            print(f"ERROR in profile: {profile_result['error']}")
-            
-        # Check what's in the profile
-        if 'profile' in profile_result:
-            profile = profile_result['profile']
-            print(f"\nProfile keys: {list(profile.keys())}")
+        # Check what's in the composition
+        if 'composition' in compose_result:
+            composition = compose_result['composition']
+            print(f"\nComposition keys: {list(composition.keys())}")
             
             # Check for system_context
-            if 'system_context' in profile:
-                sys_ctx = profile['system_context']
+            if 'system_context' in composition:
+                sys_ctx = composition['system_context']
                 print(f"system_context type: {type(sys_ctx)}")
                 if isinstance(sys_ctx, dict):
                     print(f"system_context keys: {list(sys_ctx.keys())}")
