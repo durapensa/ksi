@@ -591,6 +591,43 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
                     data["messages"] = history + current_messages
                     logger.info(f"Loaded {len(history)} historical messages for session {session_id}")
         
+        # For agent requests, ensure sandbox_uuid is available for CLI providers
+        agent_id = data.get("agent_id")
+        if agent_id and model.startswith(("claude-cli/", "gemini-cli/")):
+            # Retrieve sandbox_uuid from agent state entity
+            try:
+                logger.debug(f"Attempting to query state entity for agent {agent_id}")
+                entity_result = await event_emitter("state:entity:get", {
+                    "id": agent_id
+                })
+                
+                logger.info(f"State entity query result for {agent_id}: {entity_result}")
+                logger.info(f"Entity result type: {type(entity_result)}")
+                
+                if entity_result and isinstance(entity_result, list) and len(entity_result) > 0:
+                    entity = entity_result[0]
+                    if entity and isinstance(entity, dict) and "properties" in entity:
+                        props = entity.get('properties', {})
+                        sandbox_uuid = props.get('sandbox_uuid')
+                        
+                        if sandbox_uuid:
+                            # Add sandbox_uuid to extra_body for litellm provider
+                            if "extra_body" not in data:
+                                data["extra_body"] = {}
+                            if "ksi" not in data["extra_body"]:
+                                data["extra_body"]["ksi"] = {}
+                            data["extra_body"]["ksi"]["sandbox_uuid"] = sandbox_uuid
+                            logger.info(f"Retrieved sandbox_uuid for agent {agent_id}: {sandbox_uuid}")
+                        else:
+                            logger.warning(f"Agent {agent_id} entity found but no sandbox_uuid in properties")
+                    else:
+                        logger.warning(f"Agent {agent_id} entity has invalid structure")
+                else:
+                    logger.warning(f"Agent {agent_id} entity not found in state system or invalid format")
+            except Exception as e:
+                logger.error(f"Failed to retrieve sandbox_uuid for agent {agent_id}: {e}", exc_info=True)
+                # Don't fail the completion - let litellm handle it
+        
         # Call through provider (currently only litellm handler)
         provider, raw_response = await handle_litellm_completion(data)
         

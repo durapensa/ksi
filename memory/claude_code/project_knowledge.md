@@ -12,10 +12,31 @@ Essential technical reference for developing with KSI (Knowledge System Infrastr
 
 ### Component System (Unified Architecture 2025 ✅)
 - **Everything is a component**: Single unified model with `component_type` attribute
+- **Graph-based architecture**: Entities (agents/orchestrations) form directed graphs with event routing
+- **Universal spawn pattern**: Components determine entity type - agents spawn agents, orchestrations spawn orchestrations
+- **Nested orchestrations**: Agents can spawn orchestrations, creating hierarchical trees of arbitrary depth
 - **Event-driven creation**: `ksi send composition:create_component --name "path" --content "..."`
-- **Progressive frontmatter**: YAML metadata with type, dependencies, capabilities
 - **SQLite index**: Database-first discovery, no file I/O during queries
-- **60x+ cached rendering**: LRU cache with intelligent invalidation
+
+### Orchestration System (2025 ✅)
+
+**Universal Orchestrator Architecture**:
+- **Claude Code as orchestrator**: Set `orchestrator_agent_id: "claude-code"` in patterns
+- **Dual subscription levels**: Separate controls for regular events (`event_subscription_level`) vs errors (`error_subscription_level`)
+- **Hierarchical routing**: Events bubble up through orchestration trees to designated orchestrator
+- **Entity creation**: Orchestrations MUST create state entities for routing to work: `state:entity:create` with `type: "orchestration"`
+
+**Event Routing Mechanics**:
+- **System context required**: `event_emitter` must be initialized via `system:context` handler
+- **Parameter format**: Use `type` and `id` (not `entity_type`/`entity_id`) for state entity creation
+- **Client tagging**: Events routed to Claude Code get `_client_id: "claude-code"` for log filtering
+- **Hierarchical propagation**: Subscription levels control how far events bubble up orchestration trees
+
+**Behavioral Override Pattern**:
+- **Mixins over duplication**: Use `behaviors/orchestration/claude_code_override.md` to modify agent behavior
+- **Dependencies system**: Components declare mixins in `dependencies:` array
+- **Orchestrator-aware agents**: Change behavior when `orchestrator_agent_id: "claude-code"` is present
+- **Delegation-first**: Agents should coordinate/delegate rather than execute when orchestrator is monitoring
 
 ### Composition Indexing Patterns ✅
 **Discovery**: Two distinct file formats requiring different validation approaches:
@@ -50,11 +71,11 @@ Essential technical reference for developing with KSI (Knowledge System Infrastr
 **Solution**: Persistent agent sandboxes using `sandbox_uuid` in `var/sandbox/agents/{uuid}/`
 **Result**: Agents maintain conversation continuity across multiple requests.
 
-### Profile to Component Migration (COMPLETE) ✅
-**Problem**: Dual system (profiles + components) created confusion and inconsistency.
-**Solution**: Full migration to component-only system.
-**Status**: COMPLETE - All profiles removed, system uses only components.
-**Impact**: 139 files changed, 1487 insertions(+), 4185 deletions(-) - massive simplification!
+### Unified Composition System (COMPLETE) ✅
+**Problem**: Type-specific endpoints (composition:profile, composition:prompt) created unnecessary complexity.
+**Solution**: Single `composition:compose` endpoint - component type determines behavior.
+**Status**: COMPLETE - All type-specific endpoints removed.
+**Impact**: Clean, elegant system where intelligent agents determine usage from context.
 
 ### DSL Meta-Optimization System ✅
 **Innovation**: The orchestration DSL itself can now be optimized using MIPRO.
@@ -129,7 +150,19 @@ capabilities:          # What this component provides
 - **Component definitions**: Test suites, judge schemas → `components/evaluations/`
 - **Runtime data**: Results, bootstrap data → `var/lib/evaluations/`
 
-## Orchestration Metadata System (2025) ✅
+## Universal Graph-Based Architecture (2025) ✅
+
+### Entities as Graph Nodes
+- **Unified entity model**: Agents and orchestrations are just "event-emitting entities" in a graph
+- **Edges are relationships**: Parent-child, routing rules, capability grants
+- **Context flows implicitly**: Parent references, depth, routing inherited automatically
+- **Capabilities are compositional**: Any entity with a capability can use it (agents can spawn orchestrations)
+
+### Intentional Module Interdependence
+- **agent:spawn**: Creates agents from components (used by orchestrations)
+- **orchestration:start**: Creates orchestrations from patterns (used by agents with capability)
+- **Embraced interdependence**: Agent and orchestration modules naturally depend on each other
+- **Graph reflects reality**: In a graph-based system, nodes need to create other nodes
 
 ### Hierarchical Event Propagation
 **Every event carries orchestration context**:
@@ -139,14 +172,23 @@ capabilities:          # What this component provides
   "_orchestration_id": "orch_abc",
   "_orchestration_depth": 2,
   "_parent_agent_id": "agent_parent",
-  "_root_orchestration_id": "orch_root"
+  "_root_orchestration_id": "orch_root",
+  "_client_id": "ksi-cli"  # Already tracked throughout system
 }
 ```
+
+### Orchestrator Agent Feedback Path
+- **Orchestrator agent identity**: Orchestrations can have an `orchestrator_agent_id` that receives bubbled events
+- **Claude Code as orchestrator**: When `orchestrator_agent_id: "claude-code"`, events route to system
+- **Dual subscription levels**: Separate control for regular events vs errors
+  - `event_subscription_level`: Controls normal event propagation (0, 1, N, -1)
+  - `error_subscription_level`: Controls error propagation (often -1 for all errors)
+- **Initial prompt propagation**: Orchestrations accept `prompt` parameter for initialization
 
 ### Orchestration State Entities
 - **Created on orchestration start**: Tracks pattern, agents, parent, subscription levels
 - **Queryable by ID**: `ksi send state:entity:get --entity-id orch_xyz --entity-type orchestration`
-- **Hierarchical tracking**: Parent/child orchestration relationships
+- **Nested orchestrations**: Agents with orchestration capability can spawn child orchestrations
 
 ### Orchestration-Aware Discovery
 ```bash
@@ -156,11 +198,16 @@ ksi discover --orchestration-id orch_xyz
 # Returns: orchestration details, agent hierarchy, recent events, statistics
 ```
 
-### Event Subscription Levels (Implemented ✅)
+### Event Subscription Levels (Graph Traversal Depth) ✅
 - **Level 0**: Only orchestration-level events
 - **Level 1**: Direct child agents + immediate events (default)
-- **Level N**: Events from agents up to N levels deep in hierarchy (e.g., 2=grandchildren, 3=great-grandchildren)
-- **Level -1**: ALL events in entire orchestration tree
+- **Level N**: Events from entities up to N levels deep (graph traversal depth)
+- **Level -1**: ALL events in entire subtree (full graph traversal)
+
+**Dual Subscription Model**:
+- **event_subscription_level**: Regular event propagation control
+- **error_subscription_level**: Error event propagation control
+- **Example**: Level 1 for events, Level -1 for errors = see immediate events + ALL errors
 
 ### Hierarchical Event Routing
 - **Module**: `ksi_daemon/core/hierarchical_routing.py`
@@ -254,7 +301,7 @@ tail -f var/logs/daemon/daemon.log.jsonl
 ```
 
 ### Common Issues
-- **Timeouts**: Usually JSON serialization failures (dates, complex objects)
+- **Timeouts**: State queries now have 10-15s timeout protection with clear error messages
 - **Agents not responding**: Check profile has `prompt` field
 - **Hook output not visible**: Claude Code bug - PostToolUse JSON not processed (Issue #3983)
   - Workaround: Check `/private/tmp/ksi_hook_diagnostic.log` for hook activity
@@ -302,7 +349,7 @@ echo "personas/deep_analyst.md model=claude-opus performance=reasoning" >> .gita
 - **Hybrid Evaluation**: Component definitions + runtime data separation
 
 ### Known Issues
-- **Discovery --level full timeout**: FIXED - Now requires namespace/event filter. With cache: 78-90% faster on subsequent runs.
+- **No current critical issues** - State timeout and discovery performance issues resolved
 
 ### Discovery Cache System ✅
 - **SQLite cache**: `var/db/discovery_cache.db` caches expensive TypedDict/AST analysis

@@ -14,7 +14,7 @@ Provides:
 
 import asyncio
 import json
-import yaml
+# yaml import removed - using composition service instead
 import uuid
 import time
 from pathlib import Path
@@ -119,6 +119,11 @@ class OrchestrationInstance:
     
     # New features
     default_routing_target: Optional[str] = None
+    orchestrator_agent_id: Optional[str] = None  # Agent that receives bubbled events
+    
+    # Subscription levels
+    event_subscription_level: int = 1  # Regular event propagation depth
+    error_subscription_level: int = -1  # Error event propagation depth (default: all)
     
     # Termination tracking
     rounds_completed: int = 0
@@ -129,8 +134,7 @@ class OrchestrationModule:
     """Core orchestration plugin implementation."""
     
     def __init__(self):
-        # Use same pattern as composition service - relative to project root
-        self.patterns_dir = Path("var") / "lib" / "compositions" / "orchestrations"
+        # All pattern loading now done via composition service
         self.providers = {}
         self._load_providers()
     
@@ -166,19 +170,9 @@ class OrchestrationModule:
         else:
             pattern = None
             
-        # Fallback to direct file access
+        # No fallback - orchestrations must use composition service
         if pattern is None:
-            pattern_file = self.patterns_dir / f"{pattern_name}.yaml"
-            
-            if not pattern_file.exists():
-                # Try with .yml extension
-                pattern_file = self.patterns_dir / f"{pattern_name}.yml"
-                
-            if not pattern_file.exists():
-                raise FileNotFoundError(f"Orchestration pattern not found: {pattern_name}")
-            
-            with open(pattern_file, 'r') as f:
-                pattern = yaml.safe_load(f)
+            raise FileNotFoundError(f"Orchestration pattern not found: {pattern_name}")
         
         # Validate required fields (relaxed - only name is truly required)
         if 'name' not in pattern:
@@ -327,6 +321,14 @@ class OrchestrationModule:
             routing_config = pattern.get('routing', {})
             instance.default_routing_target = routing_config.get('default')
             
+            # Set orchestrator agent if provided (check pattern first, then vars)
+            instance.orchestrator_agent_id = pattern.get('orchestrator_agent_id') or vars.get('orchestrator_agent_id')
+            
+            # Set subscription levels from pattern or defaults
+            event_prop = pattern.get('event_propagation', {})
+            instance.event_subscription_level = event_prop.get('subscription_level', 1)
+            instance.error_subscription_level = event_prop.get('error_subscription_level', -1)
+            
             # Parse agents
             for agent_name, agent_config in pattern.get('agents', {}).items():
                 agent_id = f"{orchestration_id}_{agent_name}"
@@ -363,24 +365,34 @@ class OrchestrationModule:
             orchestrations[orchestration_id] = instance
             
             # Create orchestration state entity
+            logger.info(f"Creating orchestration state entity: event_emitter={event_emitter is not None}")
             if event_emitter:
-                await event_emitter("state:entity:create", {
-                    "entity_type": "orchestration",
-                    "entity_id": orchestration_id,
-                    "properties": {
-                        "orchestration_id": orchestration_id,
-                        "pattern": pattern_name,
-                        "pattern_path": pattern_path,
-                        "agents": list(instance.agents.keys()),
-                        "parent_orchestration": data.get("parent_orchestration_id"),
-                        "event_subscription_level": pattern.get("event_propagation", {}).get("subscription_level", 1),
-                        "error_handling": pattern.get("event_propagation", {}).get("error_handling", "bubble"),
-                        "created_at": timestamp_utc(),
-                        "state": "initializing",
-                        "variables": instance.vars,
-                        "initialization_strategy": pattern.get("initialization", {}).get("strategy", "legacy")
+                try:
+                    entity_data = {
+                        "type": "orchestration",
+                        "id": orchestration_id,
+                        "properties": {
+                            "orchestration_id": orchestration_id,
+                            "pattern": pattern_name,
+                            "agents": list(instance.agents.keys()),
+                            "parent_orchestration": vars.get("parent_orchestration_id"),
+                            "orchestrator_agent_id": instance.orchestrator_agent_id,
+                            "event_subscription_level": instance.event_subscription_level,
+                            "error_subscription_level": instance.error_subscription_level,
+                            "error_handling": pattern.get("event_propagation", {}).get("error_handling", "bubble"),
+                            "created_at": timestamp_utc(),
+                            "state": "initializing",
+                            "variables": instance.vars,
+                            "initialization_strategy": pattern.get("initialization", {}).get("strategy", "legacy")
+                        }
                     }
-                })
+                    logger.info(f"Attempting to create orchestration entity: {orchestration_id}")
+                    result = await event_emitter("state:entity:create", entity_data)
+                    logger.info(f"Orchestration entity creation result: {result}")
+                except Exception as e:
+                    logger.error(f"Failed to create orchestration state entity: {e}", exc_info=True)
+            else:
+                logger.error("Cannot create orchestration state entity: event_emitter is None")
             
             # Spawn agents
             await self._spawn_agents(instance)
@@ -853,15 +865,12 @@ async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, A
     from ksi_common.event_response_builder import event_response_builder
     data = event_format_linter(raw_data, SystemStartupData)
     
-    # Ensure orchestration patterns directory exists
-    patterns_dir = orchestration_module.patterns_dir
-    patterns_dir.mkdir(parents=True, exist_ok=True)
-    
-    logger.info(f"Orchestration service started - patterns dir: {patterns_dir}")
+    # Orchestration service uses composition service for pattern loading
+    logger.info("Orchestration service started - patterns loaded via composition service")
     
     return event_response_builder({
         "status": "orchestration_ready",
-        "patterns_dir": str(patterns_dir)
+        "note": "Patterns loaded via composition service"
     }, context)
 
 
@@ -888,6 +897,7 @@ class OrchestrationStartData(TypedDict):
     """Start a new orchestration."""
     pattern: Required[str]  # Pattern name to load
     vars: NotRequired[Dict[str, Any]]  # Variables to pass to orchestration
+    prompt: NotRequired[str]  # Initial prompt to pass to orchestration
 
 
 @event_handler("orchestration:start")
@@ -899,9 +909,14 @@ async def handle_orchestration_start(raw_data: Dict[str, Any], context: Optional
     data = event_format_linter(raw_data, OrchestrationStartData)
     pattern = data.get("pattern")
     vars = data.get("vars", {})
+    prompt = data.get("prompt")
     
     if not pattern:
         return error_response("pattern required", context)
+    
+    # Pass prompt through vars if provided
+    if prompt:
+        vars["prompt"] = prompt
     
     # Execute async orchestration start
     return await orchestration_module.start_orchestration(pattern, vars)

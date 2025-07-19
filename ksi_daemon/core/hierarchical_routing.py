@@ -54,19 +54,41 @@ class HierarchicalRouter:
             # Get all agents in the orchestration
             agents = await self._get_orchestration_agents(orchestration_id)
             
+            # Check if this is an error event (by name pattern or data content)
+            is_error = self._is_error_event(event_name, event_data)
+            
             # Route to each agent based on their subscription level
             routing_tasks = []
             for agent_id, agent_info in agents.items():
                 if agent_id == source_agent_id:
                     continue  # Don't route to self
                     
-                subscription_level = agent_info.get('event_subscription_level', 1)
+                # Use appropriate subscription level based on event type
+                if is_error:
+                    subscription_level = agent_info.get('error_subscription_level', -1)  # Default: all errors
+                else:
+                    subscription_level = agent_info.get('event_subscription_level', 1)
+                    
                 agent_depth = agent_info.get('orchestration_depth', 0)
                 
                 # Check if this agent should receive the event
                 if self._should_receive_event(source_info, agent_info, subscription_level):
                     routing_tasks.append(
                         self._route_to_agent(agent_id, source_agent_id, event_name, event_data)
+                    )
+            
+            # Route to orchestrator agent if set
+            orchestrator_agent_id = await self._get_orchestrator_agent(orchestration_id)
+            if orchestrator_agent_id:
+                # Check subscription level for orchestrator
+                orch_subscription_level = await self._get_orchestrator_subscription_level(
+                    orchestration_id, is_error
+                )
+                if self._should_orchestrator_receive_event(source_depth, orch_subscription_level):
+                    routing_tasks.append(
+                        self._route_to_orchestrator_agent(
+                            orchestrator_agent_id, source_agent_id, event_name, event_data, orchestration_id
+                        )
                     )
             
             # Also route to parent orchestration if it exists
@@ -149,7 +171,8 @@ class HierarchicalRouter:
                 'orchestration_depth': props.get('orchestration_depth', 0),
                 'parent_agent_id': props.get('parent_agent_id'),
                 'root_orchestration_id': props.get('root_orchestration_id'),
-                'event_subscription_level': props.get('event_subscription_level', 1)
+                'event_subscription_level': props.get('event_subscription_level', 1),
+                'error_subscription_level': props.get('error_subscription_level', -1)
             }
             
             # Cache for future use
@@ -177,7 +200,8 @@ class HierarchicalRouter:
                     'agent_id': agent_id,
                     'orchestration_depth': props.get('orchestration_depth', 0),
                     'parent_agent_id': props.get('parent_agent_id'),
-                    'event_subscription_level': props.get('event_subscription_level', 1)
+                    'event_subscription_level': props.get('event_subscription_level', 1),
+                    'error_subscription_level': props.get('error_subscription_level', -1)
                 }
                 
         return agents
@@ -214,6 +238,94 @@ class HierarchicalRouter:
             logger.debug(f"Routed {event_name} to orchestration {orchestration_id}")
         except Exception as e:
             logger.error(f"Failed to route to orchestration {orchestration_id}: {e}")
+    
+    def _is_error_event(self, event_name: str, event_data: Dict[str, Any]) -> bool:
+        """Determine if an event is an error event."""
+        # Check by event name patterns
+        error_patterns = ['error', 'exception', 'failure', 'failed', 'timeout']
+        event_lower = event_name.lower()
+        if any(pattern in event_lower for pattern in error_patterns):
+            return True
+            
+        # Check for error fields in data
+        if event_data.get('error') or event_data.get('exception') or event_data.get('status') == 'error':
+            return True
+            
+        return False
+    
+    async def _get_orchestrator_agent(self, orchestration_id: str) -> Optional[str]:
+        """Get the orchestrator agent ID for an orchestration."""
+        result = await self._event_emitter("state:entity:get", {
+            "entity_type": "orchestration",
+            "entity_id": orchestration_id
+        })
+        
+        if result and isinstance(result, list) and result[0]:
+            entity = result[0].get('entity', {})
+            props = entity.get('properties', {})
+            return props.get('orchestrator_agent_id')
+            
+        return None
+    
+    async def _get_orchestrator_subscription_level(self, orchestration_id: str, is_error: bool) -> int:
+        """Get the subscription level for the orchestrator."""
+        result = await self._event_emitter("state:entity:get", {
+            "entity_type": "orchestration",
+            "entity_id": orchestration_id
+        })
+        
+        if result and isinstance(result, list) and result[0]:
+            entity = result[0].get('entity', {})
+            props = entity.get('properties', {})
+            if is_error:
+                return props.get('error_subscription_level', -1)
+            else:
+                return props.get('event_subscription_level', 1)
+                
+        return 1 if not is_error else -1
+    
+    def _should_orchestrator_receive_event(self, source_depth: int, subscription_level: int) -> bool:
+        """Check if orchestrator should receive event based on source depth."""
+        # Level -1: Receive all events
+        if subscription_level == -1:
+            return True
+            
+        # Level 0: Only root level events (depth 0)
+        if subscription_level == 0:
+            return source_depth == 0
+            
+        # For positive levels, check if source is within subscription depth
+        return source_depth <= subscription_level
+    
+    async def _route_to_orchestrator_agent(self, orchestrator_agent_id: str, source_agent_id: str,
+                                          event_name: str, event_data: Dict[str, Any], 
+                                          orchestration_id: str) -> None:
+        """Route event to the orchestrator agent."""
+        try:
+            # Special handling for claude-code as orchestrator
+            if orchestrator_agent_id == "claude-code":
+                # Tag with client_id for Claude Code
+                enriched_data = {
+                    **event_data,
+                    "_client_id": "claude-code",
+                    "_from_orchestration": orchestration_id,
+                    "_source_agent": source_agent_id
+                }
+                # Route to system logger (Claude Code will see in logs/hook)
+                logger.info(f"Orchestrator feedback: {event_name}", 
+                           extra={
+                               "event": event_name,
+                               "data": enriched_data,
+                               "orchestrator": "claude-code"
+                           })
+            else:
+                # Route to regular agent
+                await self._route_to_agent(
+                    orchestrator_agent_id, source_agent_id, event_name, event_data
+                )
+            logger.debug(f"Routed {event_name} to orchestrator {orchestrator_agent_id}")
+        except Exception as e:
+            logger.error(f"Failed to route to orchestrator {orchestrator_agent_id}: {e}")
     
     def clear_cache(self):
         """Clear cached entity data."""
