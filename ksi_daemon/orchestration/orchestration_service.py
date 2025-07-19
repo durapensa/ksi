@@ -145,7 +145,7 @@ class OrchestrationModule:
         if event_emitter:
             try:
                 logger.info(f"Attempting to load orchestration pattern: {pattern_name}")
-                # Try exact match first
+                # Try exact match first - composition service expects names without "orchestrations/" prefix
                 results = await event_emitter("composition:get", {
                     "name": pattern_name,
                     "type": "orchestration"
@@ -158,38 +158,7 @@ class OrchestrationModule:
                     logger.debug(f"Loaded orchestration pattern {pattern_name} via composition service")
                     # Continue to validation and transformer loading below
                 else:
-                    # If exact match fails, try to discover it
-                    logger.debug(f"Exact match failed for {pattern_name}, trying discovery")
-                    discover_results = await event_emitter("composition:discover", {
-                        "type": "orchestration",
-                        "filter": {"name": pattern_name}
-                    })
-                    discover_result = discover_results[0] if discover_results else None
-                    if discover_result and discover_result.get('status') == 'success' and discover_result.get('compositions'):
-                        compositions = discover_result['compositions']
-                        if len(compositions) == 1:
-                            # Found exactly one match, use its full name
-                            full_name = compositions[0].get('full_name', '').replace('orchestrations/', '', 1)
-                            logger.debug(f"Found pattern via discovery: {full_name}")
-                            # Try loading with the full path
-                            results = await event_emitter("composition:get", {
-                                "name": full_name,
-                                "type": "orchestration"
-                            })
-                            result = results[0] if results else None
-                            if result and result.get('status') == 'success' and 'composition' in result:
-                                pattern = result['composition']
-                                logger.debug(f"Loaded orchestration pattern {full_name} via composition service")
-                            else:
-                                raise FileNotFoundError(f"Pattern not found via composition service: {pattern_name}")
-                        elif len(compositions) > 1:
-                            # Multiple matches, provide helpful error
-                            names = [c.get('full_name', '') for c in compositions]
-                            raise ValueError(f"Multiple orchestration patterns match '{pattern_name}': {names}. Please use the full path.")
-                        else:
-                            raise FileNotFoundError(f"Pattern not found via composition service: {pattern_name}")
-                    else:
-                        raise FileNotFoundError(f"Pattern not found via composition service: {pattern_name}")
+                    raise FileNotFoundError(f"Pattern not found via composition service: {pattern_name}")
             except Exception as e:
                 logger.error(f"Failed to load pattern '{pattern_name}' via composition service: {e}")
                 # Fall through to direct file access
