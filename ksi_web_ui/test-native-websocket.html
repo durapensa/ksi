@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Native WebSocket Test</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #1e1e1e;
+            color: #e0e0e0;
+        }
+        #status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .connected { background: #2e7d32; }
+        .disconnected { background: #c62828; }
+        #messages {
+            height: 400px;
+            overflow-y: auto;
+            border: 1px solid #555;
+            padding: 10px;
+            margin: 10px 0;
+            background: #2e2e2e;
+        }
+        .message {
+            margin: 2px 0;
+            padding: 2px 5px;
+            border-left: 3px solid #4caf50;
+        }
+        .error {
+            border-color: #f44336;
+            color: #ff9999;
+        }
+    </style>
+</head>
+<body>
+    <h1>Native WebSocket Transport Test</h1>
+    <div id="status" class="disconnected">Disconnected</div>
+    <button onclick="connect()">Connect</button>
+    <button onclick="sendTest()">Send Test Event</button>
+    <button onclick="requestAgents()">Request Agents</button>
+    <div id="messages"></div>
+    
+    <script>
+        let ws = null;
+        
+        function log(msg, isError = false) {
+            const messages = document.getElementById('messages');
+            const div = document.createElement('div');
+            div.className = isError ? 'message error' : 'message';
+            div.textContent = new Date().toISOString() + ' - ' + msg;
+            messages.appendChild(div);
+            messages.scrollTop = messages.scrollHeight;
+        }
+        
+        function updateStatus(connected) {
+            const status = document.getElementById('status');
+            status.className = connected ? 'connected' : 'disconnected';
+            status.textContent = connected ? 'Connected' : 'Disconnected';
+        }
+        
+        function connect() {
+            if (ws) {
+                ws.close();
+            }
+            
+            log('Connecting to native WebSocket transport...');
+            ws = new WebSocket('ws://localhost:8765');
+            
+            ws.onopen = () => {
+                log('Connected to KSI daemon WebSocket');
+                updateStatus(true);
+                
+                // Subscribe to monitor events
+                const subscribe = {
+                    event: "monitor:subscribe",
+                    data: {
+                        client_id: "test-" + Date.now(),
+                        event_patterns: ["*"]
+                    }
+                };
+                ws.send(JSON.stringify(subscribe));
+                log('Sent subscription request');
+            };
+            
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    log('Received: ' + JSON.stringify(data, null, 2));
+                } catch (e) {
+                    log('Received non-JSON: ' + event.data);
+                }
+            };
+            
+            ws.onerror = (error) => {
+                log('WebSocket error: ' + error, true);
+            };
+            
+            ws.onclose = () => {
+                log('Disconnected from WebSocket');
+                updateStatus(false);
+            };
+        }
+        
+        function sendTest() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                log('Not connected', true);
+                return;
+            }
+            
+            const msg = {
+                event: "system:health",
+                data: {}
+            };
+            ws.send(JSON.stringify(msg));
+            log('Sent: ' + JSON.stringify(msg));
+        }
+        
+        function requestAgents() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                log('Not connected', true);
+                return;
+            }
+            
+            const msg = {
+                event: "agent:list",
+                data: {}
+            };
+            ws.send(JSON.stringify(msg));
+            log('Sent: ' + JSON.stringify(msg));
+        }
+        
+        // Auto-connect on load
+        window.onload = connect;
+    </script>
+</body>
+</html>
