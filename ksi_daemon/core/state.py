@@ -310,6 +310,24 @@ class GraphStateManager:
         """Query entities with filters."""
         include = include or ['properties']
         
+        try:
+            # Add timeout protection
+            return await asyncio.wait_for(
+                self._query_entities_impl(entity_type, where, include, order_by, limit), 
+                timeout=10.0
+            )
+        except asyncio.TimeoutError:
+            self.logger.error(f"Query entities timed out after 10 seconds - type:{entity_type}, where:{where}")
+            raise Exception("Query timed out - check query complexity and database performance")
+    
+    async def _query_entities_impl(self, entity_type: Optional[str] = None,
+                           where: Optional[Dict[str, Any]] = None,
+                           include: Optional[List[str]] = None,
+                           order_by: Optional[str] = None,
+                           limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Internal implementation of query_entities with optimized single-query approach."""
+        include = include or ['properties']
+        
         async with self._get_db() as conn:
             # Build query
             query = "SELECT DISTINCT e.* FROM entities e"
@@ -346,17 +364,39 @@ class GraphStateManager:
             if limit:
                 query += f" LIMIT {limit}"
             
-            # Execute query
-            async with conn.execute(query, params) as cursor:
-                
-                # Build results
-                results = []
-                async for row in cursor:
-                    entity = await self.get_entity(row['id'], include=include)
-                    if entity:
-                        results.append(entity)
+            self.logger.debug(f"Executing query: {query} with params: {params}")
             
-            return results
+            # Execute query with timeout
+            try:
+                entity_ids = []
+                cursor = await asyncio.wait_for(conn.execute(query, params), timeout=5.0)
+                async with cursor:
+                    async for row in cursor:
+                        entity_ids.append(row['id'])
+                
+                if not entity_ids:
+                    self.logger.debug(f"Query returned no results for type:{entity_type}, where:{where}")
+                    return []
+                
+                # Now efficiently fetch all entity data
+                results = []
+                for entity_id in entity_ids:
+                    try:
+                        entity = await asyncio.wait_for(self.get_entity(entity_id, include=include), timeout=2.0)
+                        if entity:
+                            results.append(entity)
+                    except asyncio.TimeoutError:
+                        self.logger.error(f"Timeout fetching entity {entity_id}")
+                        continue
+                
+                return results
+                
+            except asyncio.TimeoutError:
+                self.logger.error(f"Database query timed out: {query}")
+                raise Exception("Database query timed out - query may be too complex")
+            except Exception as e:
+                self.logger.error(f"Database error executing query: {e}")
+                raise Exception(f"Database error: {str(e)}")
     
     async def create_relationship(self, from_id: str, to_id: str, relation_type: str,
                           metadata: Optional[Dict[str, Any]] = None) -> bool:
@@ -673,19 +713,32 @@ async def handle_entity_query(raw_data: Dict[str, Any], context: Optional[Dict[s
     # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
     clean_data, system_metadata = extract_system_handler_data(raw_data)
     
+    # Debug logging
+    logger.info(f"Entity query received - type: {clean_data.get('type')}, where: {clean_data.get('where')}")
+    
     try:
-        entities = await state_manager.query_entities(
-            entity_type=clean_data.get("type"),
-            where=clean_data.get("where"),
-            include=clean_data.get("include", ["properties"]),
-            order_by=clean_data.get("order_by"),
-            limit=clean_data.get("limit")
+        # Add timeout at handler level too
+        entities = await asyncio.wait_for(
+            state_manager.query_entities(
+                entity_type=clean_data.get("type"),
+                where=clean_data.get("where"),
+                include=clean_data.get("include", ["properties"]),
+                order_by=clean_data.get("order_by"),
+                limit=clean_data.get("limit")
+            ),
+            timeout=15.0
         )
         return list_response(
             entities,
             context=context,
             count_field="count",
             items_field="entities"
+        )
+    except asyncio.TimeoutError:
+        logger.error(f"Entity query timed out - type: {clean_data.get('type')}, where: {clean_data.get('where')}")
+        return error_response(
+            "Query timed out after 15 seconds",
+            context=context
         )
     except Exception as e:
         logger.error(f"Error querying entities: {e}")
