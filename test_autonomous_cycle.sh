@@ -16,7 +16,7 @@ echo '{"event": "evaluation:autonomous_improvement_cycle", "data": {"test_suite"
 
 echo ""
 echo "Monitor progress with:"
-echo "  tail -f var/logs/daemon/daemon.log | grep -E '(autonomous|bootstrap|tournament)'"
+echo "  tail -f var/logs/daemon/daemon.log.jsonl | grep -E '(autonomous|bootstrap|tournament)'"
 echo ""
 echo "Check results in:"
 echo "  ls -la var/lib/evaluations/autonomous_cycles/"

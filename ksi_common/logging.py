@@ -8,6 +8,8 @@ for consistent, structured logging with correlation support.
 """
 
 import asyncio
+import logging
+import logging.handlers
 import os
 import sys
 import uuid
@@ -29,7 +31,10 @@ def configure_structlog(
     force_disable_console: bool = False
 ) -> None:
     """
-    Configure structlog for all KSI components.
+    Configure structlog for all KSI components with stdlib integration.
+    
+    This configuration uses Python's standard library logging integration,
+    which allows dynamic log level changes at runtime.
     
     Args:
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
@@ -45,83 +50,80 @@ def configure_structlog(
     if _STRUCTLOG_CONFIGURED and not force_disable_console:
         return
     
-    # If reconfiguring in daemon mode, just proceed
-    # Pure structlog doesn't need handler cleanup
+    # Configure Python's standard library logging first
+    log_level_numeric = getattr(logging, log_level.upper(), logging.INFO)
     
-    # Pure structlog level system - no stdlib logging
-    LEVEL_TO_VALUE = {
-        'DEBUG': 10,
-        'INFO': 20,
-        'WARNING': 30,
-        'WARN': 30,  # Alias
-        'ERROR': 40,
-        'CRITICAL': 50,
-        'FATAL': 50,  # Alias
-    }
+    # Create handler based on configuration
+    if log_file:
+        # Ensure log directory exists
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        # Use regular FileHandler for daemon mode (rotation handled externally)
+        # RotatingFileHandler has issues with forking/daemonization
+        handler = logging.FileHandler(str(log_file), mode='a')
+    elif force_disable_console:
+        handler = logging.NullHandler()
+    else:
+        handler = logging.StreamHandler(sys.stdout)
     
-    # Get numeric value for configured level
-    configured_level = LEVEL_TO_VALUE.get(log_level.upper(), 20)  # Default to INFO
+    # Set handler level
+    handler.setLevel(log_level_numeric)
     
-    # Custom processor to filter by log level
-    def filter_by_level(logger, method_name, event_dict):
-        """Filter events by configured log level using pure structlog."""
-        # Map method names to level values
-        method_to_level = {
-            'debug': 10,
-            'info': 20,
-            'warning': 30,
-            'warn': 30,
-            'error': 40,
-            'critical': 50,
-            'fatal': 50,
-        }
-        event_level = method_to_level.get(method_name, 20)  # Default to INFO
-        
-        # Drop the event if below configured level
-        if event_level < configured_level:
-            raise structlog.DropEvent
-        
-        return event_dict
+    # Configure structlog processors
+    timestamper = structlog.processors.TimeStamper(fmt="iso")
     
-    # Base processors that all loggers use
-    processors = [
-        structlog.contextvars.merge_contextvars,  # Auto-merge context vars
-        structlog.processors.add_log_level,
-        filter_by_level,  # Our custom level filter
-        structlog.processors.TimeStamper(fmt="iso"),
+    # Shared processors for both structlog and stdlib logs
+    shared_processors = [
+        timestamper,
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.add_logger_name,
+        structlog.contextvars.merge_contextvars,
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
     ]
     
-    # Choose renderer based on format preference
-    if log_format == "json":
-        processors.append(structlog.processors.JSONRenderer())
-    else:
-        # Console format - human readable (but no colors in daemon mode)
-        processors.extend([
-            structlog.processors.UnicodeDecoder(),
-            structlog.dev.ConsoleRenderer(colors=False)  # No colors in files
-        ])
-    
-    # Configure structlog with native logging (no stdlib)
-    # Determine output file
-    if log_file:
-        # Ensure log directory exists
-        log_file.parent.mkdir(parents=True, exist_ok=True)
-        output_file = log_file.open('a')
-    elif force_disable_console:
-        # No output at all in daemon mode without log file
-        output_file = open(os.devnull, 'w')
-    else:
-        # Console output for non-daemon mode
-        output_file = sys.stdout
-    
+    # Configure structlog
     structlog.configure(
-        processors=processors,
+        processors=[
+            structlog.stdlib.filter_by_level,
+            timestamper,
+            structlog.stdlib.add_log_level,
+            structlog.stdlib.add_logger_name,
+            structlog.contextvars.merge_contextvars,
+            structlog.processors.StackInfoRenderer(),
+            structlog.processors.format_exc_info,
+            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+        ],
         context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(file=output_file),
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
         cache_logger_on_first_use=True,
     )
+    
+    # Create ProcessorFormatter
+    formatter = structlog.stdlib.ProcessorFormatter(
+        processor=structlog.processors.JSONRenderer() if log_format == "json" else structlog.dev.ConsoleRenderer(colors=False),
+        foreign_pre_chain=shared_processors,
+    )
+    
+    # Apply formatter to handler
+    handler.setFormatter(formatter)
+    
+    # Configure standard library logging
+    logging.basicConfig(
+        level=log_level_numeric,
+        handlers=[handler],
+        force=True,  # Remove existing handlers
+    )
+    
+    # Also configure asyncio and warnings to use JSON formatting
+    if log_format == "json":
+        import warnings
+        
+        # Capture warnings through logging
+        logging.captureWarnings(True)
+        
+        # Set asyncio logger to only show warnings
+        logging.getLogger("asyncio").setLevel(logging.WARNING)
     
     # Mark as configured
     _STRUCTLOG_CONFIGURED = True
@@ -352,8 +354,27 @@ def disable_console_logging() -> None:
     """
     Disable console logging output.
     
-    With pure structlog, this is handled by configure_structlog() parameters.
-    This function is kept for backwards compatibility but does nothing.
+    With stdlib integration, this removes console handlers.
     """
-    pass  # No-op with pure structlog
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers[:]:
+        if isinstance(handler, logging.StreamHandler) and handler.stream == sys.stdout:
+            root_logger.removeHandler(handler)
+
+
+def set_log_level(level: str, logger_name: Optional[str] = None) -> None:
+    """
+    Dynamically change log level at runtime.
+    
+    Args:
+        level: New log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        logger_name: Optional logger name to change (None for root logger)
+    """
+    target_logger = logging.getLogger(logger_name)
+    target_logger.setLevel(getattr(logging, level.upper(), logging.INFO))
+    
+    # Also update handler levels to ensure they don't filter
+    if logger_name is None:  # Root logger
+        for handler in target_logger.handlers:
+            handler.setLevel(getattr(logging, level.upper(), logging.INFO))
 

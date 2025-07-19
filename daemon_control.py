@@ -253,10 +253,29 @@ class DaemonController:
                 return 0
             else:
                 print("✗ Daemon failed to start (no PID file created)")
-                # Show startup log if it exists
-                if startup_log.exists():
+                # Show startup log if it exists and has content
+                if startup_log.exists() and startup_log.stat().st_size > 0:
                     print("\nStartup log:")
                     print(startup_log.read_text()[-500:])  # Last 500 chars
+                else:
+                    # If startup log is empty (due to daemonization), check daemon.log
+                    daemon_log = config.daemon_log_file
+                    if daemon_log.exists():
+                        print("\nRecent daemon log entries:")
+                        try:
+                            # Read last few lines of daemon.log
+                            result = subprocess.run(
+                                ["tail", "-n", "20", str(daemon_log)],
+                                capture_output=True,
+                                text=True
+                            )
+                            if result.stdout:
+                                print(result.stdout)
+                        except Exception:
+                            # Fallback to reading file directly
+                            content = daemon_log.read_text()
+                            lines = content.splitlines()
+                            print('\n'.join(lines[-20:]))  # Last 20 lines
                 return 1
                 
         except Exception as e:

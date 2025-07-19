@@ -241,15 +241,18 @@ class EventDaemonCore:
         """Rotate the daemon log file on shutdown."""
         try:
             # Get current daemon log path
-            daemon_log_path = Path(config.daemon_log_dir) / "daemon.log"
+            daemon_log_path = config.daemon_log_file
             
             if not daemon_log_path.exists():
-                logger.debug("No daemon.log file to rotate")
+                logger.debug(f"No {daemon_log_path.name} file to rotate")
                 return
             
             # Create timestamp for rotated log
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            rotated_log_path = daemon_log_path.parent / f"daemon_{timestamp}.log"
+            # Keep the same extension as the original log file
+            base_name = daemon_log_path.stem  # Gets 'daemon.log' from 'daemon.log.jsonl'
+            extension = daemon_log_path.suffix  # Gets '.jsonl'
+            rotated_log_path = daemon_log_path.parent / f"{base_name}_{timestamp}{extension}"
             
             # Copy the current log to the rotated name
             shutil.copy2(daemon_log_path, rotated_log_path)
@@ -538,17 +541,14 @@ async def handle_config_changed(raw_data: Dict[str, Any], context: Optional[Dict
 async def _apply_debug_logging_change(debug_enabled: bool):
     """Apply debug logging configuration change immediately."""
     try:
-        import logging
+        from ksi_common.logging import set_log_level
         
-        # Update the root logger level based on debug setting
-        root_logger = logging.getLogger()
+        # Change log level dynamically using stdlib integration
+        log_level = "DEBUG" if debug_enabled else "INFO"
+        set_log_level(log_level)
         
-        if debug_enabled:
-            root_logger.setLevel(logging.DEBUG)
-            logger.info("Debug logging enabled immediately")
-        else:
-            root_logger.setLevel(logging.INFO)
-            logger.info("Debug logging disabled immediately")
+        logger.info(f"Debug logging {'enabled' if debug_enabled else 'disabled'} immediately")
+        logger.debug("This debug message should appear" if debug_enabled else "Debug messages hidden")
             
     except Exception as e:
         logger.error(f"Failed to apply debug logging change: {e}")
@@ -557,24 +557,13 @@ async def _apply_debug_logging_change(debug_enabled: bool):
 async def _apply_log_level_change(key: str, level: str):
     """Apply log level configuration change immediately."""
     try:
-        import logging
+        from ksi_common.logging import set_log_level
         
-        # Convert string level to logging constant
-        level_map = {
-            "DEBUG": logging.DEBUG,
-            "INFO": logging.INFO, 
-            "WARNING": logging.WARNING,
-            "ERROR": logging.ERROR,
-            "CRITICAL": logging.CRITICAL
-        }
+        # Change log level dynamically using stdlib integration
+        set_log_level(level.upper())
         
-        log_level = level_map.get(level.upper())
-        if log_level:
-            root_logger = logging.getLogger()
-            root_logger.setLevel(log_level)
-            logger.info(f"Log level changed to {level} immediately")
-        else:
-            logger.warning(f"Unknown log level: {level}")
+        logger.info(f"Log level changed to {level} immediately")
+        logger.debug("Debug logging is now enabled" if level.upper() == "DEBUG" else "Debug logging disabled")
             
     except Exception as e:
         logger.error(f"Failed to apply log level change: {e}")

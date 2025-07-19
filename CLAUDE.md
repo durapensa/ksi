@@ -28,7 +28,7 @@ This document serves as your primary instructions for KSI development. For techn
 ### Investigation Process (REQUIRED STEPS)
 
 1. **MUST read the error message carefully** - It often contains the exact problem
-2. **MUST check daemon logs** - `tail -f var/logs/daemon/daemon.log`
+2. **MUST check daemon logs** - `tail -f var/logs/daemon/daemon.log.jsonl`
 3. **MUST search for patterns** - Search logs for related errors
 4. **MUST test with minimal cases** - Isolate the problem
 5. **MUST fix the root cause** - NEVER bypass or work around issues
@@ -36,6 +36,17 @@ This document serves as your primary instructions for KSI development. For techn
 ### Advanced Debugging Techniques
 
 **Enable Debug Logging**: For deep system investigation
+
+Dynamic Method (Preferred - No Restart):
+```bash
+# Enable debug logging immediately
+ksi send config:set --type daemon --key log_level --value DEBUG
+
+# Disable when done
+ksi send config:set --type daemon --key log_level --value INFO
+```
+
+Environment Variable Method (Requires Restart):
 ```bash
 export KSI_DEBUG=true && export KSI_LOG_LEVEL=DEBUG && ./daemon_control.py restart
 ```
@@ -334,7 +345,7 @@ git commit -m "Update composition submodule"
 
 **Timeouts and Connection Issues**:
 1. **Check daemon status**: `./daemon_control.py status`
-2. **Examine logs**: `tail -f var/logs/daemon/daemon.log`
+2. **Examine logs**: `tail -f var/logs/daemon/daemon.log.jsonl`
 3. **Look for serialization errors**: JSON serialization failures cause timeouts
 4. **Check for resource issues**: Memory, file handles, etc.
 

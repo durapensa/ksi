@@ -192,7 +192,7 @@ class KSIBaseConfig(BaseSettings):
     @property
     def daemon_log_file(self) -> Path:
         """Get the daemon log file path."""
-        return self.daemon_log_dir / "daemon.log"
+        return self.daemon_log_dir / "daemon.log.jsonl"
     
     @property
     def tool_usage_log_file(self) -> Path:

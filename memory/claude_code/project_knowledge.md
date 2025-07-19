@@ -16,6 +16,22 @@ Essential technical reference for developing with KSI (Knowledge System Infrastr
 - **SQLite index**: Database-first discovery, no file I/O during queries
 - **60x+ cached rendering**: LRU cache with intelligent invalidation
 
+### Composition Indexing Patterns ✅
+**Discovery**: Two distinct file formats requiring different validation approaches:
+- **YAML files** (97 total): Root-level `name:` and `type:` fields
+- **Markdown files** (84 total): Frontmatter delimited by `---` with metadata
+
+**Key Patterns**:
+- **Test fixtures**: `_archive/tests/` contains intentionally malformed files for testing
+- **Non-compositions**: README*, .gitignore, .gitattributes should be excluded
+- **Valid compositions**: 77% of MD files have proper frontmatter, 100% of YAML have root fields
+
+**Indexing Strategy**:
+1. **Exclude patterns**: Skip `_archive/tests/`, `README*`, `.*` files
+2. **File-type validation**: YAML checks root fields, MD checks frontmatter
+3. **Error handling**: DEBUG level for expected failures, WARNING for unexpected
+4. **Continue on error**: Don't let one bad file stop indexing
+
 ## Critical Fixes (2025)
 
 ### JSON Extraction System Fix ✅
@@ -163,9 +179,23 @@ During work, emit progress:
 ## Debugging & Troubleshooting
 
 ### Enable Debug Logging
+
+**Dynamic Method (Preferred - No Restart Required):**
+```bash
+# Enable debug logging immediately
+ksi send config:set --type daemon --key log_level --value DEBUG
+
+# Monitor logs
+tail -f var/logs/daemon/daemon.log.jsonl
+
+# Disable debug logging when done
+ksi send config:set --type daemon --key log_level --value INFO
+```
+
+**Environment Variable Method (Requires Restart):**
 ```bash
 export KSI_DEBUG=true && export KSI_LOG_LEVEL=DEBUG && ./daemon_control.py restart
-tail -f var/logs/daemon/daemon.log
+tail -f var/logs/daemon/daemon.log.jsonl
 ```
 
 ### Common Issues
@@ -228,7 +258,7 @@ echo "personas/deep_analyst.md model=claude-opus performance=reasoning" >> .gita
 - **Discovery Cache**: `ksi_daemon/core/discovery_cache.py`
 - **Components**: `var/lib/compositions/components/` (organized by type)
 - **Evaluation Data**: `var/lib/evaluations/` (runtime results)
-- **Logs**: `var/logs/daemon/daemon.log`, `var/logs/responses/{session_id}.jsonl`
+- **Logs**: `var/logs/daemon/daemon.log.jsonl`, `var/logs/responses/{session_id}.jsonl`
 
 ## Document Maintenance Patterns
 

@@ -27,7 +27,7 @@ monitor_decisions() {
 monitor_logs() {
     echo -e "${BLUE}[$(date +%H:%M:%S)] Checking evolution events...${NC}"
     
-    tail -100 var/logs/daemon/daemon.log 2>/dev/null | grep -E "(track_decision|improvement_discovered|composition:fork|evolution)" | tail -10 | while read line; do
+    tail -100 var/logs/daemon/daemon.log.jsonl 2>/dev/null | grep -E "(track_decision|improvement_discovered|composition:fork|evolution)" | tail -10 | while read line; do
         if [[ $line == *"track_decision"* ]]; then
             echo -e "${YELLOW}🎯 Decision tracked${NC}"
         elif [[ $line == *"improvement_discovered"* ]]; then

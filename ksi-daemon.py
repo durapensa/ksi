@@ -27,7 +27,7 @@ from ksi_common import configure_structlog
 configure_structlog(
     log_level=os.environ.get('KSI_LOG_LEVEL', 'INFO'),
     log_format='json',  # Always use JSON in daemon
-    log_file=Path('var/logs/daemon/daemon.log'),
+    log_file=Path('var/logs/daemon/daemon.log.jsonl'),
     force_disable_console=True
 )
 
@@ -55,19 +55,23 @@ def signal_handler(signum, frame):
         logger.info("Daemon shutdown event set")
 
 def setup_daemon_logging():
-    """Set up logging with file preservation for daemon mode"""
+    """Set up logging for daemon mode - returns None as we'll reconfigure after fork"""
     # Ensure log directory exists
     config.log_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Logging already configured at module level, just log that we're ready
-    # No need to reconfigure - we already have JSON format
     
     # Get the configured logger and log startup
     logger = get_bound_logger('daemon_main', version='1.0.0')
     logger.info("KSI daemon logging configured")
     
-    # Return file handle for daemon context preservation
-    return open(config.daemon_log_file, 'a')
+    # Close all file handlers before fork to avoid descriptor issues
+    import logging
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers[:]:
+        if hasattr(handler, 'stream') and hasattr(handler.stream, 'close'):
+            handler.stream.close()
+    
+    # Don't return a file handle - we'll create fresh ones after fork
+    return None
 
 async def daemon_wrapper():
     """Wrapper for existing daemon with shutdown monitoring"""
@@ -115,8 +119,16 @@ async def daemon_wrapper():
 
 def run_as_daemon():
     """Run KSI daemon in background (daemonized)"""
+    # Print startup message to stdout BEFORE daemonization
+    # This will be captured by daemon_control.py in daemon_startup.log
+    print(f"KSI Daemon starting (PID: {os.getpid()})")
+    print(f"Log file: {config.daemon_log_file}")
+    print(f"Socket path: {config.socket_path}")
+    print("Daemonizing...")
+    sys.stdout.flush()  # Ensure output is written before daemonization
+    
     # Set up logging before daemonization
-    log_file_handle = setup_daemon_logging()
+    setup_daemon_logging()
     logger = get_bound_logger('daemon_main', version='1.0.0')
     
     # Ensure all required directories exist
@@ -131,12 +143,13 @@ def run_as_daemon():
         # PID file for process management
         pidfile=daemon.pidfile.PIDLockFile(str(config.daemon_pid_file)),
         
-        # Redirect stdout/stderr to daemon log file
-        stdout=log_file_handle,
-        stderr=log_file_handle,
+        # Don't preserve file handles - we'll create fresh ones after fork
+        # This avoids "Bad file descriptor" errors
+        stdout=None,
+        stderr=None,
         
-        # Preserve logging file descriptors
-        files_preserve=[log_file_handle],
+        # No files to preserve - fresh start after fork
+        files_preserve=[],
         
         # Signal handling - let python-daemon handle the basic setup
         # Our daemon code will set up its own asyncio signal handlers
@@ -157,6 +170,16 @@ def run_as_daemon():
     
     # Run the daemon
     with context:
+        # Clear all existing handlers after fork
+        import logging as stdlib_logging
+        root_logger = stdlib_logging.getLogger()
+        for handler in root_logger.handlers[:]:
+            root_logger.removeHandler(handler)
+        
+        # Reset structlog to clear any cached loggers
+        import structlog
+        structlog.reset_defaults()
+        
         # Re-configure logging inside daemon context (file handles change after fork)
         # Always use JSON format in daemon mode
         configure_structlog(
@@ -165,6 +188,8 @@ def run_as_daemon():
             log_file=config.daemon_log_file,
             force_disable_console=True
         )
+        
+        # Python warnings are now captured by logging.captureWarnings in configure_structlog
         
         # Get new logger after reconfiguration
         daemon_logger = get_bound_logger('daemon_main', version='1.0.0')

@@ -27,7 +27,7 @@ sleep 10
 
 # Check for completion results
 echo -e "\nChecking completion results..."
-grep -E "($AGENT_ID.*completion|completion.*$AGENT_ID)" var/logs/daemon/daemon.log | tail -5 | jq -r '"\(.timestamp | split(".")[0]) \(.component): \(.event)"' 2>/dev/null || echo "No completions found"
+grep -E "($AGENT_ID.*completion|completion.*$AGENT_ID)" var/logs/daemon/daemon.log.jsonl | tail -5 | jq -r '"\(.timestamp | split(".")[0]) \(.component): \(.event)"' 2>/dev/null || echo "No completions found"
 
 # Check response files
 echo -e "\nChecking response files..."

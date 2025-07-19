@@ -67,10 +67,10 @@ echo "{\"event\": \"tournament:start_phase\", \"data\": {\"tournament_id\": \"$T
 
 echo -e "\nTournament is running with real evaluation logic..."
 echo "This will take a few minutes as agents actually evaluate each other."
-echo "Monitor with: tail -f var/logs/daemon/daemon.log | grep -E '(tournament|evaluation|match)'"
+echo "Monitor with: tail -f var/logs/daemon/daemon.log.jsonl | grep -E '(tournament|evaluation|match)'"
 echo ""
 echo "Check progress with:"
-echo "  grep -E '(match.*complete|evaluation.*response)' var/logs/daemon/daemon.log | tail -20"
+echo "  grep -E '(match.*complete|evaluation.*response)' var/logs/daemon/daemon.log.jsonl | tail -20"
 echo ""
 echo "Tournament ID: $TOURNAMENT_ID"
 echo "Results will be saved to: var/lib/evaluations/tournament_${TOURNAMENT_ID}_results.yaml"
