@@ -171,7 +171,8 @@ async def index_file(file_path: Path) -> bool:
         # For markdown files, default to 'component' type
         default_type = 'component' if file_path.suffix == '.md' else 'unknown'
         comp_type = comp_data.get('type', default_type)
-        full_name = name  # Use the full relative path as the identifier
+        # Use the relative path (without extension) as the unique identifier
+        full_name = str(relative_path.with_suffix(''))
         
         # Extract loading strategy from metadata
         metadata = comp_data.get('metadata', {})

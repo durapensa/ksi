@@ -416,10 +416,105 @@ class OrchestrationModule:
         await self._send_initial_messages(instance)
     
     async def _send_initial_messages(self, instance: OrchestrationInstance):
-        """Send initial messages to agents that have initial_message defined or initial_prompt in vars."""
+        """Send initial messages using flexible initialization router."""
         if not event_emitter:
             return
         
+        pattern = instance.pattern
+        
+        # Get list of successfully spawned agents
+        spawned_agents = [
+            agent_id for agent_id, agent_info in instance.agents.items() 
+            if agent_info and agent_info.spawned
+        ]
+        
+        if not spawned_agents:
+            logger.warning("No spawned agents found for initialization")
+            return
+        
+        # Import and use initialization router
+        from .initialization_router import InitializationRouter
+        router = InitializationRouter()
+        
+        # Route initialization messages
+        message_plan = router.route_messages(pattern, spawned_agents)
+        logger.info(f"Generated initialization plan with {len(message_plan)} messages")
+        
+        # Execute message plan
+        for message_spec in message_plan:
+            await self._execute_initialization_message(message_spec, instance)
+    
+    async def _execute_initialization_message(self, message_spec: Dict[str, Any], instance: OrchestrationInstance):
+        """Execute a single initialization message from the routing plan."""
+        message_type = message_spec.get('type', 'targeted')
+        
+        try:
+            if message_type == 'broadcast':
+                await self._send_broadcast_message(message_spec, instance)
+            elif message_type == 'targeted':
+                await self._send_targeted_message(message_spec, instance)
+            else:
+                logger.warning(f"Unknown message type: {message_type}")
+                
+        except Exception as e:
+            logger.error(f"Failed to execute initialization message: {e}")
+    
+    async def _send_broadcast_message(self, message_spec: Dict[str, Any], instance: OrchestrationInstance):
+        """Send broadcast message to all agents."""
+        content = message_spec.get('message', '')
+        variables = message_spec.get('variables', {})
+        
+        # Apply variable substitution
+        from ksi_common.template_utils import substitute_variables
+        content = substitute_variables(content, variables)
+        
+        # Send to all spawned agents
+        for agent_id in instance.agents:
+            agent_info = instance.agents.get(agent_id)
+            if agent_info and agent_info.spawned:
+                await event_emitter("agent:send_message", {
+                    "agent_id": agent_id,
+                    "message": {
+                        "role": "system",
+                        "content": content
+                    }
+                })
+        
+        logger.info(f"Sent broadcast message to {len(instance.agents)} agents")
+    
+    async def _send_targeted_message(self, message_spec: Dict[str, Any], instance: OrchestrationInstance):
+        """Send targeted message to specific agent."""
+        agent_id = message_spec.get('agent_id')
+        content = message_spec.get('message', '')
+        variables = message_spec.get('variables', {})
+        role = message_spec.get('role', 'agent')
+        
+        if not agent_id or agent_id not in instance.agents:
+            logger.warning(f"Agent {agent_id} not found for targeted message")
+            return
+        
+        agent_info = instance.agents.get(agent_id)
+        if not agent_info or not agent_info.spawned:
+            logger.warning(f"Agent {agent_id} not spawned for targeted message")
+            return
+        
+        # Apply variable substitution
+        from ksi_common.template_utils import substitute_variables
+        content = substitute_variables(content, variables)
+        
+        # Send the message
+        await event_emitter("agent:send_message", {
+            "agent_id": agent_id,
+            "message": {
+                "role": "user",
+                "content": content
+            }
+        })
+        
+        logger.info(f"Sent {role} initialization message to {agent_id}")
+    
+    async def _send_legacy_initial_messages(self, instance: OrchestrationInstance):
+        """Legacy method for backward compatibility - handles composition references and DSL."""
         pattern = instance.pattern
         agents_config = pattern.get('agents', {})
         

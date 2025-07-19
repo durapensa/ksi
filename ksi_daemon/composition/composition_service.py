@@ -664,31 +664,38 @@ async def handle_list(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]
 
 async def load_composition_raw(name: str, comp_type: Optional[str] = None) -> Dict[str, Any]:
     """Load raw composition YAML data preserving all sections."""
-    # Try to find composition file
-    composition_path = None
-    
-    if comp_type:
-        # Try specific type directory first
-        type_dirs = {
-            'profile': 'profiles',
-            'prompt': 'prompts',
-            'system': 'system',
-            'orchestration': 'orchestrations',
-            'evaluation': 'evaluations'
-        }
-        if comp_type in type_dirs:
-            potential_path = COMPOSITIONS_BASE / type_dirs[comp_type] / f"{name}.yaml"
-            if potential_path.exists():
-                composition_path = potential_path
-    
-    # Search all composition directories
-    if not composition_path:
-        for yaml_file in COMPOSITIONS_BASE.rglob(f"{name}.yaml"):
-            composition_path = yaml_file
-            break
+    # Use composition index to find the file path
+    composition_path = await composition_index.get_path(name)
     
     if not composition_path or not composition_path.exists():
-        raise FileNotFoundError(f"Composition not found: {name}")
+        # Fallback to old behavior for backward compatibility
+        # Try to find composition file
+        composition_path = None
+        
+        if comp_type:
+            # Try specific type directory first
+            type_dirs = {
+                'profile': 'profiles',
+                'prompt': 'prompts',
+                'system': 'system',
+                'orchestration': 'orchestrations',
+                'evaluation': 'evaluations'
+            }
+            if comp_type in type_dirs:
+                potential_path = COMPOSITIONS_BASE / type_dirs[comp_type] / f"{name}.yaml"
+                if potential_path.exists():
+                    composition_path = potential_path
+        
+        # Search all composition directories (but log warning about ambiguity)
+        if not composition_path:
+            matches = list(COMPOSITIONS_BASE.rglob(f"{name}.yaml"))
+            if len(matches) > 1:
+                logger.warning(f"Multiple files found with name '{name}': {[str(m.relative_to(COMPOSITIONS_BASE)) for m in matches]}. Using first match.")
+            if matches:
+                composition_path = matches[0]
+        
+        if not composition_path or not composition_path.exists():
+            raise FileNotFoundError(f"Composition not found: {name}")
     
     # Load and return raw YAML data
     return load_yaml_file(composition_path)
