@@ -295,6 +295,68 @@ class KSIClickClient:
         click.echo()
         click.echo("Use 'ksi discover --namespace <name>' to explore a specific namespace")
         click.echo("Use 'ksi discover --level namespace' to see all events")
+    
+    def pretty_print_orchestration(self, result: Dict[str, Any]) -> None:
+        """Pretty print orchestration discovery results."""
+        orch = result.get('orchestration', {})
+        
+        click.echo(f"Orchestration: {orch.get('id', 'Unknown')}")
+        click.echo("=" * 50)
+        click.echo()
+        
+        # Basic info
+        click.echo(f"Pattern: {orch.get('pattern', 'Unknown')}")
+        click.echo(f"State: {orch.get('state', 'Unknown')}")
+        click.echo(f"Subscription Level: {orch.get('event_subscription_level', 1)}")
+        click.echo(f"Error Handling: {orch.get('error_handling', 'bubble')}")
+        
+        if orch.get('parent_orchestration'):
+            click.echo(f"Parent: {orch['parent_orchestration']}")
+        
+        # Agents
+        agents = result.get('agents', [])
+        if agents:
+            click.echo()
+            click.echo(f"Agents ({len(agents)}):")
+            for agent in agents:
+                depth_indent = "  " * agent.get('orchestration_depth', 0)
+                status = agent.get('status', 'unknown')
+                profile = agent.get('profile', 'Unknown')
+                click.echo(f"{depth_indent}├─ {agent.get('agent_id')} [{status}] - {profile}")
+        
+        # Hierarchy
+        hierarchy = result.get('hierarchy', {})
+        if hierarchy.get('root_agents'):
+            click.echo()
+            click.echo("Agent Hierarchy:")
+            tree = hierarchy.get('agent_tree', {})
+            
+            def print_tree(agent_id, depth=0):
+                indent = "  " * depth
+                click.echo(f"{indent}├─ {agent_id}")
+                if agent_id in tree:
+                    for child in tree[agent_id]:
+                        print_tree(child, depth + 1)
+            
+            for root in hierarchy['root_agents']:
+                print_tree(root)
+        
+        # Recent events
+        events = result.get('recent_events', [])
+        if events:
+            click.echo()
+            click.echo(f"Recent Events (last {len(events)}):")
+            for event in events[:10]:  # Show max 10
+                click.echo(f"  {event.get('timestamp', '')} - {event.get('event_name', '')} (agent: {event.get('agent_id', 'N/A')})")
+        
+        # Statistics
+        stats = result.get('statistics', {})
+        if stats:
+            click.echo()
+            click.echo("Statistics:")
+            click.echo(f"  Total Agents: {stats.get('total_agents', 0)}")
+            click.echo(f"  Total Events: {stats.get('total_events', 0)}")
+            click.echo(f"  Max Depth: {stats.get('max_depth', 0)}")
 
 
 # Global client instance
@@ -351,70 +413,88 @@ def cli(ctx, socket_path, health):
         configure_structlog(log_level="CRITICAL", log_format="console", force_disable_console=True)
 
 
-@cli.command()
-@click.option('--namespace', help='Filter by namespace')
-@click.option('--detail', is_flag=True, help='Include parameters and triggers')
-@click.option('--event', help='Get details for specific event')
-@click.option('--module', help='Filter by module name')
-@click.option('--level',
-              type=click.Choice(['summary', 'namespace', 'full']),
-              default='summary',
-              help='Discovery detail level (default: summary)')
-@click.option('--format-style', 
-              type=click.Choice(['verbose', 'compact', 'ultra_compact', 'mcp']),
-              default='verbose', help='Output format style')
+@cli.command(context_settings=dict(
+    ignore_unknown_options=True,
+    allow_extra_args=True,
+))
 @output_format_option()
 @click.pass_context
-async def discover(ctx, namespace, detail, event, module, level, format_style, output_format):
+async def discover(ctx, output_format):
     """Discover available events in KSI system
     
-    Progressive discovery levels:
-      summary    - Show namespaces with event counts (default)
-      namespace  - Show events grouped by namespace
-      full       - Show all details (use with filters)
+    This command dynamically discovers its parameters from the system:discover handler.
+    Use 'ksi help system:discover' to see all available options.
     
-    Examples:
-        ksi discover                        # Show namespace summary
-        ksi discover --level namespace      # Show all events by namespace
-        ksi discover --namespace agent      # Show agent events
+    Common examples:
+        ksi discover                              # Show namespace summary
+        ksi discover --level namespace            # Show all events by namespace
+        ksi discover --namespace agent            # Show agent events
         ksi discover --detail --event monitor:get_status
+        ksi discover --orchestration-id orch_xyz  # Discover orchestration structure
     """
     try:
-        # Check for detail flag conflicts
-        if detail and not (namespace or event):
-            click.echo("Error: --detail requires --namespace or --event filter to prevent timeouts", err=True)
-            ctx.exit(1)
-        
-        # Check for --level full without filters
-        if level == "full" and not (namespace or event):
-            click.echo("Error: --level full requires --namespace or --event filter to prevent timeouts and massive output", err=True)
-            ctx.exit(1)
-        
         # Setup client
         global ksi_client
         ksi_client = KSIClickClient(ctx.obj['socket_path'])
         await ksi_client.setup()
         
-        # Build event data
+        # Parse dynamic parameters from extra args
         data = {}
+        args = ctx.args
+        i = 0
         
-        # Apply filters
-        if namespace:
-            data["namespace"] = namespace
-        if event:
-            data["event"] = event
-        if module:
-            data["module"] = module
+        # First, discover what parameters system:discover accepts
+        params = await ksi_client.discover_event_parameters("system:discover")
         
-        # Add level parameter
-        data["level"] = level
+        while i < len(args):
+            arg = args[i]
+            if arg.startswith('--'):
+                key = arg[2:].replace('-', '_')
+                
+                # Check if this is a known parameter
+                param_info = params.get(key, {})
+                cli_info = param_info.get('cli', {})
+                
+                if cli_info.get('cli_type') == 'flag' or param_info.get('type') == 'bool':
+                    # It's a flag - always boolean
+                    data[key] = True
+                    i += 1
+                elif i + 1 < len(args) and not args[i + 1].startswith('--'):
+                    # Next arg is the value
+                    value = args[i + 1]
+                    
+                    # Smart type conversion based on parameter type
+                    param_type = param_info.get('type', '').lower()
+                    if 'bool' in param_type:
+                        data[key] = value.lower() in ('true', '1', 'yes', 'on')
+                    elif 'int' in param_type:
+                        try:
+                            data[key] = int(value)
+                        except ValueError:
+                            data[key] = value
+                    elif 'list' in param_type:
+                        if value.startswith('['):
+                            try:
+                                data[key] = json.loads(value)
+                            except:
+                                data[key] = value.split(',')
+                        else:
+                            data[key] = value.split(',')
+                    else:
+                        # Default to string
+                        data[key] = value
+                    i += 2
+                else:
+                    # No value provided - treat as flag
+                    data[key] = True
+                    i += 1
+            else:
+                i += 1
         
-        # Add detail flag if requested
-        if detail:
-            data["detail"] = True
-            
-        if format_style != "verbose":
-            data["format_style"] = format_style
+        # Add default level if not specified
+        if 'level' not in data and not data.get('orchestration_id'):
+            # Only set default level for non-orchestration discovery
+            data['level'] = 'summary'
         
         # Send discovery request
         result = await ksi_client.send_event("system:discover", data)
@@ -427,11 +507,16 @@ async def discover(ctx, namespace, detail, event, module, level, format_style, o
             if isinstance(result, dict):
                 if "error" in result:
                     click.echo(f"Error: {result['error']}", err=True)
+                    ctx.exit(1)
+                elif "orchestration" in result:
+                    # Orchestration-specific discovery
+                    ksi_client.pretty_print_orchestration(result)
                 elif result.get('_level') == 'summary' and "namespaces" in result:
                     # Summary response
                     ksi_client.pretty_print_summary(result)
                 elif "events" in result:
                     # Events response (namespace or full level)
+                    level = data.get('level', 'namespace')
                     ksi_client.pretty_print_discovery(result, level)
                 else:
                     click.echo(json.dumps(result, indent=2))

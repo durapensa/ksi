@@ -95,13 +95,13 @@ class CheckpointRestoreData(TypedDict):
 
 class AgentSpawnData(TypedDict):
     """Spawn a new agent."""
-    profile: Required[str]  # Profile name
+    profile: Required[str]  # Composition/component name (e.g., "components/agents/system_agent")
     agent_id: NotRequired[str]  # Agent ID (auto-generated if not provided)
     # NOTE: session_id removed - managed entirely by completion system
     prompt: NotRequired[str]  # Initial prompt
     context: NotRequired[Dict[str, Any]]  # Additional context
     # Domain-specific fields removed - use metadata instead
-    composition: NotRequired[str]  # Composition name
+    composition: NotRequired[str]  # Alternative to profile - composition name
     model: NotRequired[str]  # Model to use
     enable_tools: NotRequired[bool]  # Enable tool usage
     # Agent types removed - handle via orchestration patterns
@@ -675,7 +675,16 @@ async def handle_checkpoint_restore(raw_data: Dict[str, Any], context: Optional[
 # Agent lifecycle handlers
 @event_handler("agent:spawn")
 async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Spawn a new agent thread with optional profile."""
+    """Spawn a new agent thread with a composition/component as profile.
+    
+    The 'profile' parameter expects a composition name from the composition system,
+    not raw prompt text. Valid profiles include:
+    - Profile compositions (e.g., "base_single_agent", "system_agent")
+    - Component paths (e.g., "components/core/base_agent")
+    - Any composition containing a 'prompt' field
+    
+    To discover available profiles: ksi send composition:list --filter '{"type": "profile"}'
+    """
     from ksi_common.event_parser import event_format_linter
     from ksi_common.event_response_builder import event_response_builder, error_response
     data = event_format_linter(raw_data, AgentSpawnData)
@@ -890,6 +899,14 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
             logger.error(f"Failed to create MCP config for agent {agent_id}: {e}")
             # Continue without MCP - not a fatal error
     
+    # Extract orchestration context from spawn data
+    context_data = data.get('context', {})
+    orchestration_id = context_data.get('orchestration_id')
+    orchestration_depth = context_data.get('orchestration_depth', 0)
+    parent_agent_id = context_data.get('parent_agent_id')
+    root_orchestration_id = context_data.get('root_orchestration_id', orchestration_id)
+    event_subscription_level = context_data.get('event_subscription_level', 1)
+    
     # Create agent info
     agent_info = {
         "agent_id": agent_id,
@@ -909,7 +926,13 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
         # Metadata will be stored in state system, not in memory
         "metadata_namespace": f"metadata:agent:{agent_id}\"",
         # Originator context for event streaming
-        "originator_context": originator_context
+        "originator_context": originator_context,
+        # Orchestration tracking
+        "orchestration_id": orchestration_id,
+        "orchestration_depth": orchestration_depth,
+        "parent_agent_id": parent_agent_id,
+        "root_orchestration_id": root_orchestration_id,
+        "event_subscription_level": event_subscription_level
     }
     
     # Register agent
@@ -928,6 +951,16 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
             "sandbox_uuid": agent_info["sandbox_uuid"],  # Store sandbox UUID
             "mcp_config_path": str(mcp_config_path) if mcp_config_path else None
         }
+        
+        # Include orchestration metadata if present
+        if orchestration_id:
+            entity_props.update({
+                "orchestration_id": orchestration_id,
+                "orchestration_depth": orchestration_depth,
+                "parent_agent_id": parent_agent_id,
+                "root_orchestration_id": root_orchestration_id,
+                "event_subscription_level": event_subscription_level
+            })
         
         entity_result = await agent_emit_event(agent_id, "state:entity:create", {
             "id": agent_id,
@@ -2078,7 +2111,7 @@ async def handle_agent_needs_continuation(raw_data: Dict[str, Any], context: Opt
 
 class AgentSpawnFromComponentData(TypedDict):
     """Spawn agent from component."""
-    component: Required[str]  # Component name to use as profile
+    component: Required[str]  # Component name path (e.g., "components/agents/system_agent")
     agent_id: NotRequired[str]  # Agent ID (auto-generated if not provided)
     variables: NotRequired[Dict[str, Any]]  # Variables for component rendering
     prompt: NotRequired[str]  # Initial prompt

@@ -362,11 +362,40 @@ class OrchestrationModule:
             # Store instance
             orchestrations[orchestration_id] = instance
             
+            # Create orchestration state entity
+            if event_emitter:
+                await event_emitter("state:entity:create", {
+                    "entity_type": "orchestration",
+                    "entity_id": orchestration_id,
+                    "properties": {
+                        "orchestration_id": orchestration_id,
+                        "pattern": pattern_name,
+                        "pattern_path": pattern_path,
+                        "agents": list(instance.agents.keys()),
+                        "parent_orchestration": data.get("parent_orchestration_id"),
+                        "event_subscription_level": pattern.get("event_propagation", {}).get("subscription_level", 1),
+                        "error_handling": pattern.get("event_propagation", {}).get("error_handling", "bubble"),
+                        "created_at": timestamp_utc(),
+                        "state": "initializing",
+                        "variables": instance.vars,
+                        "initialization_strategy": pattern.get("initialization", {}).get("strategy", "legacy")
+                    }
+                })
+            
             # Spawn agents
             await self._spawn_agents(instance)
             
             instance.state = "running"
             logger.info(f"Started orchestration {orchestration_id} with pattern {pattern_name}")
+            
+            # Update orchestration state to running
+            if event_emitter:
+                await event_emitter("state:entity:update", {
+                    "entity_id": orchestration_id,
+                    "properties": {
+                        "state": "running"
+                    }
+                })
             
             # Emit start event
             if event_emitter:
@@ -419,9 +448,13 @@ class OrchestrationModule:
             if agent_info.prompt_template:
                 spawn_data["composition"] = agent_info.prompt_template
             
-            # Add context variables
+            # Add context variables with orchestration hierarchy
             spawn_data["context"] = {
                 "orchestration_id": instance.orchestration_id,
+                "orchestration_depth": instance.vars.get("orchestration_depth", 0) + 1,
+                "parent_agent_id": instance.vars.get("coordinator_agent_id"),  # If this orchestration has a coordinator
+                "root_orchestration_id": instance.vars.get("root_orchestration_id", instance.orchestration_id),
+                "event_subscription_level": instance.pattern.get("event_propagation", {}).get("subscription_level", 1),
                 "pattern": instance.pattern_name,
                 **instance.vars,
                 **agent_info.vars

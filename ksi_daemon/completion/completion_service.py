@@ -619,15 +619,40 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
                 # Run extraction in background to avoid blocking
                 async def extract_and_send_feedback():
                     try:
+                        # Get agent orchestration metadata if available
+                        agent_context = {
+                            'request_id': request_id,
+                            'session_id': data.get('session_id'),
+                            'model': model,
+                            'provider': provider
+                        }
+                        
+                        # If we have an agent_id, try to get its orchestration metadata
+                        if agent_id and event_emitter:
+                            try:
+                                # Query agent entity for orchestration info
+                                entity_result = await event_emitter("state:entity:get", {
+                                    "entity_id": agent_id,
+                                    "entity_type": "agent"
+                                })
+                                
+                                if entity_result and isinstance(entity_result, list) and entity_result[0]:
+                                    agent_entity = entity_result[0]
+                                    if 'entity' in agent_entity:
+                                        props = agent_entity['entity'].get('properties', {})
+                                        # Add orchestration metadata to context
+                                        if props.get('orchestration_id'):
+                                            agent_context['orchestration_id'] = props['orchestration_id']
+                                            agent_context['orchestration_depth'] = props.get('orchestration_depth', 0)
+                                            agent_context['parent_agent_id'] = props.get('parent_agent_id')
+                                            agent_context['root_orchestration_id'] = props.get('root_orchestration_id')
+                            except Exception as e:
+                                logger.debug(f"Could not get agent orchestration metadata: {e}")
+                        
                         extraction_results = await extract_and_emit_json_events(
                             text=response_text,
                             event_emitter=event_emitter,
-                            context={
-                                'request_id': request_id,
-                                'session_id': data.get('session_id'),
-                                'model': model,
-                                'provider': provider
-                            },
+                            context=agent_context,
                             agent_id=agent_id
                         )
                         

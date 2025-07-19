@@ -138,8 +138,30 @@ async def extract_and_emit_json_events(
                 event_data['_agent_id'] = agent_id
             event_data['_extracted_from_response'] = True
             
-            # Add any additional context
+            # Add orchestration metadata if available in context
             if context:
+                # Propagate orchestration hierarchy metadata
+                for key in ['_orchestration_id', 'orchestration_id']:
+                    if key in context:
+                        event_data['_orchestration_id'] = context[key]
+                        break
+                
+                for key in ['_orchestration_depth', 'orchestration_depth']:
+                    if key in context:
+                        event_data['_orchestration_depth'] = context[key]
+                        break
+                        
+                for key in ['_parent_agent_id', 'parent_agent_id']:
+                    if key in context:
+                        event_data['_parent_agent_id'] = context[key]
+                        break
+                        
+                for key in ['_root_orchestration_id', 'root_orchestration_id']:
+                    if key in context:
+                        event_data['_root_orchestration_id'] = context[key]
+                        break
+                
+                # Add any additional context
                 event_data.setdefault('_context', {}).update(context)
             
             # Create emission context for agent-originated events

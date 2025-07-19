@@ -8,6 +8,7 @@ Essential technical reference for developing with KSI (Knowledge System Infrastr
 - **All communication via events**: No direct imports, use `ksi send event:name --param value`
 - **Discovery first**: `ksi discover` shows capabilities, `ksi help event:name` for parameters
 - **Socket communication**: Events flow through `var/run/daemon.sock`
+- **Orchestration-aware**: Events carry `_orchestration_id`, `_orchestration_depth`, `_parent_agent_id`
 
 ### Component System (Unified Architecture 2025 ✅)
 - **Everything is a component**: Single unified model with `component_type` attribute
@@ -127,6 +128,39 @@ capabilities:          # What this component provides
 ### Hybrid Evaluation Architecture
 - **Component definitions**: Test suites, judge schemas → `components/evaluations/`
 - **Runtime data**: Results, bootstrap data → `var/lib/evaluations/`
+
+## Orchestration Metadata System (2025) ✅
+
+### Hierarchical Event Propagation
+**Every event carries orchestration context**:
+```json
+{
+  "_agent_id": "agent_xyz",
+  "_orchestration_id": "orch_abc",
+  "_orchestration_depth": 2,
+  "_parent_agent_id": "agent_parent",
+  "_root_orchestration_id": "orch_root"
+}
+```
+
+### Orchestration State Entities
+- **Created on orchestration start**: Tracks pattern, agents, parent, subscription levels
+- **Queryable by ID**: `ksi send state:entity:get --entity-id orch_xyz --entity-type orchestration`
+- **Hierarchical tracking**: Parent/child orchestration relationships
+
+### Orchestration-Aware Discovery
+```bash
+# Discover orchestration structure and state
+ksi discover --orchestration-id orch_xyz
+
+# Returns: orchestration details, agent hierarchy, recent events, statistics
+```
+
+### Event Subscription Levels (Planned)
+- **Level 0**: Only orchestration-level events
+- **Level 1**: Direct child agents + immediate events (default)
+- **Level 2**: Children + grandchildren events
+- **Level -1**: ALL events in entire orchestration tree
 
 ## Development Patterns
 

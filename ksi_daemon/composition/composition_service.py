@@ -1820,11 +1820,14 @@ async def handle_get_component(raw_data: Dict[str, Any], context: Optional[Dict[
         if frontmatter:
             metadata.update(frontmatter)
         
+        # Determine component classification
+        component_classification = 'enhanced' if frontmatter else 'simple'
+        
         return event_response_builder({
             'status': 'success',
             'name': name,
             'type': comp_type,
-            'component_type': component_type,  # 'simple' or 'enhanced'
+            'component_type': component_classification,  # 'simple' or 'enhanced'
             'content': body_content,  # Content without frontmatter
             'frontmatter': frontmatter,  # Parsed frontmatter (if any)
             'metadata': metadata,  # Combined metadata
