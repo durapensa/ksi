@@ -70,8 +70,7 @@ async def initialize(db_path: Optional[Path] = None):
         # Composition index table
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS composition_index (
-                full_name TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
+                name TEXT PRIMARY KEY,
                 type TEXT NOT NULL,
                 repository_id TEXT NOT NULL,
                 file_path TEXT NOT NULL,
@@ -167,12 +166,16 @@ async def index_file(file_path: Path) -> bool:
         
         # Extract metadata
         # For deeply nested files, use the relative path (without extension) as the name
-        name = comp_data.get('name', str(relative_path.with_suffix('')))
+        # Extract the simple name from YAML or derive from filename
+        simple_name = comp_data.get('name', relative_path.stem)
+        
         # For markdown files, default to 'component' type
         default_type = 'component' if file_path.suffix == '.md' else 'unknown'
         comp_type = comp_data.get('type', default_type)
+        
         # Use the relative path (without extension) as the unique identifier
-        full_name = str(relative_path.with_suffix(''))
+        # This is consistent across all composition types
+        unique_name = str(relative_path.with_suffix(''))
         
         # Extract loading strategy from metadata
         metadata = comp_data.get('metadata', {})
@@ -185,13 +188,13 @@ async def index_file(file_path: Path) -> bool:
         async with _get_db() as conn:
             await conn.execute('''
                 INSERT OR REPLACE INTO composition_index
-                (full_name, name, type, repository_id, file_path, file_hash, file_size,
+                (name, type, repository_id, file_path, file_hash, file_size,
                  version, description, author, extends, tags, capabilities, 
                  dependencies, loading_strategy, mutable, ephemeral, full_metadata, 
                  indexed_at, last_modified)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
-                full_name, name, comp_type, 'local', str(relative_path), file_hash, file_size,
+                unique_name, comp_type, 'local', str(relative_path), file_hash, file_size,
                 comp_data.get('version', ''),
                 comp_data.get('description', ''),
                 comp_data.get('author', ''),
@@ -208,7 +211,7 @@ async def index_file(file_path: Path) -> bool:
             ))
             await conn.commit()
         
-        logger.debug(f"Indexed composition {full_name} from {file_path}")
+        logger.debug(f"Indexed composition {unique_name} from {file_path}")
         return True
         
     except Exception as e:
@@ -292,7 +295,7 @@ async def discover(query: Dict[str, Any]) -> List[Dict[str, Any]]:
         limit_clause = f" LIMIT {query['limit']}"
     
     sql = f"""
-        SELECT full_name, name, type, description, version, author, 
+        SELECT name, type, description, version, author, 
                tags, capabilities, loading_strategy, file_path, full_metadata
         FROM composition_index 
         WHERE {where_clause}
@@ -309,21 +312,20 @@ async def discover(query: Dict[str, Any]) -> List[Dict[str, Any]]:
             async with conn.execute(sql, params) as cursor:
                 async for row in cursor:
                     result = {
-                        'full_name': row[0],
-                        'name': row[1], 
-                        'type': row[2],
-                        'description': row[3],
-                        'version': row[4],
-                        'author': row[5],
-                        'tags': json.loads(row[6] or '[]'),
-                        'capabilities': json.loads(row[7] or '[]'),
-                        'loading_strategy': row[8],
-                        'file_path': row[9]
+                        'name': row[0],
+                        'type': row[1],
+                        'description': row[2],
+                        'version': row[3],
+                        'author': row[4],
+                        'tags': json.loads(row[5] or '[]'),
+                        'capabilities': json.loads(row[6] or '[]'),
+                        'loading_strategy': row[7],
+                        'file_path': row[8]
                     }
                     
                     # Include full metadata if requested
-                    if query.get('include_metadata', False) and row[10]:
-                        result['metadata'] = json.loads(row[10])
+                    if query.get('include_metadata', False) and row[9]:
+                        result['metadata'] = json.loads(row[9])
                     
                     results.append(result)
     except Exception as e:
@@ -357,13 +359,13 @@ async def get_count(query: Dict[str, Any] = None) -> int:
         return 0
 
 
-async def get_path(full_name: str) -> Optional[Path]:
+async def get_path(name: str) -> Optional[Path]:
     """Get file path for a composition."""
     try:
         async with _get_db() as conn:
             async with conn.execute(
-                'SELECT file_path FROM composition_index WHERE full_name = ? OR name = ?', 
-                (full_name, full_name)
+                'SELECT file_path FROM composition_index WHERE name = ?', 
+                (name,)
             ) as cursor:
                 row = await cursor.fetchone()
                 if row:
@@ -372,7 +374,7 @@ async def get_path(full_name: str) -> Optional[Path]:
                     return config.compositions_dir / relative_path
                 return None
     except Exception as e:
-        logger.error(f"Failed to get path for {full_name}: {e}")
+        logger.error(f"Failed to get path for {name}: {e}")
         return None
 
 
@@ -439,14 +441,14 @@ def normalize_component_path(name: str, component_type: str = 'component') -> st
     return f"{component_type}/{name}"
 
 
-async def update_component_type_in_index(full_name: str, component_type: str) -> bool:
+async def update_component_type_in_index(name: str, component_type: str) -> bool:
     """Update component_type in the index metadata."""
     try:
         async with _get_db() as conn:
             # Get current metadata
             async with conn.execute(
-                'SELECT full_metadata FROM composition_index WHERE full_name = ?', 
-                (full_name,)
+                'SELECT full_metadata FROM composition_index WHERE name = ?', 
+                (name,)
             ) as cursor:
                 row = await cursor.fetchone()
                 if not row:
@@ -457,12 +459,12 @@ async def update_component_type_in_index(full_name: str, component_type: str) ->
                 
                 # Update metadata
                 await conn.execute(
-                    'UPDATE composition_index SET full_metadata = ? WHERE full_name = ?',
-                    (json.dumps(metadata), full_name)
+                    'UPDATE composition_index SET full_metadata = ? WHERE name = ?',
+                    (json.dumps(metadata), name)
                 )
                 await conn.commit()
                 return True
                 
     except Exception as e:
-        logger.error(f"Failed to update component type for {full_name}: {e}")
+        logger.error(f"Failed to update component type for {name}: {e}")
         return False
