@@ -32,11 +32,13 @@ Essential technical reference for developing with KSI (Knowledge System Infrastr
 - **Client tagging**: Events routed to Claude Code get `_client_id: "claude-code"` for log filtering
 - **Hierarchical propagation**: Subscription levels control how far events bubble up orchestration trees
 
-**Behavioral Override Pattern**:
-- **Mixins over duplication**: Use `behaviors/orchestration/claude_code_override.md` to modify agent behavior
-- **Dependencies system**: Components declare mixins in `dependencies:` array
+**Behavioral Override Pattern (FIXED 2025)** ✅:
+- **Dependencies system**: Component renderer processes both `dependencies:` and `mixins:` arrays 
+- **Field mapping fix**: `generated_content.system_prompt` extracted to `prompt` field for agent spawning
+- **End-to-end working**: Behavioral overrides properly merged into agent profiles
+- **Claude Code override**: `behaviors/orchestration/claude_code_override.md` modifies agent behavior
 - **Orchestrator-aware agents**: Change behavior when `orchestrator_agent_id: "claude-code"` is present
-- **Delegation-first**: Agents should coordinate/delegate rather than execute when orchestrator is monitoring
+- **Proven JSON emission**: Agents with overrides successfully emit structured events
 
 ### Composition Indexing Patterns ✅
 **Discovery**: Two distinct file formats requiring different validation approaches:
@@ -346,6 +348,7 @@ echo "personas/deep_analyst.md model=claude-opus performance=reasoning" >> .gita
 - **JSON Extraction**: Balanced brace parsing, error feedback
 - **Session Continuity**: Agent-based persistent sandboxes
 - **Persona-First Architecture**: Proven natural JSON emission
+- **Behavioral Override System**: Dependencies properly processed, field mapping fixed
 - **Hybrid Evaluation**: Component definitions + runtime data separation
 
 ### Known Issues
@@ -363,6 +366,7 @@ echo "personas/deep_analyst.md model=claude-opus performance=reasoning" >> .gita
 - **Discovery Cache**: `ksi_daemon/core/discovery_cache.py`
 - **Hierarchical Routing**: `ksi_daemon/core/hierarchical_routing.py`
 - **Components**: `var/lib/compositions/components/` (organized by type)
+- **Behavioral Overrides**: `components/behaviors/orchestration/claude_code_override.md`
 - **Evaluation Data**: `var/lib/evaluations/` (runtime results)
 - **Logs**: `var/logs/daemon/daemon.log.jsonl`, `var/logs/responses/{session_id}.jsonl`
 

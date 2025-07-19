@@ -71,7 +71,11 @@ export KSI_DEBUG=true && export KSI_LOG_LEVEL=DEBUG && ./daemon_control.py resta
 - **Event handlers use TypedDict** - For parameter documentation and validation
 
 ### Component Creation (Unified Architecture 2025)
-**CRITICAL**: Everything is a component with a `component_type` attribute!
+**CRITICAL**: Everything is a component! The system forms a directed graph where:
+- **Nodes**: Event-emitting entities (agents, orchestrations)
+- **Edges**: Parent-child relationships, routing rules, capabilities
+- **Universal spawn**: Component type determines what gets created
+- **Nested orchestrations**: Agents can spawn orchestrations, creating arbitrary depth trees
 
 ```bash
 # Create components via events with proper type
@@ -216,6 +220,21 @@ capabilities:          # What this provides
 {"event": "agent:status", "data": {"agent_id": "{{agent_id}}", "status": "initialized"}}
 ```
 
+**Behavioral Override Pattern (WORKING 2025)** ✅:
+```bash
+# Core persona with dependencies
+dependencies:
+  - core/base_agent
+  - behaviors/communication/mandatory_json
+  - behaviors/orchestration/claude_code_override
+```
+
+**When** using behavioral overrides:
+- **Then** declare behavioral components in `dependencies:` array
+- **Then** test with `composition:component_to_profile` to verify merging
+- **Then** confirm behavioral content appears in rendered `system_prompt`
+- **Then** verify JSON extraction works with orchestration patterns
+
 **Hybrid Evaluation Architecture**:
 - **Test suite definitions** → `components/evaluations/suites/`
 - **Runtime results** → `var/lib/evaluations/` (separate from components)
@@ -255,6 +274,58 @@ echo "components/personas/quick_analyst.md model=claude-sonnet performance=speed
 # Rebuild index to capture git metadata
 ksi send composition:rebuild_index --include-git-metadata
 ```
+
+## Graph-Based Architecture Principles
+
+### Universal Entity Model
+**When** designing KSI systems:
+- **Then** think in graphs: Entities (nodes) connected by relationships (edges)
+- **Then** treat agents and orchestrations as "event-emitting entities" 
+- **Then** use unified patterns: `composition:compose` determines entity type from component
+- **Then** embrace natural nesting: Any entity with capability can spawn others
+- **Then** trust implicit context flow: Parent refs, depth, routing propagate automatically
+
+### Capability Composition
+**When** granting capabilities:
+- **Then** remember capabilities are compositional - they work on any entity type
+- **Then** agents with `orchestration` capability can spawn orchestrations
+- **Then** orchestrations can have agents that spawn more orchestrations
+- **Then** subscription levels control how deep in the graph events propagate
+
+### Event Routing as Graph Traversal
+**When** configuring event routing:
+- **Then** Level 0 = node only (no traversal)
+- **Then** Level 1 = direct edges (immediate children)
+- **Then** Level N = traverse N edges deep
+- **Then** Level -1 = full subtree traversal
+
+### Module Interdependence (Intentional Design)
+**When** working with agents and orchestrations:
+- **Then** remember they are intentionally interdependent in the graph model
+- **Then** agents with orchestration capability use `orchestration:start` to spawn orchestrations
+- **Then** orchestrations use `agent:spawn` to create agents
+- **Then** this reflects reality: graph nodes naturally need to create other nodes
+- **Example**: An agent coordinator spawns an orchestration pattern = natural graph growth
+
+### Claude Code as Orchestrator Agent
+**When** spawning orchestrations from Claude Code:
+- **Then** set `orchestrator_agent_id: "claude-code"` to receive feedback
+- **Then** events from child agents will bubble up based on subscription levels
+- **Then** configure dual subscriptions: `event_subscription_level` and `error_subscription_level`
+- **Then** pass initial `prompt` to orchestration for agent initialization
+- **Then** monitor events via `ksi send monitor:get_events --_client_id "claude-code"`
+
+**Example orchestration spawn with feedback**:
+```bash
+ksi send orchestration:start --pattern "orchestrations/analysis" \
+  --vars '{"orchestrator_agent_id": "claude-code", "prompt": "Analyze this document..."}'
+```
+
+**When** receiving bubbled events:
+- **Then** regular events arrive based on `event_subscription_level`
+- **Then** errors arrive based on `error_subscription_level` (often -1 for all errors)
+- **Then** events tagged with `_client_id: "claude-code"` appear in response logs
+- **Then** future: KSI hook will show these automatically when working
 
 ## System Management
 
@@ -388,13 +459,13 @@ git commit -m "Update composition submodule"
 ## System Status (Current)
 
 ### Major Accomplishments (2025)
-- ✅ **Unified Component Architecture**: Everything is a component with type attribute
-- ✅ **Profile Migration Complete**: All profiles removed, system uses only components
-- ✅ **Hybrid Evaluation System**: Component definitions + runtime data separation
+- ✅ **Graph-Based Architecture**: Entities form directed graphs with implicit context flow
+- ✅ **Unified Composition**: Single `composition:compose` endpoint, no type-specific handlers  
+- ✅ **Nested Orchestrations**: Agents can spawn orchestrations to arbitrary depth
+- ✅ **Hierarchical Event Routing**: Subscription levels = graph traversal depth
 - ✅ **JSON Extraction Fix**: Balanced brace parsing for arbitrary nesting
 - ✅ **Persona-First Architecture**: Proven natural JSON emission
 - ✅ **Session Continuity**: Agent-based persistent sandboxes
-- ✅ **MANDATORY Patterns**: Reliable imperative JSON emission instructions
 
 ### Current Standards
 - **Unified component model**: All pieces are components with `component_type`
