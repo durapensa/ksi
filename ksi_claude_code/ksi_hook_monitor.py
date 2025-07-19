@@ -507,17 +507,17 @@ class KSIHookMonitor:
             new_mode = mode_commands[command.strip()]
             
             if new_mode is None:
-                # Status command
-                ExitStrategy.exit_with_feedback(f"[KSI] Current mode: {self.verbosity_mode}")
+                # Status command - WITHOUT brackets
+                ExitStrategy.exit_with_feedback(f"KSI Current mode: {self.verbosity_mode}")
             else:
-                # Mode change command
+                # Mode change command - WITHOUT brackets
                 self.save_verbosity_mode(new_mode)
                 mode_messages = {
-                    "verbose": "[KSI] Mode: verbose",
-                    "summary": "[KSI] Mode: summary",
-                    "errors": "[KSI] Mode: errors only",
-                    "silent": "[KSI] Mode: silent",
-                    "orchestration": "[KSI] Mode: orchestration debug"
+                    "verbose": "KSI Mode: verbose",
+                    "summary": "KSI Mode: summary",
+                    "errors": "KSI Mode: errors only",
+                    "silent": "KSI Mode: silent",
+                    "orchestration": "KSI Mode: orchestration debug"
                 }
                 ExitStrategy.exit_with_feedback(mode_messages[new_mode])
             
@@ -546,7 +546,8 @@ class KSIHookMonitor:
         if mode == "errors":
             if has_errors:
                 error_events = [e for e in new_events if "error" in e.get("event_name", "").lower()]
-                message = f"[KSI: {len(error_events)} errors]"
+                # REMOVED brackets from error message
+                message = f"KSI: {len(error_events)} errors"
                 for event in error_events[:3]:
                     event_name = event.get("event_name", "unknown")
                     timestamp = event.get("timestamp", 0)
@@ -567,20 +568,22 @@ class KSIHookMonitor:
                 parts.append(f"🤖{agent_count}")
             
             if parts:
-                message = f"[KSI {' '.join(parts)}]"
+                # REMOVED brackets from verbose message
+                message = f"KSI {' '.join(parts)}"
                 # Add the most recent significant event on next line
                 if event_summary and event_summary.strip():
                     # Extract just the latest event line
                     latest_event = event_summary.strip().split('\n')[0]
                     message += f"\n{latest_event}"
             else:
-                message = "[KSI]"
+                message = "KSI"
                 
             return message
         
         # Orchestration mode - detailed view for debugging
         elif mode == "orchestration":
-            message = f"[KSI: {len(new_events)} events]"
+            # REMOVED brackets from orchestration message
+            message = f"KSI: {len(new_events)} events"
             if new_events:
                 message += f"\n{event_summary}"
             if agent_count > 0:
@@ -627,11 +630,11 @@ class KSIHookMonitor:
                 error_count = len([e for e in new_events if "error" in e.get("event_name", "").lower()])
                 parts.insert(0, f"✗{error_count}")
             
-            # Format message
+            # Format message - REMOVED brackets
             if parts:
-                message = f"[KSI {' '.join(parts)}]"
+                message = f"KSI {' '.join(parts)}"
             else:
-                message = "[KSI]"  # Minimal output to confirm hook is active
+                message = "KSI"  # Minimal output to confirm hook is active
             
             return message
     
@@ -729,11 +732,27 @@ def main():
         session_id = hook_data.get("session_id", "unknown")
         tool_response = hook_data.get("tool_response", {})
         
-        # Write tool info to diagnostic log
-        logger.log_diagnostic(f"Tool: {tool_name}")
+        # NEW: Check for test command to debug JSON processing
         if tool_name == "Bash":
             command = hook_data.get("tool_input", {}).get("command", "")
             logger.log_diagnostic(f"Command: {command[:100]}")
+            
+            # Test different JSON formats
+            if command.strip() == "echo ksi_test_json":
+                # Test with simple string
+                output = {"reason": "KSI test simple"}
+                logger.log_diagnostic(f"Testing simple JSON: {json.dumps(output)}")
+                print(json.dumps(output), flush=True)
+                sys.exit(0)
+            elif command.strip() == "echo ksi_test_brackets":
+                # Test with brackets in string
+                output = {"reason": "[KSI test brackets]"}
+                logger.log_diagnostic(f"Testing brackets JSON: {json.dumps(output)}")
+                print(json.dumps(output), flush=True)
+                sys.exit(0)
+        
+        # Write tool info to diagnostic log
+        logger.log_diagnostic(f"Tool: {tool_name}")
         
         # Initialize monitor
         monitor = KSIHookMonitor(config)
@@ -752,12 +771,12 @@ def main():
             
         except KSIConnectionError:
             logger.log_diagnostic("Daemon not running")
-            # Exit with feedback if can't connect
-            ExitStrategy.exit_with_feedback("[KSI - offline]")
+            # Exit with feedback if can't connect - WITHOUT brackets
+            ExitStrategy.exit_with_feedback("KSI - offline")
         except Exception as e:
             logger.log_diagnostic(f"ERROR getting KSI status: {e}")
-            # Exit with feedback on error
-            ExitStrategy.exit_with_feedback("[KSI - error]")
+            # Exit with feedback on error - WITHOUT brackets
+            ExitStrategy.exit_with_feedback("KSI - error")
         
         # Update timestamp if we showed new events
         if events:
@@ -776,8 +795,8 @@ def main():
             
     except Exception as e:
         logger.log_diagnostic(f"Hook error: {e}")
-        # FAILSAFE: Always exit cleanly and show error
-        ExitStrategy.exit_with_feedback(f"[KSI Hook Error] {e}")
+        # FAILSAFE: Always exit cleanly and show error - WITHOUT brackets
+        ExitStrategy.exit_with_feedback(f"KSI Hook Error: {e}")
 
 if __name__ == "__main__":
     main()

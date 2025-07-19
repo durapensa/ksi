@@ -201,6 +201,9 @@ tail -f var/logs/daemon/daemon.log.jsonl
 ### Common Issues
 - **Timeouts**: Usually JSON serialization failures (dates, complex objects)
 - **Agents not responding**: Check profile has `prompt` field
+- **Hook output not visible**: Claude Code bug - PostToolUse JSON not processed (Issue #3983)
+  - Workaround: Check `/private/tmp/ksi_hook_diagnostic.log` for hook activity
+  - Hook output format updated to remove brackets: `{"reason": "KSI ⚡3"}` (was `"[KSI ⚡3]"`)
 - **JSON extraction failing**: Verify legitimate KSI events, check error feedback
 - **Components not found**: Run `ksi send composition:rebuild_index`
 

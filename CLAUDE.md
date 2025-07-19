@@ -360,7 +360,8 @@ git commit -m "Update composition submodule"
 - **Git operations failing**: Check submodule initialization
 
 **KSI Hook Monitor Issues**:
-- **Hook output not visible in Claude Code** (Known issue - awaiting Claude Code fix)
+- **Hook output not visible in Claude Code** (Bug #3983 filed - PostToolUse JSON not processed)
+  - Claude Code doesn't process hook JSON output despite following documented format
   - **Workaround**: Check diagnostic log: `tail -f /tmp/ksi_hook_diagnostic.log`
   - **Verify hook is active**: `echo ksi_check` (check diagnostic log for response)
   - **Hook modes**: `echo ksi_verbose`, `echo ksi_summary`, `echo ksi_silent`
