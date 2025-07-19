@@ -88,6 +88,15 @@ async def create_event_daemon(socket_dir: str = None):
         }
     }
     
+    # Add WebSocket transport if enabled
+    if config.is_websocket_enabled:
+        config_dict["transports"]["websocket"] = {
+            "enabled": True,
+            "host": config.websocket_host,
+            "port": config.websocket_port,
+            "cors_origins": config.websocket_cors_origins
+        }
+    
     # Create and initialize event-based daemon (pure module system)
     daemon = EventDaemonCore()
     success = await daemon.initialize(config_dict)

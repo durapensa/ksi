@@ -305,8 +305,8 @@ async def handle_ready(raw_data: Dict[str, Any], context: Optional[Dict[str, Any
     if transport_instance:
         logger.info("Starting Unix socket server task")
         
-        async def run_server():
-            """Run the Unix socket server - keeps daemon alive."""
+        async def start_server():
+            """Start and run the Unix socket server."""
             await transport_instance.start()
             
             # Keep server running until cancelled
@@ -324,7 +324,7 @@ async def handle_ready(raw_data: Dict[str, Any], context: Optional[Dict[str, Any
                 "tasks": [
                     {
                         "name": "socket_server", 
-                        "coroutine": run_server()
+                        "coroutine": start_server()
                     }
                 ]
             },
@@ -466,6 +466,41 @@ async def handle_shutdown(raw_data: Dict[str, Any], context: Optional[Dict[str, 
         {"status": "unix_socket_transport_stopped"},
         context=context
     )
+
+
+# Make start_server available at module level for new transport system
+async def start_server():
+    """Start the Unix socket server (for new transport system)."""
+    global transport_instance
+    
+    if not transport_instance:
+        # If not initialized via event system, initialize now
+        await handle_startup({})
+    
+    if transport_instance:
+        await transport_instance.start()
+        # Keep server running
+        await transport_instance.server.serve_forever()
+
+
+async def stop_server():
+    """Stop the Unix socket server (for new transport system)."""
+    global transport_instance
+    
+    if transport_instance:
+        await transport_instance.stop()
+
+
+# Module info for transport discovery
+MODULE_INFO = {
+    "name": "unix",
+    "version": "1.0.0", 
+    "description": "Unix domain socket transport for local IPC",
+    "capabilities": ["local", "low-latency", "secure"],
+    "config": {
+        "socket_path": str(config.socket_path)
+    }
+}
 
 
 

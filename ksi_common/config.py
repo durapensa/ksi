@@ -179,6 +179,62 @@ class KSIBaseConfig(BaseSettings):
         else:
             return DEFAULT_WEBSOCKET_CORS_ORIGINS
     
+    # Native Transport Configuration
+    transports: str = Field(
+        default="unix",
+        description="Comma-separated list of enabled transports (unix, websocket)"
+    )
+    
+    # Native WebSocket Transport Configuration
+    websocket_enabled: bool = Field(
+        default=False,
+        description="Enable native WebSocket transport in daemon"
+    )
+    websocket_host: str = Field(
+        default=DEFAULT_WEBSOCKET_HOST,
+        description="Host for native WebSocket transport"
+    )
+    websocket_port: int = Field(
+        default=DEFAULT_WEBSOCKET_PORT,
+        description="Port for native WebSocket transport"
+    )
+    websocket_cors_origins: Union[str, List[str]] = Field(
+        default=DEFAULT_WEBSOCKET_CORS_ORIGINS,
+        description="CORS origins for native WebSocket transport"
+    )
+    
+    @field_validator('transports', mode='after')
+    @classmethod
+    def parse_transports(cls, v: str) -> str:
+        """Parse and validate transport list."""
+        transports = [t.strip() for t in v.split(',') if t.strip()]
+        valid_transports = {'unix', 'websocket'}
+        invalid = set(transports) - valid_transports
+        if invalid:
+            raise ValueError(f"Invalid transports: {invalid}. Valid: {valid_transports}")
+        return ','.join(transports)
+    
+    @field_validator('websocket_cors_origins', mode='after')
+    @classmethod
+    def parse_ws_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
+        """Parse WebSocket CORS origins from comma-separated string or list."""
+        if isinstance(v, str):
+            return [origin.strip() for origin in v.split(',') if origin.strip()]
+        elif isinstance(v, list):
+            return v
+        else:
+            return DEFAULT_WEBSOCKET_CORS_ORIGINS
+    
+    @property
+    def enabled_transports(self) -> List[str]:
+        """Get list of enabled transports."""
+        return [t.strip() for t in self.transports.split(',') if t.strip()]
+    
+    @property
+    def is_websocket_enabled(self) -> bool:
+        """Check if WebSocket transport is enabled."""
+        return 'websocket' in self.enabled_transports or self.websocket_enabled
+    
     # Debug mode
     debug: bool = False
     

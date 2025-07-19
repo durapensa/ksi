@@ -106,6 +106,12 @@ class EventDaemonCore:
             
             logger.info(f"Started {len(self.router._tasks)} background tasks")
             
+            # Start configured transports using new transport system
+            if 'transports' in config:
+                from ksi_daemon.transport import start_transports
+                await start_transports()
+                logger.info("Started configured transports")
+            
             self.running = True
             logger.info(f"Daemon core initialized with {len(self.router.get_modules())} modules")
             
@@ -128,8 +134,9 @@ class EventDaemonCore:
         import ksi_daemon.core.checkpoint   # Dev mode checkpoint/restore
         import ksi_daemon.core.event_log_handlers  # Event log query handlers
         
-        # Transport modules
+        # Transport modules - import all available transports
         import ksi_daemon.transport.unix_socket
+        import ksi_daemon.transport.websocket
         
         # Completion modules
         import ksi_daemon.completion.completion_service
@@ -208,6 +215,11 @@ class EventDaemonCore:
         try:
             # Set shutdown event to stop main loop
             self.shutdown_event.set()
+            
+            # Stop transports first
+            from ksi_daemon.transport import stop_transports
+            await stop_transports()
+            logger.info("Stopped all transports")
             
             # Begin coordinated shutdown
             await self.router.begin_shutdown()
