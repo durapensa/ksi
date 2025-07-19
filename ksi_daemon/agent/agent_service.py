@@ -95,7 +95,7 @@ class CheckpointRestoreData(TypedDict):
 
 class AgentSpawnData(TypedDict):
     """Spawn a new agent."""
-    profile: Required[str]  # Composition/component name (e.g., "components/agents/system_agent")
+    profile: Required[str]  # Composition name - matches relative path without extension (e.g., "components/agents/hello_agent" for components/agents/hello_agent.md)
     agent_id: NotRequired[str]  # Agent ID (auto-generated if not provided)
     # NOTE: session_id removed - managed entirely by completion system
     prompt: NotRequired[str]  # Initial prompt
@@ -678,11 +678,12 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
     """Spawn a new agent thread with a composition/component as profile.
     
     The 'profile' parameter expects a composition name from the composition system,
-    not raw prompt text. Valid profiles include:
-    - Profile compositions (e.g., "base_single_agent", "system_agent")
-    - Component paths (e.g., "components/core/base_agent")
-    - Any composition containing a 'prompt' field
+    not raw prompt text. The name matches the relative path without extension:
+    - "base_single_agent" → base_single_agent.yaml
+    - "components/core/base_agent" → components/core/base_agent.md
+    - "components/agents/hello_agent" → components/agents/hello_agent.md
     
+    Valid profiles are any composition containing a 'prompt' field.
     To discover available profiles: ksi send composition:list --filter '{"type": "profile"}'
     """
     from ksi_common.event_parser import event_format_linter
@@ -2111,7 +2112,7 @@ async def handle_agent_needs_continuation(raw_data: Dict[str, Any], context: Opt
 
 class AgentSpawnFromComponentData(TypedDict):
     """Spawn agent from component."""
-    component: Required[str]  # Component name path (e.g., "components/agents/system_agent")
+    component: Required[str]  # Component name - matches relative path without extension (e.g., "components/agents/hello_agent" for components/agents/hello_agent.md)
     agent_id: NotRequired[str]  # Agent ID (auto-generated if not provided)
     variables: NotRequired[Dict[str, Any]]  # Variables for component rendering
     prompt: NotRequired[str]  # Initial prompt

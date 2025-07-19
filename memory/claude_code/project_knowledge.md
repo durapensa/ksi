@@ -162,12 +162,27 @@ ksi discover --orchestration-id orch_xyz
 - **Level 2**: Children + grandchildren events
 - **Level -1**: ALL events in entire orchestration tree
 
+### Dynamic CLI Discovery
+- **ksi-cli uses dynamic parameter discovery** - Commands like `discover` and `send` query event handlers for parameters
+- **No hardcoded options** - All parameters discovered from system:discover, system:help events
+- **Orchestration-aware discovery**: `ksi discover --orchestration-id orch_xyz` shows orchestration structure
+- **Special cases**: Base `help` and `--help` handled before dynamic discovery
+
 ## Development Patterns
 
 ### Agent Management
 ```bash
-# Spawn agent from component
+# Spawn agent with profile (composition name, not raw text)
+ksi send agent:spawn --profile "base_single_agent"
+ksi send agent:spawn --profile "components/core/base_agent"  # Component path
+
+# Spawn agent from component 
 ksi send agent:spawn_from_component --component "components/agents/ksi_aware_analyst" 
+
+# Discover available profiles
+ksi send composition:list --filter '{"type": "profile"}'
+
+# List and inspect agents
 ksi send agent:list
 ksi send agent:info --agent-id agent_123
 ```
