@@ -159,9 +159,6 @@ class EventDaemonCore:
         # Composition modules
         import ksi_daemon.composition.composition_service
         
-        # Profile modules
-        import ksi_daemon.profile.profile_service
-        
         # Conversation modules
         import ksi_daemon.conversation.conversation_service
         import ksi_daemon.conversation.conversation_lock
