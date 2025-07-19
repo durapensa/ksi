@@ -20,7 +20,7 @@ from ksi_common.event_utils import extract_single_response
 from ksi_common.git_utils import git_manager
 from ksi_common.yaml_utils import safe_load, safe_dump, load_yaml_file, save_yaml_file
 from ksi_common.json_utils import loads as json_loads, dumps as json_dumps
-from ksi_common.frontmatter_utils import parse_frontmatter, get_component_type, validate_frontmatter
+from ksi_common.frontmatter_utils import parse_frontmatter, validate_frontmatter
 from ksi_common.component_renderer import get_renderer, ComponentResolutionError, CircularDependencyError
 
 # Import composition modules
@@ -697,8 +697,20 @@ async def load_composition_raw(name: str, comp_type: Optional[str] = None) -> Di
         if not composition_path or not composition_path.exists():
             raise FileNotFoundError(f"Composition not found: {name}")
     
-    # Load and return raw YAML data
-    return load_yaml_file(composition_path)
+    # Load and return data based on file type
+    if composition_path.suffix == '.md':
+        # Handle markdown files with frontmatter
+        content = composition_path.read_text()
+        post = parse_frontmatter(content, sanitize_dates=True)
+        if post.has_frontmatter():
+            # Return frontmatter as the composition data
+            return post.metadata
+        else:
+            # No frontmatter, return empty dict
+            return {}
+    else:
+        # Handle YAML files
+        return load_yaml_file(composition_path)
 
 
 def validate_core_composition(data: Dict[str, Any]) -> List[str]:
@@ -708,6 +720,7 @@ def validate_core_composition(data: Dict[str, Any]) -> List[str]:
     # Required fields
     if not isinstance(data.get('name'), str):
         errors.append("'name' must be a string")
+    
     if not isinstance(data.get('type'), str):
         errors.append("'type' must be a string")
     
@@ -1668,16 +1681,8 @@ async def handle_create_component(raw_data: Dict[str, Any], context: Optional[Di
         content = data['content']
         comp_type = data.get('type', 'component')
         
-        # Validate component name organization
-        if comp_type == 'component':
-            # Require organized subdirectories for components (prevent root-level collisions)
-            if '/' not in name:
-                return error_response(
-                    f"Component name '{name}' must include an organizational subdirectory (e.g., 'core/{name}', 'test/{name}')",
-                    context
-                )
-        
-        # Determine base path based on type
+        # Determine base path based on type - unified architecture principle
+        # All compositions follow the same pattern, no special handling
         if comp_type == 'component':
             base_path = COMPONENTS_BASE
         else:
@@ -1739,9 +1744,8 @@ async def handle_create_component(raw_data: Dict[str, Any], context: Optional[Di
         if not git_result.success:
             return error_response(f"Git operation failed: {git_result.error}", context)
         
-        # Update index if it's a composition component
-        if comp_type == 'component':
-            await composition_index.index_file(file_path.relative_to(COMPONENTS_BASE.parent))
+        # Update index - all compositions should be indexed (unified architecture)
+        await composition_index.index_file(file_path.relative_to(config.compositions_dir))
         
         # Clear component renderer cache to ensure fresh component is loaded
         renderer = get_renderer()
@@ -1787,27 +1791,19 @@ async def handle_get_component(raw_data: Dict[str, Any], context: Optional[Dict[
             file_path = base_path / name
         
         if not file_path.exists():
-            # Provide helpful error message about organization
-            if comp_type == 'component' and '/' not in name:
-                return error_response(
-                    f"Component '{name}' not found. Components must be organized in subdirectories (e.g., 'core/{name}', 'test/{name}')",
-                    context
-                )
-            else:
-                return error_response(f"Component {name} not found", context)
+            # Unified error message - no special handling by type
+            return error_response(f"Composition '{name}' not found", context)
         
         content = file_path.read_text()
         
         # Parse frontmatter using modern frontmatter utilities
         try:
             post = parse_frontmatter(content, sanitize_dates=True)
-            component_type = get_component_type(content)
             frontmatter = post.metadata if post.has_frontmatter() else None
             body_content = post.content
         except Exception as e:
             logger.warning(f"Failed to parse frontmatter in {name}: {e}")
             # Fallback to simple component
-            component_type = 'simple'
             frontmatter = None
             body_content = content
         
@@ -2728,35 +2724,4 @@ async def handle_track_usage(raw_data: Dict[str, Any], context: Optional[Dict[st
         return error_response(f"Component usage tracking failed: {e}", context)
 
 
-class GetComponentTypesData(TypedDict):
-    """Get all unique component types from the index."""
-    # No required parameters - returns all types
-
-
-@event_handler("composition:get_component_types")
-async def handle_get_component_types(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Get all unique component types from the index."""
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder, error_response
-    
-    try:
-        # Import here to avoid circular imports
-        from ksi_daemon.composition.composition_index import get_unique_component_types
-        
-        # Validate input (no required parameters)
-        data = event_format_linter(raw_data, GetComponentTypesData)
-        
-        # Get unique component types from index
-        component_types = await get_unique_component_types()
-        
-        logger.debug(f"Retrieved {len(component_types)} unique component types")
-        
-        return event_response_builder({
-            'status': 'success',
-            'component_types': component_types,
-            'count': len(component_types)
-        }, context)
-        
-    except Exception as e:
-        logger.error(f"Get component types failed: {e}")
-        return error_response(f"Get component types failed: {e}", context)
+# Removed GetComponentTypesData and handle_get_component_types - no longer needed with unified 'type' field

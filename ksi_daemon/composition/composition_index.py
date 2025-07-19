@@ -136,6 +136,25 @@ async def index_file(file_path: Path) -> bool:
         if not file_path.exists() or file_path.suffix not in ['.yaml', '.yml', '.md']:
             return False
             
+        # Pattern-aware exclusions - skip non-composition files
+        path_str = str(file_path)
+        exclude_patterns = [
+            '_archive/tests/',  # Test fixtures with intentional errors
+            'README',           # Documentation files
+            '.git',             # Git files
+        ]
+        
+        # Check exclusion patterns
+        for pattern in exclude_patterns:
+            if pattern in path_str:
+                logger.debug(f"Skipping excluded file: {file_path}")
+                return False
+                
+        # Also skip hidden files (starting with dot)
+        if file_path.name.startswith('.'):
+            logger.debug(f"Skipping hidden file: {file_path}")
+            return False
+            
         # Calculate file hash and stats
         content = file_path.read_text()
         file_hash = hashlib.sha256(content.encode()).hexdigest()
@@ -145,33 +164,49 @@ async def index_file(file_path: Path) -> bool:
         import datetime
         last_modified = datetime.datetime.fromtimestamp(file_stats.st_mtime).isoformat()
         
-        # Parse metadata based on file type
+        # Parse metadata based on file type with appropriate validation
         if file_path.suffix == '.md':
             # Parse markdown with frontmatter
-            post = parse_frontmatter(content)
-            comp_data = post.metadata if post.metadata else {}
+            try:
+                post = parse_frontmatter(content)
+                if not post.has_frontmatter():
+                    logger.debug(f"Skipping markdown without frontmatter: {file_path}")
+                    return False
+                comp_data = post.metadata if post.metadata else {}
+            except Exception as e:
+                # Use DEBUG for test files, WARNING for others
+                if '_archive/tests/' in str(file_path):
+                    logger.debug(f"Expected parse error in test file {file_path}: {e}")
+                else:
+                    logger.warning(f"Failed to parse frontmatter in {file_path}: {e}")
+                return False
         else:
             # Parse YAML file
             try:
                 comp_data = yaml.safe_load(content)
             except yaml.YAMLError as e:
-                logger.warning(f"Invalid YAML in {file_path}: {e}")
+                # Use DEBUG for test files, WARNING for others
+                if '_archive/tests/' in str(file_path):
+                    logger.debug(f"Expected YAML error in test file {file_path}: {e}")
+                else:
+                    logger.warning(f"Invalid YAML in {file_path}: {e}")
                 return False
             
             if not isinstance(comp_data, dict):
+                logger.debug(f"YAML file does not contain a dictionary: {file_path}")
                 return False
+            
+        # Validate required fields based on unified architecture
+        if 'name' not in comp_data or 'type' not in comp_data:
+            logger.debug(f"Missing required fields (name/type) in {file_path}")
+            return False
             
         # Calculate relative path from compositions directory
         relative_path = file_path.relative_to(config.compositions_dir)
         
-        # Extract metadata
-        # For deeply nested files, use the relative path (without extension) as the name
-        # Extract the simple name from YAML or derive from filename
-        simple_name = comp_data.get('name', relative_path.stem)
-        
-        # For markdown files, default to 'component' type
-        default_type = 'component' if file_path.suffix == '.md' else 'unknown'
-        comp_type = comp_data.get('type', default_type)
+        # Extract metadata - we already validated name and type exist
+        simple_name = comp_data['name']
+        comp_type = comp_data['type']
         
         # Use the relative path (without extension) as the unique identifier
         # This is consistent across all composition types
@@ -382,15 +417,11 @@ async def get_unique_component_types() -> List[str]:
     """Get all unique component types from the index."""
     try:
         async with _get_db() as conn:
-            # First try to get component_type from JSON metadata
+            # Get distinct types from the index
             async with conn.execute("""
-                SELECT DISTINCT 
-                    COALESCE(
-                        json_extract(full_metadata, '$.component_type'),
-                        type
-                    ) as comp_type
+                SELECT DISTINCT type
                 FROM composition_index 
-                WHERE comp_type IS NOT NULL
+                WHERE type IS NOT NULL
             """) as cursor:
                 types = [row[0] for row in await cursor.fetchall() if row[0]]
                 return types if types else ['component']
@@ -400,14 +431,13 @@ async def get_unique_component_types() -> List[str]:
 
 
 async def filter_by_component_type(component_type: str) -> List[Dict[str, Any]]:
-    """Filter components by their component_type attribute."""
+    """Filter components by their type."""
     try:
         async with _get_db() as conn:
             async with conn.execute("""
                 SELECT * FROM composition_index
-                WHERE json_extract(full_metadata, '$.component_type') = ?
-                OR (type = ? AND json_extract(full_metadata, '$.component_type') IS NULL)
-            """, (component_type, component_type)) as cursor:
+                WHERE type = ?
+            """, (component_type,)) as cursor:
                 columns = [description[0] for description in cursor.description]
                 return [dict(zip(columns, row)) for row in await cursor.fetchall()]
     except Exception as e:
@@ -441,30 +471,4 @@ def normalize_component_path(name: str, component_type: str = 'component') -> st
     return f"{component_type}/{name}"
 
 
-async def update_component_type_in_index(name: str, component_type: str) -> bool:
-    """Update component_type in the index metadata."""
-    try:
-        async with _get_db() as conn:
-            # Get current metadata
-            async with conn.execute(
-                'SELECT full_metadata FROM composition_index WHERE name = ?', 
-                (name,)
-            ) as cursor:
-                row = await cursor.fetchone()
-                if not row:
-                    return False
-                
-                metadata = json.loads(row[0]) if row[0] else {}
-                metadata['component_type'] = component_type
-                
-                # Update metadata
-                await conn.execute(
-                    'UPDATE composition_index SET full_metadata = ? WHERE name = ?',
-                    (json.dumps(metadata), name)
-                )
-                await conn.commit()
-                return True
-                
-    except Exception as e:
-        logger.error(f"Failed to update component type for {name}: {e}")
-        return False
+# Removed update_component_type_in_index - no longer needed with unified 'type' field

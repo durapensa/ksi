@@ -1,4 +1,4 @@
-log_level: DEBUG
+log_level: INFO
 debug_logging: 'true'
 daemon:
   log_level: DEBUG

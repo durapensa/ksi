@@ -269,13 +269,7 @@ def strip_frontmatter(content: str) -> str:
     return post.content
 
 
-def get_component_type(content: str) -> str:
-    """Determine component type from frontmatter."""
-    post = parse_frontmatter(content)
-    if post.has_frontmatter():
-        # Return actual component_type from frontmatter
-        return post.metadata.get('component_type', 'component')
-    return 'component'  # Default type
+# Removed get_component_type - no longer needed with unified 'type' field
 
 
 # Convenience functions for common operations
@@ -284,7 +278,6 @@ def load_component_with_frontmatter(file_path: Union[str, Path]) -> Dict[str, An
     post = parse_frontmatter_file(file_path)
     
     return {
-        'component_type': 'enhanced' if post.has_frontmatter() else 'simple',
         'content': post.content,
         'frontmatter': post.metadata if post.has_frontmatter() else None,
         'metadata': post.metadata,

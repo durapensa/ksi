@@ -215,11 +215,12 @@ class OrchestrationModule:
             errors.append("The 'agents' section is empty. At least one agent must be defined. "
                         "Example: agents: { agent1: { profile: 'base_multi_agent' } }")
         
-        # Get available profiles for validation
+        # Get available compositions for validation - unified architecture principle
         available_profiles = set()
         if event_emitter:
             try:
-                results = await event_emitter("composition:list", {"composition_type": "profile"})
+                # Get ALL compositions regardless of type - everything is a composition
+                results = await event_emitter("composition:discover", {"limit": 1000})
                 result = results[0] if results else None
                 if result and isinstance(result, dict) and 'compositions' in result:
                     for comp in result['compositions']:
@@ -240,17 +241,17 @@ class OrchestrationModule:
                 # Component field takes precedence
                 profile = agent_config.get('component')
             if not profile:
-                errors.append(f"Agent '{agent_name}' missing required 'profile' field. "
-                            f"Available profiles include: base_multi_agent, hello_agent, goodbye_agent, debater, etc.")
+                errors.append(f"Agent '{agent_name}' missing required 'component' or 'profile' field. "
+                            f"Example: component: 'components/core/base_agent'")
             elif available_profiles and profile not in available_profiles:
-                # Find similar profiles
+                # Find similar components
                 similar = [p for p in available_profiles if profile.lower() in p.lower() or p.lower() in profile.lower()]
                 if similar:
-                    errors.append(f"Agent '{agent_name}' references unknown profile: '{profile}'. "
+                    errors.append(f"Agent '{agent_name}' references unknown component: '{profile}'. "
                                 f"Did you mean one of these? {', '.join(sorted(similar)[:5])}")
                 else:
-                    errors.append(f"Agent '{agent_name}' references unknown profile: '{profile}'. "
-                                f"Available profiles include: {', '.join(sorted(list(available_profiles))[:10])}...")
+                    errors.append(f"Agent '{agent_name}' references unknown component: '{profile}'. "
+                                f"Available components include: {', '.join(sorted(list(available_profiles))[:10])}...")
         
         # Validate routing rules
         routing = pattern.get('routing', {})
