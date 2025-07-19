@@ -131,14 +131,23 @@ async def handle_shutdown(raw_data: Dict[str, Any], context: Optional[Dict[str, 
 
 class CompositionComposeData(TypedDict):
     """Compose a complete configuration from components."""
-    name: str  # Composition name to compose
-    type: NotRequired[str]  # Composition type (default: profile)
+    name: str  # Component name (e.g., "components/agents/hello_agent", "base_single_agent")
+    type: NotRequired[str]  # Optional type hint (inferred from component if not specified)
     variables: NotRequired[Dict[str, Any]]  # Variables for substitution
 
 
 @event_handler("composition:compose")
 async def handle_compose(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Compose a complete configuration from components."""
+    """Universal composition endpoint - composes any component type.
+    
+    The component's type field is used as a hint for composition behavior,
+    but intelligent agents can determine appropriate usage from context
+    (e.g., components/agents/* are agent profiles, prompts/* are prompts).
+    
+    This replaces the deprecated type-specific endpoints:
+    - composition:profile (removed)
+    - composition:prompt (removed)
+    """
     from ksi_common.event_parser import event_format_linter
     from ksi_common.event_response_builder import event_response_builder, error_response
     data = event_format_linter(raw_data, CompositionComposeData)
@@ -163,68 +172,7 @@ async def handle_compose(raw_data: Dict[str, Any], context: Optional[Dict[str, A
         )
 
 
-class CompositionProfileData(TypedDict):
-    """Compose a profile (returns full configuration)."""
-    name: str  # Profile name to compose
-    variables: NotRequired[Dict[str, Any]]  # Variables for substitution
-
-
-@event_handler("composition:profile")
-async def handle_compose_profile(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Compose a profile (returns full configuration)."""
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, CompositionProfileData)
-    name = data.get('name')
-    variables = data.get('variables', {})
-    
-    try:
-        result = await compose_profile(name, variables)
-        return event_response_builder(
-            {
-                'status': 'success',
-                'profile': result
-            },
-            context=context
-        )
-    except Exception as e:
-        logger.error(f"Profile composition failed: {e}")
-        return error_response(
-            str(e),
-            context=context
-        )
-
-
-class CompositionPromptData(TypedDict):
-    """Compose a prompt (returns text)."""
-    name: str  # Prompt name to compose
-    variables: NotRequired[Dict[str, Any]]  # Variables for substitution
-
-
-@event_handler("composition:prompt")
-async def handle_compose_prompt(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Compose a prompt (returns text)."""
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, CompositionPromptData)
-    name = data.get('name')
-    variables = data.get('variables', {})
-    
-    try:
-        result = await compose_prompt(name, variables)
-        return event_response_builder(
-            {
-                'status': 'success',
-                'prompt': result
-            },
-            context=context
-        )
-    except Exception as e:
-        logger.error(f"Prompt composition failed: {e}")
-        return error_response(
-            str(e),
-            context=context
-        )
+# Type-specific composition endpoints removed - use composition:compose
 
 
 class CompositionValidateData(TypedDict):
@@ -668,31 +616,18 @@ async def load_composition_raw(name: str, comp_type: Optional[str] = None) -> Di
     composition_path = await composition_index.get_path(name)
     
     if not composition_path or not composition_path.exists():
-        # Fallback to old behavior for backward compatibility
-        # Try to find composition file
+        # Fallback: search for the file by name pattern
+        # Look for .yaml or .md files matching the name
         composition_path = None
         
-        if comp_type:
-            # Try specific type directory first
-            type_dirs = {
-                'profile': 'profiles',
-                'prompt': 'prompts',
-                'system': 'system',
-                'orchestration': 'orchestrations',
-                'evaluation': 'evaluations'
-            }
-            if comp_type in type_dirs:
-                potential_path = COMPOSITIONS_BASE / type_dirs[comp_type] / f"{name}.yaml"
-                if potential_path.exists():
-                    composition_path = potential_path
-        
-        # Search all composition directories (but log warning about ambiguity)
-        if not composition_path:
-            matches = list(COMPOSITIONS_BASE.rglob(f"{name}.yaml"))
-            if len(matches) > 1:
-                logger.warning(f"Multiple files found with name '{name}': {[str(m.relative_to(COMPOSITIONS_BASE)) for m in matches]}. Using first match.")
+        # Try exact name match first
+        for pattern in [f"{name}.yaml", f"{name}.md"]:
+            matches = list(COMPOSITIONS_BASE.rglob(pattern))
             if matches:
+                if len(matches) > 1:
+                    logger.warning(f"Multiple files found with name '{name}': {[str(m.relative_to(COMPOSITIONS_BASE)) for m in matches]}. Using first match.")
                 composition_path = matches[0]
+                break
         
         if not composition_path or not composition_path.exists():
             raise FileNotFoundError(f"Composition not found: {name}")
@@ -703,8 +638,19 @@ async def load_composition_raw(name: str, comp_type: Optional[str] = None) -> Di
         content = composition_path.read_text()
         post = parse_frontmatter(content, sanitize_dates=True)
         if post.has_frontmatter():
-            # Return frontmatter as the composition data
-            return post.metadata
+            # For orchestrations and other YAML-content types, parse content as YAML
+            if comp_type in ['orchestration', 'evaluation', 'workflow']:
+                try:
+                    # Parse the content as YAML
+                    content_data = safe_load(post.content) if post.content.strip() else {}
+                    # Merge metadata and content, with metadata taking precedence
+                    return {**content_data, **post.metadata}
+                except Exception as e:
+                    logger.error(f"Failed to parse YAML content in {name}: {e}")
+                    raise ValueError(f"Invalid YAML content in markdown file: {e}")
+            else:
+                # For other types, just return metadata
+                return post.metadata
         else:
             # No frontmatter, return empty dict
             return {}
@@ -769,7 +715,7 @@ async def handle_get(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]]
         validation_errors = validate_core_composition(composition_data)
         if validation_errors:
             return error_response(
-                'Invalid composition structure',
+                f'Invalid composition structure: {"; ".join(validation_errors)}',
                 context=context
             )
         
@@ -1307,15 +1253,7 @@ def _get_fallback_selection() -> SelectionResult:
 
 
 async def load_composition(name: str, comp_type: Optional[str] = None) -> Composition:
-    """Load a composition with caching support."""
-    # Check dynamic cache first
-    # TODO: Update to use new graph database API
-    # if state_manager:
-    #     cache_key = f"dynamic_composition:{name}"
-    #     cached = state_manager.get_shared_state(cache_key)
-    #     if cached and isinstance(cached, dict):
-    #         return Composition.from_yaml(cached)
-    
+    """Load a composition."""
     # Load from file
     return await load_composition_file(name, comp_type)
 
@@ -1330,11 +1268,31 @@ async def resolve_composition(
         variables = {}
     
     # Load the composition
-    composition = await load_composition(name, comp_type)
+    composition = await load_composition(name)
+    
+    # For markdown components without a components list, return the content itself
+    if not composition.components and name.endswith('.md') or name.startswith('components/'):
+        # This is a leaf component, return its content
+        try:
+            # Get the actual file path
+            composition_path = await composition_index.get_path(name)
+            if composition_path and composition_path.exists() and composition_path.suffix == '.md':
+                content = composition_path.read_text()
+                # Extract content after frontmatter
+                from ksi_common.frontmatter_utils import parse_frontmatter
+                post = parse_frontmatter(content)
+                if post.has_frontmatter():
+                    # Return the content after frontmatter as the prompt
+                    return {
+                        'prompt': post.content,
+                        'metadata': composition.metadata if hasattr(composition, 'metadata') else {}
+                    }
+        except Exception as e:
+            logger.warning(f"Failed to load component content for {name}: {e}")
     
     # Process inheritance
     if composition.extends:
-        parent = await resolve_composition(composition.extends, comp_type, variables)
+        parent = await resolve_composition(composition.extends, 'profile', variables)
         # Merge parent configuration
         # (simplified - in production would do deep merge)
         if isinstance(parent, dict):
@@ -1361,7 +1319,7 @@ async def resolve_composition(
                 logger.error(f"Mixin component not found: {mixin_name}")
         else:
             # Load as composition
-            mixin = await resolve_composition(mixin_name, comp_type, variables)
+            mixin = await resolve_composition(mixin_name, 'profile', variables)
             # Merge mixin configuration
             if isinstance(mixin, dict):
                 for key, value in mixin.items():
@@ -1415,46 +1373,7 @@ async def resolve_composition(
     return result
 
 
-async def compose_profile(name: str, variables: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Compose a profile configuration."""
-    if variables is None:
-        variables = {}
-    
-    # Resolve the profile composition
-    profile_config = await resolve_composition(name, 'profile', variables)
-    
-    # Ensure required profile fields
-    if 'name' not in profile_config:
-        profile_config['name'] = name
-    
-    if 'type' not in profile_config:
-        profile_config['type'] = 'profile'
-    
-    return profile_config
-
-
-async def compose_prompt(name: str, variables: Optional[Dict[str, Any]] = None) -> str:
-    """Compose a prompt into final text."""
-    if variables is None:
-        variables = {}
-    
-    # Resolve the prompt composition
-    prompt_parts = await resolve_composition(name, 'prompt', variables)
-    
-    # Combine parts into final prompt
-    if isinstance(prompt_parts, dict):
-        # If it's a dict, concatenate the values
-        parts = []
-        for key in sorted(prompt_parts.keys()):
-            value = prompt_parts[key]
-            if isinstance(value, str):
-                parts.append(value)
-            else:
-                parts.append(json_dumps(value))
-        return '\n\n'.join(parts)
-    else:
-        # Otherwise return as string
-        return str(prompt_parts)
+# Type-specific compose functions removed - composition:compose handles all types
 
 
 def apply_minimal_redaction(composition_dict: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:

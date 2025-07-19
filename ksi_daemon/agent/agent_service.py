@@ -483,8 +483,9 @@ async def handle_ready(raw_data: Dict[str, Any], context: Optional[Dict[str, Any
     logger.info(f"Loaded {loaded_agents} agents from state (total: {len(agents)})")
     
     # Re-establish observation subscriptions for loaded agents
-    if loaded_agents > 0:
-        await reestablish_observations({})
+    # TODO: Implement reestablish_observations when needed
+    # if loaded_agents > 0:
+    #     await reestablish_observations({})
     
     return event_response_builder(
         {
@@ -775,8 +776,8 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
         if "context" in data:
             comp_vars.update(data["context"])
         
-        # Try to compose profile
-        compose_result = await agent_emit_event(agent_id, "composition:profile", {
+        # Compose the component
+        compose_result = await agent_emit_event(agent_id, "composition:compose", {
             "name": compose_name,
             "variables": comp_vars
         }, propagate_agent_context(context))
@@ -786,7 +787,7 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
             compose_result = compose_result[0] if compose_result else {}
         
         if compose_result and compose_result.get("status") == "success":
-            profile = compose_result["profile"]
+            profile = compose_result["composition"]
             
             # Validate and resolve capabilities for agent spawn
             enforcer = get_capability_enforcer()
@@ -976,11 +977,14 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
                 "event_subscription_level": event_subscription_level
             })
         
-        entity_result = await agent_emit_event(agent_id, "state:entity:create", {
+        # Create agent state entity directly (no need to route back to self)
+        logger.info(f"Creating agent state entity for {agent_id}")
+        entity_result = await event_emitter("state:entity:create", {
             "id": agent_id,
-            "type": "agent",
+            "type": "agent", 
             "properties": entity_props
         }, propagate_agent_context(context))
+        logger.info(f"Agent state entity creation result for {agent_id}: {entity_result}")
         
         if entity_result and isinstance(entity_result, list):
             entity_result = entity_result[0] if entity_result else {}
@@ -1934,8 +1938,8 @@ async def handle_update_composition(raw_data: Dict[str, Any], context: Optional[
             if not metadata.get("self_modifiable", False):
                 return error_response("Current composition does not allow self-modification", context, {"status": "denied"})
     
-    # Compose new profile
-    compose_result = await agent_emit_event(agent_id, "composition:profile", {
+    # Compose new component
+    compose_result = await agent_emit_event(agent_id, "composition:compose", {
         "name": new_composition,
         "variables": {
             "agent_id": agent_id,
@@ -1948,7 +1952,7 @@ async def handle_update_composition(raw_data: Dict[str, Any], context: Optional[
         compose_result = compose_result[0] if compose_result else {}
     
     if compose_result and compose_result.get("status") == "success":
-        new_profile = compose_result["profile"]
+        new_profile = compose_result["composition"]
         
         # Update agent configuration
         agent_info["config"] = {

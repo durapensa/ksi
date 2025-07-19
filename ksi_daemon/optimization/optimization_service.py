@@ -8,7 +8,7 @@ import logging
 from typing import Dict, Any, Optional, Callable
 import dspy
 
-from ksi_daemon.event_system import event_handler
+from ksi_daemon.event_system import event_handler, get_router
 from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_common.config import config
 

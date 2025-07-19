@@ -160,30 +160,38 @@ def evaluate_conditions(conditions: Dict[str, List[str]], variables: Dict[str, A
 
 async def load_composition(name: str, comp_type: Optional[str] = None) -> Composition:
     """Load a composition by name and optional type."""
-    # Try to find composition file
-    composition_path = None
+    logger.info(f"Loading composition: name={name}, comp_type={comp_type}")
     
-    if comp_type:
-        # Try specific type directory first
-        type_dirs = {
-            'profile': 'profiles',
-            'prompt': 'prompts',
-            'system': 'system'
-        }
-        if comp_type in type_dirs:
-            potential_path = COMPOSITIONS_BASE / type_dirs[comp_type] / f"{name}.yaml"
-            if potential_path.exists():
-                composition_path = potential_path
-    
-    # Search all composition directories
-    if not composition_path:
-        for yaml_file in COMPOSITIONS_BASE.rglob(f"{name}.yaml"):
-            composition_path = yaml_file
-            break
+    # Use composition index to find the file path
+    composition_path = await composition_index.get_path(name)
+    logger.info(f"Index returned path: {composition_path}")
     
     if not composition_path or not composition_path.exists():
-        raise FileNotFoundError(f"Composition not found: {name}")
+        # Fallback: search for the file by name pattern
+        composition_path = None
+        
+        # Try exact name match for both .yaml and .md files
+        for pattern in [f"{name}.yaml", f"{name}.md"]:
+            matches = list(COMPOSITIONS_BASE.rglob(pattern))
+            if matches:
+                composition_path = matches[0]
+                break
+        
+        if not composition_path or not composition_path.exists():
+            raise FileNotFoundError(f"Composition not found: {name}")
     
-    # Load and parse YAML
-    comp_data = load_yaml_file(composition_path)
+    # Load and parse based on file type
+    if composition_path.suffix == '.md':
+        # Handle markdown files with frontmatter
+        from ksi_common.frontmatter_utils import parse_frontmatter
+        content = composition_path.read_text()
+        post = parse_frontmatter(content, sanitize_dates=True)
+        if post.has_frontmatter():
+            comp_data = post.metadata
+        else:
+            raise ValueError(f"Markdown file {name} has no frontmatter")
+    else:
+        # Handle YAML files
+        comp_data = load_yaml_file(composition_path)
+    
     return Composition.from_yaml(comp_data)
