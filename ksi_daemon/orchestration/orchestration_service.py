@@ -457,8 +457,12 @@ class OrchestrationModule:
                     logger.error(f"Failed to send initial message to {agent_id}: {e}")
             
             # Check if this is an orchestrator agent and send the DSL strategy
-            agent_profile = agent_config.get('profile', '')
-            if 'orchestrator' in agent_profile.lower() and 'orchestration_logic' in pattern:
+            # ONLY if the agent doesn't already have a prompt or initial_prompt defined
+            agent_profile = agent_config.get('profile', '') or agent_config.get('component', '')
+            agent_vars = agent_config.get('vars', {})
+            has_prompt = 'prompt' in agent_vars or 'initial_prompt' in agent_vars
+            
+            if 'orchestrator' in agent_profile.lower() and 'orchestration_logic' in pattern and not has_prompt:
                 try:
                     # Build orchestration instruction with the DSL
                     orchestration_logic = pattern.get('orchestration_logic', {})
@@ -495,6 +499,8 @@ START the orchestration NOW by following the DSL strategy."""
                     
                 except Exception as e:
                     logger.error(f"Failed to send orchestration strategy to {agent_id}: {e}")
+            elif 'orchestrator' in agent_profile.lower() and has_prompt:
+                logger.info(f"Skipping orchestration_logic DSL for {agent_id} - agent already has prompt defined")
             
             # Also check for initial_prompt in vars
             else:
@@ -873,33 +879,7 @@ async def handle_orchestration_request_termination(raw_data: Dict[str, Any], con
         return error_response("Only orchestrator agents can request termination", context)
 
 
-class OrchestrationListPatternsData(TypedDict):
-    """List available orchestration patterns."""
-    # No specific fields - returns all patterns
-    pass
-
-
-@event_handler("orchestration:list_patterns")
-async def handle_list_patterns(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """List available orchestration patterns."""
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder
-    
-    data = event_format_linter(raw_data, OrchestrationListPatternsData)
-    patterns_dir = orchestration_module.patterns_dir
-    patterns = []
-    
-    if patterns_dir.exists():
-        for pattern_file in patterns_dir.glob("*.yaml"):
-            patterns.append(pattern_file.stem)
-        for pattern_file in patterns_dir.glob("*.yml"):
-            if pattern_file.stem not in patterns:  # Avoid duplicates
-                patterns.append(pattern_file.stem)
-    
-    return event_response_builder({
-        "patterns": sorted(patterns),
-        "patterns_dir": str(patterns_dir)
-    }, context)
+# orchestration:list_patterns removed - use composition:discover --type orchestration instead
 
 
 class OrchestrationLoadPatternData(TypedDict):
