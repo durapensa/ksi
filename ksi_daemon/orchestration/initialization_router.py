@@ -45,6 +45,10 @@ class InitializationRouter:
             return self._route_distributed(orchestration_config, agent_list)
         elif strategy == 'custom':
             return self._route_custom(orchestration_config, agent_list)
+        elif strategy == 'leader_first':
+            return self._route_leader_first(orchestration_config, agent_list)
+        elif strategy == 'broadcast':
+            return self._route_broadcast(orchestration_config, agent_list)
         else:
             # Legacy behavior - use existing orchestration_logic DSL
             return self._route_legacy(orchestration_config, agent_list)
@@ -258,6 +262,78 @@ START the orchestration NOW by following the DSL strategy."""
                     'message': dsl_message,
                     'timing': 'immediate',
                     'variables': {}
+                })
+        
+        return message_plan
+    
+    def _route_leader_first(self, config: Dict[str, Any], agents: List[str]) -> List[Dict[str, Any]]:
+        """Route messages using leader-first strategy."""
+        initialization = config['initialization']
+        leader = initialization.get('leader', '')
+        message = initialization.get('message', '')
+        
+        logger.info(f"Leader-first routing with leader: {leader}")
+        
+        message_plan = []
+        
+        # Map leader role to actual agent ID
+        leader_agent_id = None
+        for agent_id in agents:
+            # Match by role name in agent ID (e.g., "coordinator" matches "orch_123_coordinator")
+            if leader in agent_id:
+                leader_agent_id = agent_id
+                break
+        
+        if leader_agent_id and message:
+            # Extract variables from orchestration config  
+            variables = config.get('variables', {}).copy()
+            variables.update({
+                'agent_id': leader_agent_id,
+                'leader': leader,
+                'all_agents': agents,
+                'other_agents': [a for a in agents if a != leader_agent_id]
+            })
+            
+            message_plan.append({
+                'type': 'targeted',
+                'agent_id': leader_agent_id,
+                'role': 'leader',
+                'message': message,
+                'timing': 'immediate',
+                'variables': variables
+            })
+            
+            logger.info(f"Scheduled leader message for {leader_agent_id}")
+        else:
+            logger.warning(f"Leader '{leader}' not found in agents {agents} or no message provided")
+        
+        return message_plan
+    
+    def _route_broadcast(self, config: Dict[str, Any], agents: List[str]) -> List[Dict[str, Any]]:
+        """Route messages as broadcast to all agents."""
+        initialization = config['initialization']
+        message = initialization.get('message', '')
+        
+        logger.info(f"Broadcast routing to {len(agents)} agents")
+        
+        message_plan = []
+        if message:
+            for agent_id in agents:
+                variables = config.get('variables', {}).copy()
+                variables.update({
+                    'agent_id': agent_id,
+                    'all_agents': agents,
+                    'other_agents': [a for a in agents if a != agent_id],
+                    'agent_count': len(agents)
+                })
+                
+                message_plan.append({
+                    'type': 'targeted',
+                    'agent_id': agent_id,
+                    'role': 'participant',
+                    'message': message,
+                    'timing': 'immediate',
+                    'variables': variables
                 })
         
         return message_plan
