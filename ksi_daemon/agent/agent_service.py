@@ -336,6 +336,10 @@ async def agent_emit_event(agent_id: str, event_name: str, event_data: Dict[str,
         # Route result back to originator (for ALL events)
         await route_to_originator(agent_id, event_name, result)
         
+        # Also route through hierarchical system based on subscription levels
+        from ksi_daemon.core.hierarchical_routing import route_hierarchical_event
+        await route_hierarchical_event(agent_id, event_name, result)
+        
         return result
         
     except Exception as e:
@@ -344,6 +348,10 @@ async def agent_emit_event(agent_id: str, event_name: str, event_data: Dict[str,
         
         # Route error back to originator too
         await route_to_originator(agent_id, event_name, error_result)
+        
+        # Also route error through hierarchical system
+        from ksi_daemon.core.hierarchical_routing import route_hierarchical_event
+        await route_hierarchical_event(agent_id, event_name, error_result)
         
         return error_result
 
@@ -359,6 +367,11 @@ async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, A
     router = get_router()
     event_emitter = router.emit
     logger.info("Agent service received context, event_emitter configured")
+    
+    # Initialize hierarchical routing system
+    from ksi_daemon.core.hierarchical_routing import set_event_emitter
+    set_event_emitter(event_emitter)
+    logger.info("Hierarchical routing system initialized")
 
 
 @event_handler("system:startup")

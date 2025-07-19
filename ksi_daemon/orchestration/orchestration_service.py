@@ -1071,6 +1071,48 @@ async def handle_load_pattern(raw_data: Dict[str, Any], context: Optional[Dict[s
         return error_response(f"Failed to load pattern: {str(e)}", context)
 
 
+@event_handler("orchestration:event")
+async def handle_orchestration_event(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Handle hierarchically routed events for orchestrations."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder
+    
+    orchestration_id = raw_data.get("orchestration_id")
+    source_agent = raw_data.get("source_agent")
+    event_name = raw_data.get("event")
+    event_data = raw_data.get("data", {})
+    
+    if not orchestration_id:
+        return {"error": "orchestration_id required"}
+    
+    instance = orchestrations.get(orchestration_id)
+    if not instance:
+        return {"error": f"Orchestration {orchestration_id} not found"}
+    
+    # Log the event for orchestration-level monitoring
+    logger.info(f"Orchestration {orchestration_id} received event {event_name} from {source_agent}")
+    
+    # Store event in orchestration state for potential pattern analysis
+    if not hasattr(instance, 'received_events'):
+        instance.received_events = []
+    
+    instance.received_events.append({
+        "timestamp": timestamp_utc(),
+        "source_agent": source_agent,
+        "event": event_name,
+        "data": event_data
+    })
+    
+    # Keep only last 100 events to prevent memory issues
+    if len(instance.received_events) > 100:
+        instance.received_events = instance.received_events[-100:]
+    
+    return event_response_builder({
+        "status": "received",
+        "orchestration_id": orchestration_id
+    }, context)
+
+
 class OrchestrationGetInstanceData(TypedDict):
     """Get detailed information about an orchestration instance."""
     orchestration_id: Required[str]  # Orchestration ID to get details for

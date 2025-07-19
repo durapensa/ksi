@@ -156,11 +156,17 @@ ksi discover --orchestration-id orch_xyz
 # Returns: orchestration details, agent hierarchy, recent events, statistics
 ```
 
-### Event Subscription Levels (Planned)
+### Event Subscription Levels (Implemented ✅)
 - **Level 0**: Only orchestration-level events
 - **Level 1**: Direct child agents + immediate events (default)
-- **Level 2**: Children + grandchildren events
+- **Level N**: Events from agents up to N levels deep in hierarchy (e.g., 2=grandchildren, 3=great-grandchildren)
 - **Level -1**: ALL events in entire orchestration tree
+
+### Hierarchical Event Routing
+- **Module**: `ksi_daemon/core/hierarchical_routing.py`
+- **Automatic routing**: Events from agents are routed based on subscription levels
+- **Orchestration events**: Routed to `orchestration:event` handler
+- **Agent events**: Routed via `completion:async` with event_notification
 
 ### Dynamic CLI Discovery
 - **ksi-cli uses dynamic parameter discovery** - Commands like `discover` and `send` query event handlers for parameters
@@ -308,6 +314,7 @@ echo "personas/deep_analyst.md model=claude-opus performance=reasoning" >> .gita
 - **Core Systems**: `ksi_common/json_utils.py`, `ksi_common/component_renderer.py`
 - **Event Handlers**: `ksi_daemon/composition/composition_service.py`
 - **Discovery Cache**: `ksi_daemon/core/discovery_cache.py`
+- **Hierarchical Routing**: `ksi_daemon/core/hierarchical_routing.py`
 - **Components**: `var/lib/compositions/components/` (organized by type)
 - **Evaluation Data**: `var/lib/evaluations/` (runtime results)
 - **Logs**: `var/logs/daemon/daemon.log.jsonl`, `var/logs/responses/{session_id}.jsonl`
