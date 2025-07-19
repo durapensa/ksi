@@ -248,6 +248,51 @@ class ReferenceEventLog:
             # Remove None values
             entry_dict = {k: v for k, v in entry_dict.items() if v is not None}
             
+            # Sanitize data to ensure JSON serializable
+            def make_json_serializable(obj, depth=0, visited=None):
+                """Convert non-serializable objects to strings."""
+                if visited is None:
+                    visited = set()
+                
+                # Prevent infinite recursion
+                if depth > 10:
+                    return "<max depth exceeded>"
+                
+                # Check for circular references
+                obj_id = id(obj)
+                if obj_id in visited:
+                    return "<circular reference>"
+                
+                # Handle basic types
+                if obj is None or isinstance(obj, (str, int, float, bool)):
+                    return obj
+                
+                # Mark this object as visited
+                visited.add(obj_id)
+                
+                try:
+                    if callable(obj):
+                        return f"<callable: {obj.__name__ if hasattr(obj, '__name__') else str(obj)}>"
+                    elif isinstance(obj, dict):
+                        return {str(k): make_json_serializable(v, depth+1, visited) for k, v in obj.items()}
+                    elif hasattr(obj, '__dict__'):
+                        return {str(k): make_json_serializable(v, depth+1, visited) for k, v in obj.__dict__.items()}
+                    elif isinstance(obj, (list, tuple)):
+                        return [make_json_serializable(item, depth+1, visited) for item in obj]
+                    else:
+                        # Try to convert to string as last resort
+                        try:
+                            return str(obj)
+                        except:
+                            return "<non-serializable>"
+                finally:
+                    # Remove from visited to allow the same object at different paths
+                    visited.discard(obj_id)
+            
+            # Apply sanitization to data field
+            if 'data' in entry_dict:
+                entry_dict['data'] = make_json_serializable(entry_dict['data'])
+            
             # Get file position before write
             file_offset = file_path.stat().st_size if file_path.exists() else 0
             
