@@ -287,18 +287,28 @@ START the orchestration NOW by following the DSL strategy."""
         if leader_agent_id and message:
             # Extract variables from orchestration config  
             variables = config.get('variables', {}).copy()
+            
+            # Find worker and other role-based agents
+            worker_id = next((a for a in agents if 'worker' in a), None)
+            coordinator_id = next((a for a in agents if 'coordinator' in a), None)
+            
             variables.update({
                 'agent_id': leader_agent_id,
                 'leader': leader,
                 'all_agents': agents,
-                'other_agents': [a for a in agents if a != leader_agent_id]
+                'other_agents': [a for a in agents if a != leader_agent_id],
+                'worker_id': worker_id,
+                'coordinator_id': coordinator_id
             })
+            
+            # Substitute variables in the message content
+            substituted_message = substitute_variables(message, variables)
             
             message_plan.append({
                 'type': 'targeted',
                 'agent_id': leader_agent_id,
                 'role': 'leader',
-                'message': message,
+                'message': substituted_message,
                 'timing': 'immediate',
                 'variables': variables
             })
@@ -327,11 +337,14 @@ START the orchestration NOW by following the DSL strategy."""
                     'agent_count': len(agents)
                 })
                 
+                # Substitute variables in the message content
+                substituted_message = substitute_variables(message, variables)
+                
                 message_plan.append({
                     'type': 'targeted',
                     'agent_id': agent_id,
                     'role': 'participant',
-                    'message': message,
+                    'message': substituted_message,
                     'timing': 'immediate',
                     'variables': variables
                 })
