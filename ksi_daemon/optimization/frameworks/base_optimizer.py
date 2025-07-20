@@ -95,6 +95,47 @@ class BaseOptimizer(ABC):
             return [r for r in self.optimization_history if r["component_name"] == component_name]
         return self.optimization_history
     
+    async def optimize(
+        self,
+        target: str,
+        signature: Optional[str] = None,
+        metric: Optional[str] = None,
+        trainset: Optional[List[Dict[str, Any]]] = None,
+        valset: Optional[List[Dict[str, Any]]] = None,
+        **kwargs
+    ) -> OptimizationResult:
+        """Bridge method for optimization service interface.
+        
+        Maps optimization service parameters to optimize_component method.
+        """
+        from ksi_daemon.event_system import get_router
+        
+        # Fetch component content
+        router = get_router()
+        response = await router.route({
+            "event": "composition:get_component",
+            "data": {"name": target}
+        })
+        
+        if response.get("status") != "success":
+            raise ValueError(f"Failed to load component: {target}")
+            
+        component_content = response.get("content", "")
+        
+        # Use empty training data if none provided (zero-shot optimization)
+        if trainset is None:
+            trainset = []
+        if valset is None:
+            valset = []
+            
+        return await self.optimize_component(
+            component_name=target,
+            component_content=component_content,
+            trainset=trainset,
+            valset=valset,
+            **kwargs
+        )
+    
     @abstractmethod
     def get_optimizer_name(self) -> str:
         """Return the name of this optimizer (e.g., 'MIPROv2', 'TextGrad')."""

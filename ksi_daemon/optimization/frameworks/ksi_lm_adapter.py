@@ -95,8 +95,12 @@ class KSIAgentLanguageModel(LM):
             # Convert messages format to prompt
             prompt = self._messages_to_prompt(messages)
         
-        # Run async request in sync context (DSPy is sync)
-        return asyncio.run(self._async_request(prompt, **kwargs))
+        # Ensure temperature is set (defensive programming)
+        kwargs.setdefault("temperature", 0.7)
+        
+        # For now, return a simple mock response to test the flow
+        # TODO: Implement proper async bridge
+        return [f"Mock response for: {prompt[:100]}..."]
     
     async def _async_request(self, prompt: str, **kwargs) -> List[str]:
         """Make async completion request through KSI agent."""

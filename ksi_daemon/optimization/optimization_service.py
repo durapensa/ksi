@@ -78,10 +78,24 @@ async def handle_optimize(raw_data: Dict[str, Any], context: Optional[Dict[str, 
     
     # Load framework adapter
     adapter_class = optimization_frameworks[framework]
-    adapter = adapter_class()
+    
+    # Parse config if it's a string
+    config_data = raw_data.get("config", {})
+    if isinstance(config_data, str):
+        import json
+        try:
+            config_data = json.loads(config_data)
+        except json.JSONDecodeError:
+            return error_response(f"Invalid JSON in config parameter: {config_data}", context=context)
+    
+    # Create adapter (different constructors for different frameworks)
+    if framework == "dspy":
+        adapter = adapter_class()  # DSPyFramework takes no args
+    else:
+        adapter = adapter_class(metric=None, config=config_data)
     
     # Run optimization - filter out duplicate parameters
-    kwargs = {k: v for k, v in raw_data.items() if k not in ['target', 'signature', 'metric', 'framework']}
+    kwargs = {k: v for k, v in raw_data.items() if k not in ['target', 'signature', 'metric', 'framework', 'config']}
     result = await adapter.optimize(
         target=target,
         signature=signature,
