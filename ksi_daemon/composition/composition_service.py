@@ -22,6 +22,7 @@ from ksi_common.yaml_utils import safe_load, safe_dump, load_yaml_file, save_yam
 from ksi_common.json_utils import loads as json_loads, dumps as json_dumps
 from ksi_common.frontmatter_utils import parse_frontmatter, validate_frontmatter
 from ksi_common.component_renderer import get_renderer, ComponentResolutionError, CircularDependencyError
+from ksi_common.component_loader import find_component_file, load_component_file
 
 # Import composition modules
 from . import composition_index
@@ -577,28 +578,28 @@ async def handle_list(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]
     """List all compositions of a given type."""
     from ksi_common.event_parser import event_format_linter
     from ksi_common.event_response_builder import event_response_builder
+    from ksi_common.json_utils import parse_json_parameter
+    
     data = event_format_linter(raw_data, CompositionListData)
-    comp_type = data.get('type', 'all')
+    
+    # Handle filter parameter if it's a JSON string
+    parse_json_parameter(data, 'filter')
+    
     include_validation = data.get('include_validation', False)
     
-    compositions = []
-    
-    if comp_type == 'all':
-        # Discover types dynamically from index
-        types = await composition_index.get_unique_component_types()
-        if not types:  # Fallback for empty index
-            types = ['component']  # Everything is a component
-    else:
-        types = [comp_type]
-    
-    # Pass through all query parameters
+    # Pass through all query parameters directly to discover
     query_params = dict(data)
-    query_params.pop('type', None)  # Remove type since we handle it in the loop
+    query_params.pop('filter', None)  # Remove filter string parameter
+    query_params.pop('include_validation', None)  # Remove non-query parameter
     
-    for t in types:
-        query_params['type'] = t
-        discovered = await handle_discover(query_params, context)
-        compositions.extend(discovered.get('compositions', []))
+    # Debug logging
+    logger.debug(f"composition:list query_params: {query_params}")
+    
+    # Let discover handle the query - it will filter by type if specified
+    discovered = await handle_discover(query_params, context)
+    compositions = discovered.get('compositions', [])
+    
+    logger.debug(f"composition:list discovered {len(compositions)} compositions")
     
     return event_response_builder(
         {
@@ -612,51 +613,28 @@ async def handle_list(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]
 
 async def load_composition_raw(name: str, comp_type: Optional[str] = None) -> Dict[str, Any]:
     """Load raw composition YAML data preserving all sections."""
-    # Use composition index to find the file path
-    composition_path = await composition_index.get_path(name)
+    # Find the component file directly
+    composition_path = find_component_file(COMPOSITIONS_BASE, name)
     
-    if not composition_path or not composition_path.exists():
-        # Fallback: search for the file by name pattern
-        # Look for .yaml or .md files matching the name
-        composition_path = None
-        
-        # Try exact name match first
-        for pattern in [f"{name}.yaml", f"{name}.md"]:
-            matches = list(COMPOSITIONS_BASE.rglob(pattern))
-            if matches:
-                if len(matches) > 1:
-                    logger.warning(f"Multiple files found with name '{name}': {[str(m.relative_to(COMPOSITIONS_BASE)) for m in matches]}. Using first match.")
-                composition_path = matches[0]
-                break
-        
-        if not composition_path or not composition_path.exists():
-            raise FileNotFoundError(f"Composition not found: {name}")
+    if not composition_path:
+        raise FileNotFoundError(f"Composition not found: {name}")
     
-    # Load and return data based on file type
-    if composition_path.suffix == '.md':
-        # Handle markdown files with frontmatter
-        content = composition_path.read_text()
-        post = parse_frontmatter(content, sanitize_dates=True)
-        if post.has_frontmatter():
-            # For orchestrations and other YAML-content types, parse content as YAML
-            if comp_type in ['orchestration', 'evaluation', 'workflow']:
-                try:
-                    # Parse the content as YAML
-                    content_data = safe_load(post.content) if post.content.strip() else {}
-                    # Merge metadata and content, with metadata taking precedence
-                    return {**content_data, **post.metadata}
-                except Exception as e:
-                    logger.error(f"Failed to parse YAML content in {name}: {e}")
-                    raise ValueError(f"Invalid YAML content in markdown file: {e}")
-            else:
-                # For other types, just return metadata
-                return post.metadata
-        else:
-            # No frontmatter, return empty dict
-            return {}
-    else:
-        # Handle YAML files
-        return load_yaml_file(composition_path)
+    # Load using shared component loader
+    metadata, content = load_component_file(composition_path)
+    
+    # For orchestrations and other YAML-content types that have content, parse content as YAML
+    if content and comp_type in ['orchestration', 'evaluation', 'workflow']:
+        try:
+            # Parse the content as YAML
+            content_data = safe_load(content) if content.strip() else {}
+            # Merge metadata and content, with metadata taking precedence
+            return {**content_data, **metadata}
+        except Exception as e:
+            logger.error(f"Failed to parse YAML content in {name}: {e}")
+            raise ValueError(f"Invalid YAML content in file: {e}")
+    
+    # For YAML files or other types, just return metadata
+    return metadata or {}
 
 
 def validate_core_composition(data: Dict[str, Any]) -> List[str]:
@@ -1015,6 +993,11 @@ async def handle_create_composition(raw_data: Dict[str, Any], context: Optional[
     
     try:
         data = event_format_linter(raw_data, CompositionCreateData)
+        
+        # Handle metadata parameter if it's a JSON string
+        from ksi_common.json_utils import parse_json_parameter
+        parse_json_parameter(data, 'metadata')
+        
         # TypedDict is still a dict at runtime
         name = data.get('name')  # Optional composition name (auto-generated if not provided)
         if not name:
@@ -1773,6 +1756,13 @@ class ComponentRenderData(TypedDict):
     include_metadata: NotRequired[bool]  # Include metadata in response
 
 
+class CompositionInspectData(TypedDict):
+    """Inspect a component and return its dependency tree."""
+    component: Required[str]  # Component name to inspect (e.g., "orchestrations/optimization/hybrid_marketplace")
+    variables: NotRequired[Dict[str, Any]]  # Variables for conditional dependency resolution
+    output_format: NotRequired[Literal['tree', 'json', 'summary']]  # Output format (default: tree)
+
+
 @event_handler("composition:render_component")
 async def handle_render_component(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Render a component with full mixin resolution and variable substitution."""
@@ -1823,6 +1813,133 @@ async def handle_render_component(raw_data: Dict[str, Any], context: Optional[Di
     except Exception as e:
         logger.error(f"Component rendering failed: {e}")
         return error_response(f"Component rendering failed: {e}", context)
+
+
+@event_handler("composition:inspect")
+async def handle_inspect(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Inspect a component and return its dependency tree."""
+    from ksi_common.event_parser import event_format_linter
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    try:
+        data = event_format_linter(raw_data, CompositionInspectData)
+        
+        component_name = data['component']
+        variables = data.get('variables', {})
+        output_format = data.get('output_format', 'tree')
+        
+        # Ensure variables is a dictionary
+        if isinstance(variables, str):
+            try:
+                variables = json_loads(variables)
+            except Exception:
+                variables = {}
+        elif not isinstance(variables, dict):
+            variables = {}
+        
+        # Get renderer and inspect component
+        renderer = get_renderer()
+        inspection_result = renderer.inspect(component_name, variables)
+        
+        # Format output based on requested format
+        if output_format == 'tree':
+            # Format as tree string
+            tree_output = _format_dependency_tree(inspection_result['dependency_tree'])
+            response_data = {
+                'status': 'success',
+                'component': component_name,
+                'tree': tree_output,
+                'summary': {
+                    'type': inspection_result['type'],
+                    'version': inspection_result['version'],
+                    'description': inspection_result['description'],
+                    'direct_dependencies': len(inspection_result['dependencies']),
+                    'total_dependencies': len(inspection_result['transitive_dependencies']) + 1,
+                    'capabilities': inspection_result['capabilities']
+                }
+            }
+        elif output_format == 'summary':
+            # Just the summary info
+            response_data = {
+                'status': 'success',
+                'component': component_name,
+                'type': inspection_result['type'],
+                'version': inspection_result['version'],
+                'description': inspection_result['description'],
+                'dependencies': inspection_result['dependencies'],
+                'transitive_dependencies': inspection_result['transitive_dependencies'],
+                'capabilities': inspection_result['capabilities']
+            }
+        else:  # json format
+            # Full JSON structure
+            response_data = {
+                'status': 'success',
+                'component': component_name,
+                'inspection': inspection_result
+            }
+        
+        return event_response_builder(response_data, context)
+        
+    except CircularDependencyError as e:
+        logger.error(f"Circular dependency in component: {e}")
+        return error_response(f"Circular dependency detected: {e}", context)
+    except ComponentResolutionError as e:
+        logger.error(f"Component inspection failed: {e}")
+        return error_response(f"Component inspection failed: {e}", context)
+    except Exception as e:
+        logger.error(f"Component inspection failed: {e}")
+        return error_response(f"Component inspection failed: {e}", context)
+
+
+def _format_dependency_tree(tree: Dict[str, Any], indent: int = 0) -> str:
+    """Format dependency tree as readable string."""
+    lines = []
+    prefix = "  " * indent
+    
+    # Handle error or circular reference
+    if tree.get('error'):
+        lines.append(f"{prefix}├── {tree['name']} (ERROR: {tree['error']})")
+        return "\n".join(lines)
+    if tree.get('circular_reference'):
+        lines.append(f"{prefix}├── {tree['name']} (circular reference)")
+        return "\n".join(lines)
+    if tree.get('max_depth_reached'):
+        lines.append(f"{prefix}├── {tree['name']} (max depth)")
+        return "\n".join(lines)
+    
+    # Format current node
+    node_info = f"{tree['name']} [{tree.get('type', 'unknown')} v{tree.get('version', '0.0.0')}]"
+    if indent == 0:
+        lines.append(node_info)
+    else:
+        lines.append(f"{prefix}├── {node_info}")
+    
+    # Add capabilities if present
+    if tree.get('capabilities'):
+        cap_prefix = "  " * (indent + 1)
+        lines.append(f"{cap_prefix}capabilities: {', '.join(tree['capabilities'])}")
+    
+    # Format dependencies
+    if tree.get('dependencies'):
+        dep_prefix = "  " * (indent + 1)
+        lines.append(f"{dep_prefix}dependencies:")
+        for dep in tree['dependencies']:
+            if isinstance(dep, dict):
+                lines.extend(_format_dependency_tree(dep, indent + 2).split('\n'))
+            else:
+                lines.append(f"{dep_prefix}  ├── {dep}")
+    
+    # Format mixins
+    if tree.get('mixins'):
+        mixin_prefix = "  " * (indent + 1)
+        lines.append(f"{mixin_prefix}mixins:")
+        for mixin in tree['mixins']:
+            if isinstance(mixin, dict):
+                lines.extend(_format_dependency_tree(mixin, indent + 2).split('\n'))
+            else:
+                lines.append(f"{mixin_prefix}  ├── {mixin}")
+    
+    return "\n".join(lines)
 
 
 @event_handler("composition:fork_component")

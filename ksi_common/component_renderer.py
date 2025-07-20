@@ -11,8 +11,7 @@ from typing import Dict, Any, List, Optional, Set, Union, Tuple
 from dataclasses import dataclass, field
 import structlog
 
-from .frontmatter_utils import parse_frontmatter, load_component_with_frontmatter
-from .yaml_utils import safe_load
+from .component_loader import load_component_file, find_component_file, extract_metadata
 from .json_utils import loads as json_loads, dumps as json_dumps
 from .template_utils import substitute_variables
 from .timestamps import sanitize_for_json
@@ -154,20 +153,23 @@ class ComponentRenderer:
             self.render_stack.pop()
     
     def _load_component(self, component_name: str) -> ComponentContext:
-        """Load component from disk."""
-        component_path = self.components_base / f"{component_name}.md"
+        """Load component from disk using shared loader."""
+        # Find the component file
+        component_path = find_component_file(self.components_base, component_name)
         
-        if not component_path.exists():
+        if not component_path:
             raise ComponentResolutionError(f"Component not found: {component_name}")
         
         try:
-            component_data = load_component_with_frontmatter(component_path)
+            # Load using shared loader
+            metadata, content = load_component_file(component_path)
             
-            frontmatter = component_data.get('frontmatter') or {}
+            # Normalize metadata
+            frontmatter = extract_metadata(metadata, content)
             
             return ComponentContext(
                 name=component_name,
-                content=component_data['content'],
+                content=content,
                 frontmatter=frontmatter,
                 extends=frontmatter.get('extends'),
                 mixins=frontmatter.get('mixins', []),
@@ -313,6 +315,136 @@ class ComponentRenderer:
         
         return content
     
+    def inspect(self, component_name: str, variables: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Inspect a component and return its dependency tree.
+        
+        Args:
+            component_name: Name of component to inspect
+            variables: Variables for conditional dependency resolution
+            
+        Returns:
+            Dictionary with component tree structure including:
+            - name: Component name
+            - type: Component type from frontmatter
+            - version: Component version
+            - description: Component description
+            - capabilities: List of capabilities provided
+            - dependencies: Direct dependencies
+            - transitive_dependencies: All transitive dependencies
+            - dependency_tree: Full tree structure
+        """
+        if variables is None:
+            variables = {}
+            
+        try:
+            # Clear tracking for new inspection
+            self.render_stack = []
+            self._inspection_seen = set()
+            self._inspection_tree = {}
+            
+            # Build dependency tree
+            tree = self._inspect_component(component_name, variables)
+            
+            # Collect all dependencies
+            all_deps = self._collect_all_dependencies(tree)
+            direct_deps = tree.get('dependencies', []) + tree.get('mixins', [])
+            transitive_deps = [d for d in all_deps if d not in direct_deps and d != component_name]
+            
+            return {
+                'name': component_name,
+                'type': tree.get('type', 'unknown'),
+                'version': tree.get('version', '0.0.0'),
+                'description': tree.get('description', ''),
+                'capabilities': tree.get('capabilities', []),
+                'dependencies': direct_deps,
+                'transitive_dependencies': sorted(transitive_deps),
+                'dependency_tree': tree
+            }
+            
+        except Exception as e:
+            logger.error(f"Component inspection failed for {component_name}: {e}")
+            raise ComponentResolutionError(f"Failed to inspect component {component_name}: {e}") from e
+    
+    def _inspect_component(self, component_name: str, variables: Dict[str, Any], depth: int = 0) -> Dict[str, Any]:
+        """Recursively inspect component and build dependency tree."""
+        # Avoid infinite recursion
+        if component_name in self._inspection_seen:
+            return {
+                'name': component_name,
+                'circular_reference': True
+            }
+        
+        self._inspection_seen.add(component_name)
+        
+        try:
+            # Load component
+            context = self._load_component(component_name)
+            
+            # Build tree node
+            node = {
+                'name': component_name,
+                'type': context.frontmatter.get('component_type', context.frontmatter.get('type', 'unknown')),
+                'version': context.frontmatter.get('version', '0.0.0'),
+                'description': context.frontmatter.get('description', ''),
+                'capabilities': context.frontmatter.get('capabilities', []),
+                'dependencies': [],
+                'mixins': []
+            }
+            
+            # Process dependencies
+            dependencies = context.frontmatter.get('dependencies', [])
+            for dep in dependencies:
+                dep_name = self._substitute_variables(dep, variables)
+                if depth < 10:  # Prevent excessive depth
+                    dep_tree = self._inspect_component(dep_name, variables, depth + 1)
+                    node['dependencies'].append(dep_tree)
+                else:
+                    node['dependencies'].append({'name': dep_name, 'max_depth_reached': True})
+            
+            # Process mixins
+            mixins = context.frontmatter.get('mixins', [])
+            for mixin in mixins:
+                mixin_name = self._substitute_variables(mixin, variables)
+                if depth < 10:
+                    mixin_tree = self._inspect_component(mixin_name, variables, depth + 1)
+                    node['mixins'].append(mixin_tree)
+                else:
+                    node['mixins'].append({'name': mixin_name, 'max_depth_reached': True})
+            
+            return node
+            
+        except Exception as e:
+            return {
+                'name': component_name,
+                'error': str(e)
+            }
+    
+    def _collect_all_dependencies(self, tree: Dict[str, Any], collected: Optional[Set[str]] = None) -> List[str]:
+        """Collect all unique dependencies from tree."""
+        if collected is None:
+            collected = set()
+        
+        # Add current component
+        if not tree.get('circular_reference') and not tree.get('error'):
+            collected.add(tree['name'])
+        
+        # Recursively collect from dependencies
+        for dep in tree.get('dependencies', []):
+            if isinstance(dep, dict):
+                self._collect_all_dependencies(dep, collected)
+            else:
+                collected.add(dep)
+        
+        # Recursively collect from mixins
+        for mixin in tree.get('mixins', []):
+            if isinstance(mixin, dict):
+                self._collect_all_dependencies(mixin, collected)
+            else:
+                collected.add(mixin)
+        
+        return list(collected)
+    
     def clear_cache(self):
         """Clear the component cache."""
         self.cache.clear()
@@ -335,7 +467,7 @@ def get_renderer(components_base_path: Union[str, Path] = None) -> ComponentRend
     if _default_renderer is None or components_base_path is not None:
         if components_base_path is None:
             from .config import config
-            components_base_path = config.components_dir
+            components_base_path = config.compositions_dir
         _default_renderer = ComponentRenderer(components_base_path)
     
     return _default_renderer

@@ -5,8 +5,6 @@ Composition Index - Database indexing and discovery for compositions
 
 import json
 import aiosqlite
-import hashlib
-import yaml
 import asyncio
 from pathlib import Path
 from typing import Dict, Any, List, Optional
@@ -15,7 +13,7 @@ from contextlib import asynccontextmanager
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import format_for_logging
 from ksi_common.config import config
-from ksi_common.frontmatter_utils import parse_frontmatter
+from ksi_common.component_loader import load_component_file, get_file_stats
 
 logger = get_bound_logger("composition_index")
 
@@ -86,7 +84,7 @@ async def initialize(db_path: Optional[Path] = None):
                 loading_strategy TEXT,
                 mutable BOOLEAN DEFAULT FALSE,
                 ephemeral BOOLEAN DEFAULT FALSE,
-                full_metadata JSON,  -- Complete metadata for filtering
+                metadata JSON,  -- Complete metadata for filtering
                 indexed_at TEXT NOT NULL,
                 last_modified TEXT,
                 FOREIGN KEY (repository_id) REFERENCES composition_repositories(id)
@@ -100,7 +98,7 @@ async def initialize(db_path: Optional[Path] = None):
             pass  # Column already exists
         
         try:
-            await conn.execute('ALTER TABLE composition_index ADD COLUMN full_metadata JSON')
+            await conn.execute('ALTER TABLE composition_index ADD COLUMN metadata JSON')
         except:
             pass  # Column already exists
             
@@ -155,46 +153,30 @@ async def index_file(file_path: Path) -> bool:
             logger.debug(f"Skipping hidden file: {file_path}")
             return False
             
-        # Calculate file hash and stats
-        content = file_path.read_text()
-        file_hash = hashlib.sha256(content.encode()).hexdigest()
-        file_stats = file_path.stat()
-        file_size = file_stats.st_size
-        # Convert timestamp to string
-        import datetime
-        last_modified = datetime.datetime.fromtimestamp(file_stats.st_mtime).isoformat()
+        # Get file stats first (includes hash)
+        try:
+            file_stats = get_file_stats(file_path)
+            file_hash = file_stats['hash']
+            file_size = file_stats['size']
+            last_modified = file_stats['modified']
+        except Exception as e:
+            logger.warning(f"Failed to get file stats for {file_path}: {e}")
+            return False
         
-        # Parse metadata based on file type with appropriate validation
-        if file_path.suffix == '.md':
-            # Parse markdown with frontmatter
-            try:
-                post = parse_frontmatter(content)
-                if not post.has_frontmatter():
-                    logger.debug(f"Skipping markdown without frontmatter: {file_path}")
-                    return False
-                comp_data = post.metadata if post.metadata else {}
-            except Exception as e:
-                # Use DEBUG for test files, WARNING for others
-                if '_archive/tests/' in str(file_path):
-                    logger.debug(f"Expected parse error in test file {file_path}: {e}")
-                else:
-                    logger.warning(f"Failed to parse frontmatter in {file_path}: {e}")
-                return False
-        else:
-            # Parse YAML file
-            try:
-                comp_data = yaml.safe_load(content)
-            except yaml.YAMLError as e:
-                # Use DEBUG for test files, WARNING for others
-                if '_archive/tests/' in str(file_path):
-                    logger.debug(f"Expected YAML error in test file {file_path}: {e}")
-                else:
-                    logger.warning(f"Invalid YAML in {file_path}: {e}")
-                return False
-            
-            if not isinstance(comp_data, dict):
-                logger.debug(f"YAML file does not contain a dictionary: {file_path}")
-                return False
+        # Parse metadata using shared component loader
+        try:
+            comp_data, _ = load_component_file(file_path)
+        except Exception as e:
+            # Use DEBUG for test files, WARNING for others
+            if '_archive/tests/' in str(file_path):
+                logger.debug(f"Expected parse error in test file {file_path}: {e}")
+            else:
+                logger.warning(f"Failed to parse file {file_path}: {e}")
+            return False
+        
+        if not isinstance(comp_data, dict):
+            logger.debug(f"File does not contain valid metadata: {file_path}")
+            return False
             
         # Validate required fields based on unified architecture
         if 'name' not in comp_data or 'type' not in comp_data:
@@ -217,7 +199,7 @@ async def index_file(file_path: Path) -> bool:
         loading_strategy = metadata.get('loading_strategy', 'single')
         
         # Store complete metadata as JSON for efficient filtering
-        full_metadata = json.dumps(comp_data, default=str)  # default=str handles dates
+        metadata_json = json.dumps(comp_data, default=str)  # default=str handles dates
         
         # Index entry with full metadata
         async with _get_db() as conn:
@@ -225,7 +207,7 @@ async def index_file(file_path: Path) -> bool:
                 INSERT OR REPLACE INTO composition_index
                 (name, type, repository_id, file_path, file_hash, file_size,
                  version, description, author, extends, tags, capabilities, 
-                 dependencies, loading_strategy, mutable, ephemeral, full_metadata, 
+                 dependencies, loading_strategy, mutable, ephemeral, metadata, 
                  indexed_at, last_modified)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
@@ -240,7 +222,7 @@ async def index_file(file_path: Path) -> bool:
                 loading_strategy,
                 metadata.get('mutable', False),
                 metadata.get('ephemeral', False),
-                full_metadata,
+                metadata_json,
                 format_for_logging(),
                 last_modified
             ))
@@ -314,12 +296,12 @@ async def discover(query: Dict[str, Any]) -> List[Dict[str, Any]]:
                 # For array values, check if any match
                 sub_conditions = []
                 for v in value:
-                    sub_conditions.append(f"json_extract(full_metadata, '$.{key}') LIKE ?")
+                    sub_conditions.append(f"json_extract(metadata, '$.{key}') LIKE ?")
                     params.append(f'%{v}%')
                 conditions.append(f"({' OR '.join(sub_conditions)})")
             else:
                 # For scalar values, exact match
-                conditions.append(f"json_extract(full_metadata, '$.{key}') = ?")
+                conditions.append(f"json_extract(metadata, '$.{key}') = ?")
                 params.append(value)
     
     where_clause = ' AND '.join(conditions) if conditions else '1=1'
@@ -331,7 +313,7 @@ async def discover(query: Dict[str, Any]) -> List[Dict[str, Any]]:
     
     sql = f"""
         SELECT name, type, description, version, author, 
-               tags, capabilities, loading_strategy, file_path, full_metadata
+               tags, capabilities, loading_strategy, file_path, metadata
         FROM composition_index 
         WHERE {where_clause}
         ORDER BY name{limit_clause}

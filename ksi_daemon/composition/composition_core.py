@@ -14,6 +14,7 @@ from ksi_common.config import config
 from ksi_common.yaml_utils import load_yaml_file, safe_load
 from ksi_common.json_utils import loads as json_loads, dumps as json_dumps
 from ksi_common.template_utils import substitute_variables as template_substitute_variables
+from ksi_common.component_loader import find_component_file, load_component_file
 from . import composition_index
 
 logger = get_bound_logger("composition_core")
@@ -162,36 +163,20 @@ async def load_composition(name: str, comp_type: Optional[str] = None) -> Compos
     """Load a composition by name and optional type."""
     logger.info(f"Loading composition: name={name}, comp_type={comp_type}")
     
-    # Use composition index to find the file path
-    composition_path = await composition_index.get_path(name)
-    logger.info(f"Index returned path: {composition_path}")
+    # Find the component file directly
+    composition_path = find_component_file(COMPOSITIONS_BASE, name)
     
-    if not composition_path or not composition_path.exists():
-        # Fallback: search for the file by name pattern
-        composition_path = None
-        
-        # Try exact name match for both .yaml and .md files
-        for pattern in [f"{name}.yaml", f"{name}.md"]:
-            matches = list(COMPOSITIONS_BASE.rglob(pattern))
-            if matches:
-                composition_path = matches[0]
-                break
-        
-        if not composition_path or not composition_path.exists():
-            raise FileNotFoundError(f"Composition not found: {name}")
+    if not composition_path:
+        raise FileNotFoundError(f"Composition not found: {name}")
     
-    # Load and parse based on file type
-    if composition_path.suffix == '.md':
-        # Handle markdown files with frontmatter
-        from ksi_common.frontmatter_utils import parse_frontmatter
-        content = composition_path.read_text()
-        post = parse_frontmatter(content, sanitize_dates=True)
-        if post.has_frontmatter():
-            comp_data = post.metadata
-        else:
-            raise ValueError(f"Markdown file {name} has no frontmatter")
-    else:
-        # Handle YAML files
-        comp_data = load_yaml_file(composition_path)
+    # Load using shared component loader
+    metadata, content = load_component_file(composition_path)
+    
+    # For compositions, we only need the metadata
+    comp_data = metadata
+    
+    # If it was a markdown file with no frontmatter, content might be all we have
+    if not comp_data and content and composition_path.suffix == '.md':
+        raise ValueError(f"Markdown file {name} has no frontmatter")
     
     return Composition.from_yaml(comp_data)
