@@ -80,12 +80,13 @@ async def handle_optimize(raw_data: Dict[str, Any], context: Optional[Dict[str, 
     adapter_class = optimization_frameworks[framework]
     adapter = adapter_class()
     
-    # Run optimization
+    # Run optimization - filter out duplicate parameters
+    kwargs = {k: v for k, v in raw_data.items() if k not in ['target', 'signature', 'metric', 'framework']}
     result = await adapter.optimize(
         target=target,
         signature=signature,
         metric=metric,
-        **raw_data
+        **kwargs
     )
     
     return event_response_builder(result, context=context)

@@ -42,13 +42,57 @@ class DSPyFramework:
     def _initialize_metrics(self) -> Dict[str, Callable]:
         """Initialize built-in DSPy metrics."""
         return {
-            "exact_match": dspy.metrics.answer_exact_match,
-            "f1": lambda ex, pred, trace=None: dspy.dsp.utils.F1(
-                pred.answer if hasattr(pred, 'answer') else str(pred), 
-                ex.answer
-            ),
-            "passage_match": dspy.metrics.answer_passage_match,
+            "exact_match": self._exact_match_metric,
+            "confidence_calibration": self._confidence_calibration_metric,
+            "text_analysis_quality": self._text_analysis_quality_metric,
         }
+    
+    def _exact_match_metric(self, example, prediction, trace=None) -> float:
+        """Simple exact match metric."""
+        if hasattr(prediction, 'answer') and hasattr(example, 'answer'):
+            return 1.0 if prediction.answer.strip().lower() == example.answer.strip().lower() else 0.0
+        return 0.5  # Default for non-answer tasks
+    
+    def _confidence_calibration_metric(self, example, prediction, trace=None) -> float:
+        """Confidence calibration metric for text analysis."""
+        if not hasattr(prediction, 'confidence'):
+            return 0.0
+        
+        confidence = float(prediction.confidence)
+        # Simple quality assessment based on response completeness
+        quality = 0.5
+        if hasattr(prediction, 'insights') and len(str(prediction.insights)) > 50:
+            quality += 0.25
+        if hasattr(prediction, 'recommendations') and len(str(prediction.recommendations)) > 50:
+            quality += 0.25
+        
+        # Score based on how close confidence is to actual quality
+        calibration_error = abs(confidence - quality)
+        return max(0.0, 1.0 - calibration_error)
+    
+    def _text_analysis_quality_metric(self, example, prediction, trace=None) -> float:
+        """Multi-factor text analysis quality metric."""
+        scores = []
+        
+        # Factor 1: Response completeness
+        if hasattr(prediction, 'insights'):
+            insight_length = len(str(prediction.insights))
+            scores.append(min(1.0, insight_length / 100))  # Target ~100 chars
+        
+        if hasattr(prediction, 'recommendations'):
+            rec_length = len(str(prediction.recommendations))
+            scores.append(min(1.0, rec_length / 100))  # Target ~100 chars
+        
+        # Factor 2: Confidence appropriateness
+        if hasattr(prediction, 'confidence'):
+            confidence = float(prediction.confidence)
+            # Penalize overconfidence (> 0.9) or underconfidence (< 0.3)
+            if 0.3 <= confidence <= 0.9:
+                scores.append(1.0)
+            else:
+                scores.append(0.5)
+        
+        return sum(scores) / len(scores) if scores else 0.0
     
     def _initialize_dspy(self):
         """Initialize DSPy with configured models."""
@@ -115,9 +159,8 @@ class DSPyFramework:
         """Run DSPy optimization on a component."""
         # Load target component
         router = get_router()
-        target_response = await router.route({
-            "event": "composition:get_component",
-            "data": {"name": target}
+        target_response = await router.emit_first("composition:get_component", {
+            "name": target
         })
         
         if target_response.get("status") != "success":
@@ -135,12 +178,14 @@ class DSPyFramework:
         config_overrides = kwargs.get("config", {})
         
         if optimizer_type == "mipro":
-            # Merge configs
+            # Use auto mode by default (recommended by DSPy source analysis)
             optimizer_config = {
-                "auto": "medium",
-                "num_candidates": 10,
-                "max_bootstrapped_demos": 4,
-                **config_overrides
+                "auto": config_overrides.get("auto", "light"),  # "light", "medium", or "heavy"
+                "max_bootstrapped_demos": config_overrides.get("max_bootstrapped_demos", 4),
+                "max_labeled_demos": config_overrides.get("max_labeled_demos", 4),
+                "init_temperature": config_overrides.get("init_temperature", 0.7),
+                "verbose": config_overrides.get("verbose", True),
+                **{k: v for k, v in config_overrides.items() if k not in ['auto', 'max_bootstrapped_demos', 'max_labeled_demos', 'init_temperature', 'verbose']}
             }
             
             adapter = DSPyMIPROAdapter(
@@ -292,9 +337,8 @@ class DSPyFramework:
     async def _load_signature(self, signature_component: str) -> Dict[str, Any]:
         """Load a signature component."""
         router = get_router()
-        response = await router.route({
-            "event": "composition:get_component",
-            "data": {"name": signature_component, "type": "signature"}
+        response = await router.emit_first("composition:get_component", {
+            "name": signature_component
         })
         
         if response.get("status") != "success":
@@ -309,9 +353,8 @@ class DSPyFramework:
         
         # Try to load as component
         router = get_router()
-        response = await router.route({
-            "event": "composition:get_component",
-            "data": {"name": metric, "type": "metric"}
+        response = await router.emit_first("composition:get_component", {
+            "name": metric
         })
         
         if response.get("status") == "success":

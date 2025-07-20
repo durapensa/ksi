@@ -12,6 +12,7 @@ import json
 import time
 import uuid
 import fnmatch
+from functools import wraps
 from typing import Any, Dict, TypedDict, List, Literal, Optional
 from datetime import datetime, timezone
 import aiofiles
@@ -23,8 +24,18 @@ from ksi_common.agent_context import propagate_agent_context
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc
+from ksi_common.agent_utils import (
+    query_agent_state, query_agent_metadata, query_agent_relationships, 
+    unwrap_list_response, emit_agent_event, gather_agent_info, validate_event_handler_data
+)
+from ksi_common.event_parser import event_format_linter
+from ksi_common.event_response_builder import event_response_builder, error_response
+from ksi_common.json_utils import parse_json_parameter
+from .identity_operations import (
+    load_all_identities, save_identity, remove_identity, save_all_identities
+)
 from ksi_daemon.capability_enforcer import get_capability_enforcer
-from ksi_daemon.event_system import event_handler, shutdown_handler, get_router
+from ksi_daemon.event_system import event_handler as base_event_handler, shutdown_handler, get_router
 from ksi_daemon.mcp import mcp_config_manager
 # AgentMetadata removed - using state system storage
 # NOTE: session_id is a completion system concept - agents have no awareness of sessions
@@ -40,6 +51,58 @@ identity_storage_path = config.identity_storage_path
 
 # Event emitter reference (set during context)
 event_emitter = None
+
+
+# Enhanced event handler with agent-specific patterns
+def event_handler(event_name, schema=None, require_agent=True, auto_response=True, **kwargs):
+    """
+    Agent-enhanced event handler with automatic parsing and validation.
+    
+    Args:
+        event_name: Event name to handle
+        schema: TypedDict schema for automatic parsing (optional)
+        require_agent: Whether to validate agent_id exists (default: True)
+        auto_response: Whether to auto-wrap responses (default: True)
+        **kwargs: Additional arguments passed to base event handler
+        
+    Usage:
+        @event_handler("agent:list", schema=AgentListData, require_agent=False)
+        async def handle_list_agents(data, context):
+            return {"agents": [...]}  # Auto-wrapped with event_response_builder
+    """
+    def decorator(func):
+        @base_event_handler(event_name, **kwargs)
+        @wraps(func)
+        async def wrapper(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+            # Import here to avoid circular imports
+            from ksi_common.event_parser import event_format_linter
+            from ksi_common.event_response_builder import event_response_builder, error_response
+            
+            try:
+                # Parse data if schema provided
+                data = event_format_linter(raw_data, schema) if schema else raw_data
+                
+                # Validate agent exists if required
+                if require_agent and "agent_id" in data:
+                    agent_id = data["agent_id"]
+                    if not agent_id:
+                        return error_response("agent_id required", context)
+                    if agent_id not in agents:
+                        return error_response(f"Agent {agent_id} not found", context)
+                
+                # Call the handler
+                result = await func(data, context)
+                
+                # Auto-wrap response if needed
+                if auto_response and isinstance(result, dict) and "status" not in result and "error" not in result:
+                    return event_response_builder(result, context)
+                return result
+                
+            except Exception as e:
+                logger.error(f"Agent event handler {func.__name__} failed: {e}")
+                return error_response(f"Handler failed: {str(e)}", context)
+        return wrapper
+    return decorator
 
 
 # TypedDict definitions for event handlers
@@ -172,21 +235,11 @@ class AgentListIdentitiesData(TypedDict):
     pass
 
 
-class AgentGetIdentityData(TypedDict):
-    """Get a specific agent identity."""
-    agent_id: Required[str]  # Agent ID
-
-
 class AgentRouteTaskData(TypedDict):
     """Route a task to an appropriate agent."""
     task: Required[Dict[str, Any]]  # Task to route
     requirements: NotRequired[List[str]]  # Required capabilities
     exclude_agents: NotRequired[List[str]]  # Agents to exclude
-
-
-class AgentGetCapabilitiesData(TypedDict):
-    """Get agent capabilities."""
-    agent_id: NotRequired[str]  # Specific agent ID (omit for all agents)
 
 
 class AgentSendMessageData(TypedDict):
@@ -224,32 +277,16 @@ class AgentNegotiateRolesData(TypedDict):
     context: NotRequired[Dict[str, Any]]  # Negotiation context
 
 
+class AgentInfoData(TypedDict):
+    """Get comprehensive information about an agent."""
+    agent_id: Required[str]  # Agent ID to get info for
+    include: NotRequired[List[Literal['state', 'identity', 'relationships', 'metadata', 'orchestrations', 'messages', 'observations', 'events']]]  # What to include (default: ['state', 'identity'])
+    depth: NotRequired[int]  # Graph traversal depth for relationships (default: 1, max: 3)
+    event_limit: NotRequired[int]  # Max number of recent events to include (default: 10)
+    message_limit: NotRequired[int]  # Max number of recent messages to include (default: 10)
+
+
 # Helper functions
-async def load_identities():
-    """Load agent identities from disk."""
-    if identity_storage_path.exists():
-        try:
-            async with aiofiles.open(identity_storage_path, 'r') as f:
-                content = await f.read()
-                loaded_identities = json.loads(content)
-            if loaded_identities:
-                identities.update(loaded_identities)
-                logger.info(f"Loaded {len(identities)} agent identities")
-        except Exception as e:
-            logger.error(f"Failed to load identities: {e}")
-
-
-async def save_identities():
-    """Save agent identities to disk."""
-    try:
-        # Ensure parent directory exists
-        identity_storage_path.parent.mkdir(parents=True, exist_ok=True)
-        content = json.dumps(identities, indent=2)
-        async with aiofiles.open(identity_storage_path, 'w') as f:
-            await f.write(content)
-        logger.debug(f"Saved {len(identities)} identities")
-    except Exception as e:
-        logger.error(f"Failed to save identities: {e}")
 
 
 async def route_to_originator(agent_id: str, event_name: str, event_data: Dict[str, Any]) -> None:
@@ -357,11 +394,9 @@ async def agent_emit_event(agent_id: str, event_name: str, event_data: Dict[str,
 
 
 # System event handlers
-@event_handler("system:context")
-async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
+@event_handler("system:context", schema=SystemContextData, require_agent=False, auto_response=False)
+async def handle_context(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Receive module context with event emitter."""
-    from ksi_common.event_parser import event_format_linter
-    data = event_format_linter(raw_data, SystemContextData)
     global event_emitter
     # Get router for event emission
     router = get_router()
@@ -374,41 +409,32 @@ async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, A
     logger.info("Hierarchical routing system initialized")
 
 
-@event_handler("system:startup")
-async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@event_handler("system:startup", schema=SystemStartupData, require_agent=False)
+async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize agent service on startup."""
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, SystemStartupData)
-    await load_identities()
+    
+    # Load existing identities
+    loaded_identities = await load_all_identities(identity_storage_path)
+    identities.update(loaded_identities)
     
     logger.info(f"Agent service started - agents: {len(agents)}, "
                 f"identities: {len(identities)}")
     
-    return event_response_builder(
-        {
-            "status": "agent_service_ready",
-            "agents": len(agents),
-            "identities": len(identities)
-        },
-        context=context
-    )
+    return {
+        "status": "agent_service_ready",
+        "agents": len(agents),
+        "identities": len(identities)
+    }
 
 
-@event_handler("system:ready")
-async def handle_ready(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@event_handler("system:ready", schema=SystemReadyData, require_agent=False)
+async def handle_ready(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Load agents from graph database after all services are ready."""
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, SystemReadyData)
     loaded_agents = 0
     
     if not event_emitter:
         logger.error("Event emitter not available, cannot load agents from state")
-        return event_response_builder(
-            {"loaded_agents": 0},
-            context=context
-        )
+        return {"loaded_agents": 0}
     
     try:
         # Query all suspended agents from graph database
@@ -425,7 +451,11 @@ async def handle_ready(raw_data: Dict[str, Any], context: Optional[Dict[str, Any
         
         if result and "entities" in result:
             for entity in result["entities"]:
-                agent_id = entity["id"]
+                # Check which field contains the agent ID
+                agent_id = entity.get("id") or entity.get("entity_id") or entity.get("name")
+                if not agent_id:
+                    logger.warning(f"Entity missing ID field: {entity}")
+                    continue
                 props = entity.get("properties", {})
                 
                 # Skip if agent already exists (shouldn't happen but be safe)
@@ -487,13 +517,10 @@ async def handle_ready(raw_data: Dict[str, Any], context: Optional[Dict[str, Any
     # if loaded_agents > 0:
     #     await reestablish_observations({})
     
-    return event_response_builder(
-        {
-            "agents_loaded": loaded_agents,
-            "total_agents": len(agents)
-        },
-        context=context
-    )
+    return {
+        "agents_loaded": loaded_agents,
+        "total_agents": len(agents)
+    }
 
 
 @shutdown_handler("agent_service")
@@ -528,8 +555,8 @@ async def handle_shutdown(data: SystemShutdownData) -> None:
     for agent_id, task in list(agent_threads.items()):
         task.cancel()
     
-    # Save identities
-    await save_identities()
+    # Save all identities
+    await save_all_identities(identity_storage_path, identities)
     
     logger.info(f"Agent service stopped - {len(agents)} agents, "
                 f"{len(identities)} identities")
@@ -549,146 +576,118 @@ async def handle_shutdown(data: SystemShutdownData) -> None:
 # No longer need completion:result handler in agent service
 
 
-@event_handler("checkpoint:collect")
-async def handle_checkpoint_collect(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@event_handler("checkpoint:collect", schema=CheckpointCollectData, require_agent=False)
+async def handle_checkpoint_collect(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Collect agent state for checkpoint."""
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, CheckpointCollectData)
-    try:
-        # Prepare agent state for checkpointing
-        agent_state = {}
-        
-        for agent_id, agent_info in agents.items():
-            # Skip terminated agents
-            if agent_info.get("status") == "terminated":
-                continue
-                
-            # Create a serializable copy of agent info
-            checkpoint_info = {
-                "agent_id": agent_id,
-                "profile": agent_info.get("profile"),
-                "composition": agent_info.get("composition"),
-                "config": agent_info.get("config", {}),
-                "status": agent_info.get("status"),
-                "created_at": agent_info.get("created_at"),
-                # session_id removed - managed by completion system
-                "permission_profile": agent_info.get("permission_profile"),
-                "sandbox_dir": agent_info.get("sandbox_dir"),
-                "sandbox_uuid": agent_info.get("sandbox_uuid"),  # Include sandbox UUID
-                "mcp_config_path": agent_info.get("mcp_config_path"),
-                "conversation_id": agent_info.get("conversation_id"),
-                # Metadata stored in state system
-                "metadata_namespace": f"metadata:agent:{agent_id}"
-            }
+    # Prepare agent state for checkpointing
+    agent_state = {}
+    
+    for agent_id, agent_info in agents.items():
+        # Skip terminated agents
+        if agent_info.get("status") == "terminated":
+            continue
             
-            agent_state[agent_id] = checkpoint_info
-        
-        checkpoint_data = {
-            "agents": agent_state,
-            "identities": dict(identities),
-            "active_agents": len([a for a in agents.values() if a.get("status") in ["ready", "active"]])
+        # Create a serializable copy of agent info
+        checkpoint_info = {
+            "agent_id": agent_id,
+            "profile": agent_info.get("profile"),
+            "composition": agent_info.get("composition"),
+            "config": agent_info.get("config", {}),
+            "status": agent_info.get("status"),
+            "created_at": agent_info.get("created_at"),
+            # session_id removed - managed by completion system
+            "permission_profile": agent_info.get("permission_profile"),
+            "sandbox_dir": agent_info.get("sandbox_dir"),
+            "sandbox_uuid": agent_info.get("sandbox_uuid"),  # Include sandbox UUID
+            "mcp_config_path": agent_info.get("mcp_config_path"),
+            "conversation_id": agent_info.get("conversation_id"),
+            # Metadata stored in state system
+            "metadata_namespace": f"metadata:agent:{agent_id}"
         }
         
-        logger.info(f"Collected agent state for checkpoint: {len(agent_state)} agents")
-        return event_response_builder(
-            checkpoint_data,
-            context=context
-        )
-        
-    except Exception as e:
-        logger.error(f"Failed to collect agent state for checkpoint: {e}")
-        return error_response(
-            str(e),
-            context=context
-        )
+        agent_state[agent_id] = checkpoint_info
+    
+    checkpoint_data = {
+        "agents": agent_state,
+        "identities": dict(identities),
+        "active_agents": len([a for a in agents.values() if a.get("status") in ["ready", "active"]])
+    }
+    
+    logger.info(f"Collected agent state for checkpoint: {len(agent_state)} agents")
+    return checkpoint_data
 
 
-@event_handler("checkpoint:restore")
-async def handle_checkpoint_restore(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@event_handler("checkpoint:restore", schema=CheckpointRestoreData, require_agent=False)
+async def handle_checkpoint_restore(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Restore agent state from checkpoint."""
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, CheckpointRestoreData)
-    try:
-        # Extract agent data from checkpoint
-        checkpoint_agents = data.get("agents", {})
-        checkpoint_identities = data.get("identities", {})
-        
-        restored_agents = 0
-        failed_restorations = []
-        
-        # Restore identities first
-        identities.clear()
-        identities.update(checkpoint_identities)
-        
-        # Restore agents
-        for agent_id, agent_info in checkpoint_agents.items():
+    # Extract agent data from checkpoint
+    checkpoint_agents = data.get("agents", {})
+    checkpoint_identities = data.get("identities", {})
+    
+    restored_agents = 0
+    failed_restorations = []
+    
+    # Restore identities first
+    identities.clear()
+    identities.update(checkpoint_identities)
+    
+    # Restore agents
+    for agent_id, agent_info in checkpoint_agents.items():
+        try:
+            # Metadata will be restored from state system separately
+            
+            # Restore agent info
+            restored_info = dict(agent_info)
+            restored_info["message_queue"] = asyncio.Queue()
+            # Metadata is in state system, not in memory
+            
+            # Register restored agent
+            agents[agent_id] = restored_info
+            
+            # Restart agent thread
+            agent_task = asyncio.create_task(run_agent_thread(agent_id))
+            agent_threads[agent_id] = agent_task
+            
+            restored_agents += 1
+            logger.debug(f"Restored agent {agent_id}")
+            
+        except Exception as e:
+            logger.error(f"Failed to restore agent {agent_id}: {e}")
+            failed_restorations.append({"agent_id": agent_id, "error": str(e)})
+    
+    # Update agent entities in graph database if we have event_emitter
+    if event_emitter and restored_agents > 0:
+        for agent_id in agents.keys():
             try:
-                # Metadata will be restored from state system separately
-                
-                # Restore agent info
-                restored_info = dict(agent_info)
-                restored_info["message_queue"] = asyncio.Queue()
-                # Metadata is in state system, not in memory
-                
-                # Register restored agent
-                agents[agent_id] = restored_info
-                
-                # Restart agent thread
-                agent_task = asyncio.create_task(run_agent_thread(agent_id))
-                agent_threads[agent_id] = agent_task
-                
-                restored_agents += 1
-                logger.debug(f"Restored agent {agent_id}")
-                
+                await event_emitter("state:entity:create", {
+                    "id": agent_id,
+                    "type": "agent",
+                    "properties": {
+                        "status": agents[agent_id].get("status", "active"),
+                        "profile": agents[agent_id].get("profile"),
+                        "capabilities": agents[agent_id].get("config", {}).get("expanded_capabilities", []),
+                        # Domain fields removed - use metadata
+                        "permission_profile": agents[agent_id].get("permission_profile"),
+                        "sandbox_dir": agents[agent_id].get("sandbox_dir"),
+                        "mcp_config_path": agents[agent_id].get("mcp_config_path")
+                    }
+                })
             except Exception as e:
-                logger.error(f"Failed to restore agent {agent_id}: {e}")
-                failed_restorations.append({"agent_id": agent_id, "error": str(e)})
-        
-        # Update agent entities in graph database if we have event_emitter
-        if event_emitter and restored_agents > 0:
-            for agent_id in agents.keys():
-                try:
-                    await event_emitter("state:entity:create", {
-                        "id": agent_id,
-                        "type": "agent",
-                        "properties": {
-                            "status": agents[agent_id].get("status", "active"),
-                            "profile": agents[agent_id].get("profile"),
-                            "capabilities": agents[agent_id].get("config", {}).get("expanded_capabilities", []),
-                            # Domain fields removed - use metadata
-                            "permission_profile": agents[agent_id].get("permission_profile"),
-                            "sandbox_dir": agents[agent_id].get("sandbox_dir"),
-                            "mcp_config_path": agents[agent_id].get("mcp_config_path")
-                        }
-                    })
-                except Exception as e:
-                    logger.warning(f"Failed to restore agent entity {agent_id}: {e}")
-        
-        result = {
-            "restored_agents": restored_agents,
-            "restored_identities": len(checkpoint_identities),
-            "failed_restorations": failed_restorations
-        }
-        
-        logger.info(f"Agent checkpoint restore complete: {restored_agents} agents restored")
-        return event_response_builder(
-            result,
-            context=context
-        )
-        
-    except Exception as e:
-        logger.error(f"Failed to restore agent checkpoint: {e}")
-        return error_response(
-            str(e),
-            context=context
-        )
+                logger.warning(f"Failed to restore agent entity {agent_id}: {e}")
+    
+    result = {
+        "restored_agents": restored_agents,
+        "restored_identities": len(checkpoint_identities),
+        "failed_restorations": failed_restorations
+    }
+    
+    logger.info(f"Agent checkpoint restore complete: {restored_agents} agents restored")
+    return result
 
 
 # Agent lifecycle handlers
-@event_handler("agent:spawn")
-async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@event_handler("agent:spawn", schema=AgentSpawnData, require_agent=False)
+async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Spawn a new agent thread with a composition/component as profile.
     
     The 'profile' parameter expects a composition name from the composition system,
@@ -700,11 +699,6 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
     Valid profiles are any composition containing a 'prompt' field.
     To discover available profiles: ksi send composition:list --filter '{"type": "profile"}'
     """
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder, error_response
-    from ksi_common.json_utils import parse_json_parameter
-    
-    data = event_format_linter(raw_data, AgentSpawnData)
     
     # Note: context and selection_context are system-internal parameters,
     # not CLI parameters, so they don't need JSON string parsing
@@ -724,7 +718,7 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
         # Use composition selection service
         logger.debug("Using dynamic composition selection")
         
-        select_result = await agent_emit_event(agent_id, "composition:select", {
+        select_result = await event_emitter("composition:select", {
             "agent_id": agent_id,
             "role": selection_context.get("role"),
             "capabilities": selection_context.get("required_capabilities", []),
@@ -733,9 +727,7 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
             "max_suggestions": 3
         }, propagate_agent_context(context))
         
-        if select_result and isinstance(select_result, list):
-            # Handle multiple responses - take first one
-            select_result = select_result[0] if select_result else {}
+        select_result = unwrap_list_response(select_result)
         
         if select_result and select_result.get("status") == "success":
             compose_name = select_result["selected"]
@@ -783,14 +775,12 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
             comp_vars.update(data["context"])
         
         # Compose the component
-        compose_result = await agent_emit_event(agent_id, "composition:compose", {
+        compose_result = await event_emitter("composition:compose", {
             "name": compose_name,
             "variables": comp_vars
         }, propagate_agent_context(context))
         
-        if compose_result and isinstance(compose_result, list):
-            # Handle multiple responses - take first one
-            compose_result = compose_result[0] if compose_result else {}
+        compose_result = unwrap_list_response(compose_result)
         
         if compose_result and compose_result.get("status") == "success":
             profile = compose_result["composition"]
@@ -859,14 +849,13 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
     
     # Set agent permissions
     if event_emitter:
-        perm_result = await agent_emit_event(agent_id, "permission:set_agent", {
+        perm_result = await event_emitter("permission:set_agent", {
             "agent_id": agent_id,
             "profile": permission_profile,
             "overrides": data.get("permission_overrides", {})
         }, propagate_agent_context(context))
         
-        if perm_result and isinstance(perm_result, list):
-            perm_result = perm_result[0] if perm_result else {}
+        perm_result = unwrap_list_response(perm_result)
         
         if perm_result and "error" in perm_result:
             logger.error(f"Failed to set permissions: {perm_result['error']}")
@@ -875,13 +864,12 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
     
     # Create sandbox
     if event_emitter:
-        sandbox_result = await agent_emit_event(agent_id, "sandbox:create", {
+        sandbox_result = await event_emitter("sandbox:create", {
             "agent_id": agent_id,
             "config": sandbox_config
         }, propagate_agent_context(context))
         
-        if sandbox_result and isinstance(sandbox_result, list):
-            sandbox_result = sandbox_result[0] if sandbox_result else {}
+        sandbox_result = unwrap_list_response(sandbox_result)
         
         if sandbox_result and "sandbox" in sandbox_result:
             sandbox_dir = sandbox_result["sandbox"]["path"]
@@ -992,8 +980,7 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
         }, propagate_agent_context(context))
         logger.info(f"Agent state entity creation result for {agent_id}: {entity_result}")
         
-        if entity_result and isinstance(entity_result, list):
-            entity_result = entity_result[0] if entity_result else {}
+        entity_result = unwrap_list_response(entity_result)
         
         if entity_result and "error" not in entity_result:
             logger.debug(f"Created agent entity {agent_id}")
@@ -1002,7 +989,7 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
         
         # Store metadata in state system namespace
         if metadata:
-            metadata_result = await agent_emit_event(agent_id, "state:set", {
+            metadata_result = await event_emitter("state:set", {
                 "namespace": f"metadata:agent:{agent_id}",
                 "data": metadata
             }, propagate_agent_context(context))
@@ -1030,7 +1017,7 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
         logger.info(f"Sending initial prompt to agent {agent_id}")
         
         # Use composition service to create self-configuring agent context
-        compose_result = await agent_emit_event(agent_id, "composition:agent_context", {
+        compose_result = await event_emitter("composition:agent_context", {
             "profile": compose_name,
             "agent_id": agent_id,
             "interaction_prompt": interaction_prompt,
@@ -1045,7 +1032,7 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
             agent_context_message = compose_result["agent_context_message"]
             
             # Send self-configuring context message through agent:send_message channel
-            initial_result = await agent_emit_event(agent_id, "agent:send_message", {
+            initial_result = await event_emitter("agent:send_message", {
                 "agent_id": agent_id,
                 "message": {
                     "role": "user", 
@@ -1069,7 +1056,7 @@ I encountered an error loading your composition configuration.
 
 Please proceed as a basic autonomous agent with full autonomy to execute tasks and emit JSON events."""
             
-            initial_result = await agent_emit_event(agent_id, "agent:send_message", {
+            initial_result = await event_emitter("agent:send_message", {
                 "agent_id": agent_id,
                 "message": {
                     "role": "user", 
@@ -1096,12 +1083,9 @@ Please proceed as a basic autonomous agent with full autonomy to execute tasks a
     )
 
 
-@event_handler("agent:terminate")
-async def handle_terminate_agent(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@event_handler("agent:terminate", schema=AgentTerminateData)
+async def handle_terminate_agent(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Terminate agents - supports both single and bulk operations."""
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, AgentTerminateData)
     
     # Determine which agents to terminate
     target_agent_ids = await _resolve_target_agents(data)
@@ -1145,26 +1129,17 @@ async def handle_terminate_agent(raw_data: Dict[str, Any], context: Optional[Dic
     # Return single agent format for backward compatibility
     if len(target_agent_ids) == 1 and not data.get("agent_ids") and not data.get("pattern") and not data.get("older_than_hours") and not data.get("profile") and not data.get("all"):
         if terminated_agents:
-            return event_response_builder(
-                {"agent_id": terminated_agents[0], "status": "terminated"},
-                context=context
-            )
+            return event_response_builder({"agent_id": terminated_agents[0], "status": "terminated"}, context)
         elif failed_agents:
-            return error_response(
-                failed_agents[0].get("error", "Termination failed"),
-                context=context
-            )
+            return error_response(failed_agents[0].get("error", "Termination failed"), context)
     
     # Return bulk format
-    return event_response_builder(
-        {
-            "terminated": terminated_agents,
-            "failed": failed_agents,
-            "count_terminated": len(terminated_agents),
-            "count_failed": len(failed_agents)
-        },
-        context=context
-    )
+    return event_response_builder({
+        "terminated": terminated_agents,
+        "failed": failed_agents,
+        "count_terminated": len(terminated_agents),
+        "count_failed": len(failed_agents)
+    }, context)
 
 
 async def _resolve_target_agents(data: AgentTerminateData) -> List[str]:
@@ -1296,25 +1271,10 @@ async def _terminate_single_agent(agent_id: str, force: bool = False, context: O
     }
 
 
-@event_handler("agent:restart")
-async def handle_restart_agent(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@event_handler("agent:restart", schema=AgentRestartData)
+async def handle_restart_agent(data: AgentRestartData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Restart an agent."""
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, AgentRestartData)
-    agent_id = data.get("agent_id")
-    
-    if not agent_id:
-        return error_response(
-            "agent_id required",
-            context=context
-        )
-    
-    if agent_id not in agents:
-        return error_response(
-            f"Agent {agent_id} not found",
-            context=context
-        )
+    agent_id = data["agent_id"]  # Validated by enhanced event_handler
     
     # Get current agent info
     agent_info = agents[agent_id].copy()
@@ -1474,13 +1434,9 @@ async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
 
 
 # Agent registry handlers
-@event_handler("agent:register")
-async def handle_register_agent(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@event_handler("agent:register", schema=AgentRegisterData, require_agent=False)
+async def handle_register_agent(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Register an external agent."""
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder, error_response
-    
-    data = event_format_linter(raw_data, AgentRegisterData)
     agent_id = data.get("agent_id")
     agent_info = data.get("info", {})
     
@@ -1505,13 +1461,9 @@ async def handle_register_agent(raw_data: Dict[str, Any], context: Optional[Dict
     }, context)
 
 
-@event_handler("agent:unregister")
-async def handle_unregister_agent(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@event_handler("agent:unregister", schema=AgentUnregisterData)
+async def handle_unregister_agent(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Unregister an agent."""
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder, error_response
-    
-    data = event_format_linter(raw_data, AgentUnregisterData)
     agent_id = data.get("agent_id")
     
     if not agent_id:
@@ -1525,12 +1477,9 @@ async def handle_unregister_agent(raw_data: Dict[str, Any], context: Optional[Di
     return error_response(f"Agent {agent_id} not found", context)
 
 
-@event_handler("agent:list")
-async def handle_list_agents(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@event_handler("agent:list", schema=AgentListData, require_agent=False)
+async def handle_list_agents(data: AgentListData, context: Optional[Dict[str, Any]] = None):
     """List registered agents."""
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, AgentListData)
     filter_status = data.get("status")
     include_metadata = data.get("include_metadata", False)
     
@@ -1552,33 +1501,189 @@ async def handle_list_agents(raw_data: Dict[str, Any], context: Optional[Dict[st
             metadata_result = await agent_emit_event(agent_id, "state:get", {
                 "namespace": f"metadata:agent:{agent_id}"
             }, propagate_agent_context(context))
-            if metadata_result and isinstance(metadata_result, list):
-                metadata_result = metadata_result[0] if metadata_result else {}
+            metadata_result = unwrap_list_response(metadata_result)
             
             if metadata_result and "data" in metadata_result:
                 agent_entry["metadata"] = metadata_result["data"]
             
         agent_list.append(agent_entry)
     
-    return event_response_builder(
-        {
-            "agents": agent_list,
-            "count": len(agent_list)
-        },
-        context=context
-    )
+    return {
+        "agents": agent_list,
+        "count": len(agent_list)
+    }
+
+
+@event_handler("agent:info", schema=AgentInfoData)
+async def handle_agent_info(data: AgentInfoData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Get comprehensive information about an agent using graph traversal."""
+    agent_id = data["agent_id"]  # Validated by enhanced event_handler
+    include = data.get("include", ["state", "identity"])
+    depth = min(data.get("depth", 1), 3)  # Cap at 3 levels
+    event_limit = data.get("event_limit", 10)
+    message_limit = data.get("message_limit", 10)
+    
+    # Start building comprehensive info
+    agent_info = agents[agent_id]
+    result = {
+        "agent_id": agent_id,
+        "status": agent_info.get("status"),
+        "profile": agent_info.get("profile"),
+        "composition": agent_info.get("composition"),
+        "created_at": agent_info.get("created_at"),
+        "sandbox_dir": agent_info.get("sandbox_dir"),
+        "sandbox_uuid": agent_info.get("sandbox_uuid"),
+        "permission_profile": agent_info.get("permission_profile"),
+        "mcp_config_path": agent_info.get("mcp_config_path"),
+        "conversation_id": agent_info.get("conversation_id")
+    }
+    
+    # Add capabilities from config
+    if agent_info.get("config"):
+        result["capabilities"] = agent_info["config"].get("capabilities", [])
+        result["expanded_capabilities"] = agent_info["config"].get("expanded_capabilities", [])
+    
+    # Include state entity information
+    if "state" in include:
+        if event_emitter:
+            try:
+                logger.debug(f"Fetching state entity for agent {agent_id}")
+                state_result = await event_emitter("state:entity:get", {
+                    "id": agent_id,
+                    "include": ["properties", "relationships"]
+                })
+                # Handle list-wrapped results
+                if isinstance(state_result, list) and state_result:
+                    state_result = state_result[0]
+                logger.debug(f"State result for {agent_id}: {state_result}")
+                if state_result and state_result.get("status") == "success":
+                    result["state_entity"] = state_result
+            except Exception as e:
+                logger.warning(f"Failed to get state entity for {agent_id}: {e}")
+        else:
+            logger.warning(f"Cannot fetch state entity - event_emitter is None")
+    
+    # Include identity
+    if "identity" in include and agent_id in identities:
+        result["identity"] = identities[agent_id]
+    
+    # Include relationships via graph traversal
+    if "relationships" in include and event_emitter:
+        try:
+            traverse_result = await event_emitter("state:graph:traverse", {
+                "from_id": agent_id,
+                "direction": "both",
+                "depth": depth,
+                "include_entities": True
+            })
+            # Handle list-wrapped results
+            if isinstance(traverse_result, list) and traverse_result:
+                traverse_result = traverse_result[0]
+            if traverse_result and traverse_result.get("status") == "success":
+                result["graph"] = traverse_result.get("graph", {})
+                result["traversal_depth"] = depth
+        except Exception as e:
+            logger.warning(f"Failed to traverse graph for {agent_id}: {e}")
+    
+    # Include metadata from state system
+    if "metadata" in include and event_emitter:
+        try:
+            metadata_result = await event_emitter("state:get", {
+                "namespace": f"metadata:agent:{agent_id}"
+            })
+            # Handle list-wrapped results
+            if isinstance(metadata_result, list) and metadata_result:
+                metadata_result = metadata_result[0]
+            if metadata_result and metadata_result.get("status") == "success":
+                result["metadata"] = metadata_result.get("data", {})
+        except Exception as e:
+            logger.warning(f"Failed to get metadata for {agent_id}: {e}")
+    
+    # Include orchestrations the agent is part of
+    if "orchestrations" in include and event_emitter:
+        try:
+            # Query for orchestration entities where this agent is involved
+            orch_result = await event_emitter("state:entity:query", {
+                "type": "orchestration",
+                "where": {
+                    "agents": {"$contains": agent_id}
+                },
+                "include": ["properties"]
+            })
+            # Handle list-wrapped results
+            if isinstance(orch_result, list) and orch_result:
+                orch_result = orch_result[0]
+            if orch_result and orch_result.get("status") == "success":
+                result["orchestrations"] = orch_result.get("entities", [])
+        except Exception as e:
+            logger.warning(f"Failed to query orchestrations for {agent_id}: {e}")
+    
+    # Include recent messages
+    if "messages" in include and event_emitter:
+        try:
+            # Query message entities related to this agent
+            msg_result = await event_emitter("state:entity:query", {
+                "type": "message",
+                "where": {
+                    "$or": [
+                        {"from_agent": agent_id},
+                        {"to_agent": agent_id}
+                    ]
+                },
+                "order_by": "created_at DESC",
+                "limit": message_limit,
+                "include": ["properties"]
+            })
+            # Handle list-wrapped results
+            if isinstance(msg_result, list) and msg_result:
+                msg_result = msg_result[0]
+            if msg_result and msg_result.get("status") == "success":
+                result["recent_messages"] = msg_result.get("entities", [])
+        except Exception as e:
+            logger.warning(f"Failed to query messages for {agent_id}: {e}")
+    
+    # Include observations (subscriptions)
+    if "observations" in include and event_emitter:
+        try:
+            obs_result = await event_emitter("observation:list_subscriptions", {
+                "filter_agent_id": agent_id
+            })
+            # Handle list-wrapped results
+            if isinstance(obs_result, list) and obs_result:
+                obs_result = obs_result[0]
+            if obs_result and obs_result.get("status") == "success":
+                result["subscriptions"] = obs_result.get("subscriptions", [])
+        except Exception as e:
+            logger.warning(f"Failed to get observations for {agent_id}: {e}")
+    
+    # Include recent events from event log
+    if "events" in include and event_emitter:
+        try:
+            events_result = await event_emitter("event_log:query", {
+                "filters": {
+                    "_agent_id": agent_id
+                },
+                "order_by": "timestamp DESC",
+                "limit": event_limit
+            })
+            # Handle list-wrapped results
+            if isinstance(events_result, list) and events_result:
+                events_result = events_result[0]
+            if events_result and events_result.get("status") == "success":
+                result["recent_events"] = events_result.get("events", [])
+        except Exception as e:
+            logger.warning(f"Failed to query events for {agent_id}: {e}")
+    
+    return event_response_builder(result, context=context)
 
 
 # Construct-specific handlers removed - use orchestration patterns
 
 
 # Identity handlers
-@event_handler("agent:create_identity")
-async def handle_create_identity(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@event_handler("agent:create_identity", schema=AgentCreateIdentityData, require_agent=False)
+async def handle_create_identity(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Create a new agent identity."""
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, AgentCreateIdentityData)
     agent_id = data.get("agent_id") or f"agent_{uuid.uuid4().hex[:8]}"
     identity_data = data.get("identity", {})
     
@@ -1591,7 +1696,11 @@ async def handle_create_identity(raw_data: Dict[str, Any], context: Optional[Dic
     }
     
     identities[agent_id] = identity
-    await save_identities()
+    
+    # Save identity to disk
+    success = await save_identity(identity_storage_path, agent_id, identity)
+    if not success:
+        return error_response("Failed to save identity", context)
     
     logger.info(f"Created identity for agent {agent_id}")
     
@@ -1604,20 +1713,11 @@ async def handle_create_identity(raw_data: Dict[str, Any], context: Optional[Dic
     )
 
 
-@event_handler("agent:update_identity")
-async def handle_update_identity(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@event_handler("agent:update_identity", schema=AgentUpdateIdentityData)
+async def handle_update_identity(data: AgentUpdateIdentityData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Update an agent identity."""
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, AgentUpdateIdentityData)
-    agent_id = data.get("agent_id")
+    agent_id = data["agent_id"]  # Validated by enhanced event_handler
     updates = data.get("updates", {})
-    
-    if not agent_id:
-        return error_response(
-            "agent_id required",
-            context=context
-        )
     
     if agent_id not in identities:
         return error_response(
@@ -1629,7 +1729,10 @@ async def handle_update_identity(raw_data: Dict[str, Any], context: Optional[Dic
     identities[agent_id].update(updates)
     identities[agent_id]["updated_at"] = format_for_logging()
     
-    await save_identities()
+    # Save updated identity to disk
+    success = await save_identity(identity_storage_path, agent_id, identities[agent_id])
+    if not success:
+        return error_response("Failed to save updated identity", context)
     
     logger.info(f"Updated identity for agent {agent_id}")
     
@@ -1642,12 +1745,9 @@ async def handle_update_identity(raw_data: Dict[str, Any], context: Optional[Dic
     )
 
 
-@event_handler("agent:remove_identity")
-async def handle_remove_identity(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@event_handler("agent:remove_identity", schema=AgentRemoveIdentityData)
+async def handle_remove_identity(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Remove an agent identity."""
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, AgentRemoveIdentityData)
     agent_id = data.get("agent_id")
     
     if not agent_id:
@@ -1658,7 +1758,10 @@ async def handle_remove_identity(raw_data: Dict[str, Any], context: Optional[Dic
     
     if agent_id in identities:
         del identities[agent_id]
-        await save_identities()
+        
+        # Remove identity file from disk
+        await remove_identity(identity_storage_path, agent_id)
+            
         logger.info(f"Removed identity for agent {agent_id}")
         return event_response_builder(
             {"status": "removed"},
@@ -1671,12 +1774,9 @@ async def handle_remove_identity(raw_data: Dict[str, Any], context: Optional[Dic
     )
 
 
-@event_handler("agent:list_identities")
-async def handle_list_identities(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@event_handler("agent:list_identities", schema=AgentListIdentitiesData, require_agent=False)
+async def handle_list_identities(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """List agent identities."""
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, AgentListIdentitiesData)
     identity_list = []
     
     for agent_id, identity in identities.items():
@@ -1687,52 +1787,16 @@ async def handle_list_identities(raw_data: Dict[str, Any], context: Optional[Dic
             "created_at": identity.get("created_at")
         })
     
-    return event_response_builder(
-        {
-            "identities": identity_list,
-            "count": len(identity_list)
-        },
-        context=context
-    )
-
-
-@event_handler("agent:get_identity")
-async def handle_get_identity(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Get a specific agent identity."""
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, AgentGetIdentityData)
-    agent_id = data.get("agent_id")
-    
-    if not agent_id:
-        return error_response(
-            "agent_id required",
-            context=context
-        )
-    
-    if agent_id in identities:
-        return event_response_builder(
-            {
-                "agent_id": agent_id,
-                "identity": identities[agent_id]
-            },
-            context=context
-        )
-    
-    return error_response(
-        f"Identity for {agent_id} not found",
-        context=context
-    )
+    return {
+        "identities": identity_list,
+        "count": len(identity_list)
+    }
 
 
 # Task routing handlers
-@event_handler("agent:route_task")
-async def handle_route_task(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@event_handler("agent:route_task", schema=AgentRouteTaskData, require_agent=False)
+async def handle_route_task(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Route a task to an appropriate agent."""
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder, error_response
-    
-    data = event_format_linter(raw_data, AgentRouteTaskData)
     # Simple routing: find first available agent
     for agent_id, info in agents.items():
         if info.get("status") == "ready":
@@ -1745,56 +1809,12 @@ async def handle_route_task(raw_data: Dict[str, Any], context: Optional[Dict[str
     return error_response("No available agents", context)
 
 
-@event_handler("agent:get_capabilities")
-async def handle_get_capabilities(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Get capabilities of an agent or all agents."""
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder, error_response
-    
-    data = event_format_linter(raw_data, AgentGetCapabilitiesData)
-    agent_id = data.get("agent_id")
-    
-    if agent_id:
-        if agent_id not in agents:
-            return error_response(f"Agent {agent_id} not found", context)
-        
-        agent_info = agents[agent_id]
-        
-        # Get capabilities from agent config (composed at spawn time)
-        capabilities = agent_info.get("config", {}).get("capabilities", [])
-        
-        return event_response_builder({
-            "agent_id": agent_id,
-            "capabilities": capabilities
-        }, context)
-    
-    # Return all agent capabilities
-    all_capabilities = {}
-    for aid, info in agents.items():
-        # Get capabilities from agent config (composed at spawn time)
-        all_capabilities[aid] = info.get("config", {}).get("capabilities", [])
-    
-    return event_response_builder({"capabilities": all_capabilities}, context)
-
-
 # Message handling functions
-@event_handler(
-    "agent:send_message",
-)
-async def handle_send_message(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@event_handler("agent:send_message", schema=AgentSendMessageData)
+async def handle_send_message(data: AgentSendMessageData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Send a message to an agent."""
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder, error_response
-    
-    data = event_format_linter(raw_data, AgentSendMessageData)
-    agent_id = data.get("agent_id")
+    agent_id = data["agent_id"]  # Validated by enhanced event_handler
     message = data.get("message", {})
-    
-    if not agent_id:
-        return error_response("agent_id required", context)
-    
-    if agent_id not in agents:
-        return error_response(f"Agent {agent_id} not found", context)
     
     # Check if this is a completion message (either format)
     is_completion = False
@@ -1872,13 +1892,9 @@ async def handle_send_message(raw_data: Dict[str, Any], context: Optional[Dict[s
     return error_response("Agent message queue not available", context)
 
 
-@event_handler("agent:broadcast")
-async def handle_broadcast(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@event_handler("agent:broadcast", schema=AgentBroadcastData, require_agent=False)
+async def handle_broadcast(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Broadcast a message to all agents."""
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder
-    
-    data = event_format_linter(raw_data, AgentBroadcastData)
     message = data.get("message", {})
     sender = data.get("sender", "system")
     
@@ -1901,25 +1917,15 @@ async def handle_broadcast(raw_data: Dict[str, Any], context: Optional[Dict[str,
 
 
 # Dynamic composition handlers
-@event_handler("agent:update_composition")
-async def handle_update_composition(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@event_handler("agent:update_composition", schema=AgentUpdateCompositionData)
+async def handle_update_composition(data: AgentUpdateCompositionData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle agent composition update request."""
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder, error_response
-    
-    data = event_format_linter(raw_data, AgentUpdateCompositionData)
-    agent_id = data.get("agent_id")
+    agent_id = data["agent_id"]  # Validated by enhanced event_handler
     new_composition = data.get("new_composition")
     reason = data.get("reason", "Adaptation required")
     
-    if not agent_id:
-        return error_response("agent_id required", context)
-    
     if not new_composition:
         return error_response("new_composition required", context)
-    
-    if agent_id not in agents:
-        return error_response(f"Agent {agent_id} not found", context)
     
     # Check if agent can self-modify
     agent_info = agents[agent_id]
@@ -1999,13 +2005,9 @@ async def handle_update_composition(raw_data: Dict[str, Any], context: Optional[
         return error_response(f"Failed to compose new profile: {compose_result.get('error', 'Unknown error')}", context, {"status": "failed"})
 
 
-@event_handler("agent:discover_peers")
-async def handle_discover_peers(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@event_handler("agent:discover_peers", schema=AgentDiscoverPeersData, require_agent=False)
+async def handle_discover_peers(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Discover other agents and their capabilities."""
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder
-    
-    data = event_format_linter(raw_data, AgentDiscoverPeersData)
     requesting_agent = data.get("agent_id")
     capability_filter = data.get("capabilities", [])
     role_filter = data.get("roles", [])
@@ -2045,13 +2047,9 @@ async def handle_discover_peers(raw_data: Dict[str, Any], context: Optional[Dict
     }, context)
 
 
-@event_handler("agent:negotiate_roles")
-async def handle_negotiate_roles(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@event_handler("agent:negotiate_roles", schema=AgentNegotiateRolesData, require_agent=False)
+async def handle_negotiate_roles(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Coordinate role negotiation between agents."""
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder, error_response
-    
-    data = event_format_linter(raw_data, AgentNegotiateRolesData)
     participants = data.get("participants", [])
     negotiation_type = data.get("type", "collaborative")
     negotiation_context = data.get("context", {})  # Renamed to avoid conflict
@@ -2060,9 +2058,9 @@ async def handle_negotiate_roles(raw_data: Dict[str, Any], context: Optional[Dic
         return error_response("At least 2 participants required for negotiation", context)
     
     # Verify all participants exist
-    for agent_id in participants:
-        if agent_id not in agents:
-            return error_response(f"Agent {agent_id} not found", context)
+    missing_agents = [aid for aid in participants if aid not in agents]
+    if missing_agents:
+        return error_response(f"Agents not found: {', '.join(missing_agents)}", context)
     
     # Create negotiation session
     negotiation_id = f"neg_{uuid.uuid4().hex[:8]}"
@@ -2092,16 +2090,15 @@ async def handle_negotiate_roles(raw_data: Dict[str, Any], context: Optional[Dic
     }, context)
 
 
-@event_handler("agent:needs_continuation")
-async def handle_agent_needs_continuation(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@event_handler("agent:needs_continuation", require_agent=False)
+async def handle_agent_needs_continuation(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle agent continuation requests for step-wise execution."""
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder, error_response
-    
-    data = event_format_linter(raw_data, dict)  # Simple dict for this handler
     # Extract agent_id from event metadata
     agent_id = data.get("_agent_id")  # This is set by event extraction
-    if not agent_id:
+    
+    # Validate agent exists
+    error = validate_event_handler_data({"agent_id": agent_id}, ["agent_id"], context)
+    if error:
         return error_response("No agent_id in continuation request", context)
     
     if agent_id not in agents:
@@ -2150,14 +2147,10 @@ class AgentSpawnFromComponentData(TypedDict):
     originator: NotRequired[Dict[str, Any]]  # Originator context for event streaming
 
 
-@event_handler("agent:spawn_from_component")
-async def handle_spawn_from_component(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@event_handler("agent:spawn_from_component", schema=AgentSpawnFromComponentData, require_agent=False)
+async def handle_spawn_from_component(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Spawn an agent using a component as the profile."""
-    from ksi_common.event_parser import event_format_linter
-    from ksi_common.event_response_builder import event_response_builder, error_response
-    
     try:
-        data = event_format_linter(raw_data, AgentSpawnFromComponentData)
         
         component_name = data['component']
         agent_id = data.get('agent_id', f"agent_{uuid.uuid4().hex[:8]}")
@@ -2170,7 +2163,7 @@ async def handle_spawn_from_component(raw_data: Dict[str, Any], context: Optiona
         if not event_emitter:
             return error_response("Event emitter not available", context)
         
-        profile_result = await agent_emit_event(agent_id, "composition:component_to_profile", {
+        profile_result = await event_emitter("composition:component_to_profile", {
             "component": component_name,
             "variables": variables,
             "save_to_disk": True,  # Save to disk for agent spawning
@@ -2221,7 +2214,7 @@ async def handle_spawn_from_component(raw_data: Dict[str, Any], context: Optiona
         spawn_result = await handle_spawn_agent(spawn_data, propagated_context)
         
         # Debug: Log the spawn result type and content
-        logger.debug(f"Spawn result type: {type(spawn_result)}, content: {spawn_result}")
+        logger.info(f"Spawn result type: {type(spawn_result)}, content: {spawn_result}")
         
         # Handle both dict and non-dict responses
         if isinstance(spawn_result, dict):

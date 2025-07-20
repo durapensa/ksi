@@ -243,6 +243,31 @@ class KSIHookMonitor:
             # Fallback to separate calls if new endpoint doesn't exist yet
             return self._get_status_fallback(pattern, limit)
     
+    def get_detailed_agent_info(self, agent_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Get detailed agent information using agent:info event."""
+        detailed_info = {}
+        
+        for agent_id in agent_ids:
+            try:
+                result = self.client.send_event("agent:info", {
+                    "_silent": True,
+                    "agent_id": agent_id,
+                    "include_capabilities": True,
+                    "include_identity": True,
+                    "include_status": True,
+                    "include_metrics": True
+                })
+                
+                if result.get("success", False):
+                    detailed_info[agent_id] = result.get("agent_info", {})
+                else:
+                    self.logger.log_debug(f"Failed to get info for agent {agent_id}: {result.get('error')}")
+                    
+            except Exception as e:
+                self.logger.log_debug(f"Error getting agent info for {agent_id}: {e}")
+        
+        return detailed_info
+    
     def _get_status_fallback(self, pattern: str = "*", limit: int = None) -> tuple[List[Dict[str, Any]], str]:
         """Fallback to separate calls if consolidated endpoint not available."""
         limit = limit or self.config.event_limit
@@ -541,6 +566,13 @@ class KSIHookMonitor:
         # Check for active agents
         agent_count = len(agent_status.split(": ")[1].split(", ")) if "Agents[" in agent_status else 0
         
+        # Extract agent IDs for detailed info in enhanced modes
+        agent_ids = []
+        if "Agents[" in agent_status and agent_count > 0:
+            # Extract agent IDs from status string
+            agent_part = agent_status.split(": ")[1]
+            agent_ids = [aid.strip() for aid in agent_part.replace("+", "").split(",") if aid.strip() and not aid.isdigit()]
+        
         # Errors mode - only show errors
         if mode == "errors":
             if has_errors:
@@ -555,7 +587,7 @@ class KSIHookMonitor:
             else:
                 return None  # No errors, no output in errors mode
         
-        # Verbose mode - show event details
+        # Verbose mode - show event details with enhanced agent info
         elif mode == "verbose":
             parts = []
             
@@ -572,18 +604,69 @@ class KSIHookMonitor:
                     # Extract just the latest event line
                     latest_event = event_summary.strip().split('\n')[0]
                     message += f"\n{latest_event}"
+                
+                # Add agent capabilities summary if agents present
+                if agent_ids and len(agent_ids) <= 2:  # Only for small numbers
+                    try:
+                        detailed_info = self.get_detailed_agent_info(agent_ids[:2])
+                        for agent_id in agent_ids[:2]:
+                            if agent_id in detailed_info:
+                                info = detailed_info[agent_id]
+                                capabilities = info.get("capabilities", {})
+                                active_caps = [k for k, v in capabilities.items() if v]
+                                if active_caps:
+                                    caps_str = ", ".join(active_caps[:3])
+                                    if len(active_caps) > 3:
+                                        caps_str += f" +{len(active_caps)-3}"
+                                    message += f"\n🔧 {agent_id[:12]}: {caps_str}"
+                    except Exception as e:
+                        self.logger.log_debug(f"Failed to get detailed agent info in verbose mode: {e}")
             else:
                 message = "KSI"
                 
             return message
         
-        # Orchestration mode - detailed view for debugging
+        # Orchestration mode - detailed view for debugging with full agent info
         elif mode == "orchestration":
             message = f"KSI: {len(new_events)} events"
             if new_events:
                 message += f"\n{event_summary}"
             if agent_count > 0:
                 message += f"\nAgents: {agent_count}"
+                
+                # Add detailed agent information
+                if agent_ids:
+                    try:
+                        detailed_info = self.get_detailed_agent_info(agent_ids[:3])
+                        for agent_id in agent_ids[:3]:
+                            if agent_id in detailed_info:
+                                info = detailed_info[agent_id]
+                                
+                                # Format agent details
+                                agent_line = f"\n  {agent_id}"
+                                
+                                # Add identity if available
+                                identity = info.get("identity", {})
+                                if identity.get("role"):
+                                    agent_line += f" ({identity['role']})"
+                                
+                                # Add status
+                                status = info.get("status", {})
+                                if status.get("state"):
+                                    agent_line += f" [{status['state']}]"
+                                
+                                # Add key capabilities
+                                capabilities = info.get("capabilities", {})
+                                active_caps = [k for k, v in capabilities.items() if v]
+                                if active_caps:
+                                    caps_preview = ", ".join(active_caps[:2])
+                                    if len(active_caps) > 2:
+                                        caps_preview += f" +{len(active_caps)-2}"
+                                    agent_line += f" - {caps_preview}"
+                                
+                                message += agent_line
+                    except Exception as e:
+                        self.logger.log_debug(f"Failed to get detailed agent info in orchestration mode: {e}")
             
             # Check for active claude processes
             claude_processes = self.check_claude_processes()

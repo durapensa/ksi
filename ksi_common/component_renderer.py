@@ -256,8 +256,20 @@ class ComponentRenderer:
     
     def _merge_contexts(self, base: ComponentContext, override: ComponentContext) -> ComponentContext:
         """Merge two component contexts, with override taking precedence."""
-        # Merge content (override content takes precedence)
-        merged_content = override.content if override.content.strip() else base.content
+        # Merge content - combine both contents with proper separation
+        # This ensures dependencies and mixins are properly combined, not replaced
+        base_content = base.content.strip()
+        override_content = override.content.strip()
+        
+        if base_content and override_content:
+            # Both have content - combine them
+            merged_content = f"{base_content}\n\n{override_content}"
+        elif override_content:
+            # Only override has content
+            merged_content = override_content
+        else:
+            # Only base has content (or neither)
+            merged_content = base_content
         
         # Merge frontmatter
         merged_frontmatter = base.frontmatter.copy()

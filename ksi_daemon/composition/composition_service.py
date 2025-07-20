@@ -2563,21 +2563,8 @@ async def handle_component_to_profile(raw_data: Dict[str, Any], context: Optiona
             # Save profile to disk
             save_yaml_file(profile_path, profile_data)
             
-            # Commit to git
-            try:
-                git_result = await git_manager.save_component(
-                    component_type="profiles",
-                    component_name=profile_name,
-                    component_data=profile_data
-                )
-                
-                if git_result.success:
-                    logger.info(f"Saved profile {profile_name} from component {component_name} (commit: {git_result.commit_hash})")
-                else:
-                    logger.warning(f"Failed to commit profile {profile_name}: {git_result.error}")
-                    
-            except Exception as git_error:
-                logger.warning(f"Git commit failed for profile {profile_name}: {git_error}")
+            # Profile saved locally for runtime use (no git commit needed for temp artifacts)
+            logger.info(f"Generated profile {profile_name} from component {component_name}")
         
         return event_response_builder({
             'status': 'success',
@@ -2683,21 +2670,8 @@ async def handle_generate_orchestration(raw_data: Dict[str, Any], context: Optio
             # Save orchestration to disk
             save_yaml_file(orchestration_path, orchestration_data)
             
-            # Commit to git
-            try:
-                git_result = await git_manager.save_component(
-                    component_type="orchestrations",
-                    component_name=pattern_name,
-                    component_data=orchestration_data
-                )
-                
-                if git_result.success:
-                    logger.info(f"Saved orchestration {pattern_name} from component {component_name} (commit: {git_result.commit_hash})")
-                else:
-                    logger.warning(f"Failed to commit orchestration {pattern_name}: {git_result.error}")
-                    
-            except Exception as git_error:
-                logger.warning(f"Git commit failed for orchestration {pattern_name}: {git_error}")
+            # Orchestration saved locally for runtime use (no git commit needed for temp artifacts)
+            logger.info(f"Generated orchestration {pattern_name} from component {component_name}")
         
         return event_response_builder({
             'status': 'success',

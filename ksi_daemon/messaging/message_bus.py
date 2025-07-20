@@ -314,15 +314,21 @@ class MessageBus:
         """Find an agent with required capabilities"""
         # Use agent service to find suitable agents
         if event_emitter:
-            result = await event_emitter("agent:get_capabilities", {})
-            if result and "capabilities" in result:
-                all_capabilities = result["capabilities"]
-                
-                # Find agents that have all required capabilities
-                for agent_id, caps in all_capabilities.items():
-                    if all(cap in caps for cap in required_capabilities):
-                        # Check if agent is connected
-                        if agent_id in self.connections:
+            # Get list of all agents first
+            agents_result = await event_emitter("agent:list", {})
+            if agents_result and "agents" in agents_result:
+                # Check each agent's capabilities using agent:info
+                for agent_info in agents_result["agents"]:
+                    agent_id = agent_info.get("agent_id")
+                    if not agent_id or agent_id not in self.connections:
+                        continue
+                    
+                    # Get detailed info including capabilities
+                    info_result = await event_emitter("agent:info", {"agent_id": agent_id})
+                    if info_result and "capabilities" in info_result:
+                        caps = info_result["capabilities"]
+                        # Check if this agent has all required capabilities
+                        if all(cap in caps for cap in required_capabilities):
                             return agent_id
         
         return None

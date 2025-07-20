@@ -10,7 +10,7 @@ import dspy
 from dspy.clients.lm import LM
 from dspy.primitives.prediction import Prediction
 
-from ksi_common.event_router import get_router
+from ksi_daemon.event_system import get_router
 from ksi_common.timestamps import timestamp_utc
 
 
