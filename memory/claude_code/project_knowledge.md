@@ -93,6 +93,12 @@ Essential technical reference for developing with KSI (Knowledge System Infrastr
 **Performance**: 100x-200x faster (10+ seconds → <100ms for typical queries).
 **See**: `/docs/KUZU_MIGRATION_ANALYSIS.md` for migration strategy.
 
+### Composition Path Resolution Fix ✅
+**Problem**: `composition:get_component` failed for orchestrations - incorrectly assumed all under COMPONENTS_BASE.
+**Solution**: Created `ksi_common/composition_utils.py` with shared path resolution utilities.
+**Result**: Both `composition:get` and `composition:get_component` now correctly resolve all composition types.
+**Key Functions**: `resolve_composition_path()`, `get_composition_base_path()`, `load_composition_with_metadata()`.
+
 ### Web UI Agent-State Visualization System ✅
 **Architecture**: Clear separation between Agent Ecosystem (left) and State System (right).
 **Agent Ecosystem**: Shows agents, orchestrations, spawning edges, event routing, orchestrator feedback.
@@ -375,7 +381,7 @@ echo "personas/deep_analyst.md model=claude-opus performance=reasoning" >> .gita
 - **Requirements**: `--level full` now requires `--namespace` or `--event` filter
 
 ### Key File Locations
-- **Core Systems**: `ksi_common/json_utils.py`, `ksi_common/component_renderer.py`
+- **Core Systems**: `ksi_common/json_utils.py`, `ksi_common/component_renderer.py`, `ksi_common/composition_utils.py`
 - **Event Handlers**: `ksi_daemon/composition/composition_service.py`
 - **Discovery Cache**: `ksi_daemon/core/discovery_cache.py`
 - **Hierarchical Routing**: `ksi_daemon/core/hierarchical_routing.py`
@@ -387,7 +393,7 @@ echo "personas/deep_analyst.md model=claude-opus performance=reasoning" >> .gita
 ## System Evolution Roadmap
 
 ### Immediate Implementation
-- **composition:inspect**: Dependency tree visualization with transitive dependencies, capability analysis, and version compatibility
+- **Long-running orchestrations**: Build optimization orchestrations using component system and MIPRO/DSPy utilities
 
 ### Phase 1: Transformer Architecture (Q2 2025)
 - **Event Transformation Pipeline**: High-level events transform to primitives (e.g., `agent:send_message` → `state:entity:create` + `event:notify`)
