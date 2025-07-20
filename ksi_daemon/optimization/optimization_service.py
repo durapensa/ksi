@@ -1,5 +1,7 @@
 """KSI Optimization Service - Framework-agnostic optimization integration."""
 
+import asyncio
+import json
 import logging
 from typing import Dict, Any, Optional, List
 from pathlib import Path
@@ -8,11 +10,13 @@ from ksi_daemon.event_system import event_handler, get_router
 from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
+from ksi_common.timestamps import timestamp_utc
 from ksi_common.async_operations import (
     start_operation, update_operation_status, complete_operation,
     fail_operation, create_background_task, build_progress_event,
     build_result_event, build_error_event
 )
+from ksi_common.process_utils import get_process_manager, ProcessExecutionError
 from .mlflow_manager import (
     start_mlflow_server, stop_mlflow_server, get_mlflow_ui_url,
     get_active_optimization_runs, get_optimization_progress
@@ -150,10 +154,10 @@ async def handle_async_optimization(raw_data: Dict[str, Any], context: Optional[
         }
     )
     
-    # Create background task for optimization
+    # Create background task for subprocess-based optimization
     task = create_background_task(
         opt_id,
-        run_optimization(opt_id, raw_data, context)
+        run_optimization_subprocess(opt_id, raw_data, context)
     )
     
     return event_response_builder({
@@ -164,9 +168,10 @@ async def handle_async_optimization(raw_data: Dict[str, Any], context: Optional[
     }, context)
 
 
-async def run_optimization(opt_id: str, data: Dict[str, Any], context: Optional[Dict[str, Any]]):
-    """Run optimization in background with progress updates."""
+async def run_optimization_subprocess(opt_id: str, data: Dict[str, Any], context: Optional[Dict[str, Any]]):
+    """Run optimization in subprocess with proper cancellation support."""
     router = get_router()
+    process_manager = get_process_manager()
     
     try:
         # Update status to initializing
@@ -177,54 +182,174 @@ async def run_optimization(opt_id: str, data: Dict[str, Any], context: Optional[
             opt_id, "initializing", "optimization"
         ))
         
-        # Get framework
-        framework_name = data.get("framework", "dspy")
-        adapter_class = optimization_frameworks[framework_name]
+        # Load component content before starting subprocess
+        target = data.get("target")
         
-        # Parse config if needed
+        # Get component content from composition service
+        component_response = await router.emit_first("composition:get_component", {
+            "name": target
+        })
+        
+        if component_response.get("status") != "success":
+            raise ValueError(f"Failed to load component {target}: {component_response}")
+        
+        component_content = component_response.get("content", "")
+        
+        # Prepare subprocess configuration
+        framework_name = data.get("framework", "dspy")
         config_data = data.get("config", {})
+        
         if isinstance(config_data, str):
             import json
             config_data = json.loads(config_data)
         
-        # Create adapter
-        if framework_name == "dspy":
-            adapter = adapter_class()
-        else:
-            adapter = adapter_class(metric=None, config=config_data)
+        # Create temporary files for component content and result
+        import tempfile
+        
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+            f.write(component_content)
+            component_file = f.name
+        
+        # Create result file path
+        with tempfile.NamedTemporaryFile(mode='w', suffix='_result.json', delete=False) as f:
+            result_file = f.name
+        
+        # Build command for subprocess
+        cmd = [
+            "python", 
+            str(Path(__file__).parent.parent.parent / "ksi_optimize_component.py"),
+            "--opt-id", opt_id,
+            "--component", target,
+            "--component-file", component_file,
+            "--result-file", result_file,
+            "--config", json.dumps(config_data)
+        ]
+        
+        # Add optional parameters
+        if data.get("signature"):
+            cmd.extend(["--signature", data.get("signature")])
+        if data.get("metric"):
+            cmd.extend(["--metric", data.get("metric")])
         
         # Update status to optimizing
         update_operation_status(opt_id, "optimizing")
         await router.emit("optimization:progress", build_progress_event(
             opt_id, "optimizing", "optimization", 
-            framework=framework_name
+            framework=framework_name,
+            subprocess=True
         ))
         
-        # Run optimization - pass opt_id for progress tracking
-        kwargs = {k: v for k, v in data.items() if k not in ['target', 'signature', 'metric', 'framework', 'config']}
-        result = await adapter.optimize(
-            target=data.get("target"),
-            signature=data.get("signature"),
-            metric=data.get("metric"),
-            optimization_id=opt_id,  # Pass opt_id for progress tracking
-            **kwargs
+        logger.info(f"Starting optimization subprocess for {opt_id}")
+        
+        # Run optimization in subprocess
+        returncode, stdout, stderr = await process_manager.run_subprocess(
+            cmd=cmd,
+            process_id=opt_id,
+            working_dir=Path(__file__).parent.parent.parent,  # KSI root
+            timeout=1800,  # 30 minutes max
+            progress_timeout=600  # 10 minutes without output
         )
         
-        # Complete operation
-        complete_operation(opt_id, result)
+        logger.info(f"Optimization subprocess {opt_id} completed with code {returncode}")
         
-        # Emit result event
-        await router.emit("optimization:result", build_result_event(
-            opt_id, result, "optimization"
+        if returncode == 0:
+            # Success - read specific result file and update component
+            try:
+                # Read result from the known file path
+                with open(result_file, 'r') as f:
+                    result_data = json.load(f)
+                
+                # Update component with optimized content
+                update_response = await router.emit_first("composition:update_component", {
+                    "name": result_data["component_name"],
+                    "content": result_data["optimized_content"],
+                    "metadata": result_data["metadata"]
+                })
+                
+                if update_response.get("status") == "success":
+                    logger.info(f"Updated component {result_data['component_name']} with optimized content")
+                    
+                    result = {
+                        "status": "completed", 
+                        "subprocess_completed": True,
+                        "component_updated": True,
+                        "component_name": result_data["component_name"],
+                        "improvement": result_data.get("improvement", 0)
+                    }
+                    complete_operation(opt_id, result)
+                    
+                    await router.emit("optimization:result", build_result_event(
+                        opt_id, result, "optimization"
+                    ))
+                else:
+                    raise ValueError(f"Failed to update component: {update_response}")
+                    
+            except Exception as e:
+                error_msg = f"Failed to process subprocess result: {e}"
+                logger.error(error_msg)
+                fail_operation(opt_id, error_msg, "ResultProcessingError")
+                
+                await router.emit("optimization:error", build_error_event(
+                    opt_id, error_msg, "optimization",
+                    error_type="ResultProcessingError"
+                ))
+        
+        # Clean up temporary files
+        try:
+            Path(component_file).unlink()
+        except Exception as e:
+            logger.warning(f"Could not clean up component file {component_file}: {e}")
+        
+        try:
+            Path(result_file).unlink()
+        except Exception as e:
+            logger.warning(f"Could not clean up result file {result_file}: {e}")
+        else:
+            # Subprocess failed
+            error_msg = f"Optimization subprocess failed with code {returncode}"
+            if stderr:
+                error_msg += f": {stderr[:500]}"
+            
+            fail_operation(opt_id, error_msg, "SubprocessError")
+            
+            await router.emit("optimization:error", build_error_event(
+                opt_id, error_msg, "optimization",
+                error_type="SubprocessError",
+                returncode=returncode,
+                stderr=stderr[:1000] if stderr else None
+            ))
+        
+    except ProcessExecutionError as e:
+        logger.error(f"Optimization {opt_id} subprocess failed: {e}")
+        
+        fail_operation(opt_id, str(e), "ProcessExecutionError")
+        
+        await router.emit("optimization:error", build_error_event(
+            opt_id, str(e), "optimization",
+            error_type="ProcessExecutionError",
+            returncode=e.returncode,
+            stderr=e.stderr[:1000] if e.stderr else None
         ))
+        
+    except asyncio.CancelledError:
+        logger.info(f"Optimization {opt_id} was cancelled")
+        
+        # Update status
+        update_operation_status(opt_id, "cancelled")
+        
+        # Emit cancellation event
+        await router.emit("optimization:cancelled", {
+            "optimization_id": opt_id,
+            "timestamp": timestamp_utc()
+        })
+        
+        raise
         
     except Exception as e:
         logger.error(f"Optimization {opt_id} failed: {e}", exc_info=True)
         
-        # Mark as failed
         fail_operation(opt_id, str(e), type(e).__name__)
         
-        # Emit error event
         await router.emit("optimization:error", build_error_event(
             opt_id, str(e), "optimization",
             error_type=type(e).__name__
@@ -251,28 +376,51 @@ async def handle_optimization_status(raw_data: Dict[str, Any], context: Optional
         include_stats = raw_data.get("include_stats", True)
         include_activity = raw_data.get("include_activity", True)
         
-        # Enhance with DSPy state if available
-        if status.get("status") == "optimizing":
-            framework_name = status.get("metadata", {}).get("framework")
-            
-            if framework_name == "dspy":
-                # Get DSPy-specific progress
-                dspy_progress = await get_dspy_optimization_progress(
-                    opt_id,
-                    include_scores=include_scores,
-                    include_instructions=include_instructions,
-                    include_stats=include_stats
-                )
-                status["progress"] = dspy_progress
-            
-            # Add LLM activity regardless of framework
-            if include_activity:
-                status["activity"] = await get_optimization_activity(opt_id, status["started_at"])
-            
-            # Try to get MLflow data if available
+        # Get MLflow data for progress tracking (replaces DSPy internal state)
+        if status.get("status") in ["optimizing", "completed", "failed"]:
             mlflow_data = await get_mlflow_optimization_data(opt_id)
             if mlflow_data:
                 status["mlflow"] = mlflow_data
+                
+                # Extract trial progress from MLflow if available
+                if "metrics" in mlflow_data:
+                    metrics = mlflow_data["metrics"]
+                    status["progress"] = {
+                        "trial_progress": {
+                            "current_score": metrics.get("score"),
+                            "best_score": metrics.get("best_score"),
+                            "trials_completed": int(metrics.get("trial", 0))
+                        }
+                    }
+                
+                # Extract activity from MLflow history
+                if include_activity and "metric_history" in mlflow_data:
+                    history = mlflow_data["metric_history"]
+                    trial_history = history.get("trial", [])
+                    
+                    if trial_history:
+                        latest_time = trial_history[-1].get("timestamp", 0)
+                        start_time = trial_history[0].get("timestamp", 0)
+                        elapsed = (latest_time - start_time) / 1000  # Convert to seconds
+                        
+                        status["activity"] = {
+                            "total_trials": len(trial_history),
+                            "elapsed_seconds": round(elapsed, 1),
+                            "trials_per_minute": round(len(trial_history) / (elapsed / 60), 1) if elapsed > 0 else 0,
+                            "status": "active" if latest_time > (time.time() * 1000 - 30000) else "idle"  # Active if trial in last 30s
+                        }
+                    else:
+                        # Fallback to subprocess-based activity
+                        process_manager = get_process_manager()
+                        active_processes = process_manager.get_active_processes()
+                        
+                        if opt_id in active_processes:
+                            process_info = active_processes[opt_id]
+                            status["activity"] = {
+                                "subprocess_running": process_info["running"],
+                                "subprocess_pid": process_info["pid"],
+                                "status": "active" if process_info["running"] else "idle"
+                            }
         
         return event_response_builder(status, context)
     
@@ -311,11 +459,20 @@ async def handle_cancel_optimization(raw_data: Dict[str, Any], context: Optional
     if not opt_id:
         return error_response("optimization_id required", context)
     
-    success = await cancel_operation(opt_id)
-    if success:
+    # Cancel the async operation (background task)
+    async_cancelled = await cancel_operation(opt_id)
+    
+    # Also cancel the subprocess if it's running
+    process_manager = get_process_manager()
+    subprocess_cancelled = await process_manager.cancel_process(opt_id)
+    
+    if async_cancelled or subprocess_cancelled:
+        logger.info(f"Cancelled optimization {opt_id} (async: {async_cancelled}, subprocess: {subprocess_cancelled})")
         return event_response_builder({
             "optimization_id": opt_id,
-            "status": "cancelled"
+            "status": "cancelled",
+            "async_cancelled": async_cancelled,
+            "subprocess_cancelled": subprocess_cancelled
         }, context)
     else:
         return error_response(f"Optimization {opt_id} not found or already completed", context)
@@ -493,140 +650,10 @@ def _recommend_technique(results: Dict[str, Any]) -> str:
     return best_technique or "manual"
 
 
-async def get_dspy_optimization_progress(
-    opt_id: str,
-    include_scores: bool = True,
-    include_instructions: bool = False,
-    include_stats: bool = True
-) -> Dict[str, Any]:
-    """Extract progress from active DSPy optimizer."""
-    
-    # Import the module-level function
-    try:
-        from .frameworks.dspy_events import get_active_optimizer
-    except ImportError:
-        return {"status": "framework_not_available"}
-    
-    # Get optimizer from module-level tracking
-    optimizer = get_active_optimizer(opt_id)
-    if not optimizer:
-        return {"status": "optimizer_not_accessible"}
-    
-    progress = {}
-    
-    # Extract from optimizer's internal state
-    optimizer_dict = optimizer.__dict__
-    
-    # Trial Progress - MIPROv2 tracks trials internally
-    # Look for trial-related attributes
-    total_calls = optimizer_dict.get("total_calls", 0)
-    prompt_model_calls = optimizer_dict.get("prompt_model_total_calls", 0)
-    
-    # Estimate trials based on evaluation calls (heuristic)
-    # In MIPROv2, each trial involves evaluations
-    if hasattr(optimizer, 'num_trials'):
-        num_trials = getattr(optimizer, 'num_trials', 12)
-        # Rough estimate: trials completed based on total calls
-        if total_calls > 0:
-            # This is an approximation - actual trial count may vary
-            trials_completed = min(total_calls // 10, num_trials)  # Assume ~10 calls per trial
-        else:
-            trials_completed = 0
-            
-        progress["trial_progress"] = {
-            "completed": trials_completed,
-            "total": num_trials,
-            "percentage": int((trials_completed / num_trials) * 100) if num_trials > 0 else 0,
-            "total_evaluation_calls": total_calls,
-            "prompt_model_calls": prompt_model_calls
-        }
-    
-    # Scores - Extract from score_data if available
-    if include_scores:
-        score_data = optimizer_dict.get("score_data", [])
-        if score_data:
-            # Extract scores from score_data list
-            scores = [entry.get("score", 0) for entry in score_data if "score" in entry]
-            if scores:
-                progress["scores"] = {
-                    "best": max(scores),
-                    "current": scores[-1],
-                    "history": scores[-5:] if len(scores) > 5 else scores,  # Last 5 scores
-                    "evaluations": len(scores)
-                }
-    
-    # Instructions (be careful with size)
-    if include_instructions:
-        # MIPROv2 doesn't directly expose current instructions during optimization
-        # Would need to extract from trial_logs if available
-        trial_logs = optimizer_dict.get("trial_logs", {})
-        if trial_logs:
-            # Get latest trial's instructions if available
-            latest_trial = max(trial_logs.keys()) if trial_logs else None
-            if latest_trial and "program" in trial_logs[latest_trial]:
-                progress["instructions"] = {
-                    "trial": latest_trial,
-                    "note": "Full instruction extraction requires program introspection"
-                }
-    
-    # Statistics
-    if include_stats:
-        progress["statistics"] = {
-            "max_bootstrapped_demos": optimizer_dict.get("max_bootstrapped_demos", 0),
-            "max_labeled_demos": optimizer_dict.get("max_labeled_demos", 0),
-            "init_temperature": optimizer_dict.get("init_temperature", 0.7),
-            "auto_mode": optimizer_dict.get("auto", "light"),
-            "num_candidates": optimizer_dict.get("num_candidates", 10),
-            "track_stats": optimizer_dict.get("track_stats", True),
-            "optimization_stage": "running" if total_calls > 0 else "initializing"
-        }
-    
-    return progress
+# Removed get_dspy_optimization_progress - now using MLflow data instead
 
 
-async def get_optimization_activity(opt_id: str, started_at: str) -> Dict[str, Any]:
-    """Get optimization activity based on trial progress."""
-    import time
-    from ksi_common.timestamps import parse_iso_timestamp
-    
-    # Try to get optimizer for real-time stats
-    try:
-        from .frameworks.dspy_events import get_active_optimizer
-        optimizer = get_active_optimizer(opt_id)
-        
-        if optimizer:
-            # Get current stats from optimizer
-            total_calls = getattr(optimizer, "total_calls", 0)
-            prompt_model_calls = getattr(optimizer, "prompt_model_total_calls", 0)
-            
-            # Calculate time since start
-            if isinstance(started_at, str):
-                dt = parse_iso_timestamp(started_at)
-                start_timestamp = dt.timestamp()
-            else:
-                start_timestamp = started_at
-            
-            elapsed_time = time.time() - start_timestamp
-            
-            # Calculate rates
-            calls_per_minute = (total_calls / elapsed_time * 60) if elapsed_time > 0 else 0
-            
-            return {
-                "total_evaluation_calls": total_calls,
-                "prompt_optimization_calls": prompt_model_calls,
-                "elapsed_seconds": round(elapsed_time, 1),
-                "calls_per_minute": round(calls_per_minute, 1),
-                "status": "active" if calls_per_minute > 0.5 else "idle",
-                "optimizer_active": True
-            }
-    except Exception as e:
-        logger.debug(f"Could not get optimizer stats: {e}")
-    
-    # Fallback: no real-time stats available
-    return {
-        "status": "optimizer_stats_unavailable",
-        "note": "Real-time statistics require active optimizer tracking"
-    }
+# Removed get_optimization_activity - now using MLflow data and subprocess info
 
 
 async def get_mlflow_optimization_data(opt_id: str) -> Optional[Dict[str, Any]]:
@@ -649,6 +676,9 @@ async def get_mlflow_optimization_data(opt_id: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         logger.debug(f"Could not get MLflow data for {opt_id}: {e}")
         return None
+
+
+time = __import__('time')  # Import time module for activity calculations
 
 
 async def _ensure_mlflow_initialized():
@@ -729,28 +759,26 @@ async def handle_optimization_initialize(data: Dict[str, Any]) -> Dict[str, Any]
 @event_handler("system:shutdown")
 async def handle_shutdown(data: Dict[str, Any]) -> None:
     """Clean up optimization resources on shutdown."""
-    from ksi_common.async_operations import shutdown_thread_pool, cancel_operation
+    from ksi_common.async_operations import cancel_operation, active_operations
     
     logger.info("Optimization service shutting down")
     
-    # Cancel all active optimizations
-    from ksi_common.async_operations import active_operations
+    # Cancel all active optimization subprocesses
+    process_manager = get_process_manager()
     
     for opt_id, op_data in list(active_operations.items()):
         if (op_data.get("service") == "optimization" and 
             op_data.get("status") in ["queued", "initializing", "optimizing"]):
-            logger.info(f"Cancelling active optimization {opt_id}")
+            logger.info(f"Cancelling active optimization subprocess {opt_id}")
+            # Cancel the async operation tracking
             await cancel_operation(opt_id)
+            # Cancel the actual subprocess
+            await process_manager.cancel_process(opt_id)
     
-    # Clean up framework resources
-    dspy_framework = optimization_frameworks.get("dspy")
-    if dspy_framework and hasattr(dspy_framework, "cleanup"):
-        await dspy_framework.cleanup()
-    
-    # Shutdown thread pool
-    shutdown_thread_pool()
+    # Clean up all remaining processes
+    await process_manager.cleanup_all_processes()
     
     # Stop MLflow server
     await stop_mlflow_server()
     
-    logger.info("Optimization service shutdown complete")
+    logger.info("Optimization service shutdown complete - all subprocesses terminated")

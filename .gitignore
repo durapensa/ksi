@@ -263,3 +263,4 @@ prompts/fitness_evaluator.py
 ksi_repositories/
 temp_repos/
 var/lib.backup/
+mlruns/
