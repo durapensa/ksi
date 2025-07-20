@@ -3,6 +3,82 @@
 """
 Modern JSON utilities with enhanced error handling and validation
 Provides robust JSON parsing, serialization, and extraction capabilities
+
+## When to Use parse_json_parameter
+
+The `parse_json_parameter` function is specifically designed for handling CLI parameters that can be 
+passed as JSON strings. It should be used ONLY in event handlers that receive data from external 
+sources (like the KSI CLI).
+
+### When TO Use parse_json_parameter:
+
+1. **In Event Handlers for CLI-facing Parameters**
+   - Parameters that users pass via `ksi send` commands
+   - Examples: --filter, --properties, --metadata, --vars
+   - These come as JSON strings from the CLI: `--filter '{"type": "orchestration"}'`
+
+2. **For Parameters That Accept Complex Structures**
+   - When a parameter needs to accept nested data (objects/arrays)
+   - When the CLI interface needs to support structured input
+   - Examples: filter criteria, configuration objects, metadata
+
+3. **At the Entry Point of External Data**
+   - Only in the initial event handler that receives data from outside
+   - Before passing data to internal functions/services
+   - Ensures JSON strings are parsed into proper Python objects
+
+### When NOT to Use parse_json_parameter:
+
+1. **Internal Service-to-Service Communication**
+   - Data passed between internal Python functions
+   - Already-parsed Python dictionaries and objects
+   - Would cause double-parsing errors
+
+2. **Non-String Parameters**
+   - Parameters that are already Python objects (dict, list, etc.)
+   - Simple scalar values (int, bool, etc.)
+   - The function safely ignores non-string parameters
+
+3. **After Initial Parsing**
+   - Once data enters the system and is parsed, keep it as Python objects
+   - Don't re-stringify and re-parse internally
+
+### Best Practices:
+
+1. **Parse Once at the Boundary**
+   ```python
+   def handle_event(raw_data):
+       data = event_format_linter(raw_data, MyDataType)
+       # Parse JSON parameters at entry point
+       parse_json_parameter(data, 'filter')
+       parse_json_parameter(data, 'properties')
+       # Now pass parsed data to internal functions
+       return internal_service.process(data)
+   ```
+
+2. **Document JSON Parameters in TypedDict**
+   ```python
+   class MyEventData(TypedDict):
+       filter: Union[str, Dict[str, Any]]  # JSON string from CLI or dict internally
+       limit: int  # Simple scalar, no parsing needed
+   ```
+
+3. **Let the Function Handle Edge Cases**
+   - It safely ignores missing parameters (returns None)
+   - It safely ignores non-string parameters
+   - It logs warnings for invalid JSON
+
+### Examples from KSI:
+
+**External-facing (USE parse_json_parameter):**
+- `composition:list` handler parses `filter` parameter
+- `state:entity:create` handler parses `properties` parameter
+- `orchestration:start` handler parses `vars` parameter
+
+**Internal functions (DON'T USE):**
+- Database query builders receive already-parsed dicts
+- Service layer functions work with Python objects
+- Component renderers process structured data
 """
 
 import json
@@ -495,6 +571,56 @@ def merge_json_objects(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[s
         return result
     
     return _deep_merge(base, override)
+
+
+def parse_json_parameter(data: Dict[str, Any], param_name: str, 
+                        merge_into_data: bool = True, 
+                        remove_original: bool = True) -> Optional[Dict[str, Any]]:
+    """Parse a parameter that might be a JSON string and optionally merge it into data.
+    
+    This is useful for CLI parameters that can be passed as JSON strings, like:
+    --filter '{"type": "orchestration"}'
+    
+    Args:
+        data: Dictionary containing the parameter
+        param_name: Name of the parameter to parse
+        merge_into_data: If True, merge parsed JSON into data dict
+        remove_original: If True, remove the original string parameter after parsing
+        
+    Returns:
+        Parsed JSON object or None if parameter not found or not a string
+        
+    Example:
+        data = {"filter": '{"type": "orchestration"}', "limit": 10}
+        parse_json_parameter(data, "filter")
+        # data is now: {"type": "orchestration", "limit": 10}
+    """
+    if param_name not in data:
+        return None
+        
+    param_value = data[param_name]
+    
+    # Only process if it's a string
+    if not isinstance(param_value, str):
+        return None
+        
+    try:
+        parsed_obj = loads(param_value)
+        
+        # If it's a dict and merge_into_data is True, merge it
+        if isinstance(parsed_obj, dict) and merge_into_data:
+            # Remove the original parameter first to avoid conflicts
+            if remove_original:
+                data.pop(param_name, None)
+            # Merge the parsed object into data
+            data.update(parsed_obj)
+            
+        return parsed_obj
+        
+    except JSONParseError as e:
+        logger.warning(f"Invalid JSON in {param_name} parameter: {param_value[:100]}")
+        logger.debug(f"JSON parse error: {e}")
+        return None
 
 
 # Specialized processors for different use cases
