@@ -40,17 +40,36 @@ class DSPyMIPROAdapter(BaseOptimizer):
         self.prompt_model = prompt_model or dspy.settings.lm
         self.task_model = task_model or dspy.settings.lm
         
-        # Default MIPROv2 settings
-        self.mipro_config = {
-            "auto": config.get("auto", "medium"),
-            "max_bootstrapped_demos": config.get("max_bootstrapped_demos", 4),
-            "max_labeled_demos": config.get("max_labeled_demos", 4),
-            "num_candidates": config.get("num_candidates", 10),
-            "init_temperature": config.get("init_temperature", 0.5),
-            "verbose": config.get("verbose", True),
-            "track_stats": config.get("track_stats", True),
-            "metric_threshold": config.get("metric_threshold", None),
-        }
+        # Configure for zero-shot optimization based on DSPy source analysis
+        auto_mode = config.get("auto", "light")  # Default to light auto mode
+        
+        if auto_mode and auto_mode != "None":
+            # Auto mode: zero-shot optimization (instruction-only)
+            self.mipro_init_config = {
+                "auto": auto_mode,  # "light", "medium", or "heavy"
+                "max_bootstrapped_demos": 0,  # Zero-shot: no bootstrapped examples
+                "max_labeled_demos": 0,       # Zero-shot: no few-shot examples
+                "init_temperature": config.get("init_temperature", 0.7),
+                "verbose": config.get("verbose", True),
+                "track_stats": config.get("track_stats", True),
+                "metric_threshold": config.get("metric_threshold", None),
+            }
+            self.mipro_compile_config = {}  # Auto mode handles everything
+        else:
+            # Manual mode: zero-shot optimization
+            self.mipro_init_config = {
+                "auto": None,  # Disable auto mode for manual control
+                "max_bootstrapped_demos": 0,  # Zero-shot: no bootstrapped examples
+                "max_labeled_demos": 0,       # Zero-shot: no few-shot examples
+                "init_temperature": config.get("init_temperature", 0.7),
+                "verbose": config.get("verbose", True),
+                "track_stats": config.get("track_stats", True),
+                "metric_threshold": config.get("metric_threshold", None),
+            }
+            # num_trials goes to compile(), not init()
+            self.mipro_compile_config = {
+                "num_trials": config.get("num_trials", 12),
+            }
     
     def get_optimizer_name(self) -> str:
         """Return optimizer name."""
@@ -146,15 +165,8 @@ class DSPyMIPROAdapter(BaseOptimizer):
         dspy_trainset = self._prepare_training_examples(component_name, trainset)
         
         if not dspy_trainset:
-            # If no training examples, create synthetic ones
-            dspy_trainset = [
-                dspy.Example(
-                    context=f"Component: {component_name}",
-                    current_instruction=original_body,
-                    examples="No examples available",
-                    optimized_instruction=original_body
-                ).with_inputs("context", "current_instruction", "examples")
-            ]
+            # Generate minimal training examples for DSPy instruction generation
+            dspy_trainset = self._generate_minimal_training_data(component_name, original_body)
         
         # Create validation set
         if valset:
@@ -168,20 +180,21 @@ class DSPyMIPROAdapter(BaseOptimizer):
         # Create DSPy program
         program = self._create_dspy_program(component_name)
         
-        # Initialize MIPROv2 optimizer
+        # Initialize MIPROv2 optimizer with separated configuration
         optimizer = dspy.MIPROv2(
             metric=self.metric,
             prompt_model=self.prompt_model,
             task_model=self.task_model,
-            **self.mipro_config
+            **self.mipro_init_config
         )
         
-        # Run optimization
+        # Run optimization with compile-specific configuration
         optimized_program = optimizer.compile(
             program,
             trainset=dspy_trainset,
             valset=dspy_valset,
-            requires_permission_to_run=False
+            requires_permission_to_run=False,
+            **self.mipro_compile_config
         )
         
         # Extract optimized instruction
@@ -202,8 +215,8 @@ class DSPyMIPROAdapter(BaseOptimizer):
         frontmatter["optimization"] = {
             "optimizer": self.get_optimizer_name(),
             "timestamp": timestamp_utc(),
-            "auto_mode": self.mipro_config["auto"],
-            "num_candidates": self.mipro_config["num_candidates"],
+            "auto_mode": self.mipro_init_config.get("auto"),
+            "num_trials": self.mipro_compile_config.get("num_trials", "auto"),
             "trainset_size": len(dspy_trainset),
             "valset_size": len(dspy_valset),
         }
@@ -223,7 +236,8 @@ class DSPyMIPROAdapter(BaseOptimizer):
             "optimized_content": optimized_content,
             "optimization_metadata": {
                 "optimizer": self.get_optimizer_name(),
-                "config": self.mipro_config,
+                "init_config": self.mipro_init_config,
+                "compile_config": self.mipro_compile_config,
                 "stats": optimizer.__dict__.get("stats", {}),
             },
             "git_commit": None,  # Will be set by git tracking
@@ -268,3 +282,50 @@ class DSPyMIPROAdapter(BaseOptimizer):
             results[component_name] = result
         
         return results
+    
+    def _generate_minimal_training_data(self, component_name: str, original_body: str) -> List[Any]:
+        """Generate minimal training examples for DSPy instruction generation (2-3 examples max)."""
+        import dspy
+        
+        # Extract component purpose from name and body
+        component_type = "component"
+        if "analyst" in component_name.lower():
+            component_type = "analyst"
+        elif "researcher" in component_name.lower():
+            component_type = "researcher"
+        elif "coordinator" in component_name.lower():
+            component_type = "coordinator"
+        
+        # Create minimal examples just for DSPy instruction generation
+        # These provide structure, not domain-specific content
+        training_examples = []
+        
+        # Example 1: Basic task structure
+        example1 = dspy.Example(
+            context=f"Component: {component_name}\nType: {component_type}",
+            current_instruction=original_body[:200] + "..." if len(original_body) > 200 else original_body,
+            examples="Input provided, task performed, output generated",
+            optimized_instruction="[To be optimized by MIPROv2]"
+        ).with_inputs("context", "current_instruction", "examples")
+        training_examples.append(example1)
+        
+        # Example 2: Input-output pattern
+        example2 = dspy.Example(
+            context=f"Component: {component_name}\nExpected behavior: Process input and provide structured output",
+            current_instruction="Basic instruction template",
+            examples="Sample input → Sample output",
+            optimized_instruction="[To be optimized by MIPROv2]"
+        ).with_inputs("context", "current_instruction", "examples")
+        training_examples.append(example2)
+        
+        # Example 3: Quality criteria (only if needed - keep minimal)
+        if len(training_examples) < 3:
+            example3 = dspy.Example(
+                context=f"Component: {component_name}\nQuality criteria: Clear, actionable, well-structured",
+                current_instruction="Template instruction",
+                examples="Quality input → Quality output",
+                optimized_instruction="[To be optimized by MIPROv2]"
+            ).with_inputs("context", "current_instruction", "examples")
+            training_examples.append(example3)
+        
+        return training_examples
