@@ -8,6 +8,11 @@ from ksi_daemon.event_system import event_handler, get_router
 from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
+from ksi_common.async_operations import (
+    start_operation, update_operation_status, complete_operation,
+    fail_operation, create_background_task, build_progress_event,
+    build_result_event, build_error_event
+)
 
 logger = get_bound_logger("optimization_service")
 
@@ -104,6 +109,160 @@ async def handle_optimize(raw_data: Dict[str, Any], context: Optional[Dict[str, 
     )
     
     return event_response_builder(result, context=context)
+
+
+@event_handler("optimization:async")
+async def handle_async_optimization(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Start async optimization with background processing."""
+    
+    # Extract parameters
+    framework = raw_data.get("framework", "dspy")
+    target = raw_data.get("target")
+    
+    if not target:
+        return error_response("target component required", context=context)
+    
+    if framework not in optimization_frameworks:
+        return error_response(f"Unknown framework: {framework}", context=context)
+    
+    # Start operation tracking
+    opt_id = start_operation(
+        operation_type="optimization",
+        service_name="optimization",
+        metadata={
+            "component": target,
+            "framework": framework,
+            "signature": raw_data.get("signature"),
+            "metric": raw_data.get("metric")
+        }
+    )
+    
+    # Create background task for optimization
+    task = create_background_task(
+        opt_id,
+        run_optimization(opt_id, raw_data, context)
+    )
+    
+    return event_response_builder({
+        "optimization_id": opt_id,
+        "status": "started",
+        "framework": framework,
+        "component": target
+    }, context)
+
+
+async def run_optimization(opt_id: str, data: Dict[str, Any], context: Optional[Dict[str, Any]]):
+    """Run optimization in background with progress updates."""
+    router = get_router()
+    
+    try:
+        # Update status to initializing
+        update_operation_status(opt_id, "initializing")
+        
+        # Emit progress event
+        await router.emit("optimization:progress", build_progress_event(
+            opt_id, "initializing", "optimization"
+        ))
+        
+        # Get framework
+        framework_name = data.get("framework", "dspy")
+        adapter_class = optimization_frameworks[framework_name]
+        
+        # Parse config if needed
+        config_data = data.get("config", {})
+        if isinstance(config_data, str):
+            import json
+            config_data = json.loads(config_data)
+        
+        # Create adapter
+        if framework_name == "dspy":
+            adapter = adapter_class()
+        else:
+            adapter = adapter_class(metric=None, config=config_data)
+        
+        # Update status to optimizing
+        update_operation_status(opt_id, "optimizing")
+        await router.emit("optimization:progress", build_progress_event(
+            opt_id, "optimizing", "optimization", 
+            framework=framework_name
+        ))
+        
+        # Run optimization
+        kwargs = {k: v for k, v in data.items() if k not in ['target', 'signature', 'metric', 'framework', 'config']}
+        result = await adapter.optimize(
+            target=data.get("target"),
+            signature=data.get("signature"),
+            metric=data.get("metric"),
+            **kwargs
+        )
+        
+        # Complete operation
+        complete_operation(opt_id, result)
+        
+        # Emit result event
+        await router.emit("optimization:result", build_result_event(
+            opt_id, result, "optimization"
+        ))
+        
+    except Exception as e:
+        logger.error(f"Optimization {opt_id} failed: {e}", exc_info=True)
+        
+        # Mark as failed
+        fail_operation(opt_id, str(e), type(e).__name__)
+        
+        # Emit error event
+        await router.emit("optimization:error", build_error_event(
+            opt_id, str(e), "optimization",
+            error_type=type(e).__name__
+        ))
+
+
+@event_handler("optimization:status")
+async def handle_optimization_status(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Get status of optimization operations."""
+    
+    from ksi_common.async_operations import get_operation_status, get_active_operations_summary
+    
+    # Check for specific optimization ID
+    opt_id = raw_data.get("optimization_id")
+    if opt_id:
+        status = get_operation_status(opt_id)
+        if status:
+            return event_response_builder(status, context)
+        else:
+            return error_response(f"Optimization {opt_id} not found", context)
+    
+    # Return summary of all optimizations
+    summary = get_active_operations_summary(
+        service_name="optimization",
+        operation_type="optimization"
+    )
+    
+    return event_response_builder({
+        "active_optimizations": summary["total"],
+        "by_status": summary.get("by_status", {}),
+        "frameworks": {name: {"available": True} for name in optimization_frameworks.keys()}
+    }, context)
+
+
+@event_handler("optimization:cancel")
+async def handle_cancel_optimization(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Cancel an active optimization."""
+    
+    from ksi_common.async_operations import cancel_operation
+    
+    opt_id = raw_data.get("optimization_id")
+    if not opt_id:
+        return error_response("optimization_id required", context)
+    
+    success = await cancel_operation(opt_id)
+    if success:
+        return event_response_builder({
+            "optimization_id": opt_id,
+            "status": "cancelled"
+        }, context)
+    else:
+        return error_response(f"Optimization {opt_id} not found or already completed", context)
 
 
 @event_handler("optimization:evaluate")

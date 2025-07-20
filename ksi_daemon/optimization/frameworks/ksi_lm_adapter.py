@@ -35,7 +35,13 @@ class KSIAgentLanguageModel(LM):
         """
         self.model = model or "claude-cli/sonnet"
         self.optimization_context = optimization_context
-        self.kwargs = kwargs
+        # Ensure DSPy expected kwargs are present
+        self.kwargs = {
+            "temperature": 0.7,
+            "max_tokens": 1000,
+            "model": self.model,
+            **kwargs  # Allow overrides
+        }
         self.router = None  # Will be set when event system is available
         self.agent_pool: Dict[str, str] = {}  # Maps context to agent_id
         self.history = []
@@ -89,7 +95,7 @@ class KSIAgentLanguageModel(LM):
             raise RuntimeError(f"Failed to spawn optimization agent: {result}")
     
     def __call__(self, prompt=None, messages=None, **kwargs):
-        """Make completion request through KSI agent."""
+        """Make completion request through KSI agent - sync wrapper for DSPy."""
         # DSPy can call with either prompt or messages
         if messages:
             # Convert messages format to prompt
@@ -98,9 +104,23 @@ class KSIAgentLanguageModel(LM):
         # Ensure temperature is set (defensive programming)
         kwargs.setdefault("temperature", 0.7)
         
-        # For now, return a simple mock response to test the flow
-        # TODO: Implement proper async bridge
-        return [f"Mock response for: {prompt[:100]}..."]
+        # For now, return a mock response to bypass async issues
+        # TODO: Implement proper async bridge or run DSPy in separate process
+        logger.warning("Using mock response for DSPy optimization - async bridge pending")
+        return [f"Optimized instruction for prompt: {prompt[:50]}..."]
+    
+    async def __acall__(self, prompt=None, messages=None, **kwargs):
+        """Native async method for DSPy - preferred when using DSPy's async features."""
+        # DSPy can call with either prompt or messages
+        if messages:
+            # Convert messages format to prompt
+            prompt = self._messages_to_prompt(messages)
+        
+        # Ensure temperature is set
+        kwargs.setdefault("temperature", 0.7)
+        
+        # Direct async call
+        return await self._async_request(prompt, **kwargs)
     
     async def _async_request(self, prompt: str, **kwargs) -> List[str]:
         """Make async completion request through KSI agent."""
