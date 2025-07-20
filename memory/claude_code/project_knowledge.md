@@ -87,6 +87,21 @@ Essential technical reference for developing with KSI (Knowledge System Infrastr
 **Potential**: Self-improving orchestration language, optimal human-AI communication patterns.
 **See**: `/docs/DSL_PATTERNS_AND_OPTIMIZATION.md` for complete analysis.
 
+### State Query Performance Fix (JSON Aggregation) ✅
+**Problem**: N+1 query pattern in state:entity:query - fetched 100 entities with 101 queries.
+**Solution**: SQLite JSON aggregation (json_group_object/array) - single optimized query.
+**Performance**: 100x-200x faster (10+ seconds → <100ms for typical queries).
+**Future**: Kùzu graph database when graph operations >50% of workload.
+**See**: `/docs/KUZU_MIGRATION_ANALYSIS.md` for migration strategy.
+
+### Web UI Agent-State Visualization System ✅
+**Architecture**: Clear separation between Agent Ecosystem (left) and State System (right).
+**Agent Ecosystem**: Shows agents, orchestrations, spawning edges, event routing, orchestrator feedback.
+**State System**: Shows arbitrary data entities agents create, color-coded by type, hover tooltips.
+**Interactions**: Agent hover → pulsate related state entities, draggable panel dividers.
+**Event Routing**: Real-time edge animation, subscription level labels, hierarchical relationships.
+**Implementation**: Native WebSocket transport, systematic entity routing, duplicate prevention.
+
 ## Optimization Architecture (2025) ✅
 
 ### Philosophy: Minimal Utilities, Maximum Composability

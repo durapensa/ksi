@@ -36,19 +36,13 @@ This document serves as your primary instructions for KSI development. For techn
 ### Advanced Debugging Techniques
 
 **Enable Debug Logging**: For deep system investigation
-
-Dynamic Method (Preferred - No Restart):
 ```bash
-# Enable debug logging immediately
+# Dynamic method (no restart required)
 ksi send config:set --type daemon --key log_level --value DEBUG
+tail -f var/logs/daemon/daemon.log.jsonl
 
 # Disable when done
 ksi send config:set --type daemon --key log_level --value INFO
-```
-
-Environment Variable Method (Requires Restart):
-```bash
-export KSI_DEBUG=true && export KSI_LOG_LEVEL=DEBUG && ./daemon_control.py restart
 ```
 
 **Agent Behavior Investigation**: When agents claim to perform actions:
@@ -220,20 +214,14 @@ capabilities:          # What this provides
 {"event": "agent:status", "data": {"agent_id": "{{agent_id}}", "status": "initialized"}}
 ```
 
-**Behavioral Override Pattern (WORKING 2025)** ✅:
+**Behavioral Override Pattern**:
 ```bash
-# Core persona with dependencies
+# Core persona with behavioral dependencies
 dependencies:
   - core/base_agent
   - behaviors/communication/mandatory_json
   - behaviors/orchestration/claude_code_override
 ```
-
-**When** using behavioral overrides:
-- **Then** declare behavioral components in `dependencies:` array
-- **Then** test with `composition:component_to_profile` to verify merging
-- **Then** confirm behavioral content appears in rendered `system_prompt`
-- **Then** verify JSON extraction works with orchestration patterns
 
 **Hybrid Evaluation Architecture**:
 - **Test suite definitions** → `components/evaluations/suites/`
@@ -376,20 +364,6 @@ ksi send completion:async --session-id 943a3864-d5bb... --prompt "..."
 2. All agent requests use same sandbox: `var/sandbox/agents/{uuid}/`
 3. Claude CLI finds all sessions for that agent in one location
 
-## Major Accomplishments (2025) ✅
-
-### Complete Profile → Component Migration
-- **Eliminated entire profile system** - No profiles directory remains
-- **Updated all orchestrations** - Every orchestration uses component paths
-- **Created missing components** - All referenced profiles now have component equivalents
-- **Clean unified architecture** - Single component system throughout
-
-### DSL Meta-Optimization System
-- **Created DSL optimization orchestrations** - MIPRO can now optimize the orchestration language itself
-- **Hybrid prompt-DSL patterns** - Discovered optimal blending of natural language with DSL structure
-- **Meta-linguistic evolution** - The orchestration language can now evolve and improve
-- **See**: `/docs/DSL_PATTERNS_AND_OPTIMIZATION.md` for complete analysis
-
 ## Git Workflow
 
 ### Submodule Management
@@ -430,13 +404,10 @@ git commit -m "Update composition submodule"
 - **Frontmatter parsing errors**: Check YAML syntax, investigate date handling
 - **Git operations failing**: Check submodule initialization
 
-**KSI Hook Monitor Issues**:
-- **Hook output not visible in Claude Code** (Bug #3983 filed - PostToolUse JSON not processed)
-  - Claude Code doesn't process hook JSON output despite following documented format
-  - **Workaround**: Check diagnostic log: `tail -f /tmp/ksi_hook_diagnostic.log`
-  - **Verify hook is active**: `echo ksi_check` (check diagnostic log for response)
-  - **Hook modes**: `echo ksi_verbose`, `echo ksi_summary`, `echo ksi_silent`
-  - **Fix tracking**: https://raw.githubusercontent.com/anthropics/claude-code/refs/heads/main/CHANGELOG.md
+**KSI Hook Issues**:
+- **Hook output not visible in Claude Code** (Known issue #3983)
+  - **Workaround**: `tail -f /tmp/ksi_hook_diagnostic.log`
+  - **Hook control**: `echo ksi_verbose` / `ksi_summary` / `ksi_silent`
 
 ## Meta-Principles
 
@@ -458,20 +429,13 @@ git commit -m "Update composition submodule"
 
 ## System Status (Current)
 
-### Major Accomplishments (2025)
-- ✅ **Graph-Based Architecture**: Entities form directed graphs with implicit context flow
-- ✅ **Unified Composition**: Single `composition:compose` endpoint, no type-specific handlers  
-- ✅ **Nested Orchestrations**: Agents can spawn orchestrations to arbitrary depth
-- ✅ **Hierarchical Event Routing**: Subscription levels = graph traversal depth
-- ✅ **JSON Extraction Fix**: Balanced brace parsing for arbitrary nesting
-- ✅ **Persona-First Architecture**: Proven natural JSON emission
-- ✅ **Session Continuity**: Agent-based persistent sandboxes
-
-### Current Standards
-- **Unified component model**: All pieces are components with `component_type`
-- **Clear organization**: Components organized by type and purpose
-- **Hybrid evaluation**: Test definitions as components, results as data
-- **Production ready**: All major architectural improvements complete
+### Production Standards
+- **Graph-based architecture**: Entities as nodes, events route through edges
+- **Unified components**: Everything has `component_type`, organized by purpose
+- **Native transports**: WebSocket integrated into daemon, no external bridges
+- **Optimized queries**: JSON aggregation eliminates N+1 patterns
+- **Session continuity**: Agent sandboxes maintain conversation state
+- **Behavioral overrides**: Dependencies properly merge behaviors
 
 ## Document Maintenance Patterns
 

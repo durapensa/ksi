@@ -28,12 +28,13 @@ class KSIVisualizer {
         
         // Event handlers map
         this.eventHandlers = {
-            'agent:spawn': this.handleAgentSpawn.bind(this),
+            'agent:spawn': this.handleAgentSpawnRequest.bind(this),
             'agent:spawned': this.handleAgentSpawn.bind(this),
-            'agent:spawn_from_component': this.handleAgentSpawn.bind(this), // Add handler for component spawning
+            'agent:spawn_from_component': this.handleAgentSpawnRequest.bind(this),
             'agent:list': this.handleAgentList.bind(this),
             'agent:terminate': this.handleAgentTerminate.bind(this),
             'agent:terminated': this.handleAgentTerminate.bind(this),
+            'state:entity:create': this.handleEntityCreate.bind(this),
             'completion:result': this.handleCompletion.bind(this),
             'completion:async': this.handleCompletionRequest.bind(this),
             'orchestration:message': this.handleMessage.bind(this),
@@ -59,6 +60,16 @@ class KSIVisualizer {
         this.agents = new Map();
         this.activeCompletions = new Map();
         
+        // Track recent agent spawn requests (for matching with state:entity:create)
+        this.recentSpawnRequests = new Map(); // agent_id -> spawn_data
+        
+        // Track which entities we've already added to avoid duplicates
+        this.addedStateEntities = new Set();
+        
+        // Track agent-state relationships  
+        this.agentStateMap = new Map(); // agent_id -> Set of state_entity_ids
+        this.stateAgentMap = new Map(); // state_entity_id -> agent_id (creator)
+        
         // Track subscription state
         this.subscribed = false;
         
@@ -67,6 +78,9 @@ class KSIVisualizer {
         
         // Add periodic connection health check
         this.startHealthCheck();
+        
+        // Initialize draggable dividers
+        this.initializeDividers();
     }
     
     generateClientId() {
@@ -177,11 +191,13 @@ class KSIVisualizer {
                 {
                     selector: 'edge',
                     style: {
-                        'width': 2,
+                        'width': 3,
                         'target-arrow-shape': 'triangle',
-                        'line-color': '#666',
-                        'target-arrow-color': '#666',
-                        'curve-style': 'bezier'
+                        'line-color': '#888',
+                        'target-arrow-color': '#888',
+                        'curve-style': 'bezier',
+                        'arrow-scale': 1.2,
+                        'opacity': 0.8
                     }
                 },
                 {
@@ -191,16 +207,61 @@ class KSIVisualizer {
                         'target-arrow-color': '#4CAF50',
                         'width': 3,
                         'target-arrow-shape': 'triangle',
-                        'arrow-scale': 1.5
+                        'arrow-scale': 1.5,
+                        'label': 'spawned'
                     }
                 },
                 {
-                    selector: 'edge.message-flow',
+                    selector: 'edge[type="event_route"]',
                     style: {
                         'line-color': '#2196F3',
                         'target-arrow-color': '#2196F3',
                         'line-style': 'dashed',
-                        'width': 3
+                        'width': 2,
+                        'target-arrow-shape': 'chevron',
+                        'label': 'data(subscription_level)'
+                    }
+                },
+                {
+                    selector: 'edge[type="error_route"]',
+                    style: {
+                        'line-color': '#F44336',
+                        'target-arrow-color': '#F44336',
+                        'line-style': 'dashed',
+                        'width': 4,
+                        'target-arrow-shape': 'triangle-tee',
+                        'label': 'error'
+                    }
+                },
+                {
+                    selector: 'edge[type="message"]',
+                    style: {
+                        'line-color': '#FF9800',
+                        'target-arrow-color': '#FF9800',
+                        'line-style': 'dotted',
+                        'width': 2,
+                        'target-arrow-shape': 'circle',
+                        'source-arrow-shape': 'circle',
+                        'label': 'message'
+                    }
+                },
+                {
+                    selector: 'edge[type="orchestrator_feedback"]',
+                    style: {
+                        'line-color': '#9C27B0',
+                        'target-arrow-color': '#9C27B0',
+                        'width': 3,
+                        'target-arrow-shape': 'diamond',
+                        'label': 'orchestrator'
+                    }
+                },
+                {
+                    selector: 'edge.active-flow',
+                    style: {
+                        'line-color': '#FFD700',
+                        'target-arrow-color': '#FFD700',
+                        'width': 5,
+                        'z-index': 999
                     }
                 }
             ],
@@ -208,6 +269,27 @@ class KSIVisualizer {
                 name: 'grid',  // Start with simple grid layout
                 animate: true
             }
+        });
+        
+        // Add agent hover → pulsate state entities
+        this.agentGraph.on('mouseover', 'node[type="agent"]', (event) => {
+            const agentId = event.target.id();
+            console.log(`🖱️ Agent hover: ${agentId}`);
+            this.pulsateAgentStateEntities(agentId);
+            this.showAgentTooltip(event.target);
+        });
+        
+        this.agentGraph.on('mouseout', 'node[type="agent"]', (event) => {
+            this.hideAgentTooltip();
+        });
+        
+        // Add orchestration hover
+        this.agentGraph.on('mouseover', 'node[type="orchestration"]', (event) => {
+            this.showOrchestrationTooltip(event.target);
+        });
+        
+        this.agentGraph.on('mouseout', 'node[type="orchestration"]', (event) => {
+            this.hideAgentTooltip();
         });
         
         // State system graph
@@ -336,6 +418,9 @@ class KSIVisualizer {
             this.showAgentActivity(originatorId);
         }
         
+        // Animate event flow for routing
+        this.animateEventRouting(data, eventName);
+        
         // Update agent hierarchy from daemon metadata
         this.updateAgentHierarchy(data);
         
@@ -348,7 +433,12 @@ class KSIVisualizer {
                 console.error(`Error handling ${eventName}:`, e, data);
             }
         } else if (eventName) {
-            console.debug(`No handler for event: ${eventName}`);
+            // Check for important unhandled events
+            if (eventName.includes('state:entity') || eventName.includes('agent:') || eventName.includes('orchestration:')) {
+                console.warn(`⚠️ No handler for important event: ${eventName}`, data);
+            } else {
+                console.debug(`No handler for event: ${eventName}`);
+            }
         }
     }
     
@@ -543,6 +633,139 @@ class KSIVisualizer {
             });
         }
     }
+    
+    createEventRoutingEdges(agentId, data) {
+        // Create event routing edges based on subscription levels
+        if (data.parent_agent_id && data.event_subscription_level !== undefined) {
+            const edgeId = `${agentId}-event_route-${data.parent_agent_id}`;
+            
+            if (!this.agentGraph.getElementById(edgeId).length) {
+                this.agentGraph.add({
+                    data: {
+                        id: edgeId,
+                        source: agentId,
+                        target: data.parent_agent_id,
+                        type: 'event_route',
+                        subscription_level: `L${data.event_subscription_level}`,
+                        orchestration_id: data.orchestration_id
+                    }
+                });
+            }
+        }
+        
+        // Create error routing edge if error subscription level is different
+        if (data.parent_agent_id && data.error_subscription_level !== undefined && 
+            data.error_subscription_level !== data.event_subscription_level) {
+            const errorEdgeId = `${agentId}-error_route-${data.parent_agent_id}`;
+            
+            if (!this.agentGraph.getElementById(errorEdgeId).length) {
+                this.agentGraph.add({
+                    data: {
+                        id: errorEdgeId,
+                        source: agentId,
+                        target: data.parent_agent_id,
+                        type: 'error_route',
+                        subscription_level: `E${data.error_subscription_level}`,
+                        orchestration_id: data.orchestration_id
+                    }
+                });
+            }
+        }
+    }
+    
+    createMessageEdge(fromAgent, toAgent, messageType) {
+        // Create bidirectional message edge
+        const edgeId = `${fromAgent}-message-${toAgent}`;
+        const reverseEdgeId = `${toAgent}-message-${fromAgent}`;
+        
+        // Check if edge already exists in either direction
+        if (!this.agentGraph.getElementById(edgeId).length && 
+            !this.agentGraph.getElementById(reverseEdgeId).length) {
+            this.agentGraph.add({
+                data: {
+                    id: edgeId,
+                    source: fromAgent,
+                    target: toAgent,
+                    type: 'message',
+                    messageType: messageType,
+                    timestamp: Date.now()
+                }
+            });
+        }
+    }
+    
+    createOrchestratorFeedbackEdge(agentId, orchestratorId) {
+        // Create orchestrator feedback edge
+        const edgeId = `${agentId}-orchestrator_feedback-${orchestratorId}`;
+        
+        if (!this.agentGraph.getElementById(edgeId).length) {
+            this.agentGraph.add({
+                data: {
+                    id: edgeId,
+                    source: agentId,
+                    target: orchestratorId,
+                    type: 'orchestrator_feedback',
+                    timestamp: Date.now()
+                }
+            });
+        }
+    }
+    
+    animateEventFlow(fromNode, toNode, eventType) {
+        // Animate event flow along edge
+        const edge = this.agentGraph.edges(`[source="${fromNode}"][target="${toNode}"]`).first();
+        
+        if (edge) {
+            // Add active flow class temporarily
+            edge.addClass('active-flow');
+            
+            // Remove after animation
+            setTimeout(() => {
+                edge.removeClass('active-flow');
+            }, 1000);
+        }
+    }
+    
+    animateEventRouting(data, eventName) {
+        // Animate event flows based on routing metadata
+        const fromAgent = data._agent_id;
+        const toClient = data._client_id;
+        const orchestrationId = data.data?.orchestration_id;
+        const parentAgentId = data.data?.parent_agent_id;
+        
+        // Animate error propagation
+        if (eventName && eventName.includes('error') && fromAgent && parentAgentId) {
+            this.animateEventFlow(fromAgent, parentAgentId, 'error');
+        }
+        
+        // Animate event routing to orchestrator
+        if (fromAgent && toClient === 'claude-code') {
+            // This event was routed to Claude Code as orchestrator
+            this.animateEventFlow(fromAgent, 'claude-code', 'orchestrator_feedback');
+        }
+        
+        // Animate orchestration events
+        if (orchestrationId && fromAgent) {
+            this.animateEventFlow(fromAgent, orchestrationId, 'event_route');
+        }
+        
+        // Animate completion events
+        if (eventName === 'completion:async' && fromAgent) {
+            // Show completion request animation
+            const node = this.agentGraph.getElementById(fromAgent);
+            if (node) {
+                node.addClass('completing');
+                setTimeout(() => {
+                    node.removeClass('completing');
+                }, 1500);
+            }
+        }
+        
+        // Animate agent spawn flow
+        if (eventName === 'agent:spawn' && parentAgentId && data.data?.agent_id) {
+            this.animateEventFlow(parentAgentId, data.data.agent_id, 'spawned');
+        }
+    }
 
     buildAgentLabel(agentId, metadata) {
         // Build intelligent agent labels using available metadata
@@ -630,11 +853,100 @@ class KSIVisualizer {
         }
     }
     
+    handleAgentSpawnRequest(data, eventMetadata) {
+        // Track spawn requests so we can match them with state:entity:create events
+        console.log('🚀 Agent spawn requested:', data, 'eventMetadata:', eventMetadata);
+        
+        // Generate expected agent ID pattern or use provided one
+        const expectedAgentId = data.agent_id || `agent_${Math.random().toString(36).substr(2, 8)}`;
+        
+        // Store spawn request with timestamp for matching
+        this.recentSpawnRequests.set(expectedAgentId, {
+            ...data,
+            _spawn_timestamp: Date.now(),
+            _eventMetadata: eventMetadata
+        });
+        
+        // Clean up old spawn requests (older than 30 seconds)
+        const cutoff = Date.now() - 30000;
+        for (const [agentId, spawnData] of this.recentSpawnRequests.entries()) {
+            if (spawnData._spawn_timestamp < cutoff) {
+                this.recentSpawnRequests.delete(agentId);
+            }
+        }
+        
+        console.log(`📝 Stored spawn request for ${expectedAgentId}. Total pending: ${this.recentSpawnRequests.size}`);
+    }
+    
+    handleEntityCreate(data, eventMetadata) {
+        // Route state:entity:create events to correct visualization
+        const entityId = data.id || data.entity_id;
+        const entityType = data.type;
+        
+        console.log('📦 Entity created:', entityId, 'type:', entityType, 'data:', data);
+        
+        if (entityType === 'agent') {
+            // Agent entities → Agent Ecosystem
+            console.log(`🤖 Routing agent ${entityId} to Agent Ecosystem`);
+            this.handleAgentCreated(data, eventMetadata);
+        } else if (entityType === 'orchestration') {
+            // Orchestration entities → Agent Ecosystem  
+            console.log(`🎭 Routing orchestration ${entityId} to Agent Ecosystem`);
+            this.handleOrchestrationEntity(data, eventMetadata);
+        } else {
+            // Everything else → State System
+            console.log(`💾 Routing state entity ${entityId} (type: ${entityType}) to State System`);
+            this.handleStateEntityCreated(data, eventMetadata);
+        }
+    }
+    
+    handleAgentCreated(data, eventMetadata) {
+        const agentId = data.id || data.entity_id;
+        if (!agentId) {
+            console.warn('Agent created event missing ID:', data);
+            return;
+        }
+        
+        console.log('🎯 Agent entity created:', agentId, 'properties:', data.properties);
+        
+        // Try to match with recent spawn request
+        let spawnData = this.recentSpawnRequests.get(agentId);
+        if (spawnData) {
+            console.log(`✅ Matched agent ${agentId} with spawn request`);
+            this.recentSpawnRequests.delete(agentId);
+        } else {
+            // Check if any spawn request matches by pattern or timing
+            console.log(`⚠️ No exact match for agent ${agentId}, checking recent requests...`);
+            spawnData = { profile: 'unknown', _spawn_timestamp: Date.now() };
+        }
+        
+        // Extract agent metadata from properties + spawn data
+        const properties = data.properties || {};
+        const agentData = {
+            agent_id: agentId,
+            profile: properties.profile || spawnData.profile,
+            component: properties.component || spawnData.component,
+            parent_agent_id: properties.parent_agent_id || spawnData.parent_agent_id,
+            orchestration_id: properties.orchestration_id,
+            orchestration_depth: properties.orchestration_depth,
+            event_subscription_level: properties.event_subscription_level,
+            error_subscription_level: properties.error_subscription_level,
+            sandbox_uuid: properties.sandbox_uuid,
+            status: properties.status || 'active',
+            created_at: Date.now()
+        };
+        
+        // Add to Agent Ecosystem
+        this.handleAgentSpawn(agentData, eventMetadata);
+        
+        console.log(`📊 Agent tracking: ${this.recentSpawnRequests.size} pending spawns, ${this.agents.size} active agents`);
+    }
+    
     handleAgentSpawn(data, eventMetadata) {
         const agentId = data.agent_id;
         if (!agentId) return;
         
-        console.log('handleAgentSpawn - data:', data, 'eventMetadata:', eventMetadata);
+        console.log('🚀 handleAgentSpawn - agentId:', agentId, 'data:', data, 'eventMetadata:', eventMetadata);
         
         // Enhanced metadata from daemon
         const enhancedData = {
@@ -662,9 +974,12 @@ class KSIVisualizer {
         
         // Add hierarchical relationships using daemon metadata
         const parentId = data.parent_agent_id || eventMetadata?._agent_id;
+        console.log(`🔍 Agent ${agentId} - parent_agent_id: ${data.parent_agent_id}, eventMetadata._agent_id: ${eventMetadata?._agent_id}`);
+        
         if (parentId && parentId !== agentId) {
             // Ensure parent exists in graph
             if (!this.agentGraph.getElementById(parentId).length) {
+                console.log(`➕ Creating inferred parent agent: ${parentId}`);
                 this.agentGraph.add({
                     data: {
                         id: parentId,
@@ -675,32 +990,324 @@ class KSIVisualizer {
                 });
             }
             
-            console.log(`Creating hierarchical edge from ${parentId} to ${agentId}`);
+            console.log(`🔗 Creating hierarchical edge from ${parentId} to ${agentId}`);
             
-            // Determine edge type based on metadata
-            const edgeType = data.orchestration_id ? 'orchestration' : 'spawn';
+            // Create spawned edge (parent spawned child)
+            const edgeId = `${parentId}-spawned-${agentId}`;
+            console.log(`🔗 Creating spawned edge: ${edgeId}`);
             
             this.agentGraph.add({
                 data: {
-                    id: `${parentId}-${edgeType}-${agentId}`,
+                    id: edgeId,
                     source: parentId,
                     target: agentId,
-                    type: edgeType,
-                    orchestration_id: data.orchestration_id
+                    type: 'spawned',
+                    orchestration_id: data.orchestration_id,
+                    timestamp: Date.now()
                 }
             });
+            
+            console.log(`✅ Added edge ${edgeId} to graph`);
+            
+            // If part of orchestration, also create event routing edges
+            if (data.orchestration_id) {
+                this.createEventRoutingEdges(agentId, data);
+            }
+        } else {
+            console.log(`ℹ️ Agent ${agentId} has no parent - will appear as standalone node`);
         }
         
         // Apply hierarchical layout with improved spacing
+        try {
+            this.agentGraph.layout({ 
+                name: 'dagre', 
+                animate: true,
+                padding: 20,
+                spacingFactor: 1.8,
+                nodeSep: 60,
+                rankSep: 120,
+                rankDir: 'TB' // Top to bottom for hierarchy
+            }).run();
+            
+            console.log(`✅ Agent graph now has ${this.agentGraph.nodes().length} nodes and ${this.agentGraph.edges().length} edges`);
+        } catch (error) {
+            console.error('❌ Layout error:', error);
+            // Fallback to simple grid layout
+            this.agentGraph.layout({ name: 'grid', animate: true }).run();
+        }
+    }
+    
+    handleOrchestrationEntity(data, eventMetadata) {
+        const orchestrationId = data.id || data.entity_id;
+        if (!orchestrationId) {
+            console.warn('Orchestration entity missing ID:', data);
+            return;
+        }
+        
+        console.log('🎭 Orchestration entity created:', orchestrationId, 'properties:', data.properties);
+        
+        // Add orchestration node to Agent Ecosystem
+        const properties = data.properties || {};
+        this.agentGraph.add({
+            data: {
+                id: orchestrationId,
+                label: properties.pattern || orchestrationId.substring(0, 8),
+                type: 'orchestration',
+                metadata: {
+                    ...properties,
+                    created_at: Date.now(),
+                    entity_type: 'orchestration'
+                }
+            }
+        });
+        
+        // Run layout
         this.agentGraph.layout({ 
             name: 'dagre', 
             animate: true,
-            padding: 20,
-            spacingFactor: 1.8,
-            nodeSep: 60,
-            rankSep: 120,
-            rankDir: 'TB' // Top to bottom for hierarchy
+            rankDir: 'TB'
         }).run();
+        
+        console.log(`✅ Added orchestration ${orchestrationId} to Agent Ecosystem`);
+    }
+    
+    handleStateEntityCreated(data, eventMetadata) {
+        const entityId = data.id || data.entity_id;
+        if (!entityId) {
+            console.warn('State entity missing ID:', data);
+            return;
+        }
+        
+        console.log('💾 State entity created:', entityId, 'type:', data.type, 'properties:', data.properties);
+        
+        // Track which agent created this state entity
+        const creatorAgent = eventMetadata?._agent_id;
+        if (creatorAgent) {
+            // Track agent→state relationship
+            if (!this.agentStateMap.has(creatorAgent)) {
+                this.agentStateMap.set(creatorAgent, new Set());
+            }
+            this.agentStateMap.get(creatorAgent).add(entityId);
+            this.stateAgentMap.set(entityId, creatorAgent);
+            
+            console.log(`🔗 Linked state entity ${entityId} to creator agent ${creatorAgent}`);
+        }
+        
+        // Create descriptive label
+        let label = entityId.substring(0, 12);
+        const properties = data.properties || {};
+        
+        if (properties.name) {
+            label = properties.name.substring(0, 15);
+        } else if (data.type && data.type !== 'entity') {
+            label = `${data.type}\\n${entityId.substring(0, 10)}`;
+        }
+        
+        // Color code by entity type
+        const typeColor = this.getEntityTypeColor(data.type);
+        
+        // Check if entity already exists
+        if (this.addedStateEntities.has(entityId)) {
+            console.log(`⚠️ State entity ${entityId} already exists, skipping`);
+            return;
+        }
+        
+        // Add to State System graph
+        this.stateGraph.add({
+            data: {
+                id: entityId,
+                label: label,
+                type: data.type || 'entity',
+                metadata: {
+                    ...data,
+                    properties: properties,
+                    creator_agent: creatorAgent,
+                    created_at: Date.now()
+                }
+            }
+        });
+        
+        // Mark as added
+        this.addedStateEntities.add(entityId);
+        
+        // Update styling based on type
+        const node = this.stateGraph.getElementById(entityId);
+        if (node) {
+            node.style('background-color', typeColor);
+            
+            // Add hover tooltip
+            node.on('mouseover', (event) => {
+                this.showEntityTooltip(event.target, properties);
+            });
+            
+            node.on('mouseout', (event) => {
+                this.hideEntityTooltip();
+            });
+        }
+        
+        // Run layout
+        this.stateGraph.layout({ 
+            name: 'circle', 
+            animate: true 
+        }).run();
+        
+        console.log(`✅ Added state entity ${entityId} (type: ${data.type}) to State System`);
+    }
+    
+    getEntityTypeColor(entityType) {
+        // Color coding for different entity types
+        const colorMap = {
+            'analysis': '#2196F3',      // Blue
+            'dataset': '#4CAF50',       // Green
+            'config': '#FF9800',        // Orange
+            'result': '#9C27B0',        // Purple
+            'workflow': '#F44336',      // Red
+            'document': '#795548',      // Brown
+            'log': '#607D8B',           // Blue Grey
+            'metric': '#E91E63',        // Pink
+            'session': '#3F51B5',       // Indigo
+            'task': '#009688',          // Teal
+            'default': '#666666'        // Grey
+        };
+        
+        return colorMap[entityType] || colorMap['default'];
+    }
+    
+    showEntityTooltip(node, properties) {
+        // Create tooltip showing entity properties
+        const tooltip = document.getElementById('entity-tooltip') || this.createTooltip();
+        
+        // Build property list
+        const propEntries = Object.entries(properties).map(([key, value]) => {
+            const displayValue = typeof value === 'string' ? value.substring(0, 50) : JSON.stringify(value).substring(0, 50);
+            return `<div><strong>${key}:</strong> ${displayValue}</div>`;
+        }).join('');
+        
+        tooltip.innerHTML = `
+            <div class="tooltip-header">Entity: ${node.id()}</div>
+            <div class="tooltip-type">Type: ${node.data('type')}</div>
+            <div class="tooltip-properties">${propEntries}</div>
+        `;
+        
+        // Position tooltip near cursor
+        tooltip.style.display = 'block';
+        tooltip.style.position = 'fixed';
+        tooltip.style.zIndex = '1000';
+        tooltip.style.background = '#2a2a2a';
+        tooltip.style.color = '#e0e0e0';
+        tooltip.style.padding = '10px';
+        tooltip.style.borderRadius = '4px';
+        tooltip.style.border = '1px solid #555';
+        tooltip.style.maxWidth = '300px';
+        tooltip.style.fontSize = '12px';
+    }
+    
+    hideEntityTooltip() {
+        const tooltip = document.getElementById('entity-tooltip');
+        if (tooltip) {
+            tooltip.style.display = 'none';
+        }
+    }
+    
+    createTooltip() {
+        const tooltip = document.createElement('div');
+        tooltip.id = 'entity-tooltip';
+        tooltip.style.display = 'none';
+        document.body.appendChild(tooltip);
+        return tooltip;
+    }
+    
+    showAgentTooltip(node) {
+        const tooltip = document.getElementById('agent-tooltip') || this.createAgentTooltip();
+        const metadata = node.data('metadata') || {};
+        
+        const agentId = node.id();
+        const profile = metadata.profile || 'unknown';
+        const status = metadata.status || 'active';
+        const created = metadata.created_at ? new Date(metadata.created_at).toLocaleTimeString() : 'unknown';
+        
+        tooltip.innerHTML = `
+            <div class="tooltip-header">Agent: ${agentId}</div>
+            <div class="tooltip-type">Profile: ${profile}</div>
+            <div class="tooltip-type">Status: ${status}</div>
+            <div class="tooltip-type">Created: ${created}</div>
+        `;
+        
+        tooltip.style.display = 'block';
+        this.positionTooltip(tooltip);
+    }
+    
+    showOrchestrationTooltip(node) {
+        const tooltip = document.getElementById('agent-tooltip') || this.createAgentTooltip();
+        const metadata = node.data('metadata') || {};
+        
+        const orchId = node.id();
+        const pattern = metadata.pattern || 'unknown';
+        const orchestratorId = metadata.orchestrator_agent_id || 'none';
+        
+        tooltip.innerHTML = `
+            <div class="tooltip-header">Orchestration: ${orchId}</div>
+            <div class="tooltip-type">Pattern: ${pattern}</div>
+            <div class="tooltip-type">Orchestrator: ${orchestratorId}</div>
+        `;
+        
+        tooltip.style.display = 'block';
+        this.positionTooltip(tooltip);
+    }
+    
+    hideAgentTooltip() {
+        const tooltip = document.getElementById('agent-tooltip');
+        if (tooltip) {
+            tooltip.style.display = 'none';
+        }
+    }
+    
+    createAgentTooltip() {
+        const tooltip = document.createElement('div');
+        tooltip.id = 'agent-tooltip';
+        tooltip.style.display = 'none';
+        tooltip.style.position = 'fixed';
+        tooltip.style.zIndex = '1000';
+        tooltip.style.background = '#2a2a2a';
+        tooltip.style.color = '#e0e0e0';
+        tooltip.style.padding = '10px';
+        tooltip.style.borderRadius = '4px';
+        tooltip.style.border = '1px solid #555';
+        tooltip.style.maxWidth = '250px';
+        tooltip.style.fontSize = '12px';
+        document.body.appendChild(tooltip);
+        return tooltip;
+    }
+    
+    positionTooltip(tooltip) {
+        // Position tooltip near cursor (simplified)
+        tooltip.style.left = '50px';
+        tooltip.style.top = '50px';
+    }
+    
+    pulsateAgentStateEntities(agentId) {
+        // Find state entities created by this agent
+        const stateEntityIds = this.agentStateMap.get(agentId);
+        if (!stateEntityIds || stateEntityIds.size === 0) {
+            console.log(`🔍 No state entities found for agent ${agentId}`);
+            return;
+        }
+        
+        console.log(`✨ Pulsating ${stateEntityIds.size} state entities for agent ${agentId}`);
+        
+        // Pulsate each related state entity
+        stateEntityIds.forEach(entityId => {
+            const node = this.stateGraph.getElementById(entityId);
+            if (node && node.length > 0) {
+                // Add pulsate animation
+                node.addClass('pulsate');
+                
+                // Remove after animation
+                setTimeout(() => {
+                    node.removeClass('pulsate');
+                }, 1000);
+            }
+        });
     }
     
     handleAgentList(data) {
@@ -819,33 +1426,25 @@ class KSIVisualizer {
     }
     
     handleMessage(data) {
-        const fromAgent = data.from_agent || data.from;
+        const fromAgent = data.from_agent || data.from || data._agent_id;
         const toAgents = data.to_agents || (data.to ? [data.to] : []);
+        const messageType = data.type || 'message';
         
         if (!fromAgent) return;
         
-        // Create message flow edges
+        // Create persistent message edges
         toAgents.forEach(toAgent => {
-            const edgeId = `msg-${Date.now()}-${Math.random()}`;
+            this.createMessageEdge(fromAgent, toAgent, messageType);
             
-            this.agentGraph.add({
-                data: {
-                    id: edgeId,
-                    source: fromAgent,
-                    target: toAgent,
-                    type: 'message'
-                },
-                classes: 'message-flow'
-            });
-            
-            // Remove after animation
-            setTimeout(() => {
-                const edge = this.agentGraph.getElementById(edgeId);
-                if (edge) {
-                    this.agentGraph.remove(edge);
-                }
-            }, 2000);
+            // Animate the message flow
+            this.animateEventFlow(fromAgent, toAgent, 'message');
         });
+        
+        // If this is an orchestrator feedback message
+        if (data._orchestrator_agent_id && data._agent_id) {
+            this.createOrchestratorFeedbackEdge(data._agent_id, data._orchestrator_agent_id);
+            this.animateEventFlow(data._agent_id, data._orchestrator_agent_id, 'orchestrator_feedback');
+        }
     }
     
     handleOrchestrationStarted(data) {
@@ -858,12 +1457,37 @@ class KSIVisualizer {
                 id: orchId,
                 label: data.pattern || orchId.substring(0, 8),
                 type: 'orchestration',
-                metadata: data
+                metadata: data,
+                orchestrator_agent_id: data.orchestrator_agent_id,
+                event_subscription_level: data.event_subscription_level,
+                error_subscription_level: data.error_subscription_level
             }
         });
         
-        // Run layout
-        this.agentGraph.layout({ name: 'grid', animate: true }).run();
+        // If there's an orchestrator agent, create feedback edge
+        if (data.orchestrator_agent_id) {
+            // Ensure orchestrator agent exists in graph
+            if (!this.agentGraph.getElementById(data.orchestrator_agent_id).length) {
+                this.agentGraph.add({
+                    data: {
+                        id: data.orchestrator_agent_id,
+                        label: `${data.orchestrator_agent_id}\\n(orchestrator)`,
+                        type: 'agent',
+                        metadata: { orchestrator: true }
+                    }
+                });
+            }
+            
+            // Create orchestrator feedback edge
+            this.createOrchestratorFeedbackEdge(orchId, data.orchestrator_agent_id);
+        }
+        
+        // Run hierarchical layout
+        this.agentGraph.layout({ 
+            name: 'dagre', 
+            animate: true,
+            rankDir: 'TB'
+        }).run();
     }
     
     handleOrchestrationCompleted(data) {
@@ -878,45 +1502,9 @@ class KSIVisualizer {
     }
     
     handleEntityCreated(data) {
-        // Handle both entity_id (old format) and id (new format)
-        const entityId = data.entity_id || data.id;
-        if (!entityId) {
-            console.warn('Entity created event missing ID:', data);
-            return;
-        }
-        
-        console.log('Handling entity created:', entityId, data);
-        
-        // Filter out agent entities - they're shown in Agent Ecosystem
-        if (data.type === 'agent') {
-            console.log(`Skipping agent entity ${entityId} - shown in Agent Ecosystem`);
-            return;
-        }
-        
-        // Create descriptive label based on entity type and properties
-        let label = entityId.substring(0, 12);
-        if (data.type && data.type !== 'entity') {
-            label = `${data.type}\\n${entityId.substring(0, 10)}`;
-        }
-        if (data.properties && data.properties.name) {
-            label = data.properties.name.substring(0, 15);
-        }
-        
-        // Add to state graph if not already present
-        if (this.stateGraph.getElementById(entityId).length === 0) {
-            this.stateGraph.add({
-                data: {
-                    id: entityId,
-                    label: label,
-                    type: data.type || 'entity',
-                    metadata: data
-                }
-            });
-            
-            // Run layout
-            this.stateGraph.layout({ name: 'circle', animate: true }).run();
-            console.log(`Added entity ${entityId} to state graph`);
-        }
+        // Legacy method - redirect to new routing system
+        console.log('⚠️ Legacy handleEntityCreated called, redirecting to handleEntityCreate');
+        this.handleEntityCreate(data, null);
     }
     
     handleRelationshipCreated(data) {
@@ -1067,6 +1655,189 @@ class KSIVisualizer {
         setTimeout(() => {
             node.removeClass('active');
         }, 1000);
+    }
+    
+    initializeDividers() {
+        const verticalDivider = document.getElementById('vertical-divider');
+        const horizontalDivider = document.getElementById('horizontal-divider');
+        const agentPanel = document.getElementById('agent-panel');
+        const statePanel = document.getElementById('state-panel');
+        const eventPanel = document.getElementById('event-panel');
+        
+        let isDragging = false;
+        let dragTarget = null;
+        
+        const startDrag = (e, divider) => {
+            isDragging = true;
+            dragTarget = divider;
+            divider.classList.add('divider-dragging');
+            e.preventDefault();
+        };
+        
+        const doDrag = (e) => {
+            if (!isDragging || !dragTarget) return;
+            
+            const rect = document.getElementById('main-layout').getBoundingClientRect();
+            
+            if (dragTarget.id === 'vertical-divider') {
+                // Calculate percentage position
+                const percentage = ((e.clientX - rect.left) / rect.width) * 100;
+                
+                // Constrain between 20% and 80%
+                const constrainedPercentage = Math.max(20, Math.min(80, percentage));
+                
+                // Update divider position
+                dragTarget.style.left = `${constrainedPercentage}%`;
+                
+                // Update panel widths
+                agentPanel.style.width = `${constrainedPercentage}%`;
+                statePanel.style.width = `${100 - constrainedPercentage}%`;
+                
+                // Refresh Cytoscape layouts
+                this.agentGraph.resize();
+                this.stateGraph.resize();
+            }
+            else if (dragTarget.id === 'horizontal-divider') {
+                // Calculate percentage position
+                const percentage = ((e.clientY - rect.top) / rect.height) * 100;
+                
+                // Constrain between 20% and 80%
+                const constrainedPercentage = Math.max(20, Math.min(80, percentage));
+                
+                // Update divider position
+                dragTarget.style.top = `${constrainedPercentage}%`;
+                
+                // Update panel heights
+                agentPanel.style.height = `${constrainedPercentage}%`;
+                statePanel.style.height = `${constrainedPercentage}%`;
+                eventPanel.style.height = `${100 - constrainedPercentage}%`;
+                verticalDivider.style.height = `${constrainedPercentage}%`;
+                
+                // Refresh Cytoscape layouts
+                this.agentGraph.resize();
+                this.stateGraph.resize();
+            }
+        };
+        
+        const endDrag = () => {
+            if (dragTarget) {
+                dragTarget.classList.remove('divider-dragging');
+            }
+            isDragging = false;
+            dragTarget = null;
+        };
+        
+        // Add event listeners
+        verticalDivider.addEventListener('mousedown', (e) => startDrag(e, verticalDivider));
+        horizontalDivider.addEventListener('mousedown', (e) => startDrag(e, horizontalDivider));
+        
+        document.addEventListener('mousemove', doDrag);
+        document.addEventListener('mouseup', endDrag);
+        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            this.agentGraph.resize();
+            this.stateGraph.resize();
+        });
+        
+        // Add debug helpers
+        window.debugKSI = {
+            refreshAgents: () => {
+                console.log('🔄 Manual agent list refresh');
+                this.requestAgentList();
+            },
+            refreshState: () => {
+                console.log('🔄 Manual state entities refresh');
+                this.requestStateEntities();
+            },
+            graphStats: () => {
+                console.log('📊 Agent Graph:', {
+                    nodes: this.agentGraph.nodes().length,
+                    edges: this.agentGraph.edges().length,
+                    nodeIds: this.agentGraph.nodes().map(n => n.id())
+                });
+                console.log('📊 State Graph:', {
+                    nodes: this.stateGraph.nodes().length,
+                    edges: this.stateGraph.edges().length,
+                    nodeIds: this.stateGraph.nodes().map(n => n.id())
+                });
+                console.log('🔗 Agent-State Relationships:', {
+                    agentStateMap: Object.fromEntries(
+                        Array.from(this.agentStateMap.entries()).map(([k, v]) => [k, Array.from(v)])
+                    ),
+                    stateAgentMap: Object.fromEntries(this.stateAgentMap),
+                    pendingSpawns: this.recentSpawnRequests.size
+                });
+            },
+            clearGraphs: () => {
+                console.log('🧹 Clearing all graphs');
+                this.agentGraph.elements().remove();
+                this.stateGraph.elements().remove();
+                this.addedStateEntities.clear();
+                this.agentStateMap.clear();
+                this.stateAgentMap.clear();
+            },
+            testAgent: (agentId = 'test_agent_123') => {
+                console.log('🧪 Adding test agent:', agentId);
+                this.agentGraph.add({
+                    data: {
+                        id: agentId,
+                        label: `${agentId}\\n(test)`,
+                        type: 'agent'
+                    }
+                });
+                this.agentGraph.layout({ name: 'grid', animate: true }).run();
+            },
+            testStateEntity: (entityId = 'test_entity_123', type = 'analysis') => {
+                // Clear existing entity first
+                if (this.addedStateEntities.has(entityId)) {
+                    console.log('🧹 Removing existing test entity:', entityId);
+                    const node = this.stateGraph.getElementById(entityId);
+                    if (node) {
+                        this.stateGraph.remove(node);
+                    }
+                    this.addedStateEntities.delete(entityId);
+                }
+                
+                console.log('🧪 Adding test state entity:', entityId);
+                this.handleStateEntityCreated({
+                    id: entityId,
+                    type: type,
+                    properties: {
+                        name: 'Test Analysis',
+                        status: 'completed',
+                        result: 'Test result data'
+                    }
+                }, { _agent_id: 'test_agent_123' });
+            },
+            testEdges: () => {
+                console.log('🧪 Testing edge creation');
+                // Add test agents
+                this.agentGraph.add([
+                    { data: { id: 'parent_test', label: 'Parent\\n(test)', type: 'agent' } },
+                    { data: { id: 'child_test', label: 'Child\\n(test)', type: 'agent' } }
+                ]);
+                
+                // Add test edge
+                this.agentGraph.add({
+                    data: {
+                        id: 'parent_test-spawned-child_test',
+                        source: 'parent_test',
+                        target: 'child_test',
+                        type: 'spawned'
+                    }
+                });
+                
+                this.agentGraph.layout({ name: 'dagre', animate: true, rankDir: 'LR' }).run();
+                console.log('✅ Added test parent-child relationship with edge');
+            },
+            testPulsate: (agentId = 'test_agent_123') => {
+                console.log('🧪 Testing pulsate for agent:', agentId);
+                this.pulsateAgentStateEntities(agentId);
+            }
+        };
+        
+        console.log('🔧 Debug helpers available: window.debugKSI');
     }
 }
 

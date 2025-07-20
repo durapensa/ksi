@@ -26,17 +26,43 @@
         }
         
         #main-layout {
-            display: grid;
-            grid-template-columns: 2fr 1fr;
-            grid-template-rows: 3fr 1fr;
             height: 100vh;
-            gap: 1px;
             background: #333;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        /* Resizable dividers */
+        .divider {
+            background: #333;
+            position: absolute;
+            z-index: 10;
+            user-select: none;
+        }
+        
+        .divider:hover {
+            background: #555;
+        }
+        
+        .divider-horizontal {
+            height: 4px;
+            width: 100%;
+            cursor: ns-resize;
+        }
+        
+        .divider-vertical {
+            width: 4px;
+            height: 100%;
+            cursor: ew-resize;
+        }
+        
+        .divider-dragging {
+            background: #2196F3 !important;
         }
         
         .panel {
             background: #1a1a1a;
-            position: relative;
+            position: absolute;
             overflow: hidden;
         }
         
@@ -50,18 +76,24 @@
         }
         
         #agent-panel {
-            grid-column: 1;
-            grid-row: 1;
+            left: 0;
+            top: 0;
+            width: 66.66%;
+            height: 75%;
         }
         
         #state-panel {
-            grid-column: 2;
-            grid-row: 1;
+            right: 0;
+            top: 0;
+            width: 33.33%;
+            height: 75%;
         }
         
         #event-panel {
-            grid-column: 1 / -1;
-            grid-row: 2;
+            left: 0;
+            bottom: 0;
+            width: 100%;
+            height: 25%;
             overflow-y: auto;
         }
         
@@ -281,6 +313,48 @@
             background-color: #FFEBEE !important;
             border-color: #F44336 !important;
         }
+        
+        /* Pulsate animation for state entities */
+        .pulsate {
+            animation: pulsateGlow 1s ease-in-out;
+        }
+        
+        @keyframes pulsateGlow {
+            0% { 
+                transform: scale(1);
+                box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.7);
+            }
+            50% { 
+                transform: scale(1.2);
+                box-shadow: 0 0 0 10px rgba(255, 255, 255, 0.3);
+            }
+            100% { 
+                transform: scale(1);
+                box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
+            }
+        }
+        
+        /* Entity tooltip styling */
+        .tooltip-header {
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #4CAF50;
+        }
+        
+        .tooltip-type {
+            font-size: 11px;
+            color: #888;
+            margin-bottom: 8px;
+        }
+        
+        .tooltip-properties {
+            font-size: 11px;
+            line-height: 1.4;
+        }
+        
+        .tooltip-properties div {
+            margin-bottom: 3px;
+        }
     </style>
 </head>
 <body>
@@ -301,6 +375,10 @@
             <h3>Event Stream</h3>
             <div id="event-log"></div>
         </div>
+        
+        <!-- Draggable dividers -->
+        <div id="vertical-divider" class="divider divider-vertical" style="left: 66.66%; top: 0; height: 75%;"></div>
+        <div id="horizontal-divider" class="divider divider-horizontal" style="top: 75%; left: 0; width: 100%;"></div>
     </div>
     
     <!-- Our visualizer -->

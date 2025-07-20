@@ -1,6 +1,6 @@
-# KSI - Kubernetes-Style Infrastructure for AI Agents
+# KSI Ξ Agent Improving Ecosystem
 
-> A resilient, event-driven daemon system for orchestrating autonomous AI agents with production-grade reliability
+> A graph-based orchestration system for evolving AI agents through collaborative improvement and meta-optimization
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -8,20 +8,20 @@
 
 ## Overview
 
-KSI provides infrastructure for running and managing AI agents as persistent, autonomous services. Originally conceived as a "Knowledge System Interface," it has evolved into a comprehensive daemon platform that treats AI agents like microservices - with health checks, lifecycle management, and automatic recovery from failures.
+KSI (not an acronym) is an experimental ecosystem where AI agents improve themselves and each other through orchestrated interactions. It provides a graph-based architecture where agents and orchestrations form nodes in a directed graph, with events flowing through edges based on hierarchical routing rules. The system enables meta-optimization - agents can optimize their own prompts, behaviors, and even the orchestration language itself.
 
 ### Key Features
 
-- 🔄 **Resilient Operations** - Automatic checkpoint/restore and retry on failures
-- ⚡ **Event-Driven Architecture** - Pure async event system with no polling
-- 🛡️ **Coordinated Shutdown** - Graceful shutdown with completion guarantees
-- 🤖 **Multi-Agent Support** - Orchestrate conversations between multiple AI instances
-- 📦 **Modular Design** - Extend functionality through event-based modules
-- 📊 **Real-time Monitoring** - Beautiful TUI and web-based visualization for system state
-- 🌐 **Web Visualization** - Live agent ecosystem and state visualization via WebSocket
-- 🚀 **Production Ready** - Proper daemonization, logging, and error handling
-- 🔧 **MCP Integration** - Model Context Protocol server for tool access
-- 🌐 **Federated Architecture** - Git submodules for collaborative component development
+- 🧬 **Self-Improving Agents** - Agents optimize their own prompts and behaviors through MIPRO/DSPy
+- 🕸️ **Graph-Based Architecture** - Agents and orchestrations as nodes with hierarchical event routing
+- 🔄 **Meta-Optimization** - The orchestration DSL itself can be optimized by agents
+- ⚡ **Event-Driven Core** - Pure async event system with discoverable APIs
+- 🎭 **Persona-First Design** - Agents are Claude adopting personas, not artificial constructs
+- 📊 **Live Visualization** - Real-time web UI showing agent ecosystem and event flow
+- 🛡️ **Production Ready** - Resilient daemon with checkpoint/restore and graceful shutdown
+- 🔧 **Native Transports** - Built-in WebSocket and Unix socket transports
+- 🧩 **Component System** - Unified architecture where everything is a versioned component
+- 🌐 **Federated Development** - Git submodules enable collaborative component evolution
 
 ## Installation
 
@@ -86,14 +86,34 @@ async with AsyncClient() as client:
     print(response.text)
 ```
 
-### Multi-Agent Orchestration
+### Agent Orchestration & Improvement
 
 ```bash
-# Start a debate between two Claude instances
-python interfaces/orchestrate.py "Is P=NP?" --mode debate
+# Spawn an agent from a component
+./ksi send agent:spawn_from_component --component "components/personas/analysts/data_analyst"
 
-# Monitor the conversation in real-time
+# Start an optimization orchestration
+./ksi send orchestration:start --pattern "orchestrations/optimization/mipro_prompt_optimization" \
+  --vars '{"target_component": "personas/analysts/data_analyst"}'
+
+# Run a tournament between different agent strategies
+./ksi send orchestration:start --pattern "orchestrations/tournaments/strategy_evaluation"
+
+# Monitor the ecosystem in real-time
 python interfaces/monitor_tui.py
+```
+
+### Web Visualization
+
+```bash
+# Start the web UI
+./web_control.py start
+
+# Open http://localhost:8080 to see:
+# - Live agent ecosystem graph
+# - Real-time event stream
+# - State system visualization
+# - Hierarchical orchestration trees
 ```
 
 ### Event-Based Operations
@@ -114,35 +134,32 @@ async with EventClient() as client:
 
 ## Architecture
 
-KSI follows a microkernel architecture where the core daemon is minimal and all functionality is provided through event-based modules:
+KSI implements a graph-based architecture where agents and orchestrations form nodes in a directed graph:
 
 ```
-┌─────────────────┐
-│   Unix Socket   │  ← Single communication interface
-└────────┬────────┘
-         │
-┌────────▼────────┐
-│  Event Router   │  ← Core daemon (minimal)
-└────────┬────────┘
-         │
-┌────────▼────────────────────────────────┐
-│              Modules                     │
-├──────────────┬──────────────┬───────────┤
-│ Completion   │   Agent      │    MCP    │
-│  Service     │  Manager     │  Server   │
-├──────────────┼──────────────┼───────────┤
-│ Message Bus  │ Conversation │ Checkpoint│
-│              │   Lock       │  System   │
-└──────────────┴──────────────┴───────────┘
+┌─────────────────────────────────────────────────┐
+│            Orchestration (Root)                  │
+│         orchestrator_agent_id: "claude-code"     │
+└───────────────┬─────────────┬───────────────────┘
+                │             │
+       ┌────────▼────┐   ┌────▼────────┐
+       │   Agent A   │   │   Agent B    │  ← Agents as nodes
+       │  (Analyst)  │   │ (Optimizer)  │
+       └─────┬───────┘   └──────┬──────┘
+             │                  │
+       ┌─────▼───────────────────▼─────┐
+       │    Sub-Orchestration          │  ← Nested orchestrations
+       │  (Strategy Tournament)        │
+       └───────────────────────────────┘
 ```
 
 ### Core Principles
 
-1. **Everything is an Event** - No polling, no timers, pure event-driven
-2. **Fail-Safe by Default** - Automatic recovery from all failure modes
-3. **Module-Based Design** - Core functionality implemented as modules
-4. **Single Socket** - All communication through one Unix domain socket
-5. **Async Native** - Built on Python's asyncio for performance
+1. **Graph-Based Entities** - Agents and orchestrations are nodes with edges representing relationships
+2. **Hierarchical Routing** - Events bubble up through subscription levels (graph traversal depth)
+3. **Everything is a Component** - Unified system with personas, behaviors, orchestrations as components
+4. **Persona-First Agents** - Agents are Claude adopting domain expertise, not artificial constructs
+5. **Meta-Optimization** - The system can optimize its own components and orchestration language
 
 ### Resilience Features
 
@@ -150,6 +167,25 @@ KSI follows a microkernel architecture where the core daemon is minimal and all 
 - **Retry Logic**: Failed operations automatically retried with exponential backoff
 - **Graceful Shutdown**: Critical operations complete before daemon exit
 - **Process Monitoring**: Automatic detection and recovery of failed agent processes
+- **Session Continuity**: Agents maintain conversation context across requests
+
+### Component System
+
+Components are the building blocks of KSI, organized by type:
+
+- **Personas** (`components/personas/`) - Domain expertise and personalities
+- **Behaviors** (`components/behaviors/`) - Reusable behavioral patterns and overrides
+- **Orchestrations** (`components/orchestrations/`) - Multi-agent coordination patterns
+- **Evaluations** (`components/evaluations/`) - Quality metrics and judge components
+- **Tools** (`components/tools/`) - External integrations (MCP, Git, APIs)
+
+### Agent Improvement Patterns
+
+- **MIPRO Optimization** - Agents optimize their own prompts using DSPy/MIPRO
+- **Behavioral Overrides** - Components can modify agent behavior through dependencies
+- **Tournament Selection** - Strategies compete and evolve through orchestrated tournaments
+- **Judge-Based Evaluation** - LLM judges provide nuanced feedback for improvement
+- **Meta-Linguistic Evolution** - The orchestration DSL itself evolves through optimization
 
 ## Module Development & API Discovery
 
@@ -191,8 +227,10 @@ The discovery system automatically extracts parameter types, descriptions, and v
 
 - **API Reference**: Use `system:discover` and `system:help` - the API is self-documenting!
 - [Architecture Analysis](docs/ksi_architecture_analysis.md) - Deep technical dive
-- [Claude Code Integration](ksi_claude_code/docs/CLAUDE_CODE_KSI_MANUAL.md) - Using KSI with Claude
-- [Memory Knowledge](memory/claude_code/project_knowledge.md) - Technical reference
+- [Optimization Approach](docs/OPTIMIZATION_APPROACH.md) - How agents improve themselves
+- [DSL Patterns](docs/DSL_PATTERNS_AND_OPTIMIZATION.md) - Meta-linguistic evolution
+- [Claude Code Integration](CLAUDE.md) - Development workflow with Claude Code
+- [Technical Reference](memory/claude_code/project_knowledge.md) - Implementation details
 
 ## Contributing
 
@@ -226,11 +264,12 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 - Built for [Claude](https://claude.ai) by Anthropic
 - TUI components use [Textual](https://textual.textualize.io/)
-- Inspired by Kubernetes' approach to container orchestration
+- Web UI uses [Cytoscape.js](https://js.cytoscape.org/) for graph visualization
+- Optimization powered by [DSPy](https://github.com/stanfordnlp/dspy) framework
 
 ## Status
 
 KSI is under active development. Core functionality is stable and used in production environments. See [Issues](https://github.com/yourusername/ksi/issues) for current work.
 
 ---
-*"Like Kubernetes for AI agents"* - A resilient infrastructure for the autonomous AI era.
+*KSI Ξ Where agents evolve through orchestrated collaboration*
