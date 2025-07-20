@@ -9,18 +9,13 @@ For complete documentation, see ksi_hook_monitor_filters.txt in this directory.
 
 import sys
 import json
-import socket
 import time
 import os
-import logging
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any, Union, Tuple
-from contextlib import contextmanager
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from typing import Optional, List, Dict, Any, Tuple
 
 # Add ksi_common directory directly to path to bypass __init__.py
 ksi_common_path = str(Path(__file__).parent.parent / "ksi_common")
@@ -83,9 +78,13 @@ class ExitStrategy:
     @staticmethod
     def exit_with_feedback(message: str, is_error: bool = False):
         """Exit with JSON format for Claude Code feedback"""
-        # PostToolUse: omit "decision" field to allow operation
-        # Include "reason" field for user-visible feedback
+        # IMPORTANT: As of Claude Code issue #3983, we must include
+        # "decision": "block" for the "reason" field to be shown to Claude.
+        # This is counterintuitive since we're not actually blocking,
+        # but it's currently required for visibility.
+        # See: https://docs.anthropic.com/en/docs/claude-code/hooks#posttooluse-decision-control
         output = {
+            "decision": "block",  # Required for "reason" to be shown
             "reason": message
         }
         print(json.dumps(output), flush=True)
@@ -546,7 +545,6 @@ class KSIHookMonitor:
         if mode == "errors":
             if has_errors:
                 error_events = [e for e in new_events if "error" in e.get("event_name", "").lower()]
-                # REMOVED brackets from error message
                 message = f"KSI: {len(error_events)} errors"
                 for event in error_events[:3]:
                     event_name = event.get("event_name", "unknown")
@@ -568,7 +566,6 @@ class KSIHookMonitor:
                 parts.append(f"🤖{agent_count}")
             
             if parts:
-                # REMOVED brackets from verbose message
                 message = f"KSI {' '.join(parts)}"
                 # Add the most recent significant event on next line
                 if event_summary and event_summary.strip():
@@ -582,7 +579,6 @@ class KSIHookMonitor:
         
         # Orchestration mode - detailed view for debugging
         elif mode == "orchestration":
-            # REMOVED brackets from orchestration message
             message = f"KSI: {len(new_events)} events"
             if new_events:
                 message += f"\n{event_summary}"
@@ -630,7 +626,7 @@ class KSIHookMonitor:
                 error_count = len([e for e in new_events if "error" in e.get("event_name", "").lower()])
                 parts.insert(0, f"✗{error_count}")
             
-            # Format message - REMOVED brackets
+            # Format message
             if parts:
                 message = f"KSI {' '.join(parts)}"
             else:
@@ -731,25 +727,6 @@ def main():
         tool_name = hook_data.get("tool_name", "unknown")
         session_id = hook_data.get("session_id", "unknown")
         tool_response = hook_data.get("tool_response", {})
-        
-        # NEW: Check for test command to debug JSON processing
-        if tool_name == "Bash":
-            command = hook_data.get("tool_input", {}).get("command", "")
-            logger.log_diagnostic(f"Command: {command[:100]}")
-            
-            # Test different JSON formats
-            if command.strip() == "echo ksi_test_json":
-                # Test with simple string
-                output = {"reason": "KSI test simple"}
-                logger.log_diagnostic(f"Testing simple JSON: {json.dumps(output)}")
-                print(json.dumps(output), flush=True)
-                sys.exit(0)
-            elif command.strip() == "echo ksi_test_brackets":
-                # Test with brackets in string
-                output = {"reason": "[KSI test brackets]"}
-                logger.log_diagnostic(f"Testing brackets JSON: {json.dumps(output)}")
-                print(json.dumps(output), flush=True)
-                sys.exit(0)
         
         # Write tool info to diagnostic log
         logger.log_diagnostic(f"Tool: {tool_name}")
