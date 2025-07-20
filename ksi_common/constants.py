@@ -54,6 +54,12 @@ MESSAGE_BUS_EVENTS = [
     "STATUS_UPDATE",
 ]
 
+# Database filenames
+DEFAULT_STATE_DB_NAME = "ksi_state.db"
+DEFAULT_CHECKPOINT_DB_NAME = "checkpoint.db"
+DEFAULT_EVENTS_DB_NAME = "events.db"
+DEFAULT_COMPOSITION_INDEX_DB_NAME = "composition_index.db"
+
 # File patterns
 RESPONSE_LOG_PATTERN = "*.jsonl"
 MESSAGE_BUS_LOG = "message_bus.jsonl"

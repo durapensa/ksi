@@ -664,6 +664,13 @@ async def handle_entity_update(raw_data: Dict[str, Any], context: Optional[Dict[
     try:
         success = await state_manager.update_entity(entity_id, properties)
         if success:
+            # Emit state change event for system components to react
+            from ksi_daemon.event_system import emit_event
+            await emit_event("state:entity:updated", {
+                "id": entity_id,
+                "properties": properties
+            })
+            
             return success_response(
                 {"id": entity_id},
                 context=context,

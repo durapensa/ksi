@@ -530,6 +530,9 @@ async def handle_discover(raw_data: Dict[str, Any], context: Optional[Dict[str, 
     from ksi_common.event_response_builder import event_response_builder, error_response
     data = event_format_linter(raw_data, CompositionDiscoverData)
     try:
+        logger.debug(f"composition:discover received data: {data}")
+        logger.debug(f"composition:discover type parameter: {data.get('type', 'NOT SET')}")
+        
         # Use index for fast discovery with SQL-based filtering
         # Include metadata filter in the query
         query = dict(data)  # Copy to avoid modifying original
@@ -540,6 +543,7 @@ async def handle_discover(raw_data: Dict[str, Any], context: Optional[Dict[str, 
         
         # Don't include full metadata by default - it makes responses too large
         
+        logger.debug(f"composition:discover sending to index: {query}")
         discovered = await composition_index.discover(query)
         
         # TODO: Re-enable evaluation detail when performance is optimized
@@ -571,6 +575,7 @@ class CompositionListData(TypedDict):
     include_validation: NotRequired[bool]  # Include validation status
     metadata_filter: NotRequired[Dict[str, Any]]  # Filter by metadata
     evaluation_detail: NotRequired[Literal['none', 'minimal', 'summary', 'detailed']]  # Evaluation detail level
+    filter: NotRequired[Union[str, Dict[str, Any]]]  # JSON string filter from CLI or dict
 
 
 @event_handler("composition:list")
@@ -580,10 +585,25 @@ async def handle_list(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]
     from ksi_common.event_response_builder import event_response_builder
     from ksi_common.json_utils import parse_json_parameter
     
+    # Debug raw data first
+    logger.info(f"composition:list TESTING INFO LOG LEVEL")
+    logger.debug(f"composition:list RAW DATA: {raw_data}")
+    
     data = event_format_linter(raw_data, CompositionListData)
+    logger.debug(f"composition:list AFTER event_format_linter: {data}")
     
     # Handle filter parameter if it's a JSON string
     parse_json_parameter(data, 'filter')
+    
+    # Handle filter parameter if it's already a dict (from agent JSON emission)
+    if 'filter' in data and isinstance(data['filter'], dict):
+        filter_data = data.pop('filter')
+        data.update(filter_data)
+        logger.debug(f"composition:list merged filter dict: {filter_data}")
+    
+    # Debug logging to trace the issue
+    logger.debug(f"composition:list after parse_json_parameter, data: {data}")
+    logger.debug(f"composition:list type from data: {data.get('type', 'NOT SET')}")
     
     include_validation = data.get('include_validation', False)
     

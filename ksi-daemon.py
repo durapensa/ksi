@@ -21,11 +21,32 @@ import daemon.pidfile
 # This prevents modules from auto-configuring with wrong format
 os.environ.setdefault('KSI_LOG_FORMAT', 'json')  # Ensure JSON format by default
 
+# Load log level from EAV state system (before importing config module)
+def load_log_level_from_state():
+    """Load log level from system entity in EAV state database."""
+    import sqlite3
+    from ksi_common.constants import DEFAULT_DB_DIR, DEFAULT_STATE_DB_NAME
+    try:
+        # Access state database using proper constants
+        db_path = Path(DEFAULT_DB_DIR) / DEFAULT_STATE_DB_NAME
+        if db_path.exists():
+            with sqlite3.connect(str(db_path)) as conn:
+                cursor = conn.execute(
+                    "SELECT value FROM properties WHERE entity_id = ? AND property = ?",
+                    ('system', 'log_level')
+                )
+                row = cursor.fetchone()
+                if row:
+                    return row[0]  # Return the log level value
+    except Exception:
+        pass
+    return os.environ.get('KSI_LOG_LEVEL', 'INFO')
+
 # Now we can safely import and configure
 from ksi_common import configure_structlog
-# Configure immediately before any other imports
+# Configure immediately before any other imports - use state system log level
 configure_structlog(
-    log_level=os.environ.get('KSI_LOG_LEVEL', 'INFO'),
+    log_level=load_log_level_from_state(),
     log_format='json',  # Always use JSON in daemon
     log_file=Path('var/logs/daemon/daemon.log.jsonl'),
     force_disable_console=True

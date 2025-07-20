@@ -71,7 +71,7 @@ CONFIG_BACKUP_DIR = config.daemon_tmp_dir / "backups" / "config"
 CONFIG_TYPES = {
     'daemon': {
         'base_dir': Path.cwd(),
-        'files': ['ksi_daemon.yaml', 'logging.yaml'],
+        'files': ['logging.yaml'],
         'format': 'yaml'
     },
     'composition': {

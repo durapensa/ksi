@@ -512,11 +512,44 @@ class ConfigChangedData(TypedDict):
     value: Required[Any]  # New value
 
 
+@event_handler("state:entity:updated")
+async def handle_system_state_changed(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Handle system entity state changes by applying them immediately."""
+    from ksi_common.event_parser import extract_system_handler_data
+    from ksi_common.event_response_builder import event_response_builder
+    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    
+    entity_id = clean_data.get("id")
+    properties = clean_data.get("properties", {})
+    
+    # Only handle system entity changes
+    if entity_id != "system":
+        return event_response_builder({"status": "ignored"}, context=context)
+    
+    logger.info(f"System state changed: {entity_id} properties updated")
+    
+    # Handle log_level changes immediately
+    if "log_level" in properties:
+        log_level = properties["log_level"]
+        logger.info(f"System log level changed to: {log_level}")
+        await _apply_log_level_change("log_level", log_level)
+    
+    return event_response_builder(
+        {
+            "system_state_applied": True,
+            "entity_id": entity_id,
+            "properties_applied": list(properties.keys())
+        },
+        context=context
+    )
+
+
 @event_handler("config:changed")
 async def handle_config_changed(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Handle configuration changes by applying them immediately.
+    """Handle legacy YAML configuration changes by applying them immediately.
     
-    This eliminates the need for config:reload - changes apply immediately.
+    DEPRECATED: This handler exists for backward compatibility only.
+    New configuration should use the EAV state system via state:entity:update.
     """
     from ksi_common.event_parser import extract_system_handler_data
     from ksi_common.event_response_builder import event_response_builder
@@ -526,44 +559,26 @@ async def handle_config_changed(raw_data: Dict[str, Any], context: Optional[Dict
     key = clean_data.get("key")
     value = clean_data.get("value")
     
-    logger.info(f"Configuration changed: {config_type}.{key} = {value}")
+    logger.warning(f"DEPRECATED: config:changed event received for {config_type}.{key}")
+    logger.info("Use state:entity:update --id system --properties instead")
     
     # Handle specific configuration changes that need immediate application
     if config_type == "daemon":
-        if key == "debug_logging":
-            # Apply debug logging change immediately
-            await _apply_debug_logging_change(value)
-        elif key.startswith("log_level"):
+        if key.startswith("log_level"):
             # Apply log level changes immediately
             await _apply_log_level_change(key, value)
         # Add more immediate config applications as needed
-    
-    logger.debug(f"Applied configuration change: {key} = {value}")
     
     return event_response_builder(
         {
             "config_applied": True,
             "config_type": config_type,
-            "key": key
+            "key": key,
+            "deprecated": True
         },
         context=context
     )
 
-
-async def _apply_debug_logging_change(debug_enabled: bool):
-    """Apply debug logging configuration change immediately."""
-    try:
-        from ksi_common.logging import set_log_level
-        
-        # Change log level dynamically using stdlib integration
-        log_level = "DEBUG" if debug_enabled else "INFO"
-        set_log_level(log_level)
-        
-        logger.info(f"Debug logging {'enabled' if debug_enabled else 'disabled'} immediately")
-        logger.debug("This debug message should appear" if debug_enabled else "Debug messages hidden")
-            
-    except Exception as e:
-        logger.error(f"Failed to apply debug logging change: {e}")
 
 
 async def _apply_log_level_change(key: str, level: str):

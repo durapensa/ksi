@@ -73,6 +73,10 @@ from .constants import (
     DEFAULT_WEBSOCKET_HOST,
     DEFAULT_WEBSOCKET_PORT,
     DEFAULT_WEBSOCKET_CORS_ORIGINS,
+    DEFAULT_STATE_DB_NAME,
+    DEFAULT_CHECKPOINT_DB_NAME,
+    DEFAULT_EVENTS_DB_NAME,
+    DEFAULT_COMPOSITION_INDEX_DB_NAME,
 )
 
 
@@ -99,18 +103,18 @@ class KSIBaseConfig(BaseSettings):
     
     # Database paths (shared infrastructure) - single database for all components
     db_dir: Path = Path(DEFAULT_DB_DIR)
-    db_path: Path = Path(DEFAULT_DB_DIR) / "ksi_state.db"  # Single shared database
-    async_state_db_path: Path = Path(DEFAULT_DB_DIR) / "ksi_state.db"  # Use same shared database
+    db_path: Path = Path(DEFAULT_DB_DIR) / DEFAULT_STATE_DB_NAME  # Single shared database
+    async_state_db_path: Path = Path(DEFAULT_DB_DIR) / DEFAULT_STATE_DB_NAME  # Use same shared database
     identity_storage_path: Path = Path(DEFAULT_DB_DIR) / "identities.json"
     
     # Checkpoint system database
-    checkpoint_db_path: Path = Path(DEFAULT_DB_DIR) / "checkpoint.db"
+    checkpoint_db_path: Path = Path(DEFAULT_DB_DIR) / DEFAULT_CHECKPOINT_DB_NAME
     
     # Agent relationships database
     agent_relationships_db_path: Path = Path(DEFAULT_DB_DIR) / "agent_relationships.db"
     
     # Event logging database (separate from state)
-    event_db_path: Path = Path(DEFAULT_DB_DIR) / "events.db"
+    event_db_path: Path = Path(DEFAULT_DB_DIR) / DEFAULT_EVENTS_DB_NAME
     event_write_queue_size: int = 5000
     event_batch_size: int = 100
     event_flush_interval: float = 1.0  # seconds
@@ -118,7 +122,7 @@ class KSIBaseConfig(BaseSettings):
     event_recovery: bool = False  # Set KSI_EVENT_RECOVERY=true to enable
     
     # Composition index database
-    composition_index_db_path: Path = Path(DEFAULT_DB_DIR) / "composition_index.db"
+    composition_index_db_path: Path = Path(DEFAULT_DB_DIR) / DEFAULT_COMPOSITION_INDEX_DB_NAME
     
     # Reference-based event log configuration
     event_log_dir: Path = Path(DEFAULT_LOG_DIR) / "events"

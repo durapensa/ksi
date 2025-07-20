@@ -377,4 +377,8 @@ def set_log_level(level: str, logger_name: Optional[str] = None) -> None:
     if logger_name is None:  # Root logger
         for handler in target_logger.handlers:
             handler.setLevel(getattr(logging, level.upper(), logging.INFO))
+        
+        # CRITICAL FIX: Also update the 'ksi' logger that all KSI services use
+        ksi_logger = logging.getLogger("ksi")
+        ksi_logger.setLevel(getattr(logging, level.upper(), logging.INFO))
 
