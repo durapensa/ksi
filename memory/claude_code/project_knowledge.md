@@ -91,7 +91,6 @@ Essential technical reference for developing with KSI (Knowledge System Infrastr
 **Problem**: N+1 query pattern in state:entity:query - fetched 100 entities with 101 queries.
 **Solution**: SQLite JSON aggregation (json_group_object/array) - single optimized query.
 **Performance**: 100x-200x faster (10+ seconds → <100ms for typical queries).
-**Future**: Kùzu graph database when graph operations >50% of workload.
 **See**: `/docs/KUZU_MIGRATION_ANALYSIS.md` for migration strategy.
 
 ### Web UI Agent-State Visualization System ✅
@@ -384,6 +383,31 @@ echo "personas/deep_analyst.md model=claude-opus performance=reasoning" >> .gita
 - **Behavioral Overrides**: `components/behaviors/orchestration/claude_code_override.md`
 - **Evaluation Data**: `var/lib/evaluations/` (runtime results)
 - **Logs**: `var/logs/daemon/daemon.log.jsonl`, `var/logs/responses/{session_id}.jsonl`
+
+## System Evolution Roadmap
+
+### Immediate Implementation
+- **composition:inspect**: Dependency tree visualization with transitive dependencies, capability analysis, and version compatibility
+
+### Phase 1: Transformer Architecture (Q2 2025)
+- **Event Transformation Pipeline**: High-level events transform to primitives (e.g., `agent:send_message` → `state:entity:create` + `event:notify`)
+- **Early-loading Transformer Module**: Load before other modules to enable virtual events
+- **Virtual Namespace Registration**: Transformers create namespaces that don't exist in code
+
+### Phase 2: Dynamic Event System (Q3 2025)
+- **Event Registry in State**: Queryable metadata tree of all events, namespaces, and transformations
+- **Namespace Emergence**: Namespaces created dynamically as modules register, not hard-coded
+- **Event Builder**: Generate event handlers from function type annotations
+
+### Phase 3: Self-Describing Meta-System (Q4 2025)
+- **System Introspection**: Components can query entire system structure
+- **Runtime Modification**: Orchestrations can modify system behavior
+- **Graph Database Migration**: Move to Kùzu when graph operations exceed 50% of queries
+
+### Long-Running Orchestration Support
+- **Checkpoint/Resume**: Save orchestration state every N iterations
+- **State-Driven Progress**: Use state system as orchestration memory
+- **Self-Optimizing Pipelines**: Orchestrations that improve their own patterns
 
 ## Document Maintenance Patterns
 

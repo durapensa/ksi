@@ -905,8 +905,13 @@ async def handle_orchestration_start(raw_data: Dict[str, Any], context: Optional
     """Start a new orchestration."""
     from ksi_common.event_parser import event_format_linter
     from ksi_common.event_response_builder import event_response_builder, error_response
+    from ksi_common.json_utils import parse_json_parameter
     
     data = event_format_linter(raw_data, OrchestrationStartData)
+    
+    # Handle vars parameter if it's a JSON string
+    parse_json_parameter(data, 'vars')
+    
     pattern = data.get("pattern")
     vars = data.get("vars", {})
     prompt = data.get("prompt")

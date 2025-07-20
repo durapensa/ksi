@@ -602,6 +602,10 @@ async def handle_entity_create(raw_data: Dict[str, Any], context: Optional[Dict[
     # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
     clean_data, system_metadata = extract_system_handler_data(raw_data)
     
+    # Handle properties parameter if it's a JSON string
+    from ksi_common.json_utils import parse_json_parameter
+    parse_json_parameter(clean_data, 'properties')
+    
     entity_type = clean_data.get("type")
     if not entity_type:
         return error_response(
@@ -643,6 +647,10 @@ async def handle_entity_update(raw_data: Dict[str, Any], context: Optional[Dict[
     
     # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
     clean_data, system_metadata = extract_system_handler_data(raw_data)
+    
+    # Handle properties parameter if it's a JSON string
+    from ksi_common.json_utils import parse_json_parameter
+    parse_json_parameter(clean_data, 'properties')
     
     entity_id = clean_data.get("id")
     if not entity_id:
@@ -841,6 +849,10 @@ async def handle_relationship_create(raw_data: Dict[str, Any], context: Optional
     
     # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
     clean_data, system_metadata = extract_system_handler_data(raw_data)
+    
+    # Handle metadata parameter if it's a JSON string
+    from ksi_common.json_utils import parse_json_parameter
+    parse_json_parameter(clean_data, 'metadata')
     
     from_id = clean_data.get("from_id")
     to_id = clean_data.get("to_id")

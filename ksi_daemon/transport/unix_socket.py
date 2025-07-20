@@ -77,6 +77,15 @@ class UnixSocketTransport:
         
         self.running = False
         
+        # Close all client connections first
+        for client_id, writer in list(client_connections.items()):
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception as e:
+                logger.debug(f"Error closing client {client_id}: {e}")
+        client_connections.clear()
+        
         if self.server:
             self.server.close()
             await self.server.wait_closed()
@@ -459,8 +468,15 @@ async def handle_shutdown(raw_data: Dict[str, Any], context: Optional[Dict[str, 
     logger.info("Unix socket transport shutdown complete - socket closed")
     
     # Acknowledge shutdown completion - required for shutdown_handler
-    router = get_router()
-    await router.acknowledge_shutdown("unix_socket_transport")
+    try:
+        router = get_router()
+        if router:
+            await router.acknowledge_shutdown("unix_socket_transport")
+            logger.info("Unix socket transport acknowledged shutdown")
+        else:
+            logger.error("Could not get router to acknowledge shutdown")
+    except Exception as e:
+        logger.error(f"Failed to acknowledge shutdown: {e}", exc_info=True)
     
     return event_response_builder(
         {"status": "unix_socket_transport_stopped"},

@@ -578,8 +578,11 @@ def parse_json_parameter(data: Dict[str, Any], param_name: str,
                         remove_original: bool = True) -> Optional[Dict[str, Any]]:
     """Parse a parameter that might be a JSON string and optionally merge it into data.
     
-    This is useful for CLI parameters that can be passed as JSON strings, like:
-    --filter '{"type": "orchestration"}'
+    This handles parameters from external sources that might be JSON strings:
+    - CLI: --filter '{"type": "orchestration"}'
+    - Agents: When they emit events with JSON in their responses
+    - MCP servers: Following system parameter guidelines
+    - External APIs: WebSocket/HTTP clients sending structured data
     
     Args:
         data: Dictionary containing the parameter

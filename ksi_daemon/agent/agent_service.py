@@ -702,7 +702,13 @@ async def handle_spawn_agent(raw_data: Dict[str, Any], context: Optional[Dict[st
     """
     from ksi_common.event_parser import event_format_linter
     from ksi_common.event_response_builder import event_response_builder, error_response
+    from ksi_common.json_utils import parse_json_parameter
+    
     data = event_format_linter(raw_data, AgentSpawnData)
+    
+    # Note: context and selection_context are system-internal parameters,
+    # not CLI parameters, so they don't need JSON string parsing
+    
     agent_id = data.get("agent_id") or f"agent_{uuid.uuid4().hex[:8]}"
     profile_name = data.get("profile") or data.get("profile_name")
     composition_name = data.get("composition")  # Direct composition reference
