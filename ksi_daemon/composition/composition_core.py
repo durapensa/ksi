@@ -15,6 +15,7 @@ from ksi_common.yaml_utils import load_yaml_file, safe_load
 from ksi_common.json_utils import loads as json_loads, dumps as json_dumps
 from ksi_common.template_utils import substitute_variables as template_substitute_variables
 from ksi_common.component_loader import find_component_file, load_component_file
+from ksi_common.composition_utils import resolve_composition_path, get_composition_base_path
 from . import composition_index
 
 logger = get_bound_logger("composition_core")
@@ -163,8 +164,8 @@ async def load_composition(name: str, comp_type: Optional[str] = None) -> Compos
     """Load a composition by name and optional type."""
     logger.info(f"Loading composition: name={name}, comp_type={comp_type}")
     
-    # Find the component file directly
-    composition_path = find_component_file(COMPOSITIONS_BASE, name)
+    # Use shared utility to resolve path based on type
+    composition_path = resolve_composition_path(name, comp_type or 'orchestration')
     
     if not composition_path:
         raise FileNotFoundError(f"Composition not found: {name}")

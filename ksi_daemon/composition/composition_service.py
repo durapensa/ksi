@@ -23,6 +23,10 @@ from ksi_common.json_utils import loads as json_loads, dumps as json_dumps
 from ksi_common.frontmatter_utils import parse_frontmatter, validate_frontmatter
 from ksi_common.component_renderer import get_renderer, ComponentResolutionError, CircularDependencyError
 from ksi_common.component_loader import find_component_file, load_component_file
+from ksi_common.composition_utils import (
+    resolve_composition_path, load_composition_with_metadata, 
+    normalize_composition_name, get_composition_base_path
+)
 
 # Import composition modules
 from . import composition_index
@@ -633,8 +637,8 @@ async def handle_list(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]
 
 async def load_composition_raw(name: str, comp_type: Optional[str] = None) -> Dict[str, Any]:
     """Load raw composition YAML data preserving all sections."""
-    # Find the component file directly
-    composition_path = find_component_file(COMPOSITIONS_BASE, name)
+    # Use shared utility to resolve path based on type
+    composition_path = resolve_composition_path(name, comp_type or 'orchestration')
     
     if not composition_path:
         raise FileNotFoundError(f"Composition not found: {name}")
@@ -1611,15 +1615,15 @@ async def handle_create_component(raw_data: Dict[str, Any], context: Optional[Di
         content = data['content']
         comp_type = data.get('type', 'component')
         
-        # Determine base path based on type - unified architecture principle
-        # All compositions follow the same pattern, no special handling
-        if comp_type == 'component':
-            base_path = COMPONENTS_BASE
-        else:
-            base_path = COMPONENTS_BASE / comp_type
+        # Determine base path based on type using shared utility
+        base_path = get_composition_base_path(comp_type)
         
-        # Create file path
-        file_path = base_path / f"{name}.md"
+        # Create file path - handle subdirectories in name
+        if '/' in name:
+            file_path = base_path / f"{name}.md"
+        else:
+            # For components without subdirectory, put in type subdirectory
+            file_path = base_path / comp_type / f"{name}.md"
         ensure_directory(file_path.parent)
         
         # Check if exists
@@ -1706,25 +1710,14 @@ async def handle_get_component(raw_data: Dict[str, Any], context: Optional[Dict[
     try:
         data = event_format_linter(raw_data, ComponentGetData)
         
-        name = _normalize_component_name(data['name'])
+        name = normalize_composition_name(data['name'])
         comp_type = data.get('type', 'component')
         
-        # Determine base path
-        if comp_type == 'component':
-            base_path = COMPONENTS_BASE
-        else:
-            base_path = COMPONENTS_BASE / comp_type
-        
-        # Try with .md extension first, then without
-        file_path = base_path / f"{name}.md"
-        if not file_path.exists():
-            file_path = base_path / name
-        
-        if not file_path.exists():
-            # Unified error message - no special handling by type
+        # Use shared utility to load composition with proper path resolution
+        try:
+            metadata, content, file_path = load_composition_with_metadata(name, comp_type)
+        except FileNotFoundError:
             return error_response(f"Composition '{name}' not found", context)
-        
-        content = file_path.read_text()
         
         # Parse frontmatter using modern frontmatter utilities
         try:
