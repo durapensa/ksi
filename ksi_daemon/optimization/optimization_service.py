@@ -13,11 +13,18 @@ from ksi_common.async_operations import (
     fail_operation, create_background_task, build_progress_event,
     build_result_event, build_error_event
 )
+from .mlflow_manager import (
+    start_mlflow_server, stop_mlflow_server, get_mlflow_ui_url,
+    get_active_optimization_runs, get_optimization_progress
+)
 
 logger = get_bound_logger("optimization_service")
 
 # Framework registry
 optimization_frameworks: Dict[str, Any] = {}
+
+# Track if MLflow has been initialized
+_mlflow_initialized = False
 
 
 def register_framework(name: str, adapter_class: Any):
@@ -70,6 +77,9 @@ async def handle_validate_setup(raw_data: Dict[str, Any], context: Optional[Dict
 async def handle_optimize(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Run optimization on a component using specified framework."""
     
+    # Ensure MLflow is initialized
+    await _ensure_mlflow_initialized()
+    
     framework = raw_data.get("framework", "dspy")
     target = raw_data.get("target")  # Component to optimize
     signature = raw_data.get("signature")  # Signature component name
@@ -114,6 +124,9 @@ async def handle_optimize(raw_data: Dict[str, Any], context: Optional[Dict[str, 
 @event_handler("optimization:async")
 async def handle_async_optimization(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Start async optimization with background processing."""
+    
+    # Ensure MLflow is initialized
+    await _ensure_mlflow_initialized()
     
     # Extract parameters
     framework = raw_data.get("framework", "dspy")
@@ -187,12 +200,13 @@ async def run_optimization(opt_id: str, data: Dict[str, Any], context: Optional[
             framework=framework_name
         ))
         
-        # Run optimization
+        # Run optimization - pass opt_id for progress tracking
         kwargs = {k: v for k, v in data.items() if k not in ['target', 'signature', 'metric', 'framework', 'config']}
         result = await adapter.optimize(
             target=data.get("target"),
             signature=data.get("signature"),
             metric=data.get("metric"),
+            optimization_id=opt_id,  # Pass opt_id for progress tracking
             **kwargs
         )
         
@@ -219,18 +233,48 @@ async def run_optimization(opt_id: str, data: Dict[str, Any], context: Optional[
 
 @event_handler("optimization:status")
 async def handle_optimization_status(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Get status of optimization operations."""
+    """Get status of optimization operations with rich progress information."""
     
     from ksi_common.async_operations import get_operation_status, get_active_operations_summary
     
     # Check for specific optimization ID
     opt_id = raw_data.get("optimization_id")
     if opt_id:
+        # Get basic status
         status = get_operation_status(opt_id)
-        if status:
-            return event_response_builder(status, context)
-        else:
+        if not status:
             return error_response(f"Optimization {opt_id} not found", context)
+        
+        # Parameters for what to include
+        include_scores = raw_data.get("include_scores", True)
+        include_instructions = raw_data.get("include_instructions", False)  # Default false - could be large
+        include_stats = raw_data.get("include_stats", True)
+        include_activity = raw_data.get("include_activity", True)
+        
+        # Enhance with DSPy state if available
+        if status.get("status") == "optimizing":
+            framework_name = status.get("metadata", {}).get("framework")
+            
+            if framework_name == "dspy":
+                # Get DSPy-specific progress
+                dspy_progress = await get_dspy_optimization_progress(
+                    opt_id,
+                    include_scores=include_scores,
+                    include_instructions=include_instructions,
+                    include_stats=include_stats
+                )
+                status["progress"] = dspy_progress
+            
+            # Add LLM activity regardless of framework
+            if include_activity:
+                status["activity"] = await get_optimization_activity(opt_id, status["started_at"])
+            
+            # Try to get MLflow data if available
+            mlflow_data = await get_mlflow_optimization_data(opt_id)
+            if mlflow_data:
+                status["mlflow"] = mlflow_data
+        
+        return event_response_builder(status, context)
     
     # Return summary of all optimizations
     summary = get_active_operations_summary(
@@ -238,11 +282,23 @@ async def handle_optimization_status(raw_data: Dict[str, Any], context: Optional
         operation_type="optimization"
     )
     
-    return event_response_builder({
+    # Add MLflow tracking info
+    mlflow_runs = await get_active_optimization_runs()
+    
+    response_data = {
         "active_optimizations": summary["total"],
         "by_status": summary.get("by_status", {}),
         "frameworks": {name: {"available": True} for name in optimization_frameworks.keys()}
-    }, context)
+    }
+    
+    # Add MLflow data if available
+    if "error" not in mlflow_runs:
+        response_data["mlflow"] = {
+            "active_runs": mlflow_runs.get("active_runs", 0),
+            "ui_url": get_mlflow_ui_url()
+        }
+    
+    return event_response_builder(response_data, context)
 
 
 @event_handler("optimization:cancel")
@@ -437,6 +493,178 @@ def _recommend_technique(results: Dict[str, Any]) -> str:
     return best_technique or "manual"
 
 
+async def get_dspy_optimization_progress(
+    opt_id: str,
+    include_scores: bool = True,
+    include_instructions: bool = False,
+    include_stats: bool = True
+) -> Dict[str, Any]:
+    """Extract progress from active DSPy optimizer."""
+    
+    # Import the module-level function
+    try:
+        from .frameworks.dspy_events import get_active_optimizer
+    except ImportError:
+        return {"status": "framework_not_available"}
+    
+    # Get optimizer from module-level tracking
+    optimizer = get_active_optimizer(opt_id)
+    if not optimizer:
+        return {"status": "optimizer_not_accessible"}
+    
+    progress = {}
+    
+    # Extract from optimizer's internal state
+    optimizer_dict = optimizer.__dict__
+    
+    # Trial Progress - MIPROv2 tracks trials internally
+    # Look for trial-related attributes
+    total_calls = optimizer_dict.get("total_calls", 0)
+    prompt_model_calls = optimizer_dict.get("prompt_model_total_calls", 0)
+    
+    # Estimate trials based on evaluation calls (heuristic)
+    # In MIPROv2, each trial involves evaluations
+    if hasattr(optimizer, 'num_trials'):
+        num_trials = getattr(optimizer, 'num_trials', 12)
+        # Rough estimate: trials completed based on total calls
+        if total_calls > 0:
+            # This is an approximation - actual trial count may vary
+            trials_completed = min(total_calls // 10, num_trials)  # Assume ~10 calls per trial
+        else:
+            trials_completed = 0
+            
+        progress["trial_progress"] = {
+            "completed": trials_completed,
+            "total": num_trials,
+            "percentage": int((trials_completed / num_trials) * 100) if num_trials > 0 else 0,
+            "total_evaluation_calls": total_calls,
+            "prompt_model_calls": prompt_model_calls
+        }
+    
+    # Scores - Extract from score_data if available
+    if include_scores:
+        score_data = optimizer_dict.get("score_data", [])
+        if score_data:
+            # Extract scores from score_data list
+            scores = [entry.get("score", 0) for entry in score_data if "score" in entry]
+            if scores:
+                progress["scores"] = {
+                    "best": max(scores),
+                    "current": scores[-1],
+                    "history": scores[-5:] if len(scores) > 5 else scores,  # Last 5 scores
+                    "evaluations": len(scores)
+                }
+    
+    # Instructions (be careful with size)
+    if include_instructions:
+        # MIPROv2 doesn't directly expose current instructions during optimization
+        # Would need to extract from trial_logs if available
+        trial_logs = optimizer_dict.get("trial_logs", {})
+        if trial_logs:
+            # Get latest trial's instructions if available
+            latest_trial = max(trial_logs.keys()) if trial_logs else None
+            if latest_trial and "program" in trial_logs[latest_trial]:
+                progress["instructions"] = {
+                    "trial": latest_trial,
+                    "note": "Full instruction extraction requires program introspection"
+                }
+    
+    # Statistics
+    if include_stats:
+        progress["statistics"] = {
+            "max_bootstrapped_demos": optimizer_dict.get("max_bootstrapped_demos", 0),
+            "max_labeled_demos": optimizer_dict.get("max_labeled_demos", 0),
+            "init_temperature": optimizer_dict.get("init_temperature", 0.7),
+            "auto_mode": optimizer_dict.get("auto", "light"),
+            "num_candidates": optimizer_dict.get("num_candidates", 10),
+            "track_stats": optimizer_dict.get("track_stats", True),
+            "optimization_stage": "running" if total_calls > 0 else "initializing"
+        }
+    
+    return progress
+
+
+async def get_optimization_activity(opt_id: str, started_at: str) -> Dict[str, Any]:
+    """Get optimization activity based on trial progress."""
+    import time
+    from ksi_common.timestamps import parse_iso_timestamp
+    
+    # Try to get optimizer for real-time stats
+    try:
+        from .frameworks.dspy_events import get_active_optimizer
+        optimizer = get_active_optimizer(opt_id)
+        
+        if optimizer:
+            # Get current stats from optimizer
+            total_calls = getattr(optimizer, "total_calls", 0)
+            prompt_model_calls = getattr(optimizer, "prompt_model_total_calls", 0)
+            
+            # Calculate time since start
+            if isinstance(started_at, str):
+                dt = parse_iso_timestamp(started_at)
+                start_timestamp = dt.timestamp()
+            else:
+                start_timestamp = started_at
+            
+            elapsed_time = time.time() - start_timestamp
+            
+            # Calculate rates
+            calls_per_minute = (total_calls / elapsed_time * 60) if elapsed_time > 0 else 0
+            
+            return {
+                "total_evaluation_calls": total_calls,
+                "prompt_optimization_calls": prompt_model_calls,
+                "elapsed_seconds": round(elapsed_time, 1),
+                "calls_per_minute": round(calls_per_minute, 1),
+                "status": "active" if calls_per_minute > 0.5 else "idle",
+                "optimizer_active": True
+            }
+    except Exception as e:
+        logger.debug(f"Could not get optimizer stats: {e}")
+    
+    # Fallback: no real-time stats available
+    return {
+        "status": "optimizer_stats_unavailable",
+        "note": "Real-time statistics require active optimizer tracking"
+    }
+
+
+async def get_mlflow_optimization_data(opt_id: str) -> Optional[Dict[str, Any]]:
+    """Get MLflow tracking data for an optimization."""
+    try:
+        # Search for MLflow run with matching optimization ID
+        # This assumes we tag MLflow runs with the KSI optimization ID
+        import mlflow
+        
+        runs = mlflow.search_runs(
+            filter_string=f"tags.ksi_optimization_id = '{opt_id}'",
+            max_results=1
+        )
+        
+        if not runs.empty:
+            run_id = runs.iloc[0]["run_id"]
+            return await get_optimization_progress(run_id)
+        
+        return None
+    except Exception as e:
+        logger.debug(f"Could not get MLflow data for {opt_id}: {e}")
+        return None
+
+
+async def _ensure_mlflow_initialized():
+    """Ensure MLflow is initialized before optimization."""
+    global _mlflow_initialized
+    
+    if not _mlflow_initialized:
+        try:
+            tracking_uri = await start_mlflow_server()
+            logger.info(f"MLflow tracking server started at {tracking_uri}")
+            _mlflow_initialized = True
+        except Exception as e:
+            logger.warning(f"Could not start MLflow server: {e}")
+            # Continue without MLflow - it's optional
+
+
 # Initialize frameworks on module load
 def initialize_frameworks():
     """Initialize and register optimization frameworks."""
@@ -465,5 +693,64 @@ def initialize_frameworks():
         logger.info("Hybrid framework not available")
 
 
-# Initialize on import
+async def initialize_optimization_service():
+    """Initialize optimization service with MLflow."""
+    # Initialize frameworks
+    initialize_frameworks()
+    
+    # Start MLflow server
+    try:
+        tracking_uri = await start_mlflow_server()
+        logger.info(f"MLflow tracking server started at {tracking_uri}")
+    except Exception as e:
+        logger.warning(f"Could not start MLflow server: {e}")
+
+
+# Initialize on import (sync part)
 initialize_frameworks()
+
+# Note: Async initialization (MLflow server) must be called from event system startup
+
+
+@event_handler("optimization:initialize")
+async def handle_optimization_initialize(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Initialize optimization service including MLflow."""
+    try:
+        await initialize_optimization_service()
+        return event_response_builder({
+            "status": "initialized",
+            "mlflow_ui": get_mlflow_ui_url()
+        })
+    except Exception as e:
+        logger.error(f"Failed to initialize optimization service: {e}")
+        return error_response(str(e))
+
+
+@event_handler("system:shutdown")
+async def handle_shutdown(data: Dict[str, Any]) -> None:
+    """Clean up optimization resources on shutdown."""
+    from ksi_common.async_operations import shutdown_thread_pool, cancel_operation
+    
+    logger.info("Optimization service shutting down")
+    
+    # Cancel all active optimizations
+    from ksi_common.async_operations import active_operations
+    
+    for opt_id, op_data in list(active_operations.items()):
+        if (op_data.get("service") == "optimization" and 
+            op_data.get("status") in ["queued", "initializing", "optimizing"]):
+            logger.info(f"Cancelling active optimization {opt_id}")
+            await cancel_operation(opt_id)
+    
+    # Clean up framework resources
+    dspy_framework = optimization_frameworks.get("dspy")
+    if dspy_framework and hasattr(dspy_framework, "cleanup"):
+        await dspy_framework.cleanup()
+    
+    # Shutdown thread pool
+    shutdown_thread_pool()
+    
+    # Stop MLflow server
+    await stop_mlflow_server()
+    
+    logger.info("Optimization service shutdown complete")

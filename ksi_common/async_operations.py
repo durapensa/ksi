@@ -1,21 +1,29 @@
 """Shared utilities for async operation management across KSI services.
 
 Provides functional utilities for tracking async operations, managing background tasks,
-and emitting progress events - following patterns from the completion service.
+thread pool execution, and emitting progress events - following patterns from the completion service.
 """
 
 import asyncio
+import functools
 import uuid
-from typing import Dict, Any, Optional, Set, Callable
+from concurrent.futures import ThreadPoolExecutor
+from typing import Dict, Any, Optional, Set, Callable, TypeVar
 from ksi_common.timestamps import timestamp_utc
 from ksi_common.logging import get_bound_logger
+from ksi_common.config import config
 
 logger = get_bound_logger("async_operations")
+
+T = TypeVar('T')
 
 # Global registries for operation tracking
 active_operations: Dict[str, Dict[str, Any]] = {}
 background_tasks: Dict[str, asyncio.Task] = {}
 cleanup_tasks: Set[asyncio.Task] = set()
+
+# Global thread pool executor - lazily initialized
+_thread_pool_executor: Optional[ThreadPoolExecutor] = None
 
 
 def generate_operation_id(prefix: str = "op") -> str:
@@ -339,3 +347,101 @@ def build_error_event(
         "timestamp": timestamp_utc(),
         **kwargs
     }
+
+
+# Thread pool execution utilities
+def get_thread_pool_executor() -> ThreadPoolExecutor:
+    """Get or create the shared thread pool executor.
+    
+    Returns:
+        The shared ThreadPoolExecutor instance
+    """
+    global _thread_pool_executor
+    
+    if _thread_pool_executor is None:
+        # Get pool size from config or use default
+        pool_size = getattr(config, 'thread_pool_size', 4)
+        _thread_pool_executor = ThreadPoolExecutor(
+            max_workers=pool_size,
+            thread_name_prefix="ksi_pool"
+        )
+        logger.info(f"Created thread pool executor with {pool_size} workers")
+    
+    return _thread_pool_executor
+
+
+async def run_in_thread_pool(
+    func: Callable[..., T],
+    *args,
+    **kwargs
+) -> T:
+    """Run a synchronous function in the shared thread pool.
+    
+    This is ideal for running sync-only code (like DSPy) from async contexts.
+    
+    Args:
+        func: Synchronous function to run
+        *args: Positional arguments
+        **kwargs: Keyword arguments
+        
+    Returns:
+        The result of the function
+        
+    Example:
+        result = await run_in_thread_pool(
+            dspy_optimize,
+            component_name="my_component",
+            num_trials=10
+        )
+    """
+    loop = asyncio.get_event_loop()
+    executor = get_thread_pool_executor()
+    
+    # Use functools.partial to bind args/kwargs
+    bound_func = functools.partial(func, *args, **kwargs)
+    
+    # Run in thread pool
+    return await loop.run_in_executor(executor, bound_func)
+
+
+async def run_sync_with_timeout(
+    func: Callable[..., T],
+    timeout: float,
+    *args,
+    **kwargs
+) -> T:
+    """Run a synchronous function in thread pool with timeout.
+    
+    Args:
+        func: Synchronous function to run
+        timeout: Timeout in seconds
+        *args: Positional arguments
+        **kwargs: Keyword arguments
+        
+    Returns:
+        The result of the function
+        
+    Raises:
+        asyncio.TimeoutError: If function exceeds timeout
+    """
+    try:
+        return await asyncio.wait_for(
+            run_in_thread_pool(func, *args, **kwargs),
+            timeout=timeout
+        )
+    except asyncio.TimeoutError:
+        logger.error(f"Thread pool execution timed out after {timeout}s")
+        raise
+
+
+def shutdown_thread_pool():
+    """Shutdown the thread pool executor gracefully.
+    
+    Should be called during application shutdown.
+    """
+    global _thread_pool_executor
+    
+    if _thread_pool_executor is not None:
+        logger.info("Shutting down thread pool executor")
+        _thread_pool_executor.shutdown(wait=True)
+        _thread_pool_executor = None

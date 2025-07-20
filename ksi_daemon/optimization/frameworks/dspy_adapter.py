@@ -13,6 +13,10 @@ from ksi_daemon.optimization.frameworks.base_optimizer import (
     ComponentMetrics
 )
 from ksi_common.timestamps import timestamp_utc
+from ksi_common.logging import get_bound_logger
+from ksi_common.async_operations import run_in_thread_pool
+
+logger = get_bound_logger("dspy_adapter")
 
 
 class KSIComponentSignature(dspy.Signature):
@@ -31,7 +35,8 @@ class DSPyMIPROAdapter(BaseOptimizer):
         metric: Callable,
         prompt_model: Optional[Any] = None,
         task_model: Optional[Any] = None,
-        config: Optional[Dict[str, Any]] = None
+        config: Optional[Dict[str, Any]] = None,
+        framework: Optional[Any] = None
     ):
         """Initialize DSPy adapter with models and config."""
         super().__init__(metric, config)
@@ -39,6 +44,7 @@ class DSPyMIPROAdapter(BaseOptimizer):
         # Configure DSPy models
         self.prompt_model = prompt_model or dspy.settings.lm
         self.task_model = task_model or dspy.settings.lm
+        self.framework = framework  # Reference to DSPyFramework for optimizer tracking
         
         # Configure for zero-shot optimization based on DSPy source analysis
         auto_mode = config.get("auto", "light")  # Default to light auto mode
@@ -146,15 +152,16 @@ class DSPyMIPROAdapter(BaseOptimizer):
         
         return dspy_examples
     
-    async def optimize_component(
+    def _optimize_component_sync(
         self,
         component_name: str,
         component_content: str,
         trainset: List[Dict[str, Any]],
         valset: Optional[List[Dict[str, Any]]] = None,
+        opt_id: Optional[str] = None,
         **kwargs
     ) -> OptimizationResult:
-        """Optimize a single KSI component using MIPROv2."""
+        """Synchronous optimization implementation for running in thread pool."""
         
         # Extract component parts
         parts = self._extract_component_parts(component_content)
@@ -188,14 +195,37 @@ class DSPyMIPROAdapter(BaseOptimizer):
             **self.mipro_init_config
         )
         
-        # Run optimization with compile-specific configuration
-        optimized_program = optimizer.compile(
-            program,
-            trainset=dspy_trainset,
-            valset=dspy_valset,
-            requires_permission_to_run=False,
-            **self.mipro_compile_config
-        )
+        # Register optimizer for progress tracking if framework is available
+        if self.framework and opt_id:
+            self.framework.register_optimizer(opt_id, optimizer)
+        
+        try:
+            # Tag MLflow run with KSI optimization ID if MLflow is active
+            try:
+                import mlflow
+                if mlflow.active_run() is None:
+                    mlflow.start_run()
+                if opt_id:
+                    mlflow.set_tag("ksi_optimization_id", opt_id)
+                    mlflow.set_tag("ksi_component", component_name)
+                    mlflow.set_tag("ksi_optimizer", "DSPy-MIPROv2")
+            except Exception as e:
+                logger.debug(f"Could not set MLflow tags: {e}")
+            
+            # Run optimization with compile-specific configuration
+            logger.info(f"Starting DSPy optimization for {component_name}")
+            optimized_program = optimizer.compile(
+                program,
+                trainset=dspy_trainset,
+                valset=dspy_valset,
+                requires_permission_to_run=False,
+                **self.mipro_compile_config
+            )
+            logger.info(f"DSPy optimization completed for {component_name}")
+        finally:
+            # Always unregister optimizer when done
+            if self.framework and opt_id:
+                self.framework.unregister_optimizer(opt_id)
         
         # Extract optimized instruction
         # Get the optimized prompt from the program
@@ -245,6 +275,35 @@ class DSPyMIPROAdapter(BaseOptimizer):
         }
         
         self.save_optimization_result(result)
+        return result
+    
+    async def optimize_component(
+        self,
+        component_name: str,
+        component_content: str,
+        trainset: List[Dict[str, Any]],
+        valset: Optional[List[Dict[str, Any]]] = None,
+        opt_id: Optional[str] = None,
+        **kwargs
+    ) -> OptimizationResult:
+        """Optimize a single KSI component using MIPROv2.
+        
+        This async method runs the synchronous DSPy optimization in a thread pool
+        to avoid blocking the event loop.
+        """
+        logger.info(f"Running DSPy optimization for {component_name} in thread pool")
+        
+        # Run the sync optimization in thread pool
+        result = await run_in_thread_pool(
+            self._optimize_component_sync,
+            component_name=component_name,
+            component_content=component_content,
+            trainset=trainset,
+            valset=valset,
+            opt_id=opt_id,
+            **kwargs
+        )
+        
         return result
     
     async def optimize_orchestration(

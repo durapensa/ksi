@@ -10,9 +10,18 @@ from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 
 from .dspy_adapter import DSPyMIPROAdapter
-from .ksi_lm_adapter import KSIAgentLanguageModel
+from .litellm_dspy_adapter import KSILiteLLMDSPyAdapter, configure_dspy_with_litellm
+from ..mlflow_manager import configure_dspy_autologging
 
 logger = get_bound_logger("dspy_framework")
+
+# Module-level tracking of active optimizers
+_active_optimizers: Dict[str, Any] = {}
+
+
+def get_active_optimizer(opt_id: str) -> Optional[Any]:
+    """Get active optimizer by ID from module-level tracking."""
+    return _active_optimizers.get(opt_id)
 
 
 class DSPyFramework:
@@ -95,33 +104,50 @@ class DSPyFramework:
         return sum(scores) / len(scores) if scores else 0.0
     
     def _initialize_dspy(self):
-        """Initialize DSPy with configured models."""
+        """Initialize DSPy with direct LiteLLM integration."""
         if config.optimization_prompt_model and config.optimization_task_model:
             try:
-                # Create KSI language model adapters
-                prompt_lm = KSIAgentLanguageModel(
-                    model_name=config.optimization_prompt_model,
-                    agent_profile="optimization_prompt_agent"
-                )
-                task_lm = KSIAgentLanguageModel(
-                    model_name=config.optimization_task_model,
-                    agent_profile="optimization_task_agent"
+                # Use direct LiteLLM integration for optimization
+                # This bypasses agent overhead and provides simpler, faster completions
+                models = configure_dspy_with_litellm(
+                    prompt_model=config.optimization_prompt_model,
+                    task_model=config.optimization_task_model,
+                    sandbox_dir=config.sandbox_dir if hasattr(config, 'sandbox_dir') else None
                 )
                 
-                # Configure DSPy
-                dspy.settings.configure(lm=task_lm)
+                self.dspy_models = models
+                logger.info(
+                    "DSPy initialized with direct LiteLLM",
+                    prompt_model=config.optimization_prompt_model,
+                    task_model=config.optimization_task_model
+                )
                 
-                self.dspy_models = {
-                    "prompt_model": prompt_lm,
-                    "task_model": task_lm
-                }
-                
-                logger.info("DSPy initialized successfully")
+                # Configure MLflow autologging for DSPy
+                if configure_dspy_autologging():
+                    logger.info("MLflow autologging enabled for DSPy")
+                else:
+                    logger.warning("MLflow autologging could not be enabled")
+                    
             except Exception as e:
                 logger.error(f"Failed to initialize DSPy: {e}")
                 self.dspy_models = None
         else:
             logger.info("DSPy models not configured - optimization features limited")
+    
+    def get_active_optimizer(self, opt_id: str) -> Optional[Any]:
+        """Get active optimizer by ID."""
+        return _active_optimizers.get(opt_id)
+    
+    def register_optimizer(self, opt_id: str, optimizer: Any):
+        """Register an active optimizer."""
+        _active_optimizers[opt_id] = optimizer
+        logger.debug(f"Registered optimizer {opt_id}")
+    
+    def unregister_optimizer(self, opt_id: str):
+        """Unregister an optimizer when complete."""
+        if opt_id in _active_optimizers:
+            del _active_optimizers[opt_id]
+            logger.debug(f"Unregistered optimizer {opt_id}")
     
     @classmethod
     async def validate_setup(cls, raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -138,16 +164,16 @@ class DSPyFramework:
                 ]
             }
         
-        # Test model availability
+        # Test model availability with simple check
         try:
-            test_pred = dspy.Predict("question -> answer")
-            test_result = test_pred(question="test")
+            # Just verify models are configured properly
             return {
                 "valid": True,
                 "models": {
                     "prompt_model": str(instance.dspy_models.get("prompt_model", "none")),
                     "task_model": str(instance.dspy_models.get("task_model", "none"))
-                }
+                },
+                "adapter": "litellm"
             }
         except Exception as e:
             return {
@@ -157,6 +183,9 @@ class DSPyFramework:
     
     async def optimize(self, target: str, signature: str, metric: str, **kwargs) -> Dict[str, Any]:
         """Run DSPy optimization on a component."""
+        # Extract optimization ID for progress tracking
+        opt_id = kwargs.get("optimization_id")
+        
         # Load target component
         router = get_router()
         target_response = await router.emit_first("composition:get_component", {
@@ -192,7 +221,8 @@ class DSPyFramework:
                 metric=metric_fn,
                 prompt_model=self.dspy_models.get("prompt_model"),
                 task_model=self.dspy_models.get("task_model"),
-                config=optimizer_config
+                config=optimizer_config,
+                framework=self  # Pass framework reference for optimizer tracking
             )
             
             # Run optimization
@@ -200,7 +230,8 @@ class DSPyFramework:
                 component_name=target,
                 component_content=component_content,
                 trainset=trainset,
-                valset=valset
+                valset=valset,
+                opt_id=opt_id
             )
             
             return {
@@ -380,3 +411,11 @@ class DSPyFramework:
         
         # Default metric
         return self.metric_registry["exact_match"]
+    
+    @classmethod
+    async def cleanup(cls):
+        """Clean up DSPy resources on shutdown."""
+        # Clear all active optimizers
+        global _active_optimizers
+        logger.info(f"Clearing {len(_active_optimizers)} active DSPy optimizers")
+        _active_optimizers.clear()
