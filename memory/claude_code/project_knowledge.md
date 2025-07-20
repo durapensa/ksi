@@ -109,24 +109,39 @@ Essential technical reference for developing with KSI (Knowledge System Infrastr
 
 ## Optimization Architecture (2025) ✅
 
-### Philosophy: Minimal Utilities, Maximum Composability
-**Key Insight**: Optimization = Orchestration + Evaluation + Minimal Utilities
-- **No new abstractions**: Use existing KSI systems
-- **Composable patterns**: Mix and match components
-- **See**: `/docs/OPTIMIZATION_APPROACH.md` for full architecture
+### Philosophy: Components All the Way Down
+**Key Insights**: 
+- **Everything is a component**: Signatures, metrics, optimization strategies
+- **No embedded prompts**: All prompts live in versioned components
+- **Framework-agnostic service**: Core optimization events, framework-specific adapters
+- **Manual bootstrapping first**: Discover patterns before creating orchestrations
 
-### Optimization Events (Minimal)
-- `optimization:get_framework_info` - Query available frameworks
-- `optimization:validate_setup` - Check if ready
-- `optimization:format_examples` - Convert data for frameworks
-- `optimization:get_git_info` - Track experiments
+### Bootstrapping Methodology ✅
+**DSPy-First Approach**: Programmatic → Judge → Hybrid
+1. **Manual Discovery**: Spawn agents directly, run optimization manually
+2. **Pattern Recognition**: Track decisions, identify what works
+3. **Crystallize Patterns**: Create minimal orchestrations only after proving value
+
+### DSPy Integration Events (NEW) ✅
+- `optimization:optimize_component` - Run MIPROv2 on components
+- `optimization:run_dspy_program` - Execute Predict, ChainOfThought, ReAct
+- `optimization:evaluate_with_metric` - Score with DSPy metrics
+- `optimization:bootstrap_examples` - Generate training data
+- `optimization:register_metric` - Add custom metrics (including LLM judges)
+- `optimization:list_metrics` - Discover available metrics
+
+### Component Types for Optimization
+- **Signatures**: `components/signatures/` - DSPy input/output specs
+- **Metrics**: `components/metrics/` - Programmatic and judge-based
+- **Personas**: `components/personas/developers/optimization_engineer.md`
+- **Behaviors**: `components/behaviors/optimization/continuous_iterator.md`
 
 ### LLM-as-Judge System ✅
-**Breakthrough**: Replace programmatic metrics with nuanced judge evaluation
-- **Pairwise Comparison**: Judges compare strategies for relative ranking
-- **Elo Rating System**: Dynamic skill ratings from comparisons
-- **Judge Personas**: `game_theory_pairwise_judge`, `optimization_technique_judge`
-- **Co-Evolutionary**: Judges and strategies improve together
+**Rankings Over Scores**: Pairwise comparisons, not numeric ratings
+- **"Is A better than B?"** not "Rate A from 1-10"
+- **Stable preferences**: Relative comparisons more consistent
+- **No calibration issues**: Avoids subjective score interpretation
+- **Ranking systems**: Elo, Bradley-Terry, TrueSkill
 
 ### Hybrid Optimization Marketplace ✅
 **Innovation**: Run optimization techniques in parallel, select empirically
