@@ -12,20 +12,19 @@ import json
 import time
 import os
 import subprocess
+import asyncio
 from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Any, Tuple
 
-# Add ksi_common directory directly to path to bypass __init__.py
-ksi_common_path = str(Path(__file__).parent.parent / "ksi_common")
-sys.path.insert(0, ksi_common_path)
+# Add project root to path for proper imports
+ksi_root = str(Path(__file__).parent.parent)
+sys.path.insert(0, ksi_root)
 
-# Import sync_client module directly
-import sync_client
-MinimalSyncClient = sync_client.MinimalSyncClient
-KSIConnectionError = sync_client.KSIConnectionError
-KSIResponseError = sync_client.KSIResponseError
+# Import the same client as KSI CLI uses
+from ksi_client import EventClient
+from ksi_client.exceptions import KSIError, KSIConnectionError, KSIEventError
 
 # =============================================================================
 # ERROR HANDLING
@@ -136,9 +135,8 @@ class KSIHookMonitor:
         if self.config.socket_path is None:
             self.config.socket_path = self._find_socket_path()
         
-        self.socket_path = str(self.config.socket_path)
+        self.socket_path = Path(self.config.socket_path)
         self.logger.log_diagnostic(f"Using socket path: {self.socket_path}")
-        self.client = MinimalSyncClient(self.socket_path, self.config.connection_timeout)
         
         # State files
         self.timestamp_file = Path(self.config.timestamp_file)
@@ -147,6 +145,23 @@ class KSIHookMonitor:
         # Load state
         self.last_timestamp = self._load_last_timestamp()
         self.verbosity_mode = self._load_verbosity_mode()
+    
+    async def _send_event_async(self, event_name: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Send an event using EventClient (async)."""
+        client = EventClient(client_id="ksi-hook", socket_path=self.socket_path)
+        async with client:
+            return await client.send_event(event_name, data)
+    
+    def _send_event(self, event_name: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Send an event using EventClient (sync wrapper)."""
+        try:
+            return asyncio.run(self._send_event_async(event_name, data))
+        except Exception as e:
+            # Convert async exceptions to sync ones the rest of the code expects
+            if "connection" in str(e).lower() or "socket" in str(e).lower():
+                raise KSIConnectionError(f"Failed to connect to daemon: {e}")
+            else:
+                raise KSIError(f"Event send failed: {e}")
         
     def _find_socket_path(self) -> Path:
         """Find the daemon socket path"""
@@ -251,7 +266,7 @@ class KSIHookMonitor:
                 "reverse": True
             }
             
-            result = self.client.send_event("monitor:get_events", data)
+            result = self._send_event("monitor:get_events", data)
             events = result.get("events", [])
             
             # Debug: log what events we're getting
@@ -305,7 +320,7 @@ class KSIHookMonitor:
         
         for agent_id in agent_ids:
             try:
-                result = self.client.send_event("agent:info", {
+                result = self._send_event("agent:info", {
                     "_silent": True,
                     "agent_id": agent_id,
                     "include_capabilities": True,
