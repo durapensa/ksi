@@ -10,6 +10,17 @@ Essential technical reference for developing with KSI (Knowledge System Infrastr
 - **Socket communication**: Events flow through `var/run/daemon.sock`
 - **Orchestration-aware**: Events carry `_orchestration_id`, `_orchestration_depth`, `_parent_agent_id`
 
+**CRITICAL ARCHITECTURAL RULE**: Never import internals from other KSI modules. Use the event system instead:
+```python
+# ❌ WRONG: Direct imports violate architecture
+from ksi_common.async_operations import get_active_operations_summary
+
+# ✅ CORRECT: Use event system
+from ksi_daemon.core.event_emitter import get_event_emitter
+event_emitter = get_event_emitter()
+result = await event_emitter("optimization:list", {})
+```
+
 ### Component System (Unified Architecture 2025 ✅)
 - **Everything is a component**: Single unified model with `component_type` attribute
 - **Graph-based architecture**: Entities (agents/orchestrations) form directed graphs with event routing
@@ -48,7 +59,31 @@ Essential technical reference for developing with KSI (Knowledge System Infrastr
 **Key Patterns**:
 - **Test fixtures**: `_archive/tests/` contains intentionally malformed files for testing
 - **Non-compositions**: README*, .gitignore, .gitattributes should be excluded
-- **Valid compositions**: 77% of MD files have proper frontmatter, 100% of YAML have root fields
+
+### Composition Discovery Type Taxonomy ✅
+**CRITICAL**: `composition:discover` uses a specific type classification system:
+
+**Type Classifications**:
+- **`type: "behavior"`** - Behavioral mixins (mandatory_json, claude_code_override, etc.)
+- **`type: "core"`** - Core components (base_agent, task_executor, etc.)
+- **`type: "capability"`** - Capability definitions (orchestration, messaging, etc.)
+- **`type: "profile"`** - Agent profiles
+- **`type: "orchestration"`** - Orchestration patterns
+- **`type: "evaluation"`** - Evaluation frameworks
+
+**Usage Patterns**:
+```bash
+# Get behavioral mixins for optimization
+ksi send composition:discover --type behavior
+
+# Get core components
+ksi send composition:discover --type core
+
+# Rebuild index after adding new components
+ksi send composition:rebuild_index
+```
+
+**Common Mistake**: Searching for `--type component` returns nothing because components are classified by their specific purpose (behavior, core, capability, etc.).
 
 **Indexing Strategy**:
 1. **Exclude patterns**: Skip `_archive/tests/`, `README*`, `.*` files

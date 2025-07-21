@@ -159,22 +159,17 @@ async def get_active_optimization_runs() -> Dict[str, Any]:
     """Get currently active optimization runs from MLflow by KSI optimization IDs."""
     try:
         import mlflow
-        from ..async_state import get_active_operations_summary
+        # Get currently active KSI optimizations via event system
+        from ksi_daemon.core.event_emitter import get_event_emitter
+        event_emitter = get_event_emitter()
         
-        # Get currently active KSI optimizations
-        summary = get_active_operations_summary(
-            service_name="optimization",
-            operation_type="optimization"
-        )
+        result = await event_emitter("optimization:list", {})
         
-        # Get list of active optimization IDs using async_operations utilities
-        summary = get_active_operations_summary(
-            service_name="optimization",
-            operation_type="optimization"
-        )
+        # Extract active optimization IDs from the event response
+        optimizations = result.get("optimizations", [])
         active_opt_ids = [
-            op_id for op_id, op_data in summary.get("active_operations", {}).items() 
-            if op_data.get("status") in ["pending", "optimizing"]
+            opt.get("optimization_id") for opt in optimizations
+            if opt.get("status") in ["pending", "optimizing"] and opt.get("optimization_id")
         ]
         
         if not active_opt_ids:
