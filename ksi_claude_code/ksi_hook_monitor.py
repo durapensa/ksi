@@ -204,58 +204,32 @@ class KSIHookMonitor:
         except Exception as e:
             self.logger.log_debug(f"Failed to save timestamp: {e}")
         
-    def get_optimization_status(self) -> Optional[str]:
-        """Check for active optimizations by looking for recent optimization events."""
+    def get_optimization_status(self, events: List[Dict[str, Any]]) -> Optional[str]:
+        """Check for active optimizations from the events we already have."""
         try:
-            # Look for recent optimization events to detect active optimizations
-            data = {
-                "_silent": True,
-                "event_patterns": ["optimization:*"],
-                "since": self.last_timestamp - 600,  # Look back 10 minutes
-                "limit": 20,
-                "reverse": True
-            }
+            # Look for optimization:progress events in the events we already fetched
+            opt_events = [e for e in events if e.get("event_name", "").startswith("optimization:")]
             
-            result = self.client.send_event("monitor:get_events", data)
-            events = result.get("events", [])
-            
-            # Look for recent optimization:async events (indicates start)
-            optimization_starts = [e for e in events if e.get("event_name") == "optimization:async"]
-            
-            if optimization_starts:
-                # Get the most recent optimization start
-                latest_start = optimization_starts[0]
-                opt_data = latest_start.get("data", {})
-                component = opt_data.get("target", "unknown")
-                component_name = component.split('/')[-1] if '/' in component else component
+            if opt_events:
+                # Look for the most recent optimization:progress event
+                progress_events = [e for e in opt_events if e.get("event_name") == "optimization:progress"]
                 
-                # For verbose mode, look for progress events to get optimization_id
-                if self.verbosity_mode in ["verbose", "orchestration"]:
-                    progress_events = [e for e in events if e.get("event_name") == "optimization:progress"]
-                    if progress_events:
-                        progress_data = progress_events[0].get("data", {})
-                        opt_id = progress_data.get("optimization_id")
-                        
-                        if opt_id:
-                            try:
-                                status_result = self.client.send_event("optimization:status", {
-                                    "_silent": True,
-                                    "optimization_id": opt_id
-                                })
-                                
-                                if status_result.get("status") == "optimizing":
-                                    progress = status_result.get("progress", {}).get("trial_progress", {})
-                                    trials = progress.get("trials_completed", 0)
-                                    
-                                    if trials > 0:
-                                        return f"Optimizing {component_name} (trial {trials})"
-                                    else:
-                                        return f"Optimizing {component_name} (starting)"
-                            except Exception:
-                                pass
+                if progress_events:
+                    # Get component name from the most recent progress event
+                    latest = progress_events[0]
+                    opt_data = latest.get("data", {})
+                    opt_id = opt_data.get("optimization_id", "")
+                    
+                    # Try to extract component from optimization_id pattern or other data
+                    if "mandatory_json" in str(opt_data).lower():
+                        return "Optimizing mandatory_json"
+                    elif "claude_code_override" in str(opt_data).lower():
+                        return "Optimizing claude_code_override"
+                    else:
+                        return "Optimizing component"
                 
-                # Simple component name for summary mode
-                return f"Optimizing {component_name}"
+                # Fallback: any optimization event means optimization is active
+                return "Optimizing"
             
             return None
             
@@ -292,8 +266,8 @@ class KSIHookMonitor:
             else:
                 agent_status = "No active agents."
             
-            # Get optimization status
-            optimization_status = self.get_optimization_status()
+            # Get optimization status from the events we already have
+            optimization_status = self.get_optimization_status(events)
             
             return events, agent_status, optimization_status
                 
