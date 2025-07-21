@@ -156,38 +156,68 @@ def configure_dspy_autologging():
 
 
 async def get_active_optimization_runs() -> Dict[str, Any]:
-    """Get currently active optimization runs from MLflow."""
+    """Get currently active optimization runs from MLflow by KSI optimization IDs."""
     try:
         import mlflow
-        from mlflow.entities import ViewType
+        from ..async_state import get_active_operations_summary
         
-        # Search for active runs
-        active_runs = mlflow.search_runs(
-            experiment_names=["ksi_optimizations"],
-            run_view_type=ViewType.ACTIVE_ONLY,
-            order_by=["attributes.start_time DESC"]
+        # Get currently active KSI optimizations
+        summary = get_active_operations_summary(
+            service_name="optimization",
+            operation_type="optimization"
         )
         
+        # Get list of active optimization IDs from state
+        from ..async_state import get_state_manager
+        state_manager = get_state_manager()
+        all_ops = await state_manager.get_operations_by_prefix("optimization")
+        active_opt_ids = [
+            op_id for op_id, op_data in all_ops.items() 
+            if op_data.get("status") in ["pending", "running"]
+        ]
+        
+        if not active_opt_ids:
+            return {"active_runs": 0, "runs": []}
+        
         runs_data = []
-        for _, run in active_runs.iterrows():
-            run_data = {
-                "run_id": run["run_id"],
-                "status": run["status"],
-                "start_time": run["start_time"],
-                "metrics": {},
-                "params": {}
-            }
-            
-            # Extract metrics
-            for col in run.index:
-                if col.startswith("metrics."):
-                    metric_name = col.replace("metrics.", "")
-                    run_data["metrics"][metric_name] = run[col]
-                elif col.startswith("params."):
-                    param_name = col.replace("params.", "")
-                    run_data["params"][param_name] = run[col]
-            
-            runs_data.append(run_data)
+        
+        # Search MLflow for runs with each active KSI optimization ID
+        for opt_id in active_opt_ids:
+            try:
+                # Search for MLflow runs tagged with this KSI optimization ID
+                filter_string = f"tags.ksi_optimization_id = '{opt_id}'"
+                runs = mlflow.search_runs(
+                    experiment_names=["ksi_optimizations"],
+                    filter_string=filter_string,
+                    max_results=1,
+                    order_by=["attributes.start_time DESC"]
+                )
+                
+                if not runs.empty:
+                    run = runs.iloc[0]
+                    run_data = {
+                        "run_id": run["run_id"],
+                        "ksi_optimization_id": opt_id,
+                        "status": run["status"],
+                        "start_time": run["start_time"],
+                        "metrics": {},
+                        "params": {}
+                    }
+                    
+                    # Extract metrics and params
+                    for col in run.index:
+                        if col.startswith("metrics."):
+                            metric_name = col.replace("metrics.", "")
+                            run_data["metrics"][metric_name] = run[col]
+                        elif col.startswith("params."):
+                            param_name = col.replace("params.", "")
+                            run_data["params"][param_name] = run[col]
+                    
+                    runs_data.append(run_data)
+                    
+            except Exception as e:
+                logger.debug(f"Could not find MLflow run for optimization {opt_id}: {e}")
+                continue
         
         return {
             "active_runs": len(runs_data),
@@ -195,7 +225,7 @@ async def get_active_optimization_runs() -> Dict[str, Any]:
         }
         
     except Exception as e:
-        logger.error(f"Failed to get active runs from MLflow: {e}")
+        logger.error(f"Failed to get active optimization runs from MLflow: {e}")
         return {"error": str(e)}
 
 
@@ -205,6 +235,8 @@ async def get_optimization_progress(run_id: str) -> Dict[str, Any]:
         import mlflow
         from mlflow import MlflowClient
         
+        # Set tracking URI to KSI's MLflow server
+        mlflow.set_tracking_uri("http://127.0.0.1:5001")
         client = MlflowClient()
         
         # Get run details

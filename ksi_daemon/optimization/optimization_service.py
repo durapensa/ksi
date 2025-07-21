@@ -360,6 +360,7 @@ async def run_optimization_subprocess(opt_id: str, data: Dict[str, Any], context
 async def handle_optimization_status(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get status of optimization operations with rich progress information."""
     
+    logger.info(f"Handling optimization:status request: {raw_data}")
     from ksi_common.async_operations import get_operation_status, get_active_operations_summary
     
     # Check for specific optimization ID
@@ -377,7 +378,9 @@ async def handle_optimization_status(raw_data: Dict[str, Any], context: Optional
         include_activity = raw_data.get("include_activity", True)
         
         # Get MLflow data for progress tracking (replaces DSPy internal state)
+        logger.info(f"Checking status for MLflow data: {status.get('status')}")
         if status.get("status") in ["optimizing", "completed", "failed"]:
+            logger.info(f"Status matches, calling get_mlflow_optimization_data for {opt_id}")
             mlflow_data = await get_mlflow_optimization_data(opt_id)
             if mlflow_data:
                 status["mlflow"] = mlflow_data
@@ -441,10 +444,36 @@ async def handle_optimization_status(raw_data: Dict[str, Any], context: Optional
     
     # Add MLflow data if available
     if "error" not in mlflow_runs:
-        response_data["mlflow"] = {
+        mlflow_data = {
             "active_runs": mlflow_runs.get("active_runs", 0),
             "ui_url": get_mlflow_ui_url()
         }
+        
+        # Include run details if any
+        if mlflow_runs.get("runs"):
+            mlflow_data["runs"] = []
+            for run in mlflow_runs["runs"]:
+                run_summary = {
+                    "ksi_optimization_id": run.get("ksi_optimization_id"),
+                    "run_id": run.get("run_id"),
+                    "status": run.get("status"),
+                    "start_time": run.get("start_time")
+                }
+                
+                # Add key metrics if available
+                metrics = run.get("metrics", {})
+                if metrics:
+                    # Look for common optimization metrics
+                    key_metrics = {}
+                    for metric_name in ["score", "best_score", "trial", "iteration"]:
+                        if metric_name in metrics:
+                            key_metrics[metric_name] = metrics[metric_name]
+                    if key_metrics:
+                        run_summary["metrics"] = key_metrics
+                
+                mlflow_data["runs"].append(run_summary)
+        
+        response_data["mlflow"] = mlflow_data
     
     return event_response_builder(response_data, context)
 
@@ -658,12 +687,17 @@ def _recommend_technique(results: Dict[str, Any]) -> str:
 
 async def get_mlflow_optimization_data(opt_id: str) -> Optional[Dict[str, Any]]:
     """Get MLflow tracking data for an optimization."""
+    logger.info(f"Fetching MLflow data for optimization {opt_id}")
     try:
         # Search for MLflow run with matching optimization ID
         # This assumes we tag MLflow runs with the KSI optimization ID
         import mlflow
         
+        # Set tracking URI to KSI's MLflow server
+        mlflow.set_tracking_uri("http://127.0.0.1:5001")
+        
         runs = mlflow.search_runs(
+            experiment_names=["ksi_optimizations"],
             filter_string=f"tags.ksi_optimization_id = '{opt_id}'",
             max_results=1
         )
@@ -674,7 +708,7 @@ async def get_mlflow_optimization_data(opt_id: str) -> Optional[Dict[str, Any]]:
         
         return None
     except Exception as e:
-        logger.debug(f"Could not get MLflow data for {opt_id}: {e}")
+        logger.info(f"Could not get MLflow data for {opt_id}: {e}")
         return None
 
 

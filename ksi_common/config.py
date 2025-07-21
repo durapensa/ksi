@@ -275,8 +275,8 @@ class KSIBaseConfig(BaseSettings):
     semantic_eval_default_model: str = f"claude-cli/{DEFAULT_MODEL}"
     
     # Optimization Configuration
-    optimization_prompt_model: str = "claude-cli/opus"  # Model for generating optimized prompts
-    optimization_task_model: str = f"claude-cli/{DEFAULT_MODEL}"  # Model for evaluation tasks
+    optimization_prompt_model: str = DEFAULT_MODEL  # Model for generating optimized prompts (same as task model)
+    optimization_task_model: str = DEFAULT_MODEL  # Model for evaluation tasks
     optimization_auto_mode: str = "medium"  # Default MIPROv2 auto mode: light, medium, heavy
     optimization_max_bootstrapped_demos: int = 4  # Max bootstrapped examples
     optimization_max_labeled_demos: int = 4  # Max labeled examples  
