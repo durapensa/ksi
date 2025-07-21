@@ -204,8 +204,67 @@ class KSIHookMonitor:
         except Exception as e:
             self.logger.log_debug(f"Failed to save timestamp: {e}")
         
-    def get_status_consolidated(self, pattern: str = "*", limit: int = None) -> tuple[List[Dict[str, Any]], str]:
-        """Query recent KSI events and agent status in a single call."""
+    def get_optimization_status(self) -> Optional[str]:
+        """Check for active optimizations by looking for recent optimization events."""
+        try:
+            # Look for recent optimization events to detect active optimizations
+            data = {
+                "_silent": True,
+                "event_patterns": ["optimization:*"],
+                "since": self.last_timestamp - 600,  # Look back 10 minutes
+                "limit": 20,
+                "reverse": True
+            }
+            
+            result = self.client.send_event("monitor:get_events", data)
+            events = result.get("events", [])
+            
+            # Look for recent optimization:async events (indicates start)
+            optimization_starts = [e for e in events if e.get("event_name") == "optimization:async"]
+            
+            if optimization_starts:
+                # Get the most recent optimization start
+                latest_start = optimization_starts[0]
+                opt_data = latest_start.get("data", {})
+                component = opt_data.get("target", "unknown")
+                component_name = component.split('/')[-1] if '/' in component else component
+                
+                # For verbose mode, look for progress events to get optimization_id
+                if self.verbosity_mode in ["verbose", "orchestration"]:
+                    progress_events = [e for e in events if e.get("event_name") == "optimization:progress"]
+                    if progress_events:
+                        progress_data = progress_events[0].get("data", {})
+                        opt_id = progress_data.get("optimization_id")
+                        
+                        if opt_id:
+                            try:
+                                status_result = self.client.send_event("optimization:status", {
+                                    "_silent": True,
+                                    "optimization_id": opt_id
+                                })
+                                
+                                if status_result.get("status") == "optimizing":
+                                    progress = status_result.get("progress", {}).get("trial_progress", {})
+                                    trials = progress.get("trials_completed", 0)
+                                    
+                                    if trials > 0:
+                                        return f"Optimizing {component_name} (trial {trials})"
+                                    else:
+                                        return f"Optimizing {component_name} (starting)"
+                            except Exception:
+                                pass
+                
+                # Simple component name for summary mode
+                return f"Optimizing {component_name}"
+            
+            return None
+            
+        except Exception as e:
+            self.logger.log_debug(f"Error checking optimization status: {e}")
+            return None
+
+    def get_status_consolidated(self, pattern: str = "*", limit: int = None) -> tuple[List[Dict[str, Any]], str, Optional[str]]:
+        """Query recent KSI events, agent status, and optimization status."""
         limit = limit or self.config.event_limit
         
         try:
@@ -233,15 +292,17 @@ class KSIHookMonitor:
             else:
                 agent_status = "No active agents."
             
-            return events, agent_status
+            # Get optimization status
+            optimization_status = self.get_optimization_status()
+            
+            return events, agent_status, optimization_status
                 
         except KSIConnectionError:
             self.logger.log_diagnostic("Daemon not running or socket not found")
-            return [], "No active agents."
+            return [], "No active agents.", None
         except Exception as e:
             self.logger.log_diagnostic(f"Error getting consolidated status: {e}")
-            # Fallback to separate calls if new endpoint doesn't exist yet
-            return self._get_status_fallback(pattern, limit)
+            return [], "Status error.", None
     
     def get_detailed_agent_info(self, agent_ids: List[str]) -> Dict[str, Dict[str, Any]]:
         """Get detailed agent information using agent:info event."""
@@ -267,42 +328,6 @@ class KSIHookMonitor:
                 self.logger.log_debug(f"Error getting agent info for {agent_id}: {e}")
         
         return detailed_info
-    
-    def _get_status_fallback(self, pattern: str = "*", limit: int = None) -> tuple[List[Dict[str, Any]], str]:
-        """Fallback to separate calls if consolidated endpoint not available."""
-        limit = limit or self.config.event_limit
-        
-        # Get events
-        try:
-            data = {
-                "_silent": True,
-                "event_patterns": [pattern] if pattern != "*" else None,
-                "since": self.last_timestamp,
-                "limit": limit,
-                "reverse": True
-            }
-            result = self.client.send_event("monitor:get_events", data)
-            events = result.get("events", [])
-        except Exception as e:
-            self.logger.log_diagnostic(f"Fallback: Error getting events: {e}")
-            events = []
-        
-        # Get agent status
-        try:
-            result = self.client.send_event("agent:list", {"_silent": True})
-            agents = result.get("agents", [])
-            
-            if agents:
-                agent_ids = [a['agent_id'] for a in agents[:3]]
-                more = f"+{len(agents)-3}" if len(agents) > 3 else ""
-                agent_status = f"Agents[{len(agents)}]: {', '.join(agent_ids)}{more}"
-            else:
-                agent_status = "No active agents."
-        except Exception as e:
-            self.logger.log_diagnostic(f"Fallback: Error checking agents: {e}")
-            agent_status = "No active agents."
-        
-        return events, agent_status
     
     def check_claude_processes(self) -> List[Dict[str, Any]]:
         """Check for KSI-spawned claude processes (with ?? TTY)."""
@@ -548,7 +573,7 @@ class KSIHookMonitor:
             return True
         return False
     
-    def format_output(self, events: List[Dict[str, Any]], agent_status: str) -> str:
+    def format_output(self, events: List[Dict[str, Any]], agent_status: str, optimization_status: Optional[str] = None) -> str:
         """Format output based on verbosity mode."""
         event_summary, new_events = self.format_event_summary(events)
         
@@ -596,6 +621,8 @@ class KSIHookMonitor:
                 parts.append(f"⚡{len(new_events)}")
             if agent_count > 0:
                 parts.append(f"🤖{agent_count}")
+            if optimization_status:
+                parts.append(f"🔧{optimization_status}")
             
             if parts:
                 message = f"KSI {' '.join(parts)}"
@@ -633,6 +660,9 @@ class KSIHookMonitor:
                 message += f"\n{event_summary}"
             if agent_count > 0:
                 message += f"\nAgents: {agent_count}"
+            
+            if optimization_status:
+                message += f"\nOptimization: {optimization_status}"
                 
                 # Add detailed agent information
                 if agent_ids:
@@ -703,6 +733,10 @@ class KSIHookMonitor:
             # Agents with robot
             if agent_count > 0:
                 parts.append(f"🤖{agent_count}")
+            
+            # Optimization with wrench
+            if optimization_status:
+                parts.append(f"🔧{optimization_status.split('(')[0].strip()}")  # Just the component name
                 
             # Errors with X
             if has_errors:
@@ -825,9 +859,11 @@ def main():
         logger.log_diagnostic("Getting KSI status...")
         
         try:
-            events, agent_status = monitor.get_status_consolidated("*", limit=config.event_limit)
+            events, agent_status, optimization_status = monitor.get_status_consolidated("*", limit=config.event_limit)
             logger.log_diagnostic(f"Got {len(events) if events else 0} events")
             logger.log_diagnostic(f"Agent status: {agent_status[:50]}...")
+            if optimization_status:
+                logger.log_diagnostic(f"Optimization status: {optimization_status}")
             
         except KSIConnectionError:
             logger.log_diagnostic("Daemon not running")
@@ -845,7 +881,7 @@ def main():
             monitor.save_last_timestamp(newest_timestamp)
         
         # Format output based on mode
-        output = monitor.format_output(events, agent_status)
+        output = monitor.format_output(events, agent_status, optimization_status)
         
         if output:
             logger.log_diagnostic(f"JSON feedback output: {output}")

@@ -167,13 +167,14 @@ async def get_active_optimization_runs() -> Dict[str, Any]:
             operation_type="optimization"
         )
         
-        # Get list of active optimization IDs from state
-        from ..async_state import get_state_manager
-        state_manager = get_state_manager()
-        all_ops = await state_manager.get_operations_by_prefix("optimization")
+        # Get list of active optimization IDs using async_operations utilities
+        summary = get_active_operations_summary(
+            service_name="optimization",
+            operation_type="optimization"
+        )
         active_opt_ids = [
-            op_id for op_id, op_data in all_ops.items() 
-            if op_data.get("status") in ["pending", "running"]
+            op_id for op_id, op_data in summary.get("active_operations", {}).items() 
+            if op_data.get("status") in ["pending", "optimizing"]
         ]
         
         if not active_opt_ids:

@@ -356,6 +356,47 @@ async def run_optimization_subprocess(opt_id: str, data: Dict[str, Any], context
         ))
 
 
+@event_handler("optimization:list")
+async def handle_optimization_list(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Get list of active optimizations."""
+    
+    from ksi_common.async_operations import get_active_operations_summary
+    
+    try:
+        # Get active optimizations using the async_operations utilities
+        summary = get_active_operations_summary(
+            service_name="optimization",
+            operation_type="optimization"
+        )
+        
+        active_optimizations = []
+        
+        # Extract active optimizations from the summary
+        if summary.get("active_operations"):
+            for opt_id, opt_data in summary["active_operations"].items():
+                if opt_data.get("status") in ["pending", "optimizing"]:
+                    optimization_info = {
+                        "optimization_id": opt_id,
+                        "status": opt_data.get("status"),
+                        "started_at": opt_data.get("started_at"),
+                        "component": opt_data.get("metadata", {}).get("component"),
+                        "framework": opt_data.get("metadata", {}).get("framework")
+                    }
+                    active_optimizations.append(optimization_info)
+        
+        return {
+            "optimizations": active_optimizations,
+            "total_active": len(active_optimizations),
+            "_timestamp": time.time(),
+            "_response_id": f"resp_{hex(hash(str(raw_data)))[2:10]}",
+            "_client_id": context.get("_client_id", "unknown") if context else "unknown"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting optimization list: {e}")
+        return error_response(f"Failed to get optimization list: {e}", context)
+
+
 @event_handler("optimization:status")
 async def handle_optimization_status(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get status of optimization operations with rich progress information."""
