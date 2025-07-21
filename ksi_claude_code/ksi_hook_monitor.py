@@ -137,6 +137,7 @@ class KSIHookMonitor:
             self.config.socket_path = self._find_socket_path()
         
         self.socket_path = str(self.config.socket_path)
+        self.logger.log_diagnostic(f"Using socket path: {self.socket_path}")
         self.client = MinimalSyncClient(self.socket_path, self.config.connection_timeout)
         
         # State files
@@ -238,35 +239,31 @@ class KSIHookMonitor:
             return None
 
     def get_status_consolidated(self, pattern: str = "*", limit: int = None) -> tuple[List[Dict[str, Any]], str, Optional[str]]:
-        """Query recent KSI events, agent status, and optimization status."""
+        """Get single event dump and extract all status information from it."""
         limit = limit or self.config.event_limit
         
         try:
+            # Single comprehensive event query - get everything since last run
             data = {
                 "_silent": True,  # Prevent recursive event generation
-                "event_patterns": [pattern] if pattern != "*" else None,
                 "since": self.last_timestamp,  # Only get events after this timestamp
-                "limit": limit,
-                "include_events": True,
-                "include_agents": True
+                "limit": limit * 2,  # Get more events to find agent/optimization info
+                "reverse": True
             }
             
-            result = self.client.send_event("monitor:get_status", data)
-            
-            # Extract events
+            result = self.client.send_event("monitor:get_events", data)
             events = result.get("events", [])
             
-            # Extract and format agent status
-            agents = result.get("agents", [])
-            if agents:
-                # Concise agent list
-                agent_ids = [a['agent_id'] for a in agents[:3]]
-                more = f"+{len(agents)-3}" if len(agents) > 3 else ""
-                agent_status = f"Agents[{len(agents)}]: {', '.join(agent_ids)}{more}"
-            else:
-                agent_status = "No active agents."
+            # Debug: log what events we're getting
+            self.logger.log_diagnostic(f"Got {len(events)} events since {self.last_timestamp}")
+            if events:
+                event_types = [e.get("event_name", "unknown") for e in events[:5]]
+                self.logger.log_diagnostic(f"Event types: {event_types}")
             
-            # Get optimization status from the events we already have
+            # Extract agent status from events (no additional queries)
+            agent_status = self._extract_agent_status_from_events(events)
+            
+            # Extract optimization status from events (no additional queries)
             optimization_status = self.get_optimization_status(events)
             
             return events, agent_status, optimization_status
@@ -277,6 +274,30 @@ class KSIHookMonitor:
         except Exception as e:
             self.logger.log_diagnostic(f"Error getting consolidated status: {e}")
             return [], "Status error.", None
+    
+    def _extract_agent_status_from_events(self, events: List[Dict[str, Any]]) -> str:
+        """Extract agent status from events without additional queries."""
+        try:
+            # Look for recent agent:spawn:success events to find active agents
+            spawn_events = [e for e in events if e.get("event_name") == "agent:spawn:success"]
+            
+            if spawn_events:
+                # Extract agent IDs from spawn events
+                agent_ids = []
+                for event in spawn_events[:3]:  # Limit to first 3
+                    agent_id = event.get("data", {}).get("agent_id")
+                    if agent_id:
+                        agent_ids.append(agent_id)
+                
+                if agent_ids:
+                    more = f"+{len(spawn_events)-3}" if len(spawn_events) > 3 else ""
+                    return f"Agents[{len(spawn_events)}]: {', '.join(agent_ids)}{more}"
+            
+            return "No active agents."
+            
+        except Exception as e:
+            self.logger.log_debug(f"Error extracting agent status from events: {e}")
+            return "No active agents."
     
     def get_detailed_agent_info(self, agent_ids: List[str]) -> Dict[str, Dict[str, Any]]:
         """Get detailed agent information using agent:info event."""
