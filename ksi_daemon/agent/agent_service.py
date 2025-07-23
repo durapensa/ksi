@@ -2294,3 +2294,89 @@ async def handle_spawn_from_component(data: Dict[str, Any], context: Optional[Di
         return error_response(f"Agent spawn from component failed: {e}", context)
 
 
+class AgentConversationSummaryData(TypedDict):
+    """Get agent conversation summary."""
+    agent_id: Required[str]  # Agent ID to get summary for
+    include_fields: NotRequired[Optional[List[str]]]  # Fields to include in context data
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
+
+
+@event_handler("agent:conversation_summary", schema=AgentConversationSummaryData)
+async def handle_agent_conversation_summary(data: AgentConversationSummaryData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Get a summary of an agent's current conversation with resolved contexts.
+    
+    This uses an internal event to communicate with the completion service,
+    maintaining module independence while providing conversation tracking data.
+    """
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
+    agent_id = data["agent_id"]  # Validated by enhanced event_handler
+    include_fields = data.get("include_fields")
+    
+    # Use internal event to get conversation summary from completion service
+    # This avoids cross-module imports and maintains architectural boundaries
+    summary_result = await agent_emit_event(
+        "system",  # System-level event
+        "completion:get_conversation_summary",
+        {
+            "agent_id": agent_id,
+            "include_fields": include_fields
+        },
+        context
+    )
+    
+    # Handle the case where agent_emit_event returns a list
+    if isinstance(summary_result, list):
+        if len(summary_result) > 0 and isinstance(summary_result[0], dict):
+            summary_result = summary_result[0]
+        else:
+            return error_response("Unexpected response format from completion service", context)
+    
+    if summary_result.get("status") == "error":
+        return error_response(f"Failed to get conversation summary: {summary_result.get('error', 'Unknown error')}", context)
+    
+    # Return the summary data directly
+    return event_response_builder(summary_result, context)
+
+
+class AgentConversationResetData(TypedDict):
+    """Reset agent conversation data structure."""
+    agent_id: Required[str]  # Agent ID to reset conversation for
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
+
+
+@event_handler("agent:conversation_reset", schema=AgentConversationResetData)
+async def handle_agent_conversation_reset(data: AgentConversationResetData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Reset an agent's conversation, clearing their session history.
+    
+    This allows an agent to start fresh with a new conversation context.
+    Uses an internal event to communicate with the completion service.
+    """
+    agent_id = data["agent_id"]  # Validated by enhanced event_handler
+    
+    # Use internal event to reset conversation in completion service
+    reset_result = await agent_emit_event(
+        "system",  # System-level event
+        "completion:reset_conversation",
+        {
+            "agent_id": agent_id
+        },
+        context
+    )
+    
+    # Handle the case where agent_emit_event returns a list
+    if isinstance(reset_result, list):
+        if len(reset_result) > 0 and isinstance(reset_result[0], dict):
+            reset_result = reset_result[0]
+        else:
+            return error_response("Unexpected response format from completion service", context)
+    
+    if reset_result.get("status") == "error":
+        return error_response(f"Failed to reset conversation: {reset_result.get('error', 'Unknown error')}", context)
+    
+    # Log the reset for monitoring
+    logger.info(f"Reset conversation for agent {agent_id}", had_session=reset_result.get("had_active_session", False))
+    
+    # Return the reset confirmation
+    return event_response_builder(reset_result, context)
+
+

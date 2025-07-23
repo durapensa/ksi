@@ -186,15 +186,14 @@ async def load_conversation_for_provider(session_id: str, model: str) -> List[Di
 class SystemStartupData(TypedDict):
     """System startup configuration."""
     # No specific fields required for this handler
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("system:startup", priority=EventPriority.LOW)
-async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_startup(data: SystemStartupData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize completion service on startup."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, SystemStartupData)
     global queue_manager, provider_manager, conversation_tracker, token_tracker
     
     logger.info("Completion service startup handler called")
@@ -224,17 +223,22 @@ class SystemContextData(TypedDict):
     """System context with runtime references."""
     emit_event: NotRequired[Any]  # Event emitter function
     shutdown_event: NotRequired[Any]  # Shutdown event object
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("system:context")
-async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
+async def handle_context(data: SystemContextData, context: Optional[Dict[str, Any]] = None) -> None:
     """Receive runtime context."""
-    from ksi_common.event_parser import event_format_linter
-    data = event_format_linter(raw_data, SystemContextData)
+    # PYTHONIC CONTEXT REFACTOR: Use system registry for components
     global event_emitter, shutdown_event, retry_manager
     
-    event_emitter = data.get("emit_event")
-    shutdown_event = data.get("shutdown_event")
+    if data.get("registry_available"):
+        from ksi_daemon.core.system_registry import SystemRegistry
+        event_emitter = SystemRegistry.get("event_emitter")
+        shutdown_event = SystemRegistry.get("shutdown_event")
+    else:
+        event_emitter = data.get("emit_event")
+        shutdown_event = data.get("shutdown_event")
     
     if event_emitter:
         logger.info("Completion service received event emitter")
@@ -300,15 +304,14 @@ async def manage_completion_service():
 class SystemReadyData(TypedDict):
     """System ready notification."""
     # No specific fields for this handler
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("system:ready")
-async def handle_ready(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+async def handle_ready(data: SystemReadyData, context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """Return the completion service manager task."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, SystemReadyData)
     logger.info("Completion service requesting service manager task")
     
     return event_response_builder(
@@ -328,14 +331,14 @@ async def handle_ready(raw_data: Dict[str, Any], context: Optional[Dict[str, Any
 class ClearAgentSessionData(TypedDict):
     """Clear agent session data."""
     agent_id: Required[str]  # Agent ID to clear session for
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("completion:clear_agent_session")
-async def handle_clear_agent_session(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_clear_agent_session(data: ClearAgentSessionData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Clear an agent's session mapping when the agent is terminated."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, ClearAgentSessionData)
     if not conversation_tracker:
         return error_response(
             "Conversation tracker not initialized",
@@ -382,14 +385,14 @@ class CompletionAsyncData(TypedDict):
     extra_body: NotRequired[Dict[str, Any]]  # Provider-specific parameters
     originator_id: NotRequired[str]  # Original requester ID
     conversation_id: NotRequired[str]  # Conversation ID (auto-generated if not provided)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("completion:async")
-async def handle_async_completion(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_async_completion(data: CompletionAsyncData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle async completion requests with smart queueing and automatic session continuity."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, CompletionAsyncData)
     if not all([queue_manager, provider_manager, conversation_tracker]):
         return error_response(
             "Completion service not fully initialized",
@@ -641,7 +644,8 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
             raw_response=raw_response,
             request_id=request_id,
             client_id=data.get("originator_id"),  # Completion format uses client_id internally
-            duration_ms=latency_ms
+            duration_ms=latency_ms,
+            agent_id=data.get("agent_id")  # Add spawning agent ID
         )
         
         # Save to session log
@@ -775,6 +779,40 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
                         "has_mcp": require_mcp
                     })
         
+        # Track context for conversation continuity before cleaning up
+        if provider == "claude-cli" and 'response_session_id' in locals() and response_session_id:
+            try:
+                from ksi_daemon.core.context_manager import get_context_manager
+                cm = get_context_manager()
+                
+                # Create a context for this completion result
+                completion_context = await cm.create_context(
+                    event_id=f"completion_{request_id}",
+                    timestamp=time.time(),
+                    agent_id=data.get('agent_id'),
+                    session_id=response_session_id,
+                    completion_id=request_id
+                )
+                
+                # Store the completion result with context and get reference
+                completion_event = {
+                    "event_id": completion_context["_event_id"],
+                    "event_name": "completion:result",
+                    "timestamp": completion_context["_event_timestamp"],
+                    "data": {
+                        "request_id": request_id,
+                        "session_id": response_session_id,
+                        "result": standardized_response
+                    }
+                }
+                
+                context_ref = await cm.store_event_with_context(completion_event)
+                conversation_tracker.add_context_to_session(response_session_id, context_ref)
+                logger.debug(f"Added completion context {context_ref} to session {response_session_id}")
+                
+            except Exception as e:
+                logger.warning(f"Failed to store completion context for conversation continuity: {e}")
+        
         # Clean up tracking
         conversation_tracker.complete_request(request_id)
         conversation_tracker.clear_recovery_data(request_id)
@@ -873,15 +911,14 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
 class CompletionStatusData(TypedDict):
     """Get completion service status."""
     # No specific fields - returns overall status
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("completion:status")
-async def handle_completion_status(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_completion_status(data: CompletionStatusData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get status of completion service and components."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, CompletionStatusData)
     # Debug logging
     logger.debug(
         f"Status check - components initialized: "
@@ -916,14 +953,14 @@ async def handle_completion_status(raw_data: Dict[str, Any], context: Optional[D
 class CompletionSessionStatusData(TypedDict):
     """Get status for a specific session."""
     session_id: Required[str]  # Session ID to query
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("completion:session_status")
-async def handle_session_status(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_session_status(data: CompletionSessionStatusData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get detailed status for a specific session."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, CompletionSessionStatusData)
     if not all([queue_manager, conversation_tracker]):
         return error_response("Completion service not fully initialized", context)
     
@@ -954,14 +991,14 @@ async def handle_session_status(raw_data: Dict[str, Any], context: Optional[Dict
 class CompletionProviderStatusData(TypedDict):
     """Get provider status."""
     provider: NotRequired[str]  # Specific provider name (optional)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("completion:provider_status")
-async def handle_provider_status(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_provider_status(data: CompletionProviderStatusData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get provider status and health information."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, CompletionProviderStatusData)
     if not provider_manager:
         return error_response("Provider manager not initialized", context)
     
@@ -977,14 +1014,14 @@ class CompletionTokenUsageData(TypedDict):
     agent_id: NotRequired[str]  # Filter by agent ID
     model: NotRequired[str]  # Filter by model
     hours: NotRequired[int]  # Time window in hours
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("completion:token_usage")
-async def handle_token_usage(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_token_usage(data: CompletionTokenUsageData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get token usage analytics."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, CompletionTokenUsageData)
     if not token_tracker:
         return error_response("Token tracker not initialized", context)
     
@@ -999,17 +1036,91 @@ async def handle_token_usage(raw_data: Dict[str, Any], context: Optional[Dict[st
         return event_response_builder(token_tracker.get_summary_statistics(), context)
 
 
+class CompletionConversationSummaryData(TypedDict):
+    """Get agent conversation summary."""
+    agent_id: str  # Agent ID to get summary for
+    include_fields: NotRequired[Optional[List[str]]]  # Fields to include in context data
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
+
+
+@event_handler("completion:get_conversation_summary")
+async def handle_get_conversation_summary(data: CompletionConversationSummaryData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Internal event to get agent conversation summary without cross-module imports."""
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    if not conversation_tracker:
+        return error_response("Conversation tracker not initialized", context)
+    
+    agent_id = data.get("agent_id")
+    if not agent_id:
+        return error_response("agent_id required", context)
+    
+    include_fields = data.get("include_fields")
+    
+    try:
+        summary = await conversation_tracker.get_agent_conversation_summary(
+            agent_id=agent_id,
+            include_fields=include_fields
+        )
+        
+        return event_response_builder(summary, context)
+        
+    except Exception as e:
+        logger.error(f"Failed to get conversation summary for {agent_id}: {e}")
+        return error_response(f"Failed to get conversation summary: {str(e)}", context)
+
+
+class CompletionResetConversationData(TypedDict):
+    """Reset agent conversation."""
+    agent_id: str  # Agent ID to reset conversation for
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
+
+
+@event_handler("completion:reset_conversation")
+async def handle_reset_conversation(data: CompletionResetConversationData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Internal event to reset agent conversation without cross-module imports."""
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    if not conversation_tracker:
+        return error_response("Conversation tracker not initialized", context)
+    
+    agent_id = data.get("agent_id")
+    if not agent_id:
+        return error_response("agent_id required", context)
+    
+    try:
+        # Reset the agent's conversation
+        was_reset = conversation_tracker.reset_agent_conversation(agent_id)
+        
+        # Emit event to notify about the reset
+        await emit_event("conversation:reset", {
+            "agent_id": agent_id,
+            "had_active_session": was_reset
+        })
+        
+        return event_response_builder({
+            "agent_id": agent_id,
+            "reset": True,
+            "had_active_session": was_reset
+        }, context)
+        
+    except Exception as e:
+        logger.error(f"Failed to reset conversation for {agent_id}: {e}")
+        return error_response(f"Failed to reset conversation: {str(e)}", context)
+
+
 class CompletionCancelData(TypedDict):
     """Cancel an in-progress completion."""
     request_id: Required[str]  # Request ID to cancel
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("completion:cancel")
-async def handle_cancel_completion(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_cancel_completion(data: CompletionCancelData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Cancel an in-progress completion."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, CompletionCancelData)
     request_id = data.get("request_id")
     if not request_id:
         return error_response("request_id required", context)
@@ -1049,15 +1160,14 @@ async def handle_cancel_completion(raw_data: Dict[str, Any], context: Optional[D
 class CompletionRetryStatusData(TypedDict):
     """Get retry manager status."""
     # No specific fields - returns overall retry status
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("completion:retry_status")
-async def handle_retry_status(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_retry_status(data: CompletionRetryStatusData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get retry manager status and statistics."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, CompletionRetryStatusData)
     if not retry_manager:
         return error_response("Retry manager not available", context)
     
@@ -1077,14 +1187,14 @@ class CompletionFailedData(TypedDict):
     message: NotRequired[str]  # Error message
     reason: NotRequired[str]  # Failure reason (e.g., 'daemon_restart')
     completion_data: NotRequired[Dict[str, Any]]  # Original completion data for recovery
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("completion:failed")
-async def handle_completion_failed(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_completion_failed(data: CompletionFailedData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle completion failures and attempt retries if appropriate."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, CompletionFailedData)
     request_id = data.get("request_id")
     if not request_id:
         logger.warning("Completion failure without request_id", data=data)
@@ -1139,15 +1249,14 @@ async def handle_completion_failed(raw_data: Dict[str, Any], context: Optional[D
 class CheckpointCollectData(TypedDict):
     """Collect checkpoint data."""
     # No specific fields - collects all completion state
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("checkpoint:collect")
-async def collect_checkpoint_data(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def collect_checkpoint_data(data: CheckpointCollectData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Collect completion service state for checkpoint."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, CheckpointCollectData)
     checkpoint_data = {
         "session_queues": {},
         "active_completions": dict(active_completions)  # Copy current state
@@ -1196,14 +1305,14 @@ class CheckpointRestoreData(TypedDict):
     """Restore from checkpoint data."""
     active_completions: NotRequired[Dict[str, Any]]  # Completions to restore
     session_queues: NotRequired[Dict[str, Any]]  # Session queues to restore
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("checkpoint:restore")
-async def restore_checkpoint_data(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def restore_checkpoint_data(data: CheckpointRestoreData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Restore completion service state from checkpoint."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, CheckpointRestoreData)
     global active_completions
     
     if not data:
@@ -1230,14 +1339,13 @@ async def restore_checkpoint_data(raw_data: Dict[str, Any], context: Optional[Di
 class SystemShutdownData(TypedDict):
     """System shutdown notification."""
     # No specific fields for shutdown
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("system:shutdown")
-async def handle_shutdown(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
+async def handle_shutdown(data: SystemShutdownData, context: Optional[Dict[str, Any]] = None) -> None:
     """Clean up on shutdown."""
-    from ksi_common.event_parser import event_format_linter
-    data = event_format_linter(raw_data, SystemShutdownData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     logger.info("Completion service shutting down")
     
     # Stop retry manager
