@@ -12,7 +12,7 @@ from typing_extensions import NotRequired, Required
 from datetime import datetime, timezone
 
 from ksi_common.logging import get_bound_logger
-from ksi_common.event_parser import event_format_linter
+# Removed event_format_linter import - BREAKING CHANGE: Direct TypedDict access
 from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_daemon.event_system import event_handler, get_router
 
@@ -26,6 +26,7 @@ class SystemContextData(TypedDict):
     """System context with runtime references."""
     emit_event: NotRequired[Any]  # Event emitter function
     shutdown_event: NotRequired[Any]  # Shutdown event object
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class ObservationQueryData(TypedDict):
@@ -36,6 +37,7 @@ class ObservationQueryData(TypedDict):
     time_range: NotRequired[Dict[str, str]]  # Dict with 'start' and 'end' ISO timestamps
     limit: NotRequired[int]  # Maximum results (default 100, max 1000)
     offset: NotRequired[int]  # Pagination offset (default 0)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class ObservationReplayData(TypedDict):
@@ -46,6 +48,7 @@ class ObservationReplayData(TypedDict):
     time_range: NotRequired[Dict[str, str]]  # Time range to replay
     limit: NotRequired[int]  # Maximum results to replay
     offset: NotRequired[int]  # Pagination offset
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class ObservationAnalyzeData(TypedDict):
@@ -53,12 +56,13 @@ class ObservationAnalyzeData(TypedDict):
     target: Required[str]  # Target agent to analyze
     time_range: NotRequired[Dict[str, str]]  # Time range to analyze
     analysis_type: NotRequired[Literal["frequency", "errors", "performance"]]  # Type of analysis (default: "frequency")
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("system:context")
-async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_context(data: SystemContextData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Receive system context with event emitter."""
-    data = event_format_linter(raw_data, dict)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     global event_emitter
     router = get_router()

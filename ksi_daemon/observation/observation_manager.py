@@ -19,7 +19,7 @@ from typing_extensions import NotRequired, Required
 
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc
-from ksi_common.event_parser import event_format_linter
+# Removed event_format_linter import - BREAKING CHANGE: Direct TypedDict access
 from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_daemon.event_system import event_handler, get_router, RateLimiter
 
@@ -50,17 +50,19 @@ class SystemContextData(TypedDict):
     """System context with runtime references."""
     emit_event: NotRequired[Any]  # Event emitter function
     shutdown_event: NotRequired[Any]  # Shutdown event object
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class SystemReadyData(TypedDict):
     """System ready notification."""
     # No specific fields for observation manager
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class AgentTerminatedData(TypedDict):
     """Agent termination notification."""
     agent_id: Required[str]  # Terminated agent ID
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class ObservationSubscribeData(TypedDict):
@@ -69,6 +71,7 @@ class ObservationSubscribeData(TypedDict):
     target: Required[str]  # Target agent ID to observe
     events: Required[List[str]]  # Event patterns to observe
     filter: NotRequired[Dict[str, Any]]  # Optional filters
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class ObservationUnsubscribeData(TypedDict):
@@ -76,29 +79,32 @@ class ObservationUnsubscribeData(TypedDict):
     subscription_id: NotRequired[str]  # Subscription ID to cancel
     observer: NotRequired[str]  # Observer agent ID (required if no subscription_id)
     target: NotRequired[str]  # Target agent ID (required if no subscription_id)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class ObservationListData(TypedDict):
     """List active observation subscriptions."""
     observer: NotRequired[str]  # Filter by observer (optional)
     target: NotRequired[str]  # Filter by target (optional)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class CheckpointCollectData(TypedDict):
     """Collect checkpoint data."""
     # No specific fields - collects all observation state
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class CheckpointRestoreData(TypedDict):
     """Restore from checkpoint data."""
     observation_subscriptions: NotRequired[Dict[str, Any]]  # Observation subscriptions to restore
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("system:context")
-async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
+async def handle_context(data: SystemContextData, context: Optional[Dict[str, Any]] = None) -> None:
     """Receive system context with event emitter."""
-    data = event_format_linter(raw_data, SystemContextData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     global _event_emitter
     router = get_router()
     _event_emitter = router.emit
@@ -106,14 +112,14 @@ async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, A
 
 
 @event_handler("system:ready")
-async def observation_system_ready(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def observation_system_ready(data: SystemReadyData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Signal that observation system is ready for subscriptions.
     
     The daemon always checks for checkpoints on startup. We only emit
     observation:ready if subscriptions were NOT restored from checkpoint,
     indicating agents need to re-establish them.
     """
-    data = event_format_linter(raw_data, SystemReadyData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     global _observation_queue, _observation_task
     
     # Start async observation processor
@@ -143,9 +149,9 @@ async def observation_system_ready(raw_data: Dict[str, Any], context: Optional[D
 
 
 @event_handler("agent:terminated")
-async def cleanup_agent_subscriptions(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def cleanup_agent_subscriptions(data: AgentTerminatedData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Remove all subscriptions for terminated agent."""
-    data = event_format_linter(raw_data, AgentTerminatedData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     agent_id = data.get("agent_id")
     if not agent_id:
         return error_response("No agent_id provided", context)
@@ -204,9 +210,9 @@ async def cleanup_agent_subscriptions(raw_data: Dict[str, Any], context: Optiona
 
 
 @event_handler("observation:subscribe")
-async def handle_subscribe(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_subscribe(data: ObservationSubscribeData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Subscribe to observe events from a target agent."""
-    data = event_format_linter(raw_data, ObservationSubscribeData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     observer_id = data.get("observer")
     target_id = data.get("target")
     event_patterns = data.get("events", [])
@@ -283,9 +289,9 @@ async def handle_subscribe(raw_data: Dict[str, Any], context: Optional[Dict[str,
 
 
 @event_handler("observation:unsubscribe")
-async def handle_unsubscribe(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_unsubscribe(data: ObservationUnsubscribeData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Unsubscribe from observing a target."""
-    data = event_format_linter(raw_data, ObservationUnsubscribeData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     subscription_id = data.get("subscription_id")
     observer_id = data.get("observer")
     target_id = data.get("target")
@@ -345,9 +351,9 @@ async def handle_unsubscribe(raw_data: Dict[str, Any], context: Optional[Dict[st
 
 
 @event_handler("observation:list")
-async def handle_list_observations(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_list_observations(data: ObservationListData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """List active observation subscriptions."""
-    data = event_format_linter(raw_data, ObservationListData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     observer_filter = data.get("observer")
     target_filter = data.get("target")
     
@@ -660,13 +666,13 @@ async def notify_observers_async(subscriptions: List[Dict[str, Any]], event_type
 
 
 @event_handler("checkpoint:collect")
-async def collect_observation_state(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def collect_observation_state(data: CheckpointCollectData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Collect observation subscriptions for checkpoint.
     
     Only called during system checkpoint operations.
     Normal restarts do NOT trigger this.
     """
-    data = event_format_linter(raw_data, CheckpointCollectData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     # Flatten subscription data for storage
     subscriptions = []
     for target_id, target_subs in _subscriptions.items():
@@ -692,13 +698,13 @@ async def collect_observation_state(raw_data: Dict[str, Any], context: Optional[
 
 
 @event_handler("checkpoint:restore")
-async def restore_observation_state(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def restore_observation_state(data: CheckpointRestoreData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Restore observation subscriptions from checkpoint.
     
     Only called during checkpoint restore operations.
     Sets the module flag to indicate if subscriptions were restored.
     """
-    data = event_format_linter(raw_data, CheckpointRestoreData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     global _subscriptions_restored_from_checkpoint
     
     checkpoint_data = data.get("observation_subscriptions", {})

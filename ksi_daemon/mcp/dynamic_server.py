@@ -224,26 +224,8 @@ class KSIDynamicMCPServer(FastMCP):
                 }
                 
         except Exception as e:
-            logger.debug(f"Failed to get agent info for {agent_id}: {e}")
-            
-        # Fallback to permission query for backward compatibility
-        try:
-            result = await self.ksi_client.send_event(
-                "permission:get_agent",
-                {"agent_id": agent_id}
-            )
-            
-            if isinstance(result, dict) and "permissions" in result:
-                perms = result["permissions"]
-                return {
-                    "allowed_events": perms.get("tools", {}).get("allowed", []),
-                    "allowed_claude_tools": [],
-                    "profile": perms.get("level", "restricted")
-                }
-                
-        except Exception as e:
             logger.warning(
-                "Failed to get agent permissions, using defaults",
+                "Failed to get agent info, using defaults",
                 agent_id=agent_id,
                 error=str(e)
             )

@@ -362,15 +362,19 @@ class SystemContextData(TypedDict):
 
 
 @event_handler("system:context")
-async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_context(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Receive context including event emitter."""
-    from ksi_common.event_parser import extract_system_handler_data
-    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    # PYTHONIC CONTEXT REFACTOR: Use system registry for components
     
     global event_emitter, shutdown_event
     
-    event_emitter = clean_data.get("emit_event")
-    shutdown_event = clean_data.get("shutdown_event")
+    if data.get("registry_available"):
+        from ksi_daemon.core.system_registry import SystemRegistry
+        event_emitter = SystemRegistry.get("event_emitter")
+        shutdown_event = SystemRegistry.get("shutdown_event")
+    else:
+        event_emitter = data.get("emit_event")
+        shutdown_event = data.get("shutdown_event")
     
     if event_emitter:
         logger.info("WebSocket transport configured with event emitter")

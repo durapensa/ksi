@@ -277,11 +277,10 @@ class SystemStartupData(TypedDict):
 
 
 @event_handler("system:startup")
-async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize transport on startup."""
-    from ksi_common.event_parser import extract_system_handler_data
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    clean_data, system_metadata = extract_system_handler_data(raw_data)
     
     global transport_instance
     
@@ -303,11 +302,10 @@ class SystemReadyData(TypedDict):
 
 
 @event_handler("system:ready")
-async def handle_ready(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+async def handle_ready(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """Return long-running server task to keep daemon alive."""
-    from ksi_common.event_parser import extract_system_handler_data
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    clean_data, system_metadata = extract_system_handler_data(raw_data)
     
     global transport_instance
     
@@ -350,15 +348,19 @@ class SystemContextData(TypedDict):
 
 
 @event_handler("system:context")
-async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_context(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Receive context including event emitter."""
-    from ksi_common.event_parser import extract_system_handler_data
+    # PYTHONIC CONTEXT REFACTOR: Use system registry for components
     from ksi_common.event_response_builder import event_response_builder
-    clean_data, system_metadata = extract_system_handler_data(raw_data)
     
     global transport_instance, event_emitter
     
-    event_emitter = clean_data.get("emit_event")
+    if data.get("registry_available"):
+        from ksi_daemon.core.system_registry import SystemRegistry
+        event_emitter = SystemRegistry.get("event_emitter")
+    else:
+        event_emitter = data.get("emit_event")
+        
     if transport_instance and event_emitter:
         transport_instance.set_event_emitter(event_emitter)
         logger.info("Transport configured with event emitter")
@@ -391,14 +393,13 @@ class TransportCreateData(TypedDict):
 
 
 @event_handler("transport:create")
-async def handle_create_transport(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_create_transport(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Create Unix socket transport if requested."""
-    from ksi_common.event_parser import extract_system_handler_data
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    clean_data, system_metadata = extract_system_handler_data(raw_data)
     
-    transport_type = clean_data.get("transport_type")
-    config_data = clean_data.get("config", {})
+    transport_type = data.get("transport_type")
+    config_data = data.get("config", {})
     
     if transport_type != "unix":
         return event_response_builder(
@@ -433,11 +434,10 @@ class SystemShutdownData(TypedDict):
 
 
 @shutdown_handler("unix_socket_transport", priority=EventPriority.HIGH)
-async def handle_shutdown(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_shutdown(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle shutdown - notify clients and then close socket."""
-    from ksi_common.event_parser import extract_system_handler_data
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    clean_data, system_metadata = extract_system_handler_data(raw_data)
     
     global transport_instance, client_connections
     

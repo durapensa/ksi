@@ -16,7 +16,6 @@ from typing_extensions import NotRequired, Required
 from ksi_daemon.event_system import event_handler, get_router
 from ksi_common.timestamps import timestamp_utc
 from ksi_common.logging import get_bound_logger
-from ksi_common.event_parser import event_format_linter
 from ksi_common.event_response_builder import event_response_builder, error_response
 
 logger = get_bound_logger("conversation_lock", version="1.0.0")
@@ -404,18 +403,19 @@ class SystemContextData(TypedDict):
     """System context with runtime references."""
     emit_event: NotRequired[Any]  # Event emitter function
     shutdown_event: NotRequired[Any]  # Shutdown event object
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class SystemStartupData(TypedDict):
     """System startup configuration."""
     # No specific fields required for conversation lock service
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class SystemShutdownData(TypedDict):
     """System shutdown notification."""
     # No specific fields for shutdown
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class ConversationAcquireLockData(TypedDict):
@@ -423,11 +423,13 @@ class ConversationAcquireLockData(TypedDict):
     request_id: Required[str]  # Request ID attempting to acquire lock
     conversation_id: Required[str]  # Conversation ID to lock
     metadata: NotRequired[Dict[str, Any]]  # Optional lock metadata
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class ConversationReleaseLockData(TypedDict):
     """Release a conversation lock."""
     request_id: Required[str]  # Request ID releasing the lock
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class ConversationForkDetectedData(TypedDict):
@@ -435,24 +437,26 @@ class ConversationForkDetectedData(TypedDict):
     request_id: Required[str]  # Request ID that detected the fork
     expected_conversation_id: Required[str]  # Expected conversation ID
     actual_conversation_id: Required[str]  # Actual conversation ID returned
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class ConversationLockStatusData(TypedDict):
     """Get lock status for conversations."""
     conversation_id: NotRequired[str]  # Specific conversation ID (if omitted, returns all)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class ConversationActiveData(TypedDict):
     """Get all active (locked) conversations."""
     # No specific fields - returns all active conversations
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 # System event handlers
 @event_handler("system:context")
-async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
+async def handle_context(data: SystemContextData, context: Optional[Dict[str, Any]] = None) -> None:
     """Store event emitter reference."""
-    data = event_format_linter(raw_data, SystemContextData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     global event_emitter
     # Get router for event emission
     router = get_router()
@@ -461,25 +465,25 @@ async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, A
 
 
 @event_handler("system:startup")
-async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_startup(data: SystemStartupData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize conversation lock service on startup."""
-    data = event_format_linter(raw_data, SystemStartupData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     logger.info("Conversation lock service started")
     return event_response_builder({"status": "conversation_lock_ready"}, context)
 
 
 @event_handler("system:shutdown")
-async def handle_shutdown(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
+async def handle_shutdown(data: SystemShutdownData, context: Optional[Dict[str, Any]] = None) -> None:
     """Clean up on shutdown."""
-    data = event_format_linter(raw_data, SystemShutdownData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     logger.info("Conversation lock service stopped")
 
 
 # Conversation lock event handlers
 @event_handler("conversation:acquire_lock")
-async def handle_acquire_lock(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_acquire_lock(data: ConversationAcquireLockData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Acquire lock for a conversation."""
-    data = event_format_linter(raw_data, ConversationAcquireLockData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     request_id = data.get("request_id")
     conversation_id = data.get("conversation_id")
     metadata = data.get("metadata", {})
@@ -493,9 +497,9 @@ async def handle_acquire_lock(raw_data: Dict[str, Any], context: Optional[Dict[s
 
 
 @event_handler("conversation:release_lock")
-async def handle_release_lock(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_release_lock(data: ConversationReleaseLockData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Release a conversation lock."""
-    data = event_format_linter(raw_data, ConversationReleaseLockData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     request_id = data.get("request_id")
     
     if not request_id:
@@ -506,9 +510,9 @@ async def handle_release_lock(raw_data: Dict[str, Any], context: Optional[Dict[s
 
 
 @event_handler("conversation:fork_detected")
-async def handle_fork_detected(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_fork_detected(data: ConversationForkDetectedData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle fork detection."""
-    data = event_format_linter(raw_data, ConversationForkDetectedData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     request_id = data.get("request_id")
     expected_id = data.get("expected_conversation_id")
     actual_id = data.get("actual_conversation_id")
@@ -521,9 +525,9 @@ async def handle_fork_detected(raw_data: Dict[str, Any], context: Optional[Dict[
 
 
 @event_handler("conversation:lock_status")
-async def handle_lock_status(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_lock_status(data: ConversationLockStatusData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get lock status for a conversation."""
-    data = event_format_linter(raw_data, ConversationLockStatusData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     conversation_id = data.get("conversation_id")
     
     if conversation_id:
@@ -535,9 +539,9 @@ async def handle_lock_status(raw_data: Dict[str, Any], context: Optional[Dict[st
 
 
 @event_handler("conversation:active")
-async def handle_active_conversations(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_active_conversations(data: ConversationActiveData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get all active (locked) conversations."""
-    data = event_format_linter(raw_data, ConversationActiveData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     all_locks = await lock_manager.get_all_locks()
     active = {
         conv_id: info for conv_id, info in all_locks['locks'].items()

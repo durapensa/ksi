@@ -466,13 +466,13 @@ class SystemContextData(TypedDict):
     """System context with runtime references."""
     emit_event: NotRequired[Any]  # Event emitter function
     shutdown_event: NotRequired[Any]  # Shutdown event object
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("system:context")
-async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
+async def handle_context(data: SystemContextData, context: Optional[Dict[str, Any]] = None) -> None:
     """Store event emitter reference."""
-    from ksi_common.event_parser import event_format_linter
-    data = event_format_linter(raw_data, SystemContextData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     global event_emitter
     # Get router for event emission
     router = get_router()
@@ -483,15 +483,14 @@ async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, A
 class SystemStartupData(TypedDict):
     """System startup configuration."""
     # No specific fields required for this handler
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("system:startup")
-async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_startup(data: SystemStartupData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize message bus."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, SystemStartupData)
     logger.info("Message bus module started (consolidated)")
     return event_response_builder({"module.message_bus": {"loaded": True}}, context)
 
@@ -521,15 +520,15 @@ class MessageSubscribeData(TypedDict):
     """Subscribe to message types."""
     agent_id: Required[str]  # Agent ID making the subscription
     event_types: Required[List[str]]  # List of event types to subscribe to
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("message:subscribe")
-async def handle_subscribe(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_subscribe(data: MessageSubscribeData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle subscription request."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
     
-    data = event_format_linter(raw_data, MessageSubscribeData)
     agent_id = data.get("agent_id")
     event_types = data.get("event_types", [])
     
@@ -562,15 +561,15 @@ class MessageUnsubscribeData(TypedDict):
     """Unsubscribe from message types."""
     agent_id: Required[str]  # Agent ID unsubscribing
     event_types: NotRequired[List[str]]  # Event types to unsubscribe from (omit for all)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("message:unsubscribe")
-async def handle_unsubscribe(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_unsubscribe(data: MessageUnsubscribeData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle unsubscription request."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
     
-    data = event_format_linter(raw_data, MessageUnsubscribeData)
     agent_id = data.get("agent_id")
     event_types = data.get("event_types", [])
     
@@ -602,15 +601,15 @@ class MessagePublishData(TypedDict):
     agent_id: Required[str]  # Agent ID publishing the message
     event_type: Required[str]  # Event type to publish
     message: NotRequired[Dict[str, Any]]  # Message payload (default: {})
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("message:publish")
-async def handle_publish(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_publish(data: MessagePublishData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle message publication."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
     
-    data = event_format_linter(raw_data, MessagePublishData)
     agent_id = data.get("agent_id")
     event_type = data.get("event_type")
     message = data.get("message", {})
@@ -632,15 +631,15 @@ async def handle_publish(raw_data: Dict[str, Any], context: Optional[Dict[str, A
 class MessageSubscriptionsData(TypedDict):
     """Get subscription information."""
     agent_id: NotRequired[str]  # Specific agent ID (omit for all)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("message:subscriptions")
-async def handle_get_subscriptions(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_get_subscriptions(data: MessageSubscriptionsData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get subscription information."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
     
-    data = event_format_linter(raw_data, MessageSubscriptionsData)
     agent_id = data.get("agent_id")
     
     if agent_id:
@@ -661,16 +660,14 @@ async def handle_get_subscriptions(raw_data: Dict[str, Any], context: Optional[D
 class MessageBusStatsData(TypedDict):
     """Get message bus statistics."""
     # No specific fields - returns overall stats
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("message_bus:stats")
-async def handle_get_stats(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_get_stats(data: MessageBusStatsData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get message bus statistics."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    
-    data = event_format_linter(raw_data, MessageBusStatsData)
     result = {"stats": message_bus.get_stats()}
     return event_response_builder(result, context)
 
@@ -678,15 +675,15 @@ async def handle_get_stats(raw_data: Dict[str, Any], context: Optional[Dict[str,
 class MessageConnectData(TypedDict):
     """Connect an agent to the message bus."""
     agent_id: Required[str]  # Agent ID to connect
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("message:connect")
-async def handle_connect_agent(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_connect_agent(data: MessageConnectData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle agent connection."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
     
-    data = event_format_linter(raw_data, MessageConnectData)
     agent_id = data.get("agent_id")
     
     if not agent_id:
@@ -705,15 +702,15 @@ async def handle_connect_agent(raw_data: Dict[str, Any], context: Optional[Dict[
 class MessageDisconnectData(TypedDict):
     """Disconnect an agent from the message bus."""
     agent_id: Required[str]  # Agent ID to disconnect
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("message:disconnect")
-async def handle_disconnect_agent(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_disconnect_agent(data: MessageDisconnectData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle agent disconnection."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
     
-    data = event_format_linter(raw_data, MessageDisconnectData)
     agent_id = data.get("agent_id")
     
     if not agent_id:
@@ -745,15 +742,15 @@ class TransportMessageData(TypedDict):
     """Legacy transport message format."""
     command: Required[Literal['PUBLISH', 'SUBSCRIBE']]  # Legacy command type
     parameters: NotRequired[TransportMessageParameters]  # Command parameters
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("transport:message")
-async def handle_transport_message(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_transport_message(data: TransportMessageData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle legacy transport:message events by converting them."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import error_response
     
-    data = event_format_linter(raw_data, TransportMessageData)
     command = data.get("command")
     
     if command == "PUBLISH":

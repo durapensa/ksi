@@ -17,7 +17,7 @@ from ksi_daemon.event_system import event_handler, get_router
 from ksi_common.config import config
 from ksi_common import timestamp_utc
 from ksi_common.completion_format import parse_completion_result_event
-from ksi_common.event_parser import event_format_linter
+# Removed event_format_linter import - BREAKING CHANGE: Direct TypedDict access
 from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_daemon.injection.injection_types import (
     InjectionRequest,
@@ -113,13 +113,14 @@ class SystemContextData(TypedDict):
     """System context with runtime references."""
     emit_event: NotRequired[Any]  # Event emitter function
     shutdown_event: NotRequired[Any]  # Shutdown event object
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 # System event handlers
 @event_handler("system:context")
-async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
+async def handle_context(data: SystemContextData, context: Optional[Dict[str, Any]] = None) -> None:
     """Store event emitter reference."""
-    data = event_format_linter(raw_data, SystemContextData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     global event_emitter
     # Get router for event emission
     router = get_router()
@@ -130,13 +131,13 @@ async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, A
 class SystemStartupData(TypedDict):
     """System startup configuration."""
     # No specific fields required for injection router
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("system:startup")
-async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_startup(data: SystemStartupData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize injection router."""
-    data = event_format_linter(raw_data, SystemStartupData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     logger.info("Injection router started")
     return event_response_builder({"status": "injection_router_ready"}, context)
 
@@ -144,13 +145,13 @@ async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, A
 class SystemReadyData(TypedDict):
     """System ready notification."""
     # No specific fields for this handler
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("system:ready")
-async def handle_ready(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_ready(data: SystemReadyData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Return async task to process injection queue."""
-    data = event_format_linter(raw_data, SystemReadyData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     global injection_queue
     
     # Initialize asyncio.Queue now that event loop is available
@@ -204,13 +205,13 @@ async def handle_ready(raw_data: Dict[str, Any], context: Optional[Dict[str, Any
 class SystemShutdownData(TypedDict):
     """System shutdown notification."""
     # No specific fields for shutdown
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("system:shutdown")
-async def handle_shutdown(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
+async def handle_shutdown(data: SystemShutdownData, context: Optional[Dict[str, Any]] = None) -> None:
     """Clean up on shutdown."""
-    data = event_format_linter(raw_data, SystemShutdownData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     # Signal queue processor to stop
     if injection_queue:
         try:
@@ -225,13 +226,13 @@ async def handle_shutdown(raw_data: Dict[str, Any], context: Optional[Dict[str, 
 class InjectionStatusData(TypedDict):
     """Get injection router status."""
     # No specific fields - returns overall status
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("injection:status")
-async def handle_injection_status(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_injection_status(data: InjectionStatusData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get injection router status."""
-    data = event_format_linter(raw_data, InjectionStatusData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     return event_response_builder({
         "queued_count": injection_queue.qsize() if injection_queue else 0,
         "metadata_count": len(injection_metadata_store),
@@ -248,12 +249,13 @@ class InjectionInjectData(TypedDict):
     session_id: NotRequired[str]  # Session ID (required for next mode)
     priority: NotRequired[Literal["high", "normal", "low"]]  # Priority (default: "normal")
     metadata: NotRequired[Dict[str, Any]]  # Additional metadata
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("injection:inject")
-async def handle_injection_inject(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_injection_inject(data: InjectionInjectData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle unified injection request."""
-    data = event_format_linter(raw_data, InjectionInjectData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     # Unified injection handler - convert to typed interface
     try:
         # Parse mode and position enums
@@ -282,12 +284,13 @@ class InjectionQueueData(TypedDict):
     id: NotRequired[str]  # Request ID (auto-generated if not provided)
     injection_config: NotRequired[Dict[str, Any]]  # Injection configuration
     circuit_breaker_config: NotRequired[Dict[str, Any]]  # Circuit breaker config
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("injection:queue")
-async def handle_injection_queue(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_injection_queue(data: InjectionQueueData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle queue injection metadata request from completion service."""
-    data = event_format_linter(raw_data, InjectionQueueData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     # This replaces the direct function call from completion service
     request_id = _queue_completion_with_injection(data)
     return event_response_builder({"request_id": request_id}, context)
@@ -296,12 +299,13 @@ async def handle_injection_queue(raw_data: Dict[str, Any], context: Optional[Dic
 class InjectionBatchData(TypedDict):
     """Batch injection request."""
     injections: Required[List[Dict[str, Any]]]  # List of injection requests
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("injection:batch")
-async def handle_injection_batch(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_injection_batch(data: InjectionBatchData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle batch injection request."""
-    data = event_format_linter(raw_data, InjectionBatchData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     injections = data.get("injections", [])
     result = await inject_batch(injections)
     return event_response_builder(result, context)
@@ -310,12 +314,13 @@ async def handle_injection_batch(raw_data: Dict[str, Any], context: Optional[Dic
 class InjectionListData(TypedDict):
     """List pending injections."""
     session_id: NotRequired[str]  # Session to query (omit for all)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("injection:list")
-async def handle_injection_list(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_injection_list(data: InjectionListData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle list injections request."""
-    data = event_format_linter(raw_data, InjectionListData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     session_id = data.get("session_id")
     result = await list_pending_injections(session_id)
     return event_response_builder(result, context)
@@ -325,12 +330,13 @@ class InjectionClearData(TypedDict):
     """Clear pending injections."""
     session_id: Required[str]  # Session to clear
     mode: NotRequired[Literal["direct", "next"]]  # Mode filter (omit for all)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("injection:clear")
-async def handle_injection_clear(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_injection_clear(data: InjectionClearData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle clear injections request."""
-    data = event_format_linter(raw_data, InjectionClearData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     session_id = data.get("session_id")
     mode = data.get("mode")
     result = await clear_injections(session_id, mode)
@@ -342,12 +348,13 @@ class InjectionProcessResultData(TypedDict):
     request_id: Required[str]  # Request ID
     result: Required[Dict[str, Any]]  # Completion result data
     injection_metadata: Required[Dict[str, Any]]  # Injection metadata
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("injection:process_result")
-async def handle_injection_process_result(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+async def handle_injection_process_result(data: InjectionProcessResultData, context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """Process a completion result for injection - explicitly called by completion service."""
-    data = event_format_linter(raw_data, InjectionProcessResultData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     request_id = data.get('request_id')
     result_data = data.get('result', {})
@@ -499,12 +506,13 @@ class InjectionExecuteData(TypedDict):
     model: NotRequired[str]  # Model to use (default: 'claude-cli/sonnet')
     priority: NotRequired[Literal["high", "normal", "low"]]  # Priority
     injection_type: NotRequired[str]  # Type of injection (default: 'system_reminder')
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("injection:execute")
-async def execute_injection(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def execute_injection(data: InjectionExecuteData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Execute a queued injection by creating a new completion request."""
-    data = event_format_linter(raw_data, InjectionExecuteData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     agent_id = data.get('agent_id')
     content = data.get('content')

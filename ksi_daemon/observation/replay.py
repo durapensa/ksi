@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc, numeric_to_iso
-from ksi_common.event_parser import event_format_linter
+# Removed event_format_linter import - BREAKING CHANGE: Direct TypedDict access
 from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_daemon.event_system import event_handler, get_router
 
@@ -34,6 +34,7 @@ class SystemContextData(TypedDict):
     """System context with runtime references."""
     emit_event: NotRequired[Any]  # Event emitter function
     shutdown_event: NotRequired[Any]  # Shutdown event object
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class ObserveBeginData(TypedDict):
@@ -43,6 +44,7 @@ class ObserveBeginData(TypedDict):
     source: NotRequired[str]  # Source agent
     observer: NotRequired[str]  # Observer agent
     original_data: NotRequired[Dict[str, Any]]  # Original event data
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class ObserveEndData(TypedDict):
@@ -85,9 +87,9 @@ class ObservationAnalyzePatternsData(TypedDict):
 
 
 @event_handler("system:context")
-async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_context(data: SystemContextData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Receive system context."""
-    data = event_format_linter(raw_data, dict)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     global _event_emitter, _event_router
     router = get_router()
