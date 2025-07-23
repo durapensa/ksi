@@ -19,6 +19,7 @@ from ksi_daemon.event_system import event_handler, EventPriority, emit_event, sh
 from ksi_common import timestamp_utc
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
+from .context_manager import get_context_manager
 
 # Module state
 logger = get_bound_logger("checkpoint", version="1.0.0")
@@ -93,6 +94,19 @@ async def initialize_checkpoint_db():
             )
         """)
         
+        # Create checkpoint_contexts table for context system state
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS checkpoint_contexts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                checkpoint_id INTEGER NOT NULL,
+                hot_storage_snapshot TEXT NOT NULL,  -- JSON snapshot of hot storage
+                active_correlations TEXT NOT NULL,   -- JSON snapshot of active correlation chains
+                context_stats TEXT NOT NULL,        -- JSON metadata about context state
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (checkpoint_id) REFERENCES checkpoints(id)
+            )
+        """)
+        
         # Create checkpoint_agents table
         await db.execute("""
             CREATE TABLE IF NOT EXISTS checkpoint_agents (
@@ -137,6 +151,161 @@ async def initialize_checkpoint_db():
         logger.info("Checkpoint database initialized with relational schema including agent tables", path=str(CHECKPOINT_DB))
     
     return True
+
+
+async def capture_context_state() -> Dict[str, Any]:
+    """Capture current context system state for checkpointing."""
+    try:
+        cm = get_context_manager()
+        if not cm._initialized:
+            return {"error": "Context manager not initialized"}
+        
+        # Capture hot storage snapshot
+        hot_snapshot = {
+            "events": dict(cm.hot_storage.events),  # Convert OrderedDict to dict for JSON
+            "contexts_by_ref": dict(cm.hot_storage.contexts_by_ref),
+            "events_by_correlation": dict(cm.hot_storage.events_by_correlation),
+            "events_by_agent": dict(cm.hot_storage.events_by_agent),
+            "event_chains": dict(cm.hot_storage.event_chains)
+        }
+        
+        # Capture active correlation IDs
+        active_correlations = list(cm.hot_storage.events_by_correlation.keys())
+        
+        # Capture context statistics
+        context_stats = {
+            "hot_count": len(cm.hot_storage.events),
+            "correlation_chains": len(cm.hot_storage.events_by_correlation),
+            "agent_contexts": len(cm.hot_storage.events_by_agent),
+            "event_chains": len(cm.hot_storage.event_chains),
+            "capture_timestamp": timestamp_utc()
+        }
+        
+        return {
+            "hot_storage": hot_snapshot,
+            "active_correlations": active_correlations,
+            "context_stats": context_stats,
+            "status": "captured"
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to capture context state: {e}")
+        return {"error": f"Context capture failed: {str(e)}"}
+
+
+async def restore_context_state(context_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Restore context system state from checkpoint data."""
+    try:
+        cm = get_context_manager()
+        if not cm._initialized:
+            await cm.initialize()
+        
+        hot_storage = context_data.get("hot_storage", {})
+        active_correlations = context_data.get("active_correlations", [])
+        context_stats = context_data.get("context_stats", {})
+        
+        # Clear current hot storage
+        cm.hot_storage.events.clear()
+        cm.hot_storage.contexts_by_ref.clear()
+        cm.hot_storage.events_by_correlation.clear()
+        cm.hot_storage.events_by_agent.clear()
+        cm.hot_storage.event_chains.clear()
+        
+        # Restore hot storage data
+        if "events" in hot_storage:
+            cm.hot_storage.events.update(hot_storage["events"])
+            
+        if "contexts_by_ref" in hot_storage:
+            cm.hot_storage.contexts_by_ref.update(hot_storage["contexts_by_ref"])
+            
+        if "events_by_correlation" in hot_storage:
+            cm.hot_storage.events_by_correlation.update(hot_storage["events_by_correlation"])
+            
+        if "events_by_agent" in hot_storage:
+            cm.hot_storage.events_by_agent.update(hot_storage["events_by_agent"])
+            
+        if "event_chains" in hot_storage:
+            cm.hot_storage.event_chains.update(hot_storage["event_chains"])
+        
+        # Verify restoration
+        restored_count = len(cm.hot_storage.events)
+        restored_correlations = len(cm.hot_storage.events_by_correlation)
+        
+        logger.info(f"Context state restored: {restored_count} events, {restored_correlations} correlation chains")
+        
+        return {
+            "status": "restored",
+            "events_restored": restored_count,
+            "correlations_restored": restored_correlations,
+            "original_stats": context_stats,
+            "restore_timestamp": timestamp_utc()
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to restore context state: {e}")
+        return {"error": f"Context restore failed: {str(e)}"}
+
+
+async def save_context_checkpoint(checkpoint_id: int) -> bool:
+    """Save context state to checkpoint database."""
+    try:
+        import aiosqlite
+        
+        context_state = await capture_context_state()
+        if "error" in context_state:
+            logger.error(f"Failed to capture context state: {context_state['error']}")
+            return False
+        
+        async with aiosqlite.connect(CHECKPOINT_DB) as db:
+            await db.execute("""
+                INSERT INTO checkpoint_contexts 
+                (checkpoint_id, hot_storage_snapshot, active_correlations, context_stats, created_at)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                checkpoint_id,
+                json.dumps(context_state["hot_storage"]),
+                json.dumps(context_state["active_correlations"]),
+                json.dumps(context_state["context_stats"]),
+                timestamp_utc()
+            ))
+            await db.commit()
+            
+        logger.info(f"Context checkpoint saved for checkpoint {checkpoint_id}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to save context checkpoint: {e}")
+        return False
+
+
+async def load_context_checkpoint(checkpoint_id: int) -> Optional[Dict[str, Any]]:
+    """Load context state from checkpoint database."""
+    try:
+        import aiosqlite
+        
+        async with aiosqlite.connect(CHECKPOINT_DB) as db:
+            async with db.execute("""
+                SELECT hot_storage_snapshot, active_correlations, context_stats, created_at
+                FROM checkpoint_contexts 
+                WHERE checkpoint_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+            """, (checkpoint_id,)) as cursor:
+                row = await cursor.fetchone()
+                
+        if not row:
+            return None
+            
+        return {
+            "hot_storage": json.loads(row[0]),
+            "active_correlations": json.loads(row[1]),
+            "context_stats": json.loads(row[2]),
+            "created_at": row[3]
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to load context checkpoint: {e}")
+        return None
 
 
 async def save_checkpoint(checkpoint_data: Dict[str, Any]) -> bool:
@@ -240,9 +409,16 @@ async def save_checkpoint(checkpoint_data: Dict[str, Any]) -> bool:
             
             await db.commit()
             
+        # Save context state checkpoint (separate transaction for safety)
+        try:
+            await save_context_checkpoint(checkpoint_id)
+        except Exception as e:
+            logger.warning(f"Failed to save context checkpoint for {checkpoint_id}: {e}")
+            # Don't fail the entire checkpoint if context save fails
+            
         logger.info(
             f"Checkpoint {checkpoint_id} saved: {total_requests} requests, "
-            f"{total_sessions} sessions"
+            f"{total_sessions} sessions, context state included"
         )
         return True
         
@@ -490,41 +666,41 @@ async def restore_completion_state(state: Dict[str, Any]) -> Dict[str, Any]:
 class SystemStartupData(TypedDict):
     """System startup configuration."""
     # No specific fields required for checkpoint
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class SystemReadyData(TypedDict):
     """System ready notification."""
     # No specific fields for checkpoint restore
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class DevCheckpointData(TypedDict):
     """Handle checkpoint operations with multiple actions."""
     action: Literal['create', 'status', 'list_requests', 'remove_request', 'clear_failed', 'clear_all']  # Action to perform
     request_id: NotRequired[str]  # Request ID for remove_request action
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class DevRestoreData(TypedDict):
     """Manually trigger checkpoint restore."""
     # No specific fields - restores latest checkpoint
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class SystemShutdownData(TypedDict):
     """System shutdown notification."""
     # No specific fields for checkpoint shutdown
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 # Event handlers
 
 @event_handler("system:startup", priority=EventPriority.LOW)
-async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_startup(data: SystemStartupData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize checkpoint system database."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, SystemStartupData)
     
     if is_checkpoint_disabled:
         logger.debug("Checkpoint system disabled via KSI_CHECKPOINT_DISABLED")
@@ -547,11 +723,10 @@ async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, A
 
 
 @event_handler("system:ready", priority=EventPriority.LOW)
-async def handle_ready_restore(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_ready_restore(data: SystemReadyData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Restore checkpoint after all services are ready."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, SystemReadyData)
     
     if is_checkpoint_disabled:
         return event_response_builder(
@@ -567,10 +742,30 @@ async def handle_ready_restore(raw_data: Dict[str, Any], context: Optional[Dict[
             timestamp=checkpoint.get("timestamp")
         )
         
-        # Services are ready, no need to wait
+        # Services are ready, restore both completion and context state
         results = await restore_completion_state(checkpoint)
+        
+        # Try to restore context state
+        context_results = {"status": "skipped", "reason": "no_context_checkpoint"}
+        try:
+            checkpoint_id = checkpoint.get("checkpoint_id")
+            if checkpoint_id:
+                context_checkpoint = await load_context_checkpoint(checkpoint_id)
+                if context_checkpoint:
+                    context_results = await restore_context_state(context_checkpoint)
+                    logger.info("Context state automatically restored from checkpoint")
+                else:
+                    context_results = {"status": "skipped", "reason": "no_context_data"}
+        except Exception as e:
+            logger.warning(f"Failed to restore context state during auto-restore: {e}")
+            context_results = {"status": "failed", "error": str(e)}
+            
         return event_response_builder(
-            {"checkpoint": "restored", "results": results},
+            {
+                "checkpoint": "restored", 
+                "completion_results": results,
+                "context_results": context_results
+            },
             context=context
         )
     
@@ -818,11 +1013,10 @@ async def _clear_checkpoint_requests(filter_type: str = "all") -> Dict[str, Any]
 
 
 @event_handler("dev:checkpoint")
-async def handle_checkpoint(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_checkpoint(data: DevCheckpointData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle checkpoint operations with multiple actions."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, DevCheckpointData)
     
     action = data.get("action")
     if not action:
@@ -888,11 +1082,10 @@ async def handle_checkpoint(raw_data: Dict[str, Any], context: Optional[Dict[str
 
 
 @event_handler("dev:restore")
-async def handle_restore(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_restore(data: DevRestoreData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Manually trigger checkpoint restore."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, DevRestoreData)
     
     if is_checkpoint_disabled:
         return error_response(
@@ -907,12 +1100,30 @@ async def handle_restore(raw_data: Dict[str, Any], context: Optional[Dict[str, A
             context=context
         )
     
+    # Restore completion state
     results = await restore_completion_state(checkpoint)
+    
+    # Try to restore context state if available
+    context_results = {"status": "skipped", "reason": "no_context_checkpoint"}
+    try:
+        checkpoint_id = checkpoint.get("checkpoint_id")
+        if checkpoint_id:
+            context_checkpoint = await load_context_checkpoint(checkpoint_id)
+            if context_checkpoint:
+                context_results = await restore_context_state(context_checkpoint)
+                logger.info("Context state restored from checkpoint")
+            else:
+                context_results = {"status": "skipped", "reason": "no_context_data"}
+    except Exception as e:
+        logger.warning(f"Failed to restore context state: {e}")
+        context_results = {"status": "failed", "error": str(e)}
+    
     return event_response_builder(
         {
             "status": "restored",
             "checkpoint_time": checkpoint.get("timestamp"),
-            "results": results
+            "completion_results": results,
+            "context_results": context_results
         },
         context=context
     )

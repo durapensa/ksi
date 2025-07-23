@@ -17,6 +17,7 @@ from ksi_common.logging import get_bound_logger
 from ksi_common.config import config
 from .event_system import EventRouter, get_router
 from ksi_daemon.core.reference_event_log import ReferenceEventLog
+from ksi_daemon.core.context_manager import get_context_manager
 
 # Core state management
 from ksi_daemon.core.state import initialize_state, get_state_manager
@@ -48,6 +49,12 @@ class EventDaemonCore:
             # Store reference to daemon core in router for shutdown handling
             self.router._daemon_core = self
             
+            # Initialize context manager first (PYTHONIC CONTEXT REFACTOR)
+            logger.info("Initializing context manager...")
+            context_manager = get_context_manager()
+            await context_manager.initialize()
+            logger.info("Context manager initialized with hot and cold storage")
+            
             # Initialize reference-based event log and attach to router
             logger.info("Initializing reference event log...")
             self.router.reference_event_log = ReferenceEventLog()
@@ -76,13 +83,19 @@ class EventDaemonCore:
                 "async_state": self.state_manager  # Async state operations via same manager
             }
             # Pass infrastructure context to modules
-            # Note: We don't pass router or daemon_core to avoid JSON serialization issues in event log
+            # PYTHONIC CONTEXT REFACTOR: Use minimal component registry
+            from ksi_daemon.core.system_registry import SystemRegistry
+            
+            # Register system components in lightweight runtime registry
+            SystemRegistry.set("state_manager", self.state_manager)
+            SystemRegistry.set("event_emitter", self.router.emit)
+            SystemRegistry.set("shutdown_event", self.shutdown_event)
+            
+            # Pass minimal context - just config and registry availability
             safe_context = {
                 "config": config,
-                "emit_event": self.router.emit,  # Proper async event emitter
-                "shutdown_event": self.shutdown_event,  # Shutdown coordination
-                "state_manager": self.state_manager,  # Core state management
-                "async_state": self.state_manager  # Async state operations via same manager
+                "registry_available": True,
+                "_skip_log": True  # Don't log this internal plumbing event
             }
             await self.router.emit("system:context", safe_context)
             
@@ -187,6 +200,12 @@ class EventDaemonCore:
         # Optimization modules
         import ksi_daemon.optimization.optimization_service
         
+        # Context system modules
+        import ksi_daemon.core.context_service
+        
+        # Introspection modules
+        import ksi_daemon.introspection
+        
         logger.info("All modules imported and auto-registered")
     
     async def handle_event(self, event_name: str, data: dict, context: dict) -> Any:
@@ -237,6 +256,11 @@ class EventDaemonCore:
             # Now safe to stop background tasks
             logger.info("Stopping background tasks...")
             await self.router.stop_all_tasks()
+            
+            # Shutdown context manager (PYTHONIC CONTEXT REFACTOR)
+            logger.info("Shutting down context manager...")
+            context_manager = get_context_manager()
+            await context_manager.shutdown()
             
             # Reference event log is file-based and doesn't need explicit cleanup
             
@@ -336,16 +360,15 @@ class SystemHealthData(TypedDict):
     pass
 
 @event_handler("system:shutdown", priority=EventPriority.HIGHEST)  # Use HIGHEST to run before other handlers
-async def handle_shutdown_request(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_shutdown_request(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle external shutdown request by setting shutdown event.
     
     This handler responds to external shutdown requests (e.g. from daemon_control)
     by setting the shutdown event. The main daemon wrapper will then call shutdown()
     which performs the coordinated shutdown sequence.
     """
-    from ksi_common.event_parser import extract_system_handler_data
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    clean_data, system_metadata = extract_system_handler_data(raw_data)
     # Get the daemon core instance from the router
     router = get_router()
     if hasattr(router, '_daemon_core') and router._daemon_core:
@@ -372,11 +395,10 @@ async def handle_shutdown_request(raw_data: Dict[str, Any], context: Optional[Di
         )
 
 @event_handler("shutdown:acknowledge")
-async def handle_shutdown_acknowledge(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_shutdown_acknowledge(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle shutdown acknowledgment from a service."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, ShutdownAcknowledgeData)
     
     service_name = data.get("service_name")
     if not service_name:
@@ -393,11 +415,10 @@ async def handle_shutdown_acknowledge(raw_data: Dict[str, Any], context: Optiona
     )
 
 @event_handler("module:list")
-async def handle_list_modules(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_list_modules(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """List all loaded modules."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, ModuleListData)
     router = get_router()
     modules = router.get_modules()
     
@@ -419,11 +440,10 @@ async def handle_list_modules(raw_data: Dict[str, Any], context: Optional[Dict[s
 
 
 @event_handler("module:events")
-async def handle_list_events(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_list_events(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """List all registered events and patterns."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, ModuleEventsData)
     router = get_router()
     events = router.get_events()
     
@@ -439,11 +459,10 @@ async def handle_list_events(raw_data: Dict[str, Any], context: Optional[Dict[st
 
 
 @event_handler("module:inspect")
-async def handle_inspect_module(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_inspect_module(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Inspect a specific module using direct function metadata."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, ModuleInspectData)
     
     router = get_router()
     module_name = data.get("module_name")
@@ -470,11 +489,10 @@ async def handle_inspect_module(raw_data: Dict[str, Any], context: Optional[Dict
 
 
 @event_handler("system:health")
-async def handle_system_health(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_system_health(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """System health check including module status."""
-    from ksi_common.event_parser import extract_system_handler_data
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    clean_data, system_metadata = extract_system_handler_data(raw_data)
     
     import time
     
@@ -513,14 +531,13 @@ class ConfigChangedData(TypedDict):
 
 
 @event_handler("state:entity:updated")
-async def handle_system_state_changed(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_system_state_changed(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle system entity state changes by applying them immediately."""
-    from ksi_common.event_parser import extract_system_handler_data
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    clean_data, system_metadata = extract_system_handler_data(raw_data)
     
-    entity_id = clean_data.get("id")
-    properties = clean_data.get("properties", {})
+    entity_id = data.get("id")
+    properties = data.get("properties", {})
     
     # Only handle system entity changes
     if entity_id != "system":
@@ -544,53 +561,5 @@ async def handle_system_state_changed(raw_data: Dict[str, Any], context: Optiona
     )
 
 
-@event_handler("config:changed")
-async def handle_config_changed(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Handle legacy YAML configuration changes by applying them immediately.
-    
-    DEPRECATED: This handler exists for backward compatibility only.
-    New configuration should use the EAV state system via state:entity:update.
-    """
-    from ksi_common.event_parser import extract_system_handler_data
-    from ksi_common.event_response_builder import event_response_builder
-    clean_data, system_metadata = extract_system_handler_data(raw_data)
-    
-    config_type = clean_data.get("config_type")
-    key = clean_data.get("key")
-    value = clean_data.get("value")
-    
-    logger.warning(f"DEPRECATED: config:changed event received for {config_type}.{key}")
-    logger.info("Use state:entity:update --id system --properties instead")
-    
-    # Handle specific configuration changes that need immediate application
-    if config_type == "daemon":
-        if key.startswith("log_level"):
-            # Apply log level changes immediately
-            await _apply_log_level_change(key, value)
-        # Add more immediate config applications as needed
-    
-    return event_response_builder(
-        {
-            "config_applied": True,
-            "config_type": config_type,
-            "key": key,
-            "deprecated": True
-        },
-        context=context
-    )
-
-
-
-async def _apply_log_level_change(key: str, level: str):
-    """Apply log level configuration change immediately."""
-    try:
-        from ksi_common.logging import set_log_level
-        
-        # Change log level dynamically using stdlib integration
-        set_log_level(level.upper())
-        
-        logger.info(f"Log level changed to {level} immediately")
-        logger.debug("Debug logging is now enabled" if level.upper() == "DEBUG" else "Debug logging disabled")
-            
-    except Exception as e:
-        logger.error(f"Failed to apply log level change: {e}")
+# BREAKING CHANGE: Removed deprecated config:changed handler
+# Use state:entity:update or config:set events instead

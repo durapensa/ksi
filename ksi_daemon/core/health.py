@@ -8,6 +8,7 @@ Migrated to pure event system.
 
 import time
 from typing import Dict, Any, Optional, TypedDict
+from typing_extensions import NotRequired
 
 from ksi_daemon.event_system import event_handler
 from ksi_common.logging import get_bound_logger
@@ -31,21 +32,20 @@ startup_time = None
 class SystemStartupData(TypedDict):
     """System startup configuration."""
     # No specific fields required for health module
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class SystemShutdownData(TypedDict):
     """System shutdown notification."""
     # No specific fields for shutdown
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("system:startup")
-async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_startup(data: SystemStartupData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize health check plugin."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, SystemStartupData)
     
     global startup_time
     startup_time = time.time()
@@ -60,11 +60,10 @@ async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, A
 
 
 @event_handler("system:shutdown")
-async def handle_shutdown(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_shutdown(data: SystemShutdownData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Clean up on shutdown."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, SystemShutdownData)
     
     logger.info("Health module shutting down")
     return event_response_builder(

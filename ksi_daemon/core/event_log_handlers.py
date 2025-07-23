@@ -7,7 +7,7 @@ Bridges between different query interfaces and parameter naming conventions.
 """
 
 from typing import Dict, Any, List, Optional
-from typing_extensions import TypedDict
+from typing_extensions import TypedDict, NotRequired
 
 from ksi_daemon.event_system import event_handler, emit_event, get_router
 from ksi_common.logging import get_bound_logger
@@ -24,23 +24,23 @@ class EventLogQueryData(TypedDict):
     end_time: Optional[str]  # End time for query range (ISO string or timestamp)
     limit: Optional[int]  # Maximum number of results
     offset: Optional[int]  # Pagination offset
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 class EventLogStatsData(TypedDict):
     """Get event log statistics."""
     # No specific fields - returns all statistics
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 class EventLogClearData(TypedDict):
     """Clear the event log (admin operation)."""
     # No specific fields for clear operation
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 @event_handler("event_log:query")
-async def handle_event_log_query(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_event_log_query(data: EventLogQueryData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Query event log - bridges to monitor:get_events with parameter mapping."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, EventLogQueryData)
     # Map observation parameters to monitor parameters
     query = {
         "event_patterns": data.get("event_patterns"),
@@ -85,11 +85,10 @@ async def handle_event_log_query(raw_data: Dict[str, Any], context: Optional[Dic
 
 
 @event_handler("event_log:stats")
-async def handle_event_log_stats(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_event_log_stats(data: EventLogStatsData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get event log statistics."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, EventLogStatsData)
     router = get_router()
     
     if not hasattr(router, 'reference_event_log') or not router.reference_event_log:
@@ -108,11 +107,10 @@ async def handle_event_log_stats(raw_data: Dict[str, Any], context: Optional[Dic
 
 
 @event_handler("event_log:clear")
-async def handle_event_log_clear(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_event_log_clear(data: EventLogClearData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Clear the event log (admin operation)."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, EventLogClearData)
     return event_response_builder(
         {
             "error": "Clear operation not supported for reference event log",

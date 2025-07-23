@@ -33,6 +33,9 @@ class ReferenceEventLogEntry:
     construct_id: Optional[str]
     correlation_id: Optional[str]
     event_id: Optional[str]
+    parent_event_id: Optional[str]  # Parent in event chain
+    root_event_id: Optional[str]    # Original event that started chain
+    event_depth: Optional[int]       # Depth in event chain
     request_id: Optional[str]
     session_id: Optional[str]
     status: Optional[str]
@@ -107,6 +110,9 @@ class ReferenceEventLog:
                     construct_id TEXT,
                     correlation_id TEXT,
                     event_id TEXT,
+                    parent_event_id TEXT,
+                    root_event_id TEXT,
+                    event_depth INTEGER,
                     request_id TEXT,
                     session_id TEXT,
                     status TEXT,
@@ -128,6 +134,29 @@ class ReferenceEventLog:
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_em_correlation ON events_metadata(correlation_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_em_status ON events_metadata(status)")
             
+            # Migration: Add new genealogy columns if they don't exist
+            # Check if columns exist by querying table info
+            cursor = await conn.execute("PRAGMA table_info(events_metadata)")
+            columns = await cursor.fetchall()
+            column_names = {col[1] for col in columns}
+            
+            # Add missing columns
+            if "parent_event_id" not in column_names:
+                logger.info("Adding parent_event_id column to events_metadata")
+                await conn.execute("ALTER TABLE events_metadata ADD COLUMN parent_event_id TEXT")
+            
+            if "root_event_id" not in column_names:
+                logger.info("Adding root_event_id column to events_metadata")
+                await conn.execute("ALTER TABLE events_metadata ADD COLUMN root_event_id TEXT")
+            
+            if "event_depth" not in column_names:
+                logger.info("Adding event_depth column to events_metadata")
+                await conn.execute("ALTER TABLE events_metadata ADD COLUMN event_depth INTEGER")
+            
+            # Create indexes for new columns
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_em_parent_event ON events_metadata(parent_event_id)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_em_root_event ON events_metadata(root_event_id)")
+            
             await conn.commit()
             
         self.db_initialized = True
@@ -136,7 +165,10 @@ class ReferenceEventLog:
                        originator_id: Optional[str] = None,
                        construct_id: Optional[str] = None,
                        correlation_id: Optional[str] = None,
-                       event_id: Optional[str] = None) -> None:
+                       event_id: Optional[str] = None,
+                       parent_event_id: Optional[str] = None,
+                       root_event_id: Optional[str] = None,
+                       event_depth: Optional[int] = None) -> None:
         """
         Log an event with selective payload references.
         
@@ -166,6 +198,9 @@ class ReferenceEventLog:
             construct_id=construct_id,
             correlation_id=correlation_id,
             event_id=event_id,
+            parent_event_id=parent_event_id,
+            root_event_id=root_event_id,
+            event_depth=event_depth,
             request_id=request_id,
             session_id=session_id,
             status=status,
@@ -234,19 +269,13 @@ class ReferenceEventLog:
             # File path
             file_path = date_dir / self.daily_file_name
             
-            # Convert entry to dict for JSON serialization
+            # BREAKING CHANGE: Only write essential fields, metadata goes in _ksi_context
+            # Build the event dict with _ksi_context properly embedded in data
             entry_dict = {
                 "timestamp": entry.timestamp,
                 "event_name": entry.event_name,
-                "originator_id": entry.originator_id,
-                "construct_id": entry.construct_id,
-                "correlation_id": entry.correlation_id,
-                "event_id": entry.event_id,
-                "data": entry.data
+                "data": entry.data  # This already contains _ksi_context from event_system.py
             }
-            
-            # Remove None values
-            entry_dict = {k: v for k, v in entry_dict.items() if v is not None}
             
             # Sanitize data to ensure JSON serializable
             def make_json_serializable(obj, depth=0, visited=None):
@@ -315,14 +344,16 @@ class ReferenceEventLog:
                 INSERT INTO events_metadata (
                     timestamp, event_name, event_type,
                     originator_id, construct_id, correlation_id,
-                    event_id, request_id, session_id,
+                    event_id, parent_event_id, root_event_id, event_depth,
+                    request_id, session_id,
                     status, model, purpose,
                     file_path, file_offset, payload_refs
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 entry.timestamp, entry.event_name, entry.event_type,
                 entry.originator_id, entry.construct_id, entry.correlation_id,
-                entry.event_id, entry.request_id, entry.session_id,
+                entry.event_id, entry.parent_event_id, entry.root_event_id, entry.event_depth,
+                entry.request_id, entry.session_id,
                 entry.status, entry.model, entry.purpose,
                 str(file_path), file_offset, json.dumps(entry.payload_refs)
             ))

@@ -22,45 +22,49 @@ logger = get_bound_logger("correlation", version="1.0.0")
 class SystemStartupData(TypedDict):
     """System startup configuration."""
     # No specific fields required for correlation module
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class CorrelationTraceData(TypedDict):
     """Get a specific correlation trace."""
     correlation_id: Required[str]  # Correlation ID to retrieve trace for
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class CorrelationChainData(TypedDict):
     """Get the full trace chain for a correlation ID."""
     correlation_id: Required[str]  # Correlation ID to retrieve chain for
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class CorrelationTreeData(TypedDict):
     """Get the full trace tree for a correlation ID."""
     correlation_id: Required[str]  # Correlation ID to retrieve tree for
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class CorrelationStatsData(TypedDict):
     """Get correlation tracking statistics."""
     # No specific fields - returns all statistics
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class CorrelationCleanupData(TypedDict):
     """Clean up old correlation traces."""
     max_age_hours: NotRequired[int]  # Maximum age in hours for traces to keep (default: 24)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class CorrelationCurrentData(TypedDict):
     """Get current correlation context."""
     # No specific fields - returns current context
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class SystemShutdownData(TypedDict):
     """System shutdown notification."""
     # No specific fields for shutdown
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 # Module info
 MODULE_INFO = {
@@ -71,11 +75,10 @@ MODULE_INFO = {
 
 
 @event_handler("system:startup")
-async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_startup(data: SystemStartupData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize correlation plugin."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, SystemStartupData)
     
     logger.info("Correlation tracing module started")
     return event_response_builder(
@@ -85,11 +88,10 @@ async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, A
 
 
 @event_handler("correlation:trace")
-async def handle_get_trace(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_get_trace(data: CorrelationTraceData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get a specific correlation trace."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, CorrelationTraceData)
     
     correlation_id = data.get("correlation_id")
     
@@ -127,11 +129,10 @@ async def handle_get_trace(raw_data: Dict[str, Any], context: Optional[Dict[str,
 
 
 @event_handler("correlation:chain")
-async def handle_get_trace_chain(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_get_trace_chain(data: CorrelationChainData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get the full trace chain for a correlation ID."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, CorrelationChainData)
     
     correlation_id = data.get("correlation_id")
     
@@ -168,11 +169,10 @@ async def handle_get_trace_chain(raw_data: Dict[str, Any], context: Optional[Dic
 
 
 @event_handler("correlation:tree")
-async def handle_get_trace_tree(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_get_trace_tree(data: CorrelationTreeData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get the full trace tree for a correlation ID."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, CorrelationTreeData)
     
     correlation_id = data.get("correlation_id")
     
@@ -194,11 +194,10 @@ async def handle_get_trace_tree(raw_data: Dict[str, Any], context: Optional[Dict
 
 
 @event_handler("correlation:stats")
-async def handle_get_stats(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_get_stats(data: CorrelationStatsData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get correlation tracking statistics."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, CorrelationStatsData)
     
     stats = correlation.get_correlation_stats()
     
@@ -211,11 +210,10 @@ async def handle_get_stats(raw_data: Dict[str, Any], context: Optional[Dict[str,
 
 
 @event_handler("correlation:cleanup")
-async def handle_cleanup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_cleanup(data: CorrelationCleanupData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Clean up old correlation traces."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, CorrelationCleanupData)
     
     max_age_hours = data.get("max_age_hours", 24)
     
@@ -236,11 +234,10 @@ async def handle_cleanup(raw_data: Dict[str, Any], context: Optional[Dict[str, A
 
 
 @event_handler("correlation:current")
-async def handle_get_current(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_get_current(data: CorrelationCurrentData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get current correlation context."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, CorrelationCurrentData)
     
     return event_response_builder(
         {
@@ -252,11 +249,10 @@ async def handle_get_current(raw_data: Dict[str, Any], context: Optional[Dict[st
 
 
 @event_handler("system:shutdown")
-async def handle_shutdown(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_shutdown(data: SystemShutdownData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Clean up on shutdown."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, SystemShutdownData)
     
     # Clean up old traces on shutdown
     try:

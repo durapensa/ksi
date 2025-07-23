@@ -27,7 +27,6 @@ from ksi_daemon.event_system import event_handler, shutdown_handler, get_router
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc, numeric_to_iso
-from ksi_common.event_parser import extract_system_handler_data
 from ksi_common.event_response_builder import event_response_builder, success_response, error_response, list_response
 
 
@@ -575,8 +574,9 @@ def initialize_state() -> GraphStateManager:
 # Event Handlers - Clean graph database API
 
 @event_handler("system:context")
-async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
+async def handle_context(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Receive infrastructure context."""
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     if state_manager:
         logger.info("Graph state manager connected to event system")
     else:
@@ -591,7 +591,7 @@ class EntityCreateData(TypedDict):
 
 
 @event_handler("state:entity:create")
-async def handle_entity_create(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_entity_create(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Create a new entity."""
     if not state_manager:
         return error_response(
@@ -599,22 +599,21 @@ async def handle_entity_create(raw_data: Dict[str, Any], context: Optional[Dict[
             context=context
         )
     
-    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
-    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     # Handle properties parameter if it's a JSON string
     from ksi_common.json_utils import parse_json_parameter
-    parse_json_parameter(clean_data, 'properties')
+    parse_json_parameter(data, 'properties')
     
-    entity_type = clean_data.get("type")
+    entity_type = data.get("type")
     if not entity_type:
         return error_response(
             "Entity type is required",
             context=context
         )
     
-    entity_id = clean_data.get("id") or f"{entity_type}_{uuid.uuid4().hex[:8]}"
-    properties = clean_data.get("properties", {})
+    entity_id = data.get("id") or f"{entity_type}_{uuid.uuid4().hex[:8]}"
+    properties = data.get("properties", {})
     
     try:
         entity = await state_manager.create_entity(entity_id, entity_type, properties)
@@ -637,7 +636,7 @@ class EntityUpdateData(TypedDict):
 
 
 @event_handler("state:entity:update")
-async def handle_entity_update(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_entity_update(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Update entity properties."""
     if not state_manager:
         return error_response(
@@ -645,21 +644,20 @@ async def handle_entity_update(raw_data: Dict[str, Any], context: Optional[Dict[
             context=context
         )
     
-    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
-    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     # Handle properties parameter if it's a JSON string
     from ksi_common.json_utils import parse_json_parameter
-    parse_json_parameter(clean_data, 'properties')
+    parse_json_parameter(data, 'properties')
     
-    entity_id = clean_data.get("id")
+    entity_id = data.get("id")
     if not entity_id:
         return error_response(
             "Entity ID is required",
             context=context
         )
     
-    properties = clean_data.get("properties", {})
+    properties = data.get("properties", {})
     
     try:
         success = await state_manager.update_entity(entity_id, properties)
@@ -693,7 +691,7 @@ class EntityDeleteData(TypedDict):
 
 
 @event_handler("state:entity:delete")
-async def handle_entity_delete(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_entity_delete(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Delete an entity."""
     if not state_manager:
         return error_response(
@@ -701,10 +699,9 @@ async def handle_entity_delete(raw_data: Dict[str, Any], context: Optional[Dict[
             context=context
         )
     
-    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
-    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
-    entity_id = clean_data.get("id")
+    entity_id = data.get("id")
     if not entity_id:
         return error_response(
             "Entity ID is required",
@@ -740,7 +737,7 @@ class EntityGetData(TypedDict):
 
 
 @event_handler("state:entity:get")
-async def handle_entity_get(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_entity_get(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get an entity."""
     if not state_manager:
         return error_response(
@@ -748,17 +745,16 @@ async def handle_entity_get(raw_data: Dict[str, Any], context: Optional[Dict[str
             context=context
         )
     
-    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
-    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
-    entity_id = clean_data.get("id")
+    entity_id = data.get("id")
     if not entity_id:
         return error_response(
             "Entity ID is required",
             context=context
         )
     
-    include = clean_data.get("include", ["properties"])
+    include = data.get("include", ["properties"])
     
     try:
         entity = await state_manager.get_entity(entity_id, include=include)
@@ -791,7 +787,7 @@ class EntityQueryData(TypedDict):
 
 
 @event_handler("state:entity:query")
-async def handle_entity_query(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_entity_query(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Query entities."""
     if not state_manager:
         return error_response(
@@ -799,21 +795,20 @@ async def handle_entity_query(raw_data: Dict[str, Any], context: Optional[Dict[s
             context=context
         )
     
-    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
-    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     # Debug logging
-    logger.info(f"Entity query received - type: {clean_data.get('type')}, where: {clean_data.get('where')}")
+    logger.info(f"Entity query received - type: {data.get('type')}, where: {data.get('where')}")
     
     try:
         # Add timeout at handler level too
         entities = await asyncio.wait_for(
             state_manager.query_entities(
-                entity_type=clean_data.get("type"),
-                where=clean_data.get("where"),
-                include=clean_data.get("include", ["properties"]),
-                order_by=clean_data.get("order_by"),
-                limit=clean_data.get("limit")
+                entity_type=data.get("type"),
+                where=data.get("where"),
+                include=data.get("include", ["properties"]),
+                order_by=data.get("order_by"),
+                limit=data.get("limit")
             ),
             timeout=15.0
         )
@@ -846,7 +841,7 @@ class RelationshipCreateData(TypedDict):
 
 
 @event_handler("state:relationship:create")
-async def handle_relationship_create(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_relationship_create(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Create a relationship between entities."""
     if not state_manager:
         return error_response(
@@ -854,16 +849,15 @@ async def handle_relationship_create(raw_data: Dict[str, Any], context: Optional
             context=context
         )
     
-    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
-    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     # Handle metadata parameter if it's a JSON string
     from ksi_common.json_utils import parse_json_parameter
-    parse_json_parameter(clean_data, 'metadata')
+    parse_json_parameter(data, 'metadata')
     
-    from_id = clean_data.get("from_id")
-    to_id = clean_data.get("to_id")
-    relation_type = clean_data.get("relation_type")
+    from_id = data.get("from_id")
+    to_id = data.get("to_id")
+    relation_type = data.get("relation_type")
     
     if not all([from_id, to_id, relation_type]):
         return error_response(
@@ -871,7 +865,7 @@ async def handle_relationship_create(raw_data: Dict[str, Any], context: Optional
             context=context
         )
     
-    metadata = clean_data.get("metadata")
+    metadata = data.get("metadata")
     
     try:
         success = await state_manager.create_relationship(from_id, to_id, relation_type, metadata)
@@ -906,7 +900,7 @@ class RelationshipDeleteData(TypedDict):
 
 
 @event_handler("state:relationship:delete")
-async def handle_relationship_delete(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_relationship_delete(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Delete a relationship."""
     if not state_manager:
         return error_response(
@@ -914,12 +908,11 @@ async def handle_relationship_delete(raw_data: Dict[str, Any], context: Optional
             context=context
         )
     
-    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
-    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
-    from_id = clean_data.get("from_id")
-    to_id = clean_data.get("to_id")
-    relation_type = clean_data.get("relation_type")
+    from_id = data.get("from_id")
+    to_id = data.get("to_id")
+    relation_type = data.get("relation_type")
     
     if not all([from_id, to_id, relation_type]):
         return error_response(
@@ -960,7 +953,7 @@ class RelationshipQueryData(TypedDict):
 
 
 @event_handler("state:relationship:query")
-async def handle_relationship_query(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_relationship_query(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Query relationships."""
     if not state_manager:
         return error_response(
@@ -968,14 +961,13 @@ async def handle_relationship_query(raw_data: Dict[str, Any], context: Optional[
             context=context
         )
     
-    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
-    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     try:
         relationships = await state_manager.query_relationships(
-            from_id=clean_data.get("from_id"),
-            to_id=clean_data.get("to_id"),
-            relation_type=clean_data.get("relation_type")
+            from_id=data.get("from_id"),
+            to_id=data.get("to_id"),
+            relation_type=data.get("relation_type")
         )
         return list_response(
             relationships,
@@ -1001,7 +993,7 @@ class GraphTraverseData(TypedDict):
 
 
 @event_handler("state:graph:traverse")
-async def handle_graph_traverse(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_graph_traverse(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Traverse the graph from an entity following relationships."""
     if not state_manager:
         return error_response(
@@ -1009,20 +1001,19 @@ async def handle_graph_traverse(raw_data: Dict[str, Any], context: Optional[Dict
             context=context
         )
     
-    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
-    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
-    from_id = clean_data.get("from_id")
+    from_id = data.get("from_id")
     if not from_id:
         return error_response(
             "from entity ID is required",
             context=context
         )
     
-    direction = clean_data.get("direction", "outgoing")
-    rel_types = clean_data.get("types", [])
-    depth = min(clean_data.get("depth", 1), 5)  # Limit depth to prevent runaway queries
-    include_entities = clean_data.get("include_entities", False)
+    direction = data.get("direction", "outgoing")
+    rel_types = data.get("types", [])
+    depth = min(data.get("depth", 1), 5)  # Limit depth to prevent runaway queries
+    include_entities = data.get("include_entities", False)
     
     try:
         visited = set()
@@ -1089,7 +1080,7 @@ class EntityBulkCreateData(TypedDict):
 
 
 @event_handler("state:entity:bulk_create")
-async def handle_entity_bulk_create(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_entity_bulk_create(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Create multiple entities in a single operation."""
     if not state_manager:
         return error_response(
@@ -1097,10 +1088,9 @@ async def handle_entity_bulk_create(raw_data: Dict[str, Any], context: Optional[
             context=context
         )
     
-    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
-    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
-    entities = clean_data.get("entities", [])
+    entities = data.get("entities", [])
     if not entities:
         return error_response(
             "entities list is required",
@@ -1146,7 +1136,7 @@ class AggregateCountData(TypedDict):
 
 
 @event_handler("state:aggregate:count")
-async def handle_aggregate_count(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_aggregate_count(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Count entities or relationships with grouping."""
     if not state_manager:
         return error_response(
@@ -1154,18 +1144,17 @@ async def handle_aggregate_count(raw_data: Dict[str, Any], context: Optional[Dic
             context=context
         )
     
-    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
-    clean_data, system_metadata = extract_system_handler_data(raw_data)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
-    target = clean_data.get("target")
+    target = data.get("target")
     if target not in ["entities", "relationships"]:
         return error_response(
             "target must be 'entities' or 'relationships'",
             context=context
         )
     
-    group_by = clean_data.get("group_by")
-    where = clean_data.get("where", {})
+    group_by = data.get("group_by")
+    where = data.get("where", {})
     
     try:
         async with state_manager._get_db() as conn:

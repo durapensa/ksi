@@ -1004,7 +1004,7 @@ class UnifiedHandlerAnalyzer:
 class SystemStartupData(TypedDict):
     """System startup configuration."""
     # No specific fields required for discovery service
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class SystemDiscoverData(TypedDict):
@@ -1016,26 +1016,27 @@ class SystemDiscoverData(TypedDict):
     format_style: NotRequired[Literal['verbose', 'compact', 'ultra_compact', 'mcp']]  # Output format (default: verbose) [CLI:option]
     level: NotRequired[Literal['summary', 'namespace', 'full']]  # Discovery detail level (default: namespace) [CLI:option]
     orchestration_id: NotRequired[str]  # Discover structure of specific orchestration (optional) [CLI:option]
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class SystemHelpData(TypedDict):
     """Get detailed help for a specific event."""
     event: str  # The event name to get help for (required)
     format_style: NotRequired[Literal['verbose', 'compact', 'mcp']]  # Output format (default: verbose)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class SystemShutdownData(TypedDict):
     """System shutdown notification."""
     # No specific fields for shutdown
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("system:startup")
-async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_startup(data: SystemStartupData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize discovery service."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, SystemStartupData)
     
     logger.info("Discovery service started")
     return event_response_builder(
@@ -1045,11 +1046,10 @@ async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, A
 
 
 @event_handler("system:discover")
-async def handle_discover(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_discover(data: SystemDiscoverData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Universal discovery endpoint - everything you need to understand KSI."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, SystemDiscoverData)
     include_detail = data.get("detail", False)
     namespace_filter = data.get("namespace")
     event_filter = data.get("event")
@@ -1197,11 +1197,10 @@ async def handle_discover(raw_data: Dict[str, Any], context: Optional[Dict[str, 
 
 
 @event_handler("system:help")
-async def handle_help(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_help(data: SystemHelpData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get detailed help for a specific event."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, SystemHelpData)
     event_name = data.get("event")
     if not event_name:
         return error_response(
@@ -1269,11 +1268,10 @@ async def handle_help(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]
 
 
 @event_handler("system:shutdown")
-async def handle_shutdown(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_shutdown(data: SystemShutdownData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Clean shutdown."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, SystemShutdownData)
     
     logger.info("Discovery service stopped")
     return event_response_builder(
