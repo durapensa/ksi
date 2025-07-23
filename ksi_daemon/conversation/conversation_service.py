@@ -15,7 +15,6 @@ import hashlib
 
 from ksi_common.config import config
 from ksi_common import parse_iso_timestamp, filename_timestamp, display_timestamp, utc_to_local
-from ksi_common.event_parser import event_format_linter
 from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_daemon.event_system import event_handler
 from ksi_common.logging import get_bound_logger
@@ -66,6 +65,7 @@ class ConversationActiveData(TypedDict):
     """Type-safe data for conversation:active."""
     max_lines: NotRequired[int]
     max_age_hours: NotRequired[int]
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 def ensure_directories():
@@ -699,9 +699,9 @@ async def handle_conversation_stats(data: ConversationStatsData) -> Dict[str, An
 
 
 @event_handler("conversation:active")
-async def handle_active_conversations(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_active_conversations(data: ConversationActiveData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Find active conversations from recent COMPLETION_RESULT messages."""
-    data = event_format_linter(raw_data, dict)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     try:
         # Parameters

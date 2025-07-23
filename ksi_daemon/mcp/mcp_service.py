@@ -7,17 +7,26 @@ to agents through the Model Context Protocol.
 """
 
 import asyncio
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, TypedDict
+from typing_extensions import NotRequired
 
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
-from ksi_common.event_parser import event_format_linter
+# Removed event_format_linter import - BREAKING CHANGE: Direct TypedDict access
 from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_daemon.event_system import event_handler, shutdown_handler, get_router
 
 from .dynamic_server import KSIDynamicMCPServer
 
 logger = get_bound_logger("mcp_service")
+
+
+# TypedDict definitions for event handlers
+
+class MCPClearSessionsData(TypedDict):
+    """Clear MCP session cache for specific agent or all."""
+    agent_id: NotRequired[str]  # Specific agent ID to clear sessions for (optional)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 # Module state
 mcp_server: Optional[KSIDynamicMCPServer] = None
@@ -137,9 +146,9 @@ async def handle_mcp_status(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("mcp:clear_sessions")
-async def handle_clear_sessions(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_clear_sessions(data: MCPClearSessionsData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Clear MCP session cache for specific agent or all."""
-    data = event_format_linter(raw_data, dict)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     if not mcp_server:
         return error_response("MCP server not running", context)

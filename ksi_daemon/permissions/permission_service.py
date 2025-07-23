@@ -22,7 +22,7 @@ from ksi_common.sandbox_manager import (
 )
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
-from ksi_common.event_parser import event_format_linter
+# Removed event_format_linter import - BREAKING CHANGE: Direct TypedDict access
 from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_daemon.event_system import event_handler
 
@@ -36,15 +36,14 @@ sandbox_manager: Optional[SandboxManager] = None
 class SystemStartupData(TypedDict):
     """System startup configuration."""
     # No specific fields required for this handler
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("system:startup")
-async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_startup(data: SystemStartupData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize the permission service."""
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     global permission_manager, sandbox_manager
-    
-    data = event_format_linter(raw_data, SystemStartupData)
     
     logger.info("Initializing permission service")
     
@@ -66,10 +65,11 @@ async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, A
 class PermissionGetProfileData(TypedDict):
     """Get details of a specific permission profile."""
     level: Required[str]  # Permission level/profile name (restricted, standard, trusted, researcher)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("permission:get_profile")
-async def handle_get_profile(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_get_profile(data: PermissionGetProfileData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get details of a specific permission profile.
     
     Args:
@@ -78,7 +78,7 @@ async def handle_get_profile(raw_data: Dict[str, Any], context: Optional[Dict[st
     Returns:
         profile: The permission profile details
     """
-    data = event_format_linter(raw_data, PermissionGetProfileData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     level = data.get("level")
     if not level:
@@ -99,10 +99,11 @@ class PermissionSetAgentData(TypedDict):
     profile: NotRequired[str]  # Base profile to use (default: restricted)
     permissions: NotRequired[Dict[str, Any]]  # Full permission object
     overrides: NotRequired[Dict[str, Any]]  # Permission overrides to apply
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("permission:set_agent")
-async def handle_set_agent_permissions(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_set_agent_permissions(data: PermissionSetAgentData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Set permissions for an agent.
     
     Args:
@@ -115,7 +116,7 @@ async def handle_set_agent_permissions(raw_data: Dict[str, Any], context: Option
         agent_id: The agent ID
         permissions: The applied permissions
     """
-    data = event_format_linter(raw_data, PermissionSetAgentData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     agent_id = data.get("agent_id")
     if not agent_id:
@@ -224,10 +225,11 @@ class PermissionValidateSpawnData(TypedDict):
     """Validate if originator can spawn construct with given permissions."""
     originator_id: Required[str]  # The originating agent ID
     construct_permissions: Required[Dict[str, Any]]  # The requested permissions for the construct agent
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("permission:validate_spawn")
-async def handle_validate_spawn(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_validate_spawn(data: PermissionValidateSpawnData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Validate if originator can spawn construct with given permissions.
     
     Args:
@@ -238,7 +240,7 @@ async def handle_validate_spawn(raw_data: Dict[str, Any], context: Optional[Dict
         valid: Whether the spawn is allowed
         originator_id: The originating agent ID
     """
-    data = event_format_linter(raw_data, PermissionValidateSpawnData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     originator_id = data.get("originator_id")
     construct_permissions = data.get("construct_permissions")
@@ -262,10 +264,11 @@ async def handle_validate_spawn(raw_data: Dict[str, Any], context: Optional[Dict
 class PermissionGetAgentData(TypedDict):
     """Get permissions for a specific agent."""
     agent_id: Required[str]  # The agent ID to query permissions for
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("permission:get_agent")
-async def handle_get_agent_permissions(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_get_agent_permissions(data: PermissionGetAgentData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get permissions for a specific agent.
     
     Args:
@@ -275,7 +278,7 @@ async def handle_get_agent_permissions(raw_data: Dict[str, Any], context: Option
         agent_id: The agent ID
         permissions: The agent's permissions
     """
-    data = event_format_linter(raw_data, PermissionGetAgentData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     agent_id = data.get("agent_id")
     if not agent_id:
@@ -294,10 +297,11 @@ async def handle_get_agent_permissions(raw_data: Dict[str, Any], context: Option
 class PermissionRemoveAgentData(TypedDict):
     """Remove permissions for an agent."""
     agent_id: Required[str]  # The agent ID to remove permissions for
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("permission:remove_agent")
-async def handle_remove_agent_permissions(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_remove_agent_permissions(data: PermissionRemoveAgentData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Remove permissions for an agent.
     
     Args:
@@ -307,7 +311,7 @@ async def handle_remove_agent_permissions(raw_data: Dict[str, Any], context: Opt
         agent_id: The agent ID
         status: Removal status (removed)
     """
-    data = event_format_linter(raw_data, PermissionRemoveAgentData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     agent_id = data.get("agent_id")
     if not agent_id:
@@ -324,17 +328,17 @@ async def handle_remove_agent_permissions(raw_data: Dict[str, Any], context: Opt
 class PermissionListProfilesData(TypedDict):
     """List available permission profiles."""
     # No specific fields - returns all profiles
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("permission:list_profiles")
-async def handle_list_profiles(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_list_profiles(data: PermissionListProfilesData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """List available permission profiles.
     
     Returns:
         profiles: Dictionary containing all permission profiles with their tools and capabilities
     """
-    data = event_format_linter(raw_data, PermissionListProfilesData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     profiles = {}
     for level, profile in permission_manager.profiles.items():
@@ -363,10 +367,11 @@ class SandboxCreateData(TypedDict):
     """Create a new sandbox for an agent."""
     agent_id: Required[str]  # The agent ID
     config: NotRequired[SandboxCreateConfig]  # Sandbox configuration
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("sandbox:create")
-async def handle_create_sandbox(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_create_sandbox(data: SandboxCreateData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Create a new sandbox for an agent.
     
     Args:
@@ -382,7 +387,7 @@ async def handle_create_sandbox(raw_data: Dict[str, Any], context: Optional[Dict
         agent_id: The agent ID
         sandbox: The created sandbox details
     """
-    data = event_format_linter(raw_data, SandboxCreateData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     agent_id = data.get("agent_id")
     if not agent_id:
@@ -412,10 +417,11 @@ async def handle_create_sandbox(raw_data: Dict[str, Any], context: Optional[Dict
 class SandboxGetData(TypedDict):
     """Get sandbox information for an agent."""
     agent_id: Required[str]  # The agent ID
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("sandbox:get")
-async def handle_get_sandbox(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_get_sandbox(data: SandboxGetData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get sandbox information for an agent.
     
     Args:
@@ -425,7 +431,7 @@ async def handle_get_sandbox(raw_data: Dict[str, Any], context: Optional[Dict[st
         agent_id: The agent ID
         sandbox: The sandbox details
     """
-    data = event_format_linter(raw_data, SandboxGetData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     agent_id = data.get("agent_id")
     if not agent_id:
@@ -445,10 +451,11 @@ class SandboxRemoveData(TypedDict):
     """Remove an agent's sandbox."""
     agent_id: Required[str]  # The agent ID
     force: NotRequired[bool]  # Force removal even with nested children (default: false)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("sandbox:remove")
-async def handle_remove_sandbox(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_remove_sandbox(data: SandboxRemoveData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Remove an agent's sandbox.
     
     Args:
@@ -459,7 +466,7 @@ async def handle_remove_sandbox(raw_data: Dict[str, Any], context: Optional[Dict
         agent_id: The agent ID
         removed: Whether the sandbox was removed
     """
-    data = event_format_linter(raw_data, SandboxRemoveData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     agent_id = data.get("agent_id")
     if not agent_id:
@@ -477,18 +484,18 @@ async def handle_remove_sandbox(raw_data: Dict[str, Any], context: Optional[Dict
 class SandboxListData(TypedDict):
     """List all active sandboxes."""
     # No specific fields - returns all sandboxes
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("sandbox:list")
-async def handle_list_sandboxes(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_list_sandboxes(data: SandboxListData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """List all active sandboxes.
     
     Returns:
         sandboxes: List of active sandbox details
         count: Total number of sandboxes
     """
-    data = event_format_linter(raw_data, SandboxListData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     sandboxes = sandbox_manager.list_sandboxes()
     
@@ -501,17 +508,17 @@ async def handle_list_sandboxes(raw_data: Dict[str, Any], context: Optional[Dict
 class SandboxStatsData(TypedDict):
     """Get sandbox statistics."""
     # No specific fields - returns overall stats
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("sandbox:stats")
-async def handle_sandbox_stats(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_sandbox_stats(data: SandboxStatsData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get sandbox statistics.
     
     Returns:
         stats: Sandbox usage statistics
     """
-    data = event_format_linter(raw_data, SandboxStatsData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     stats = sandbox_manager.get_sandbox_stats()
     return event_response_builder({"stats": stats}, context)

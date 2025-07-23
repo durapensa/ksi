@@ -344,50 +344,52 @@ class TransformerLoadPatternData(TypedDict):
     pattern: Required[str]  # Name of the pattern to load
     source: NotRequired[str]  # System requesting the load (default: 'unknown')
     force_reload: NotRequired[bool]  # Force reload even if already loaded (default: False)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class TransformerUnloadPatternData(TypedDict):
     """Unload transformers from a pattern."""
     pattern: Required[str]  # Name of the pattern to unload
     source: NotRequired[str]  # System requesting the unload (default: 'unknown')
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class TransformerReloadPatternData(TypedDict):
     """Reload transformers from a pattern file."""
     pattern: Required[str]  # Name of the pattern to reload
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class TransformerListByPatternData(TypedDict):
     """List all loaded patterns and their transformers."""
     # No specific fields - returns all loaded patterns
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class TransformerGetUsageData(TypedDict):
     """Get usage information - which systems use which patterns."""
     # No specific fields - returns all usage information
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class SystemStartupData(TypedDict):
     """System startup configuration."""
     # No specific fields required for transformer service
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class SystemShutdownData(TypedDict):
     """System shutdown notification."""
     # No specific fields for shutdown
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 # Event handlers
 @event_handler("transformer:load_pattern")
-async def handle_load_pattern(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_load_pattern(data: TransformerLoadPatternData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Load transformers from a pattern file."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, TransformerLoadPatternData)
     
     pattern_name = data.get('pattern')
     source_system = data.get('source', 'unknown')
@@ -407,11 +409,10 @@ async def handle_load_pattern(raw_data: Dict[str, Any], context: Optional[Dict[s
 
 
 @event_handler("transformer:unload_pattern") 
-async def handle_unload_pattern(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_unload_pattern(data: TransformerUnloadPatternData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Unload transformers from a pattern."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, TransformerUnloadPatternData)
     
     pattern_name = data.get('pattern')
     source_system = data.get('source', 'unknown')
@@ -430,11 +431,10 @@ async def handle_unload_pattern(raw_data: Dict[str, Any], context: Optional[Dict
 
 
 @event_handler("transformer:reload_pattern")
-async def handle_reload_pattern(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_reload_pattern(data: TransformerReloadPatternData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Reload transformers from a pattern file."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, TransformerReloadPatternData)
     
     pattern_name = data.get('pattern')
     
@@ -452,11 +452,10 @@ async def handle_reload_pattern(raw_data: Dict[str, Any], context: Optional[Dict
 
 
 @event_handler("transformer:list_by_pattern")
-async def handle_list_by_pattern(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_list_by_pattern(data: TransformerListByPatternData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """List all loaded patterns and their transformers."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, TransformerListByPatternData)
     
     result = transformer_service.list_loaded_patterns()
     return event_response_builder(
@@ -466,11 +465,10 @@ async def handle_list_by_pattern(raw_data: Dict[str, Any], context: Optional[Dic
 
 
 @event_handler("transformer:get_usage")
-async def handle_get_usage(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_get_usage(data: TransformerGetUsageData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get usage information - which systems use which patterns."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, TransformerGetUsageData)
     
     result = transformer_service.get_usage_info()
     return event_response_builder(
@@ -480,11 +478,10 @@ async def handle_get_usage(raw_data: Dict[str, Any], context: Optional[Dict[str,
 
 
 @event_handler("system:startup")
-async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_startup(data: SystemStartupData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize transformer service on startup."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, SystemStartupData)
     
     logger.info("Transformer service started - ready for pattern-based transformer loading")
     
@@ -503,11 +500,10 @@ async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, A
 
 
 @event_handler("system:shutdown")
-async def handle_shutdown(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_shutdown(data: SystemShutdownData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Clean up on shutdown."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, SystemShutdownData)
     
     # Unload all patterns
     for pattern_name in list(transformer_service._loaded_patterns.keys()):

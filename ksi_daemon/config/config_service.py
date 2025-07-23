@@ -98,11 +98,10 @@ CONFIG_TYPES = {
 
 
 @event_handler("system:context")
-async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_context(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Receive infrastructure from daemon context."""
-    from ksi_common.event_parser import extract_system_handler_data
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    clean_data, system_metadata = extract_system_handler_data(raw_data)
     
     # Ensure backup directory exists
     CONFIG_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
@@ -237,11 +236,10 @@ def _create_config_backup(file_path: Path, backup_name: Optional[str] = None) ->
 
 
 @event_handler("config:get")
-async def handle_get(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_get(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get configuration value or entire config file."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, ConfigGetData)
     key = data.get("key", "")
     config_type = data.get("config_type", "daemon")
     file_path = data.get("file_path")
@@ -300,11 +298,10 @@ async def handle_get(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]]
 
 
 @event_handler("config:set")
-async def handle_set(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_set(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Set configuration value with automatic backup."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, ConfigSetData)
     key = data.get("key", "")
     value = data.get("value")
     config_type = data.get("config_type", "daemon")
@@ -433,11 +430,10 @@ async def handle_set(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]]
 
 
 @event_handler("config:validate")
-async def handle_validate(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_validate(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Validate configuration file syntax and schema."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, ConfigValidateData)
     config_type = data.get("config_type", "daemon")
     file_path = data.get("file_path")
     schema_path = data.get("schema_path")
@@ -523,11 +519,10 @@ async def handle_validate(raw_data: Dict[str, Any], context: Optional[Dict[str, 
 
 
 @event_handler("config:reload")
-async def handle_reload(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_reload(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Reload configuration components."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, ConfigReloadData)
     component = data.get("component", "all")
     
     try:
@@ -565,11 +560,10 @@ async def handle_reload(raw_data: Dict[str, Any], context: Optional[Dict[str, An
 
 
 @event_handler("config:backup")
-async def handle_backup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_backup(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Create manual backup of configuration."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, ConfigBackupData)
     config_type = data.get("config_type", "")
     file_path = data.get("file_path")
     backup_name = data.get("backup_name")
@@ -604,11 +598,10 @@ async def handle_backup(raw_data: Dict[str, Any], context: Optional[Dict[str, An
 
 
 @event_handler("config:rollback")
-async def handle_rollback(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_rollback(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Rollback configuration to previous backup."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, ConfigRollbackData)
     config_type = data.get("config_type", "")
     file_path = data.get("file_path")
     backup_name = data.get("backup_name")

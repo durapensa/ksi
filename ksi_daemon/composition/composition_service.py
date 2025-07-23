@@ -89,15 +89,19 @@ class SelectionResult:
 # Event Handlers
 
 @event_handler("system:context")
-async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
+async def handle_context(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Receive infrastructure from daemon context."""
-    from ksi_common.event_parser import event_format_linter
-    data = event_format_linter(raw_data, dict)  # Simple dict for context handler
+    # PYTHONIC CONTEXT REFACTOR: Use system registry for components
     global state_manager, event_emitter
     
-    state_manager = data.get("state_manager")
-    router = get_router()
-    event_emitter = router.emit if router else None
+    if data.get("registry_available"):
+        from ksi_daemon.core.system_registry import SystemRegistry
+        state_manager = SystemRegistry.get("state_manager")
+        event_emitter = SystemRegistry.get("event_emitter")
+    else:
+        # Fallback to router
+        router = get_router()
+        event_emitter = router.emit if router else None
     
     if state_manager:
         logger.info("Composition service connected to state manager")
@@ -106,11 +110,10 @@ async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, A
 
 
 @event_handler("system:startup")
-async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize composition service on startup."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, dict)  # Simple dict for startup
     logger.info("Composition service starting up...")
     
     # Ensure directories exist
@@ -129,8 +132,9 @@ async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, A
 
 
 @event_handler("system:shutdown")
-async def handle_shutdown(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
+async def handle_shutdown(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Clean up on shutdown."""
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     logger.info("Composition service shutting down")
 
 
@@ -139,10 +143,11 @@ class CompositionComposeData(TypedDict):
     name: str  # Component name (e.g., "components/agents/hello_agent", "base_single_agent")
     type: NotRequired[str]  # Optional type hint (inferred from component if not specified)
     variables: NotRequired[Dict[str, Any]]  # Variables for substitution
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("composition:compose")
-async def handle_compose(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_compose(data: CompositionComposeData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Universal composition endpoint - composes any component type.
     
     The component's type field is used as a hint for composition behavior,
@@ -153,9 +158,8 @@ async def handle_compose(raw_data: Dict[str, Any], context: Optional[Dict[str, A
     - composition:profile (removed)
     - composition:prompt (removed)
     """
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, CompositionComposeData)
     name = data.get('name')
     comp_type = data.get('type', 'profile')
     variables = data.get('variables', {})
@@ -184,14 +188,14 @@ class CompositionValidateData(TypedDict):
     """Validate a composition structure and syntax."""
     name: str  # Composition name to validate
     type: NotRequired[str]  # Composition type
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("composition:validate")
-async def handle_validate(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_validate(data: CompositionValidateData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Validate a composition structure and syntax (like a linter)."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, CompositionValidateData)
     name = data.get('name')
     comp_type = data.get('type')
     
@@ -249,14 +253,14 @@ class CompositionEvaluateData(TypedDict):
     test_suite: str  # Test suite that was run
     model: NotRequired[str]  # Model used for testing
     test_options: NotRequired[Dict[str, Any]]  # Test results and metrics
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("composition:evaluate")
-async def handle_evaluate(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_evaluate(data: CompositionEvaluateData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Process evaluation results for a composition (in-memory only)."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, CompositionEvaluateData)
     name = data['name']  # Composition to evaluate
     comp_type = data.get('type')  # Composition type
     test_suite = data['test_suite']  # Test suite that was run
@@ -368,14 +372,14 @@ class CompositionSaveData(TypedDict):
     """Save a composition to disk with git commit."""
     composition: Required[Dict[str, Any]]  # Complete composition object or dict
     overwrite: NotRequired[bool]  # Replace existing file if True
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("composition:save")
-async def handle_save_composition(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_save_composition(data: CompositionSaveData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Save a composition to disk."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, CompositionSaveData)
     try:
         comp_data = data.get('composition')  # Complete composition object or dict
         if not comp_data:
@@ -431,12 +435,20 @@ async def handle_save_composition(raw_data: Dict[str, Any], context: Optional[Di
         )
 
 
-@event_handler("composition:update")
-async def handle_update_composition(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+class CompositionUpdateData(TypedDict):
     """Update an existing composition's properties or metadata."""
-    from ksi_common.event_parser import event_format_linter
+    name: Required[str]  # Composition name to update
+    type: NotRequired[str]  # Composition type (defaults to 'profile')
+    updates: NotRequired[Dict[str, Any]]  # Properties to update (metadata, version, etc)
+    merge_metadata: NotRequired[bool]  # Merge vs replace metadata (defaults to True)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
+
+
+@event_handler("composition:update")
+async def handle_update_composition(data: CompositionUpdateData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Update an existing composition's properties or metadata."""
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, dict)  # Using dict for flexible update operations
     try:
         name = data.get('name')  # Composition name to update
         if not name:
@@ -525,14 +537,14 @@ class CompositionDiscoverData(TypedDict):
     metadata_filter: NotRequired[Dict[str, Any]]  # Filter by metadata
     include_metadata: NotRequired[bool]  # Include full metadata in response
     limit: NotRequired[int]  # Limit number of results (default: no limit)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("composition:discover")
-async def handle_discover(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_discover(data: CompositionDiscoverData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Discover available compositions using index."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, CompositionDiscoverData)
     try:
         logger.debug(f"composition:discover received data: {data}")
         logger.debug(f"composition:discover type parameter: {data.get('type', 'NOT SET')}")
@@ -580,21 +592,19 @@ class CompositionListData(TypedDict):
     metadata_filter: NotRequired[Dict[str, Any]]  # Filter by metadata
     evaluation_detail: NotRequired[Literal['none', 'minimal', 'summary', 'detailed']]  # Evaluation detail level
     filter: NotRequired[Union[str, Dict[str, Any]]]  # JSON string filter from CLI or dict
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("composition:list")
-async def handle_list(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_list(data: CompositionListData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """List all compositions of a given type."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
     from ksi_common.json_utils import parse_json_parameter
     
-    # Debug raw data first
+    # Debug data first
     logger.info(f"composition:list TESTING INFO LOG LEVEL")
-    logger.debug(f"composition:list RAW DATA: {raw_data}")
-    
-    data = event_format_linter(raw_data, CompositionListData)
-    logger.debug(f"composition:list AFTER event_format_linter: {data}")
+    logger.debug(f"composition:list DATA: {data}")
     
     # Handle filter parameter if it's a JSON string
     parse_json_parameter(data, 'filter')
@@ -692,14 +702,14 @@ class CompositionGetData(TypedDict):
     """Get a composition definition."""
     name: str  # Composition name to get
     type: NotRequired[str]  # Composition type
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("composition:get")
-async def handle_get(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_get(data: CompositionGetData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get a composition definition with all sections preserved."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, CompositionGetData)
     name = data.get('name')
     comp_type = data.get('type')
     
@@ -740,15 +750,23 @@ async def handle_get(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]]
         )
 
 
+class CompositionSyncData(TypedDict):
+    """Synchronize composition submodules with remote repositories."""
+    component_type: NotRequired[str]  # Optional: sync specific component
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
+
+
+class CompositionGitInfoData(TypedDict):
+    """Get information about git repositories for composition submodules."""
+    component_type: NotRequired[str]  # Optional: get info for specific component
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("composition:sync")
-async def handle_sync_compositions(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_sync_compositions(data: CompositionSyncData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Synchronize composition submodules with remote repositories."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    
-    data = event_format_linter(raw_data, dict)
     component_type = data.get('component_type')  # Optional: sync specific component
     
     try:
@@ -776,12 +794,10 @@ async def handle_sync_compositions(raw_data: Dict[str, Any], context: Optional[D
 
 
 @event_handler("composition:git_info")
-async def handle_git_info(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_git_info(data: CompositionGitInfoData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get information about git repositories for composition submodules."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    
-    data = event_format_linter(raw_data, dict)
     component_type = data.get('component_type')  # Optional: get info for specific component
     
     try:
@@ -826,9 +842,21 @@ async def handle_git_info(raw_data: Dict[str, Any], context: Optional[Dict[str, 
         return error_response(str(e), context)
 
 
+class CompositionReloadData(TypedDict):
+    """Rebuild the composition index by scanning all composition files."""
+    # No specific fields - rebuilds entire index
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
+
+
+class CompositionIndexFileData(TypedDict):
+    """Index a specific composition file."""
+    file_path: Required[str]  # Path to the composition file to index
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
+
+
 @event_handler("composition:rebuild_index")
 @event_handler("composition:reload")  # Alias for backward compatibility
-async def handle_rebuild_index(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_rebuild_index(data: CompositionReloadData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Rebuild the composition index by scanning all composition files.
     
     This performs a full rebuild:
@@ -842,9 +870,8 @@ async def handle_rebuild_index(raw_data: Dict[str, Any], context: Optional[Dict[
     - Recovering from index corruption
     - Bulk imports of composition files
     """
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, dict)  # Simple dict for rebuild operations
     try:
         indexed_count = await composition_index.rebuild()
         
@@ -870,11 +897,10 @@ async def handle_rebuild_index(raw_data: Dict[str, Any], context: Optional[Dict[
 
 
 @event_handler("composition:index_file")
-async def handle_index_file(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_index_file(data: CompositionIndexFileData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Index a specific composition file."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, dict)  # Simple dict for file operations
     file_path = data.get('file_path')
     if not file_path:
         return error_response(
@@ -900,12 +926,24 @@ async def handle_index_file(raw_data: Dict[str, Any], context: Optional[Dict[str
         )
 
 
-@event_handler("composition:select")
-async def handle_select_composition(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+class CompositionSelectData(TypedDict):
     """Select the best composition for given context using intelligent scoring."""
-    from ksi_common.event_parser import event_format_linter
+    agent_id: NotRequired[str]  # Agent ID (defaults to 'unknown')
+    role: NotRequired[str]  # Agent role
+    capabilities: NotRequired[List[str]]  # Agent capabilities
+    task: NotRequired[str]  # Task description
+    style: NotRequired[str]  # Preferred style
+    context: NotRequired[Dict[str, Any]]  # Context variables
+    requirements: NotRequired[Dict[str, Any]]  # Requirements
+    max_suggestions: NotRequired[int]  # Maximum number of suggestions (default: 1)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
+
+
+@event_handler("composition:select")
+async def handle_select_composition(data: CompositionSelectData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Select the best composition for given context using intelligent scoring."""
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, dict)  # Simple dict for selection operations
     try:
         # Build selection context from request data
         selection_context = SelectionContext(
@@ -966,11 +1004,13 @@ class CompositionCreateBase(TypedDict):
     author: NotRequired[str]
     metadata: NotRequired[Dict[str, Any]]
     overwrite: NotRequired[bool]  # For save operations
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class CompositionCreateWithContent(CompositionCreateBase):
     """Create composition from full content."""
     content: Required[Dict[str, Any]]  # Full composition structure
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class CompositionCreateProfile(CompositionCreateBase):
@@ -981,6 +1021,7 @@ class CompositionCreateProfile(CompositionCreateBase):
     tools: NotRequired[List[str]]
     role: NotRequired[str]
     prompt: NotRequired[str]  # Optional prompt component
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class CompositionCreatePrompt(CompositionCreateBase):
@@ -988,6 +1029,7 @@ class CompositionCreatePrompt(CompositionCreateBase):
     type: Required[Literal['prompt']]
     content: Required[str]  # The prompt text
     category: NotRequired[str]  # Categorization for prompts
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 # Union type for all composition creation variants
@@ -1010,13 +1052,12 @@ class CompositionResult(TypedDict):
 
 
 @event_handler("composition:create")
-async def handle_create_composition(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_create_composition(data: CompositionCreateData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Create and save a composition."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
     
     try:
-        data = event_format_linter(raw_data, CompositionCreateData)
         
         # Handle metadata parameter if it's a JSON string
         from ksi_common.json_utils import parse_json_parameter
@@ -1578,12 +1619,14 @@ class ComponentCreateData(TypedDict):
     description: NotRequired[str]  # Component description
     metadata: NotRequired[Dict[str, Any]]  # Additional metadata
     overwrite: NotRequired[bool]  # Replace if exists
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class ComponentGetData(TypedDict):
     """Get a component with its content."""
     name: Required[str]  # Component name/path
     type: NotRequired[Literal['component', 'template', 'instruction']]  # Default: component
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class ComponentForkData(TypedDict):
@@ -1592,6 +1635,7 @@ class ComponentForkData(TypedDict):
     name: Required[str]  # New component name/path
     modifications: NotRequired[str]  # Modified content (if not provided, copies parent)
     reason: NotRequired[str]  # Reason for forking
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class ComponentUpdateData(TypedDict):
@@ -1600,16 +1644,16 @@ class ComponentUpdateData(TypedDict):
     content: Required[str]  # New content
     type: NotRequired[Literal['component', 'template', 'instruction']]  # Default: component
     message: NotRequired[str]  # Git commit message
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("composition:create_component")
-async def handle_create_component(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_create_component(data: ComponentCreateData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Create a component (fragment/template) with content preserved."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
     
     try:
-        data = event_format_linter(raw_data, ComponentCreateData)
         
         name = _normalize_component_name(data['name'])
         content = data['content']
@@ -1702,13 +1746,12 @@ async def handle_create_component(raw_data: Dict[str, Any], context: Optional[Di
 
 
 @event_handler("composition:get_component")
-async def handle_get_component(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_get_component(data: ComponentGetData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get a component with its content."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
     
     try:
-        data = event_format_linter(raw_data, ComponentGetData)
         
         name = normalize_composition_name(data['name'])
         comp_type = data.get('type', 'component')
@@ -1767,6 +1810,7 @@ class ComponentRenderData(TypedDict):
     name: str  # Component name to render
     variables: NotRequired[Dict[str, Any]]  # Variables for substitution
     include_metadata: NotRequired[bool]  # Include metadata in response
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class CompositionInspectData(TypedDict):
@@ -1774,17 +1818,16 @@ class CompositionInspectData(TypedDict):
     component: Required[str]  # Component name to inspect (e.g., "orchestrations/optimization/hybrid_marketplace")
     variables: NotRequired[Dict[str, Any]]  # Variables for conditional dependency resolution
     output_format: NotRequired[Literal['tree', 'json', 'summary']]  # Output format (default: tree)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("composition:render_component")
-async def handle_render_component(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_render_component(data: ComponentRenderData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Render a component with full mixin resolution and variable substitution."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
     
     try:
-        data = event_format_linter(raw_data, ComponentRenderData)
-        
         name = _normalize_component_name(data['name'])
         variables = data.get('variables', {})
         include_metadata = data.get('include_metadata', False)
@@ -1829,14 +1872,12 @@ async def handle_render_component(raw_data: Dict[str, Any], context: Optional[Di
 
 
 @event_handler("composition:inspect")
-async def handle_inspect(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_inspect(data: CompositionInspectData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Inspect a component and return its dependency tree."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
     
     try:
-        data = event_format_linter(raw_data, CompositionInspectData)
-        
         component_name = data['component']
         variables = data.get('variables', {})
         output_format = data.get('output_format', 'tree')
@@ -1956,13 +1997,12 @@ def _format_dependency_tree(tree: Dict[str, Any], indent: int = 0) -> str:
 
 
 @event_handler("composition:fork_component")
-async def handle_fork_component(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_fork_component(data: ComponentForkData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Fork a component to create a variant."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
     
     try:
-        data = event_format_linter(raw_data, ComponentForkData)
         
         # Get parent component
         parent_result = await handle_get_component({
@@ -1996,13 +2036,12 @@ async def handle_fork_component(raw_data: Dict[str, Any], context: Optional[Dict
 
 
 @event_handler("composition:update_component") 
-async def handle_update_component(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_update_component(data: ComponentUpdateData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Update an existing component."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
     
     try:
-        data = event_format_linter(raw_data, ComponentUpdateData)
         
         # Check if exists
         get_result = await handle_get_component({
@@ -2037,15 +2076,14 @@ class CompositionForkData(TypedDict):
     reason: Required[str]  # Reason for forking
     modifications: NotRequired[Dict[str, Any]]  # Initial modifications
     author: NotRequired[str]  # Defaults to agent_id
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("composition:fork")
-async def handle_fork_composition(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_fork_composition(data: CompositionForkData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Fork a composition to create a variant with git-based lineage tracking."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    
-    data = event_format_linter(raw_data, CompositionForkData)
     parent_name = data.get('parent')
     new_name = data.get('name')
     fork_reason = data.get('reason', 'Experimental variant')
@@ -2110,15 +2148,14 @@ class CompositionMergeData(TypedDict):
     strategy: Required[Literal['selective', 'full', 'metadata_only']]
     improvements: NotRequired[List[str]]  # List of improvements
     validation_results: NotRequired[Dict[str, Any]]  # Evaluation results
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("composition:merge")
-async def handle_merge_composition(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_merge_composition(data: CompositionMergeData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Merge improvements from a forked composition back to parent."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    
-    data = event_format_linter(raw_data, CompositionMergeData)
     source_name = data.get('source')
     target_name = data.get('target')
     strategy = data.get('strategy', 'selective')
@@ -2202,15 +2239,14 @@ class CompositionAgentContextData(TypedDict):
     interaction_prompt: NotRequired[str]  # Initial interaction prompt
     orchestration: NotRequired[str]  # Orchestration name if part of one
     variables: NotRequired[Dict[str, Any]]  # Variables for composition
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("composition:agent_context")
-async def handle_compose_agent_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_compose_agent_context(data: CompositionAgentContextData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Compose agent context for self-configuring agents."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    
-    data = event_format_linter(raw_data, CompositionAgentContextData)
     profile_name = data.get('profile')
     agent_id = data.get('agent_id')
     interaction_prompt = data.get('interaction_prompt', '')
@@ -2242,15 +2278,14 @@ class CompositionDiffData(TypedDict):
     left: Required[str]  # First composition
     right: Required[str]  # Second composition
     detail_level: NotRequired[Literal['summary', 'detailed', 'full']]
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("composition:diff")
-async def handle_diff_composition(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_diff_composition(data: CompositionDiffData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Show differences between two compositions."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    
-    data = event_format_linter(raw_data, CompositionDiffData)
     left_name = data.get('left')
     right_name = data.get('right')
     detail_level = data.get('detail_level', 'summary')
@@ -2343,6 +2378,7 @@ class CompositionInitialMessageData(TypedDict):
     interaction_prompt: NotRequired[str]  # Initial interaction prompt
     variables: NotRequired[Dict[str, Any]]  # Variables for composition
     format_style: NotRequired[Literal['concatenated', 'structured', 'custom']]  # Message format style
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class CompositionTrackDecisionData(TypedDict):
@@ -2352,15 +2388,14 @@ class CompositionTrackDecisionData(TypedDict):
     context: Required[Dict[str, Any]]  # Decision context
     outcome: Required[str]  # Decision outcome
     confidence: NotRequired[float]  # Confidence 0-1
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("composition:initial_message")
-async def handle_compose_initial_message(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_compose_initial_message(data: CompositionInitialMessageData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Compose initial message for agent spawning using composition system."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    
-    data = event_format_linter(raw_data, CompositionInitialMessageData)
     profile_name = data.get('profile')
     interaction_prompt = data.get('interaction_prompt', '')
     variables = data.get('variables', {})
@@ -2384,12 +2419,10 @@ async def handle_compose_initial_message(raw_data: Dict[str, Any], context: Opti
 
 
 @event_handler("composition:track_decision")
-async def handle_track_decision(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_track_decision(data: CompositionTrackDecisionData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Track orchestrator decisions for pattern learning."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    
-    data = event_format_linter(raw_data, CompositionTrackDecisionData)
     pattern_name = data.get('pattern')
     decision = data.get('decision')
     context = data.get('context', {})
@@ -2478,16 +2511,16 @@ class ComponentToProfileData(TypedDict):
     variables: NotRequired[Dict[str, Any]]  # Variables for component rendering
     save_to_disk: NotRequired[bool]  # Whether to save profile to disk (default: False)
     overwrite: NotRequired[bool]  # Whether to overwrite existing profile (default: False)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("composition:component_to_profile")
-async def handle_component_to_profile(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_component_to_profile(data: ComponentToProfileData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Convert a component to an agent profile for spawning."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
     
     try:
-        data = event_format_linter(raw_data, ComponentToProfileData)
         
         component_name = data['component']
         variables = data.get('variables', {})
@@ -2589,16 +2622,16 @@ class ComponentGenerateOrchestrationData(TypedDict):
     save_to_disk: NotRequired[bool]  # Whether to save orchestration to disk (default: False)
     overwrite: NotRequired[bool]  # Whether to overwrite existing orchestration (default: False)
     agent_profile: NotRequired[str]  # Default agent profile to use (default: base_single_agent)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("composition:generate_orchestration")
-async def handle_generate_orchestration(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_generate_orchestration(data: ComponentGenerateOrchestrationData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Generate an orchestration pattern from a component."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
     
     try:
-        data = event_format_linter(raw_data, ComponentGenerateOrchestrationData)
         
         component_name = data['component']
         variables = data.get('variables', {})
@@ -2694,16 +2727,16 @@ class ComponentTrackUsageData(TypedDict):
     usage_context: Required[str]  # Context of usage (agent_spawn, orchestration, profile_creation, etc.)
     metadata: NotRequired[Dict[str, Any]]  # Additional metadata about the usage
     timestamp: NotRequired[str]  # Timestamp of usage (auto-generated if not provided)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("composition:track_usage")
-async def handle_track_usage(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_track_usage(data: ComponentTrackUsageData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Track component usage for analytics."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
     
     try:
-        data = event_format_linter(raw_data, ComponentTrackUsageData)
         
         component_name = data['component']
         usage_context = data['usage_context']

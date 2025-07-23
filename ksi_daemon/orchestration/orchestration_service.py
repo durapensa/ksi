@@ -409,6 +409,9 @@ class OrchestrationModule:
                     }
                 })
             
+            # Capture orchestration state for recovery
+            await self._capture_orchestration_state(instance, "running")
+            
             # Emit start event
             if event_emitter:
                 await event_emitter("orchestration:started", {
@@ -793,6 +796,68 @@ START the orchestration NOW by following the DSL strategy."""
                 # Event-based termination not yet implemented
                 pass
     
+    async def _capture_orchestration_state(self, instance: OrchestrationInstance, state: str, metadata: Optional[Dict[str, Any]] = None):
+        """Capture orchestration state snapshot for recovery."""
+        try:
+            from ksi_daemon.core.context_manager import get_context_manager
+            cm = get_context_manager()
+            
+            # Create a context for this orchestration state
+            orchestration_context = await cm.create_context(
+                event_id=f"orchestration_state_{instance.orchestration_id}_{state}_{int(time.time())}",
+                timestamp=time.time(),
+                orchestration_id=instance.orchestration_id,
+                state=state
+            )
+            
+            # Serialize orchestration state
+            orchestration_snapshot = {
+                "orchestration_id": instance.orchestration_id,
+                "pattern_name": instance.pattern_name,
+                "state": state,
+                "start_time": instance.start_time,
+                "last_activity": instance.last_activity,
+                "message_count": instance.message_count,
+                "vars": instance.vars,
+                "current_turn": instance.current_turn,
+                "turn_order": instance.turn_order,
+                "agents": {
+                    aid: {
+                        "profile": info.profile,
+                        "spawned": info.spawned,
+                        "vars": info.vars,
+                        "spawn_result": info.spawn_result
+                    } for aid, info in instance.agents.items()
+                },
+                "routing_rules": [
+                    {
+                        "pattern": rule.pattern,
+                        "from_agent": rule.from_agent,
+                        "to_agent": rule.to_agent,
+                        "condition": rule.condition,
+                        "broadcast": rule.broadcast
+                    } for rule in instance.routing_rules
+                ],
+                "pattern": instance.pattern,
+                "event_subscription_level": instance.event_subscription_level,
+                "error_subscription_level": instance.error_subscription_level,
+                "metadata": metadata or {}
+            }
+            
+            # Store the orchestration snapshot
+            orchestration_event = {
+                "event_id": orchestration_context["_event_id"],
+                "event_name": "orchestration:state_snapshot",
+                "timestamp": orchestration_context["_event_timestamp"],
+                "data": orchestration_snapshot
+            }
+            
+            context_ref = await cm.store_event_with_context(orchestration_event)
+            logger.debug(f"Captured orchestration state {state} for {instance.orchestration_id} as context {context_ref}")
+            
+        except Exception as e:
+            logger.warning(f"Failed to capture orchestration state for {instance.orchestration_id}: {e}")
+    
     async def _terminate_orchestration(self, instance: OrchestrationInstance, reason: str):
         """Terminate an orchestration."""
         logger.info(f"Terminating orchestration {instance.orchestration_id}: {reason}")
@@ -816,6 +881,9 @@ START the orchestration NOW by following the DSL strategy."""
         # Update state
         instance.state = "terminated"
         
+        # Capture orchestration state for recovery
+        await self._capture_orchestration_state(instance, "terminated", {"reason": reason})
+        
         # Emit termination event
         if event_emitter:
             await event_emitter("orchestration:terminated", {
@@ -838,13 +906,13 @@ class SystemContextData(TypedDict):
     """System context with runtime references."""
     emit_event: NotRequired[Any]  # Event emitter function
     shutdown_event: NotRequired[Any]  # Shutdown event object
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("system:context")
-async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
+async def handle_context(data: SystemContextData, context: Optional[Dict[str, Any]] = None) -> None:
     """Store event emitter reference."""
-    from ksi_common.event_parser import event_format_linter
-    data = event_format_linter(raw_data, SystemContextData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     global event_emitter
     # Get router for event emission
     router = get_router()
@@ -855,15 +923,14 @@ async def handle_context(raw_data: Dict[str, Any], context: Optional[Dict[str, A
 class SystemStartupData(TypedDict):
     """System startup configuration."""
     # No specific fields required for this handler
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("system:startup")
-async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_startup(data: SystemStartupData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize orchestration service on startup."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, SystemStartupData)
     
     # Orchestration service uses composition service for pattern loading
     logger.info("Orchestration service started - patterns loaded via composition service")
@@ -877,14 +944,13 @@ async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, A
 class SystemShutdownData(TypedDict):
     """System shutdown notification."""
     # No specific fields for shutdown
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("system:shutdown")
-async def handle_shutdown(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
+async def handle_shutdown(data: SystemShutdownData, context: Optional[Dict[str, Any]] = None) -> None:
     """Clean up on shutdown."""
-    from ksi_common.event_parser import event_format_linter
-    data = event_format_linter(raw_data, SystemShutdownData)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     # Terminate all active orchestrations
     for instance in list(orchestrations.values()):
         await orchestration_module._terminate_orchestration(instance, "shutdown")
@@ -898,16 +964,15 @@ class OrchestrationStartData(TypedDict):
     pattern: Required[str]  # Pattern name to load
     vars: NotRequired[Dict[str, Any]]  # Variables to pass to orchestration
     prompt: NotRequired[str]  # Initial prompt to pass to orchestration
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("orchestration:start")
-async def handle_orchestration_start(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_orchestration_start(data: OrchestrationStartData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Start a new orchestration."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
     from ksi_common.json_utils import parse_json_parameter
-    
-    data = event_format_linter(raw_data, OrchestrationStartData)
     
     # Handle vars parameter if it's a JSON string
     parse_json_parameter(data, 'vars')
@@ -933,30 +998,28 @@ class OrchestrationMessageData(TypedDict):
     from_agent: Required[str]  # Source agent ID
     event: NotRequired[str]  # Event name (default: "message")
     payload: NotRequired[Dict[str, Any]]  # Message payload
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("orchestration:message")
-async def handle_orchestration_message(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_orchestration_message(data: OrchestrationMessageData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Route a message within an orchestration."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    
-    data = event_format_linter(raw_data, OrchestrationMessageData)
     return await orchestration_module.route_message(data)
 
 
 class OrchestrationStatusData(TypedDict):
     """Get orchestration status."""
     orchestration_id: NotRequired[str]  # Specific orchestration ID (omit for all)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("orchestration:status")
-async def handle_orchestration_status(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_orchestration_status(data: OrchestrationStatusData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get orchestration status."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    
-    data = event_format_linter(raw_data, OrchestrationStatusData)
     orchestration_id = data.get("orchestration_id")
     
     if orchestration_id:
@@ -993,15 +1056,14 @@ async def handle_orchestration_status(raw_data: Dict[str, Any], context: Optiona
 class OrchestrationTerminateData(TypedDict):
     """Manually terminate an orchestration."""
     orchestration_id: Required[str]  # Orchestration ID to terminate
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("orchestration:terminate")
-async def handle_orchestration_terminate(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_orchestration_terminate(data: OrchestrationTerminateData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Manually terminate an orchestration."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    
-    data = event_format_linter(raw_data, OrchestrationTerminateData)
     orchestration_id = data.get("orchestration_id")
     
     if not orchestration_id or orchestration_id not in orchestrations:
@@ -1018,15 +1080,14 @@ class OrchestrationRequestTerminationData(TypedDict):
     """Allow an agent to request orchestration termination."""
     agent_id: Required[str]  # Agent requesting termination
     reason: NotRequired[str]  # Termination reason (default: "completed")
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("orchestration:request_termination")
-async def handle_orchestration_request_termination(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_orchestration_request_termination(data: OrchestrationRequestTerminationData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Allow an agent within an orchestration to request termination."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    
-    data = event_format_linter(raw_data, OrchestrationRequestTerminationData)
     agent_id = data.get("agent_id")
     reason = data.get("reason", "completed")
     
@@ -1063,15 +1124,14 @@ async def handle_orchestration_request_termination(raw_data: Dict[str, Any], con
 class OrchestrationLoadPatternData(TypedDict):
     """Load and validate an orchestration pattern."""
     pattern: Required[str]  # Pattern name to load
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("orchestration:load_pattern")
-async def handle_load_pattern(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_load_pattern(data: OrchestrationLoadPatternData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Load and validate an orchestration pattern."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    
-    data = event_format_linter(raw_data, OrchestrationLoadPatternData)
     pattern_name = data.get("pattern")
     
     if not pattern_name:
@@ -1092,15 +1152,15 @@ async def handle_load_pattern(raw_data: Dict[str, Any], context: Optional[Dict[s
 
 
 @event_handler("orchestration:event")
-async def handle_orchestration_event(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_orchestration_event(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle hierarchically routed events for orchestrations."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
     
-    orchestration_id = raw_data.get("orchestration_id")
-    source_agent = raw_data.get("source_agent")
-    event_name = raw_data.get("event")
-    event_data = raw_data.get("data", {})
+    orchestration_id = data.get("orchestration_id")
+    source_agent = data.get("source_agent")
+    event_name = data.get("event")
+    event_data = data.get("data", {})
     
     if not orchestration_id:
         return {"error": "orchestration_id required"}
@@ -1136,15 +1196,14 @@ async def handle_orchestration_event(raw_data: Dict[str, Any], context: Optional
 class OrchestrationGetInstanceData(TypedDict):
     """Get detailed information about an orchestration instance."""
     orchestration_id: Required[str]  # Orchestration ID to get details for
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("orchestration:get_instance")
-async def handle_get_instance(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_get_instance(data: OrchestrationGetInstanceData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get detailed information about an orchestration instance."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    
-    data = event_format_linter(raw_data, OrchestrationGetInstanceData)
     orchestration_id = data.get("orchestration_id")
     
     if not orchestration_id:
@@ -1192,5 +1251,133 @@ async def handle_get_instance(raw_data: Dict[str, Any], context: Optional[Dict[s
         },
         "termination_conditions": instance.termination_conditions
     }, context)
+
+
+class OrchestrationRecoverData(TypedDict):
+    """Type-safe data for orchestration:recover event."""
+    context_ref: NotRequired[str]  # Context reference to recover from
+    orchestration_id: NotRequired[str]  # Orchestration ID to find latest snapshot for
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
+
+
+@event_handler("orchestration:recover")
+async def handle_orchestration_recovery(data: OrchestrationRecoverData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Recover an orchestration from a context snapshot."""
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    context_ref = data.get("context_ref")
+    orchestration_id = data.get("orchestration_id")
+    
+    if not context_ref and not orchestration_id:
+        return error_response("Either context_ref or orchestration_id required", context)
+    
+    try:
+        from ksi_daemon.core.context_manager import get_context_manager
+        cm = get_context_manager()
+        
+        # If orchestration_id provided, find the latest state snapshot for it
+        if orchestration_id and not context_ref:
+            # Query for the most recent state snapshot for this orchestration
+            # This would need to be implemented as a query method on the context manager
+            # For now, require explicit context_ref
+            return error_response("context_ref is required for recovery (orchestration_id lookup not yet implemented)", context)
+        
+        # Resolve the context reference
+        context_data = await cm.get_context(context_ref)
+        if not context_data:
+            return error_response(f"Context reference {context_ref} not found", context)
+        
+        # Extract orchestration snapshot from context
+        if context_data.get("event_name") != "orchestration:state_snapshot":
+            return error_response(f"Context {context_ref} is not an orchestration state snapshot", context)
+        
+        snapshot = context_data["data"]
+        orchestration_id = snapshot["orchestration_id"]
+        
+        # Check if orchestration is already running
+        if orchestration_id in orchestrations:
+            return error_response(f"Orchestration {orchestration_id} is already active", context)
+        
+        # Reconstruct the orchestration instance
+        instance = OrchestrationInstance(
+            orchestration_id=orchestration_id,
+            pattern_name=snapshot["pattern_name"],
+            pattern=snapshot["pattern"],
+            event_subscription_level=snapshot["event_subscription_level"],
+            error_subscription_level=snapshot["error_subscription_level"]
+        )
+        
+        # Restore state
+        instance.state = snapshot["state"]
+        instance.start_time = snapshot["start_time"]
+        instance.last_activity = snapshot["last_activity"]
+        instance.message_count = snapshot["message_count"]
+        instance.vars = snapshot["vars"]
+        instance.current_turn = snapshot["current_turn"]
+        instance.turn_order = snapshot["turn_order"]
+        
+        # Restore agents
+        for aid, agent_data in snapshot["agents"].items():
+            agent_info = AgentInfo(
+                agent_id=aid,
+                profile=agent_data["profile"],
+                vars=agent_data["vars"],
+                spawned=agent_data["spawned"],
+                spawn_result=agent_data.get("spawn_result")
+            )
+            instance.agents[aid] = agent_info
+        
+        # Restore routing rules
+        for rule_data in snapshot["routing_rules"]:
+            rule = RoutingRule(
+                pattern=rule_data["pattern"],
+                from_agent=rule_data["from_agent"],
+                to_agent=rule_data["to_agent"],
+                condition=rule_data.get("condition"),
+                broadcast=rule_data["broadcast"]
+            )
+            instance.routing_rules.append(rule)
+        
+        # Add to active orchestrations
+        orchestrations[orchestration_id] = instance
+        
+        # Re-create state entity if needed
+        if event_emitter and snapshot["state"] != "terminated":
+            try:
+                entity_data = {
+                    "type": "orchestration",
+                    "id": orchestration_id,
+                    "properties": {
+                        "pattern": instance.pattern_name,
+                        "state": instance.state,
+                        "variables": instance.vars,
+                        "recovered_from": context_ref,
+                        "recovered_at": timestamp_utc()
+                    }
+                }
+                await event_emitter("state:entity:create", entity_data)
+                logger.info(f"Re-created state entity for recovered orchestration {orchestration_id}")
+            except Exception as e:
+                logger.warning(f"Failed to re-create state entity for recovered orchestration: {e}")
+        
+        # If orchestration was in running state, may need to re-spawn agents
+        # This is complex and depends on the recovery strategy desired
+        recovery_info = {
+            "orchestration_id": orchestration_id,
+            "status": "recovered",
+            "state": instance.state,
+            "pattern": instance.pattern_name,
+            "recovered_from": context_ref,
+            "agents_count": len(instance.agents),
+            "message_count": instance.message_count,
+            "metadata": snapshot.get("metadata", {})
+        }
+        
+        logger.info(f"Recovered orchestration {orchestration_id} from context {context_ref}")
+        return event_response_builder(recovery_info, context)
+        
+    except Exception as e:
+        logger.error(f"Failed to recover orchestration: {e}", exc_info=True)
+        return error_response(f"Recovery failed: {str(e)}", context)
 
 
