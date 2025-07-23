@@ -26,7 +26,7 @@ from .timestamps import timestamp_utc
 
 def create_standardized_response(provider: str, raw_response: Dict[str, Any], 
                                 request_id: Optional[str] = None, client_id: Optional[str] = None,
-                                duration_ms: Optional[int] = None) -> Dict[str, Any]:
+                                duration_ms: Optional[int] = None, agent_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Create a standardized completion response dictionary.
     
@@ -36,6 +36,7 @@ def create_standardized_response(provider: str, raw_response: Dict[str, Any],
         request_id: KSI request identifier
         client_id: KSI client identifier  
         duration_ms: Request duration in milliseconds
+        agent_id: ID of the agent that spawned this completion
         
     Returns:
         Standardized response dictionary
@@ -53,6 +54,10 @@ def create_standardized_response(provider: str, raw_response: Dict[str, Any],
     # Add client_id if provided
     if client_id:
         result["ksi"]["client_id"] = client_id
+    
+    # Add agent_id if provided
+    if agent_id:
+        result["ksi"]["agent_id"] = agent_id
     
     return result
 
@@ -105,6 +110,12 @@ def get_duration_ms(response: Dict[str, Any]) -> Optional[int]:
 def get_client_id(response: Dict[str, Any]) -> Optional[str]:
     """Get the client ID if available."""
     return response["ksi"].get("client_id")
+
+
+def get_agent_id(response: Dict[str, Any]) -> Optional[str]:
+    """Get the agent ID if available."""
+    normalized = _normalize_response(response)
+    return normalized["ksi"].get("agent_id")
 
 
 # Provider-agnostic extraction functions
@@ -420,6 +431,7 @@ __all__ = [
     "get_timestamp",
     "get_duration_ms",
     "get_client_id",
+    "get_agent_id",
     "get_response_text",
     "get_response_session_id",
     "get_response_usage",

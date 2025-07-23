@@ -124,6 +124,9 @@ class KSIBaseConfig(BaseSettings):
     # Composition index database
     composition_index_db_path: Path = Path(DEFAULT_DB_DIR) / DEFAULT_COMPOSITION_INDEX_DB_NAME
     
+    # Context system database (Pythonic Context Refactor)
+    context_db_path: Path = Path(DEFAULT_DB_DIR) / "contexts.db"
+    
     # Reference-based event log configuration
     event_log_dir: Path = Path(DEFAULT_LOG_DIR) / "events"
     event_reference_threshold: int = 5 * 1024  # 5KB - payloads larger than this are stored as references
@@ -159,6 +162,9 @@ class KSIBaseConfig(BaseSettings):
     sandbox_enabled: bool = True                   # Enable sandboxing for completions
     sandbox_temp_ttl: int = 3600                  # Temporary sandbox lifetime (1 hour)
     sandbox_default_mode: Literal["ISOLATED", "SHARED", "NESTED"] = "ISOLATED"
+    
+    # Temporary directories
+    agent_profiles_temp_dir: Path = Path(DEFAULT_VAR_DIR) / "tmp/agent_profiles"  # Temporary agent profiles
     
     # Network settings
     socket_timeout: float = DEFAULT_SOCKET_TIMEOUT
@@ -284,6 +290,10 @@ class KSIBaseConfig(BaseSettings):
     optimization_init_temperature: float = 0.5  # Initial sampling temperature
     optimization_metric_threshold: Optional[float] = None  # Minimum metric score threshold
     
+    # MLflow Configuration
+    mlflow_tracking_uri: str = "http://127.0.0.1:5001"  # MLflow server URI
+    mlflow_artifacts_dir: Path = Path(DEFAULT_DB_DIR) / "mlflow_artifacts"  # MLflow artifacts storage
+    
     # Claude CLI progressive timeouts (in seconds)
     claude_timeout_attempts: List[int] = [300, 900, 1800]  # 5min, 15min, 30min
     claude_progress_timeout: int = 300     # 5 minutes without progress
@@ -317,6 +327,15 @@ class KSIBaseConfig(BaseSettings):
     daemon_shutdown_timeout: int = 15             # Total timeout before SIGTERM
     daemon_kill_timeout: int = 5                  # Time to wait after SIGTERM before SIGKILL
     
+    # KSI Hook Configuration
+    hook_diagnostic_log_path: Path = Path("/tmp/ksi_hook_diagnostic.log")  # Hook diagnostic log
+    hook_debug_log_path: Path = Path("/tmp/ksi_hook_debug.log")  # Hook debug log
+    hook_timestamp_file: Path = Path("/tmp/ksi_hook_last_timestamp.txt")  # Last event timestamp
+    hook_mode_file: Path = Path("/tmp/ksi_hook_mode.txt")  # Hook verbosity mode
+    
+    # Optimization Configuration
+    dspy_raw_output_log_path: Path = Path(DEFAULT_DB_DIR) / "dspy_raw_output.log"  # DSPy raw output log
+    
     # Model configuration - same as ksi_daemon
     model_config = {
         "env_prefix": "KSI_",
@@ -346,6 +365,8 @@ class KSIBaseConfig(BaseSettings):
             self.experiments_cognitive_dir,  # var/experiments/cognitive
             self.experiments_results_dir,    # var/experiments/results
             self.experiments_workspaces_dir, # var/experiments/workspaces
+            self.agent_profiles_temp_dir,    # var/tmp/agent_profiles
+            self.mlflow_artifacts_dir,       # var/db/mlflow_artifacts
         ]
         
         for directory in directories:

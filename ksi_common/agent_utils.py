@@ -11,7 +11,6 @@ import asyncio
 from pathlib import Path
 
 from .event_response_builder import error_response, event_response_builder
-from .event_parser import event_format_linter
 from .logging import get_bound_logger
 
 logger = get_bound_logger("agent_utils")
@@ -24,22 +23,24 @@ def event_handler_boilerplate(typed_dict_class: T):
     """
     Decorator that handles common event handler patterns.
     
+    BREAKING CHANGE: Now uses direct data access instead of event_format_linter.
+    
     Eliminates boilerplate for:
-    - Event parsing with event_format_linter
+    - Direct data access (no parsing needed)
     - Automatic response building 
     - Standard error handling
     
     Usage:
         @event_handler_boilerplate(MyTypedDict)
         async def handle_my_event(data: MyTypedDict, context: Optional[Dict[str, Any]] = None):
-            # data is already parsed and validated
+            # data is already clean - system metadata is in _ksi_context
             return {"result": "success"}  # Automatically wrapped in event_response_builder
     """
     def decorator(func: Callable):
         @wraps(func)
-        async def wrapper(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        async def wrapper(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             try:
-                data = event_format_linter(raw_data, typed_dict_class)
+                # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
                 result = await func(data, context)
                 
                 # Auto-wrap result if it's not already a response
@@ -54,29 +55,7 @@ def event_handler_boilerplate(typed_dict_class: T):
     return decorator
 
 
-def require_agent(agents_dict: Dict[str, Any]):
-    """
-    Decorator that ensures an agent exists before executing handler.
-    
-    Usage:
-        @require_agent(agents)
-        async def handle_some_agent_operation(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None):
-            agent_id = raw_data["agent_id"]  # Guaranteed to exist
-            # ... handler logic
-    """
-    def decorator(func: Callable):
-        @wraps(func)
-        async def wrapper(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-            agent_id = raw_data.get("agent_id")
-            if not agent_id:
-                return error_response("agent_id required", context)
-            
-            if agent_id not in agents_dict:
-                return error_response(f"Agent {agent_id} not found", context)
-            
-            return await func(raw_data, context)
-        return wrapper
-    return decorator
+# REMOVED: require_agent decorator - deprecated with raw_data pattern
 
 
 async def query_agent_state(event_emitter: Callable, agent_id: str, properties: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
@@ -349,20 +328,4 @@ async def batch_query_state_entities(event_emitter: Callable, entity_type: str,
     return entities
 
 
-def validate_event_handler_data(raw_data: Dict[str, Any], required_fields: List[str],
-                              context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
-    """
-    Validate required fields in event handler data.
-    
-    Args:
-        raw_data: Raw event data
-        required_fields: List of required field names
-        context: Event context
-        
-    Returns:
-        Error response if validation fails, None if valid
-    """
-    for field in required_fields:
-        if field not in raw_data or raw_data[field] is None:
-            return error_response(f"{field} required", context)
-    return None
+# REMOVED: validate_event_handler_data - deprecated with raw_data pattern

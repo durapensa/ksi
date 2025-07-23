@@ -27,28 +27,31 @@ class RuntimeConfigSetData(TypedDict):
     """Type-safe data for runtime:config:set."""
     key: str
     value: Any
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 class RuntimeConfigGetData(TypedDict):
     """Type-safe data for runtime:config:get."""
     key: NotRequired[str]  # Optional - if not provided, returns all
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 class RuntimeConfigQueryData(TypedDict):
     """Type-safe data for runtime:config:query."""
     key: NotRequired[str]  # Optional - if not provided, returns all available keys
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 class RuntimeConfigResetData(TypedDict):
     """Type-safe data for runtime:config:reset."""
     key: NotRequired[str]  # Optional - if not provided, resets all
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("runtime:config:set")
-async def handle_runtime_config_set(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_runtime_config_set(data: RuntimeConfigSetData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Set runtime configuration override.
     """
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, RuntimeConfigSetData)
     key = data.get("key")
     value = data.get("value")
     
@@ -71,13 +74,12 @@ async def handle_runtime_config_set(raw_data: Dict[str, Any], context: Optional[
 
 
 @event_handler("runtime:config:get")
-async def handle_runtime_config_get(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_runtime_config_get(data: RuntimeConfigGetData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Get runtime configuration value(s).
     """
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, RuntimeConfigGetData)
     key = data.get("key")
     
     if key:
@@ -122,13 +124,12 @@ async def handle_runtime_config_get(raw_data: Dict[str, Any], context: Optional[
 
 
 @event_handler("runtime:config:query")
-async def handle_runtime_config_query(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_runtime_config_query(data: RuntimeConfigQueryData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Query available runtime configuration options.
     """
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, RuntimeConfigQueryData)
     key = data.get("key")
     
     result = query_runtime_config(key)
@@ -139,13 +140,12 @@ async def handle_runtime_config_query(raw_data: Dict[str, Any], context: Optiona
 
 
 @event_handler("runtime:config:reset")
-async def handle_runtime_config_reset(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_runtime_config_reset(data: RuntimeConfigResetData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Reset runtime configuration to defaults.
     """
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, RuntimeConfigResetData)
     key = data.get("key")
     
     success = reset_runtime_config(key)
