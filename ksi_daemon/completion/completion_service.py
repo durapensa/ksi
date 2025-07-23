@@ -780,6 +780,7 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
                     })
         
         # Track context for conversation continuity before cleaning up
+        logger.debug(f"Context tracking check: provider={provider}, has_response_session_id={'response_session_id' in locals()}, response_session_id={response_session_id if 'response_session_id' in locals() else 'N/A'}")
         if provider == "claude-cli" and 'response_session_id' in locals() and response_session_id:
             try:
                 from ksi_daemon.core.context_manager import get_context_manager

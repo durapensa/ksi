@@ -492,6 +492,26 @@ tail -f var/logs/daemon/daemon.log.jsonl
 3. **Monitor events** to verify claimed events actually appear
 4. **Agent claims ≠ reality** - Always verify with system monitoring
 
+### Event Transformer System
+KSI includes a powerful declarative event transformation system that can replace 30-50% of imperative event handlers with YAML configurations. See [EVENT_TRANSFORMER_VISION.md](../../docs/EVENT_TRANSFORMER_VISION.md) for comprehensive documentation.
+
+**Key Benefits**:
+- 50-70% code reduction for routing/forwarding logic
+- Hot-reloadable configurations without daemon restarts
+- Visual event flow in YAML
+- Better performance (runs in core router)
+
+**Example - Replace Python handler with transformer**:
+```yaml
+# Instead of Python code, use declarative transformer
+transformers:
+  - source: "agent:message"
+    target: "monitor:agent_activity"
+    mapping:
+      agent_id: "data.agent_id"
+      activity_type: "'message'"
+```
+
 ## Git Workflow
 
 ### Submodule Management

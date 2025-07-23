@@ -96,7 +96,7 @@ async def handle_litellm_completion(data: Dict[str, Any]) -> Tuple[str, Dict[str
                 
                 if sandbox_uuid:
                     # Agent sandbox - use UUID for consistent location
-                    sandbox_id = f"agents/{sandbox_uuid}"
+                    sandbox_id = sandbox_uuid  # Just the UUID, sandbox_manager will add the agents/ prefix
                     logger.debug(f"Using agent sandbox UUID {sandbox_uuid} for agent {agent_id}")
                 elif agent_id:
                     # This is an error - agents should always have sandbox_uuid
@@ -106,7 +106,12 @@ async def handle_litellm_completion(data: Dict[str, Any]) -> Tuple[str, Dict[str
                     sandbox_id = f"temp/{request_id}"
                     logger.debug(f"Creating temporary sandbox for request {request_id}")
                 
-                sandbox = sandbox_manager.create_sandbox(sandbox_id, sandbox_config)
+                # Check if sandbox already exists (for agents with persistent sandboxes)
+                sandbox = sandbox_manager.get_sandbox(sandbox_id)
+                if not sandbox:
+                    sandbox = sandbox_manager.create_sandbox(sandbox_id, sandbox_config)
+                else:
+                    logger.debug(f"Using existing sandbox for {sandbox_id}")
                 sandbox_dir = str(sandbox.path.absolute())
                 
                 if agent_id:

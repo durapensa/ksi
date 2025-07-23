@@ -120,6 +120,12 @@ class SandboxManager:
     
     def create_sandbox(self, agent_id: str, config: SandboxConfig) -> Sandbox:
         """Create a new sandbox for an agent"""
+        # Check if sandbox already exists
+        existing = self.get_sandbox(agent_id)
+        if existing:
+            logger.info(f"Sandbox already exists for {agent_id}, returning existing sandbox")
+            return existing
+            
         # Determine sandbox path based on mode
         if config.mode == SandboxMode.SHARED and config.session_id:
             # Shared session sandbox
@@ -145,8 +151,11 @@ class SandboxManager:
         (sandbox_path / "exports").mkdir(exist_ok=True)
         (sandbox_path / ".claude").mkdir(exist_ok=True)
         
-        # Set up shared resources symlinks
-        self._setup_shared_resources(sandbox_path, config)
+        # Set up shared resources symlinks (skip if already exists)
+        try:
+            self._setup_shared_resources(sandbox_path, config)
+        except FileExistsError as e:
+            logger.debug(f"Shared resources already set up for {agent_id}: {e}")
         
         # Create sandbox metadata
         metadata = {
@@ -186,6 +195,10 @@ class SandboxManager:
             if resource_path.exists():
                 link_path = shared_dir / resource
                 if not link_path.exists():
+                    link_path.symlink_to(resource_path)
+                elif link_path.is_symlink() and link_path.resolve() != resource_path.resolve():
+                    # Remove broken or mismatched symlink and recreate
+                    link_path.unlink()
                     link_path.symlink_to(resource_path)
         
         # If nested, optionally link to originator workspace
