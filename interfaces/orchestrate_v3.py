@@ -340,7 +340,7 @@ class MultiClaudeOrchestratorV3:
         await asyncio.sleep(2)
         
         # Clean up temporary profiles
-        temp_profiles_dir = Path("var/tmp/agent_profiles")
+        temp_profiles_dir = config.agent_profiles_temp_dir
         if temp_profiles_dir.exists():
             for profile_path in temp_profiles_dir.glob('temp_*'):
                 try:

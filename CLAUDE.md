@@ -236,6 +236,13 @@ dependencies:
 - **Then** leverage agent conversation continuity for iterative optimization
 - **See** `/docs/OPTIMIZATION_APPROACH.md` for architecture philosophy
 
+**Long-Running Optimization Pattern (CRITICAL)**:
+- **NEVER over-monitor** - Subprocess system handles 5-15 minute optimizations automatically
+- **Start and proceed** - Use `optimization:async`, then build evaluation flow while it runs
+- **Trust the system** - MLflow tracking + KSI hook provide status without polling
+- **Check results at completion** - Use `optimization:status` only when building evaluation/update flow
+- **Complete full pipeline** - DSPy → LLM-as-Judge → Component Update → Git Commit
+
 ### Model-Aware Development
 
 **When** working with components across different environments:
@@ -409,6 +416,16 @@ git commit -m "Update composition submodule"
   - **Workaround**: `tail -f /tmp/ksi_hook_diagnostic.log`
   - **Hook control**: `echo ksi_verbose` / `ksi_summary` / `ksi_silent`
 
+## Long-Running Optimization Pattern
+
+**When** running DSPy optimizations or other long-running processes:
+- **Then** start the optimization with async event and proceed with other work
+- **Then** trust the subprocess system to handle 5-15 minute optimizations
+- **Then** avoid checking status every few minutes - the system will complete
+- **Then** build complementary systems (evaluators, pipelines) while waiting
+
+**Remember**: "we don't really want to stop for status reports every few minutes"
+
 ## Meta-Principles
 
 ### Knowledge Capture (MANDATORY)
@@ -473,4 +490,4 @@ git commit -m "Update composition submodule"
 
 **Remember**: This is your workflow guide. For technical details, implementation patterns, and architecture, always refer to `memory/claude_code/project_knowledge.md`.
 
-*Last updated: 2025-01-18*
+*Last updated: 2025-07-20*

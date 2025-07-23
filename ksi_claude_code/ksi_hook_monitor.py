@@ -25,6 +25,7 @@ sys.path.insert(0, ksi_root)
 # Import the same client as KSI CLI uses
 from ksi_client import EventClient
 from ksi_client.exceptions import KSIError, KSIConnectionError, KSIEventError
+from ksi_common.config import config
 
 # =============================================================================
 # ERROR HANDLING
@@ -46,14 +47,14 @@ class ConfigurationError(HookError):
 class HookConfig:
     """Configuration for KSI hook monitor"""
     socket_path: Optional[str] = None
-    timestamp_file: str = "/tmp/ksi_hook_last_timestamp.txt"
-    mode_file: str = "/tmp/ksi_hook_mode.txt"
+    timestamp_file: str = str(config.hook_timestamp_file)
+    mode_file: str = str(config.hook_mode_file)
     default_mode: str = "summary"
     event_limit: int = 20
     connection_timeout: float = 2.0
     debug_log: bool = False
-    diagnostic_log_path: str = "/tmp/ksi_hook_diagnostic.log"
-    debug_log_path: str = "/tmp/ksi_hook_debug.log"
+    diagnostic_log_path: str = str(config.hook_diagnostic_log_path)
+    debug_log_path: str = str(config.hook_debug_log_path)
     
     @classmethod
     def from_env(cls) -> 'HookConfig':
