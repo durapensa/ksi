@@ -354,7 +354,7 @@ class ClaudeCLIProvider(CustomLLM):
         logger.info(
             "Starting Claude CLI completion",
             model=model_name,
-            session_id=kwargs.get("session_id"),
+            session_id=ksi_session_id or kwargs.get("session_id"),  # Show the actual session that will be used
             timeout_strategy=timeouts,
             sandbox_dir=sandbox_dir,
             permission_profile=ksi_permissions.get("profile"),
