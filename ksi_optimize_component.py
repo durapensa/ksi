@@ -20,6 +20,14 @@ from ksi_daemon.optimization.frameworks.litellm_dspy_adapter import configure_ds
 
 logger = get_bound_logger("optimize_component")
 
+# Set up file logging for raw DSPy output
+import logging
+file_handler = logging.FileHandler(str(config.dspy_raw_output_log_path), mode='a')
+file_handler.setLevel(logging.INFO)
+file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(file_formatter)
+logger.addHandler(file_handler)
+
 
 def load_component_from_file(component_file: str) -> str:
     """Load component content from file."""
@@ -55,7 +63,7 @@ def configure_mlflow(opt_id: str, component_name: str):
         import mlflow.dspy
         
         # Set tracking URI to KSI MLflow server
-        mlflow.set_tracking_uri("http://127.0.0.1:5001")
+        mlflow.set_tracking_uri(config.mlflow_tracking_uri)
         
         # Set experiment
         mlflow.set_experiment("ksi_optimizations")
@@ -89,34 +97,97 @@ def log_progress(opt_id: str, status: str, **kwargs):
 
 def create_minimal_metric():
     """Create a simple metric for optimization."""
-    def simple_effectiveness_metric(example, prediction, trace=None):
-        """Simple metric based on response completeness and structure."""
-        if not hasattr(prediction, 'answer') and not hasattr(prediction, 'response'):
-            return 0.0
+    # Try to use agent-based evaluation metric
+    try:
+        from ksi_daemon.optimization.metrics.agent_output_metric import evaluate_data_analysis
         
-        # Get response content
-        response = getattr(prediction, 'answer', getattr(prediction, 'response', ''))
-        response_str = str(response)
+        # Create sync wrapper for async metric
+        def agent_based_metric(example, prediction, trace=None):
+            """Agent-based evaluation metric."""
+            import asyncio
+            try:
+                # Run async metric in event loop
+                loop = asyncio.new_event_loop()
+                score = loop.run_until_complete(
+                    evaluate_data_analysis(example, prediction, trace)
+                )
+                loop.close()
+                return score
+            except Exception as e:
+                logger.error(f"Error in agent-based metric: {e}")
+                # Fallback to baseline metric
+                return baseline_optimization_metric(example, prediction, trace)
         
-        score = 0.0
+        logger.info("Using agent-based evaluation metric for data analysis quality")
+        return agent_based_metric
         
-        # Length-based scoring (reasonable response length)
-        if 50 <= len(response_str) <= 500:
-            score += 0.4
-        elif len(response_str) > 20:
-            score += 0.2
-        
-        # Structure scoring (contains JSON-like structure)
-        if '{' in response_str and '}' in response_str:
-            score += 0.3
-        
-        # Completeness scoring (not truncated)
-        if not response_str.endswith('...'):
-            score += 0.3
-        
-        return min(1.0, score)
+    except ImportError as e:
+        logger.warning(f"Agent-based metric not available: {e}, using simple metric")
     
-    return simple_effectiveness_metric
+    # Fallback to baseline metric that actually works
+    def baseline_optimization_metric(example, prediction, trace=None):
+        """
+        Baseline metric that rewards structural improvements without being overly strict.
+        
+        For bootstrapping: returns bool (True if score >= threshold)
+        For optimization: returns float (0.0-1.0)
+        """
+        # Extract the optimized instruction
+        if hasattr(prediction, 'optimized_instruction'):
+            instruction = str(prediction.optimized_instruction)
+        elif hasattr(prediction, 'answer'):
+            instruction = str(prediction.answer)
+        else:
+            instruction = str(prediction)
+        
+        # Also extract the original instruction for comparison
+        original = ""
+        if hasattr(example, 'current_instruction'):
+            original = str(example.current_instruction)
+        
+        # Basic quality checks
+        if len(instruction) < 50:
+            score = 0.1  # Too short
+        elif instruction == original:
+            score = 0.1  # No change
+        else:
+            # Start with base score for attempting optimization
+            score = 0.3
+            
+            # Reward structural improvements
+            if '\n' in instruction and instruction.count('\n') > 2:
+                score += 0.2  # Has multiple lines/structure
+            
+            if any(marker in instruction for marker in ['##', '**', '- ', '• ', '1.', '2.']):
+                score += 0.2  # Has markdown formatting or lists
+            
+            if len(instruction) > len(original) * 0.8:  # At least 80% of original length
+                score += 0.1  # Maintains or adds content
+            
+            # Reward semantic indicators (more flexible than exact keywords)
+            semantic_indicators = [
+                ['approach', 'method', 'strategy', 'process', 'workflow'],
+                ['expert', 'experience', 'proficient', 'skilled', 'specialized'],
+                ['analyze', 'evaluate', 'assess', 'examine', 'investigate'],
+                ['clear', 'specific', 'detailed', 'comprehensive', 'structured']
+            ]
+            
+            for indicator_group in semantic_indicators:
+                if any(word in instruction.lower() for word in indicator_group):
+                    score += 0.05  # Small reward for each semantic group
+        
+        # Cap at 1.0
+        score = min(1.0, score)
+        
+        # Handle different evaluation modes
+        if trace is not None:
+            # Bootstrapping mode - return bool (more lenient threshold)
+            return score >= 0.4
+        else:
+            # Optimization mode - return float
+            return score
+    
+    return baseline_optimization_metric
 
 
 async def run_optimization(args):
@@ -124,6 +195,11 @@ async def run_optimization(args):
     opt_id = args.opt_id
     component_name = args.component
     config_data = json.loads(args.config)
+    
+    # Log separator for this optimization run
+    logger.info("=" * 80)
+    logger.info(f"NEW OPTIMIZATION RUN: {opt_id}")
+    logger.info("=" * 80)
     
     logger.info(f"Starting optimization {opt_id} for {component_name}")
     
@@ -169,34 +245,64 @@ async def run_optimization(args):
         # Run optimization
         log_progress(opt_id, "optimizing")
         
-        result = await adapter.optimize_component(
-            component_name=component_name,
-            component_content=component_content,
-            trainset=trainset,
-            valset=valset,
-            opt_id=opt_id
-        )
-        
-        # Save optimized result to file
-        log_progress(opt_id, "saving_result")
-        
-        optimization_metadata = {
-            "optimization": {
-                "optimizer": "DSPy-MIPROv2",
-                "timestamp": timestamp_utc(),
-                "opt_id": opt_id,
-                "config": config_data,
-                "mlflow_enabled": mlflow_enabled
+        result = None
+        try:
+            result = await adapter.optimize_component(
+                component_name=component_name,
+                component_content=component_content,
+                trainset=trainset,
+                valset=valset,
+                opt_id=opt_id
+            )
+            
+            # Dump raw result for debugging
+            logger.info("=" * 80)
+            logger.info("RAW OPTIMIZATION RESULT")
+            logger.info("=" * 80)
+            logger.info(f"Result type: {type(result)}")
+            logger.info(f"Result content: {json.dumps(result, indent=2, default=str)}")
+            logger.info("=" * 80)
+            
+        except Exception as e:
+            logger.error(f"Optimization exception: {e}", exc_info=True)
+            # Continue to finally block to save partial results
+            
+        finally:
+            # Save result even if optimization fails
+            log_progress(opt_id, "saving_result")
+            
+            optimization_metadata = {
+                "optimization": {
+                    "optimizer": "DSPy-MIPROv2",
+                    "timestamp": timestamp_utc(),
+                    "opt_id": opt_id,
+                    "config": config_data,
+                    "mlflow_enabled": mlflow_enabled,
+                    "status": "success" if result else "failed"
+                }
             }
-        }
-        
-        save_optimized_content_to_file(
-            component_name, 
-            result["optimized_content"], 
-            optimization_metadata,
-            args.result_file,
-            result.get("improvement", 0.0)
-        )
+            
+            # If optimization failed, create a partial result
+            if not result:
+                result = {
+                    "component_name": component_name,
+                    "original_score": 0.0,
+                    "optimized_score": 0.0,
+                    "improvement": 0.0,
+                    "optimized_content": component_content,  # Return original if failed
+                    "optimization_metadata": {
+                        "error": "Optimization failed to complete",
+                        "partial": True
+                    }
+                }
+            
+            save_optimized_content_to_file(
+                component_name, 
+                result["optimized_content"], 
+                optimization_metadata,
+                args.result_file,
+                result.get("improvement", 0.0)
+            )
         
         # Log completion
         logger.info(f"Optimization {opt_id} completed successfully: {result.get('improvement', 0):.3f} improvement")

@@ -7,6 +7,7 @@ where we don't need session management, agent persistence, or retry queues.
 """
 
 import asyncio
+import json
 import logging
 from typing import List, Dict, Any, Optional, Union
 
@@ -126,6 +127,28 @@ class KSILiteLLMDSPyAdapter(LM):
             # Extract response content
             content = response.choices[0].message.content
             
+            # For Claude CLI models, unwrap the JSON response if needed
+            if self.model.startswith("claude-cli/"):
+                try:
+                    # Check if this is a wrapped Claude CLI response
+                    parsed = json.loads(content)
+                    if isinstance(parsed, dict) and "type" in parsed and "result" in parsed:
+                        # This is a wrapped response, extract the actual result
+                        actual_content = parsed["result"]
+                        # If the result is a JSON string, parse it again
+                        if isinstance(actual_content, str) and actual_content.strip().startswith("{"):
+                            try:
+                                json.loads(actual_content)  # Validate it's JSON
+                                content = actual_content  # Use the unwrapped JSON
+                            except:
+                                # Not valid JSON, use as-is
+                                content = actual_content
+                        else:
+                            content = actual_content
+                except (json.JSONDecodeError, KeyError):
+                    # Not wrapped JSON or parsing failed, use original content
+                    pass
+            
             # Track in history
             self.history.append({
                 "messages": messages,
@@ -210,6 +233,28 @@ class KSIAsyncLiteLLMDSPyAdapter(KSILiteLLMDSPyAdapter):
         
         # Extract content
         content = response.choices[0].message.content
+        
+        # For Claude CLI models, unwrap the JSON response if needed
+        if self.model.startswith("claude-cli/"):
+            try:
+                # Check if this is a wrapped Claude CLI response
+                parsed = json.loads(content)
+                if isinstance(parsed, dict) and "type" in parsed and "result" in parsed:
+                    # This is a wrapped response, extract the actual result
+                    actual_content = parsed["result"]
+                    # If the result is a JSON string, parse it again
+                    if isinstance(actual_content, str) and actual_content.strip().startswith("{"):
+                        try:
+                            json.loads(actual_content)  # Validate it's JSON
+                            content = actual_content  # Use the unwrapped JSON
+                        except:
+                            # Not valid JSON, use as-is
+                            content = actual_content
+                    else:
+                        content = actual_content
+            except (json.JSONDecodeError, KeyError):
+                # Not wrapped JSON or parsing failed, use original content
+                pass
         
         # Track in history
         self.history.append({

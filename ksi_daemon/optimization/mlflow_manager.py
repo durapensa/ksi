@@ -232,7 +232,7 @@ async def get_optimization_progress(run_id: str) -> Dict[str, Any]:
         from mlflow import MlflowClient
         
         # Set tracking URI to KSI's MLflow server
-        mlflow.set_tracking_uri("http://127.0.0.1:5001")
+        mlflow.set_tracking_uri(config.mlflow_tracking_uri)
         client = MlflowClient()
         
         # Get run details

@@ -37,11 +37,54 @@ def register_framework(name: str, adapter_class: Any):
     logger.info(f"Registered optimization framework: {name}")
 
 
+async def _capture_optimization_state(opt_id: str, state: str, data: Dict[str, Any], context: Optional[Dict[str, Any]], metadata: Optional[Dict[str, Any]] = None):
+    """Capture optimization state snapshot for introspection."""
+    try:
+        from ksi_daemon.core.context_manager import get_context_manager
+        cm = get_context_manager()
+        
+        # Create a context for this optimization state
+        optimization_context = await cm.create_context(
+            event_id=f"optimization_state_{opt_id}_{state}_{int(timestamp_utc().timestamp())}",
+            timestamp=timestamp_utc().timestamp(),
+            optimization_id=opt_id,
+            state=state
+        )
+        
+        # Serialize optimization state
+        optimization_snapshot = {
+            "optimization_id": opt_id,
+            "state": state,
+            "framework": data.get("framework", "dspy"),
+            "target": data.get("target"),
+            "signature": data.get("signature"),
+            "metric": data.get("metric"),
+            "config": data.get("config", {}),
+            "timestamp": timestamp_utc(),
+            "metadata": metadata or {}
+        }
+        
+        # Store the optimization snapshot
+        optimization_event = {
+            "event_id": optimization_context["_event_id"],
+            "event_name": "optimization:state_snapshot",
+            "timestamp": optimization_context["_event_timestamp"],
+            "data": optimization_snapshot
+        }
+        
+        context_ref = await cm.store_event_with_context(optimization_event)
+        logger.debug(f"Captured optimization state {state} for {opt_id} as context {context_ref}")
+        
+    except Exception as e:
+        logger.warning(f"Failed to capture optimization state for {opt_id}: {e}")
+
+
 @event_handler("optimization:get_framework_info")
-async def handle_get_framework_info(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_get_framework_info(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get information about available optimization frameworks."""
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
-    framework = raw_data.get("framework", "all")
+    framework = data.get("framework", "all")
     
     frameworks_info = {}
     for name, adapter_class in optimization_frameworks.items():
@@ -59,10 +102,11 @@ async def handle_get_framework_info(raw_data: Dict[str, Any], context: Optional[
 
 
 @event_handler("optimization:validate_setup")
-async def handle_validate_setup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_validate_setup(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Validate that optimization setup is ready."""
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
-    framework = raw_data.get("framework", "dspy")
+    framework = data.get("framework", "dspy")
     
     if framework not in optimization_frameworks:
         return event_response_builder({
@@ -72,22 +116,23 @@ async def handle_validate_setup(raw_data: Dict[str, Any], context: Optional[Dict
     
     adapter_class = optimization_frameworks[framework]
     if hasattr(adapter_class, 'validate_setup'):
-        return await adapter_class.validate_setup(raw_data, context)
+        return await adapter_class.validate_setup(data, context)
     
     return event_response_builder({"valid": True}, context=context)
 
 
 @event_handler("optimization:optimize")
-async def handle_optimize(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_optimize(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Run optimization on a component using specified framework."""
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     # Ensure MLflow is initialized
     await _ensure_mlflow_initialized()
     
-    framework = raw_data.get("framework", "dspy")
-    target = raw_data.get("target")  # Component to optimize
-    signature = raw_data.get("signature")  # Signature component name
-    metric = raw_data.get("metric")  # Metric component name
+    framework = data.get("framework", "dspy")
+    target = data.get("target")  # Component to optimize
+    signature = data.get("signature")  # Signature component name
+    metric = data.get("metric")  # Metric component name
     
     if not target:
         return error_response("target component required", context=context)
@@ -99,7 +144,7 @@ async def handle_optimize(raw_data: Dict[str, Any], context: Optional[Dict[str, 
     adapter_class = optimization_frameworks[framework]
     
     # Parse config if it's a string
-    config_data = raw_data.get("config", {})
+    config_data = data.get("config", {})
     if isinstance(config_data, str):
         import json
         try:
@@ -114,7 +159,7 @@ async def handle_optimize(raw_data: Dict[str, Any], context: Optional[Dict[str, 
         adapter = adapter_class(metric=None, config=config_data)
     
     # Run optimization - filter out duplicate parameters
-    kwargs = {k: v for k, v in raw_data.items() if k not in ['target', 'signature', 'metric', 'framework', 'config']}
+    kwargs = {k: v for k, v in data.items() if k not in ['target', 'signature', 'metric', 'framework', 'config']}
     result = await adapter.optimize(
         target=target,
         signature=signature,
@@ -126,15 +171,16 @@ async def handle_optimize(raw_data: Dict[str, Any], context: Optional[Dict[str, 
 
 
 @event_handler("optimization:async")
-async def handle_async_optimization(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_async_optimization(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Start async optimization with background processing."""
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     # Ensure MLflow is initialized
     await _ensure_mlflow_initialized()
     
     # Extract parameters
-    framework = raw_data.get("framework", "dspy")
-    target = raw_data.get("target")
+    framework = data.get("framework", "dspy")
+    target = data.get("target")
     
     if not target:
         return error_response("target component required", context=context)
@@ -149,15 +195,15 @@ async def handle_async_optimization(raw_data: Dict[str, Any], context: Optional[
         metadata={
             "component": target,
             "framework": framework,
-            "signature": raw_data.get("signature"),
-            "metric": raw_data.get("metric")
+            "signature": data.get("signature"),
+            "metric": data.get("metric")
         }
     )
     
     # Create background task for subprocess-based optimization
     task = create_background_task(
         opt_id,
-        run_optimization_subprocess(opt_id, raw_data, context)
+        run_optimization_subprocess(opt_id, data, context)
     )
     
     return event_response_builder({
@@ -176,6 +222,9 @@ async def run_optimization_subprocess(opt_id: str, data: Dict[str, Any], context
     try:
         # Update status to initializing
         update_operation_status(opt_id, "initializing")
+        
+        # Capture optimization state for introspection
+        await _capture_optimization_state(opt_id, "initializing", data, context)
         
         # Emit progress event
         await router.emit("optimization:progress", build_progress_event(
@@ -200,7 +249,6 @@ async def run_optimization_subprocess(opt_id: str, data: Dict[str, Any], context
         config_data = data.get("config", {})
         
         if isinstance(config_data, str):
-            import json
             config_data = json.loads(config_data)
         
         # Create temporary files for component content and result
@@ -233,6 +281,10 @@ async def run_optimization_subprocess(opt_id: str, data: Dict[str, Any], context
         
         # Update status to optimizing
         update_operation_status(opt_id, "optimizing")
+        
+        # Capture optimization state for introspection
+        await _capture_optimization_state(opt_id, "optimizing", data, context, {"component_content": component_content})
+        
         await router.emit("optimization:progress", build_progress_event(
             opt_id, "optimizing", "optimization", 
             framework=framework_name,
@@ -278,6 +330,9 @@ async def run_optimization_subprocess(opt_id: str, data: Dict[str, Any], context
                     }
                     complete_operation(opt_id, result)
                     
+                    # Capture optimization completion state for introspection
+                    await _capture_optimization_state(opt_id, "completed", data, context, {"result": result, "improvement": result_data.get("improvement", 0)})
+                    
                     await router.emit("optimization:result", build_result_event(
                         opt_id, result, "optimization"
                     ))
@@ -288,6 +343,9 @@ async def run_optimization_subprocess(opt_id: str, data: Dict[str, Any], context
                 error_msg = f"Failed to process subprocess result: {e}"
                 logger.error(error_msg)
                 fail_operation(opt_id, error_msg, "ResultProcessingError")
+                
+                # Capture optimization error state for introspection
+                await _capture_optimization_state(opt_id, "failed", data, context, {"error": error_msg, "error_type": "ResultProcessingError"})
                 
                 await router.emit("optimization:error", build_error_event(
                     opt_id, error_msg, "optimization",
@@ -311,6 +369,9 @@ async def run_optimization_subprocess(opt_id: str, data: Dict[str, Any], context
                 error_msg += f": {stderr[:500]}"
             
             fail_operation(opt_id, error_msg, "SubprocessError")
+            
+            # Capture optimization error state for introspection
+            await _capture_optimization_state(opt_id, "failed", data, context, {"error": error_msg, "error_type": "SubprocessError", "returncode": returncode})
             
             await router.emit("optimization:error", build_error_event(
                 opt_id, error_msg, "optimization",
@@ -357,8 +418,9 @@ async def run_optimization_subprocess(opt_id: str, data: Dict[str, Any], context
 
 
 @event_handler("optimization:list")
-async def handle_optimization_list(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_optimization_list(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get list of active optimizations."""
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     from ksi_common.async_operations import get_active_operations_summary
     
@@ -384,13 +446,10 @@ async def handle_optimization_list(raw_data: Dict[str, Any], context: Optional[D
                     }
                     active_optimizations.append(optimization_info)
         
-        return {
+        return event_response_builder({
             "optimizations": active_optimizations,
-            "total_active": len(active_optimizations),
-            "_timestamp": time.time(),
-            "_response_id": f"resp_{hex(hash(str(raw_data)))[2:10]}",
-            "_client_id": context.get("_client_id", "unknown") if context else "unknown"
-        }
+            "total_active": len(active_optimizations)
+        }, context=context)
         
     except Exception as e:
         logger.error(f"Error getting optimization list: {e}")
@@ -398,14 +457,15 @@ async def handle_optimization_list(raw_data: Dict[str, Any], context: Optional[D
 
 
 @event_handler("optimization:status")
-async def handle_optimization_status(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_optimization_status(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get status of optimization operations with rich progress information."""
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
-    logger.info(f"Handling optimization:status request: {raw_data}")
+    logger.info(f"Handling optimization:status request: {data}")
     from ksi_common.async_operations import get_operation_status, get_active_operations_summary
     
     # Check for specific optimization ID
-    opt_id = raw_data.get("optimization_id")
+    opt_id = data.get("optimization_id")
     if opt_id:
         # Get basic status
         status = get_operation_status(opt_id)
@@ -413,10 +473,10 @@ async def handle_optimization_status(raw_data: Dict[str, Any], context: Optional
             return error_response(f"Optimization {opt_id} not found", context)
         
         # Parameters for what to include
-        include_scores = raw_data.get("include_scores", True)
-        include_instructions = raw_data.get("include_instructions", False)  # Default false - could be large
-        include_stats = raw_data.get("include_stats", True)
-        include_activity = raw_data.get("include_activity", True)
+        include_scores = data.get("include_scores", True)
+        include_instructions = data.get("include_instructions", False)  # Default false - could be large
+        include_stats = data.get("include_stats", True)
+        include_activity = data.get("include_activity", True)
         
         # Get MLflow data for progress tracking (replaces DSPy internal state)
         logger.info(f"Checking status for MLflow data: {status.get('status')}")
@@ -520,12 +580,13 @@ async def handle_optimization_status(raw_data: Dict[str, Any], context: Optional
 
 
 @event_handler("optimization:cancel")
-async def handle_cancel_optimization(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_cancel_optimization(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Cancel an active optimization."""
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     from ksi_common.async_operations import cancel_operation
     
-    opt_id = raw_data.get("optimization_id")
+    opt_id = data.get("optimization_id")
     if not opt_id:
         return error_response("optimization_id required", context)
     
@@ -549,11 +610,12 @@ async def handle_cancel_optimization(raw_data: Dict[str, Any], context: Optional
 
 
 @event_handler("optimization:evaluate")
-async def handle_evaluate(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_evaluate(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Evaluate a prediction using specified metric."""
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
-    metric_component = raw_data.get("metric")  # Metric component name
-    data = raw_data.get("data", {})
+    metric_component = data.get("metric")  # Metric component name
+    eval_data = data.get("data", {})
     
     if not metric_component:
         return error_response("metric component required", context=context)
@@ -579,7 +641,7 @@ async def handle_evaluate(raw_data: Dict[str, Any], context: Optional[Dict[str, 
     elif metric_type == "llm_judge":
         framework = "judge"
     else:
-        framework = raw_data.get("framework", "dspy")
+        framework = data.get("framework", "dspy")
     
     if framework not in optimization_frameworks:
         return error_response(f"Framework {framework} not available for metric type {metric_type}", context=context)
@@ -587,16 +649,17 @@ async def handle_evaluate(raw_data: Dict[str, Any], context: Optional[Dict[str, 
     adapter_class = optimization_frameworks[framework]
     adapter = adapter_class()
     
-    result = await adapter.evaluate(metric_component, metric_info, data, **raw_data)
+    result = await adapter.evaluate(metric_component, metric_info, eval_data, **data)
     return event_response_builder(result, context=context)
 
 
 @event_handler("optimization:bootstrap")
-async def handle_bootstrap(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_bootstrap(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Bootstrap training examples using specified framework."""
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
-    framework = raw_data.get("framework", "dspy")
-    signature = raw_data.get("signature")  # Signature component name
+    framework = data.get("framework", "dspy")
+    signature = data.get("signature")  # Signature component name
     
     if framework not in optimization_frameworks:
         return error_response(f"Unknown framework: {framework}", context=context)
@@ -605,19 +668,20 @@ async def handle_bootstrap(raw_data: Dict[str, Any], context: Optional[Dict[str,
     adapter = adapter_class()
     
     if hasattr(adapter, 'bootstrap'):
-        result = await adapter.bootstrap(signature=signature, **raw_data)
+        result = await adapter.bootstrap(signature=signature, **data)
         return event_response_builder(result, context=context)
     
     return error_response(f"Framework {framework} does not support bootstrapping", context=context)
 
 
 @event_handler("optimization:compare")
-async def handle_compare(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_compare(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Compare multiple optimization techniques."""
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
-    techniques = raw_data.get("techniques", ["dspy", "judge"])
-    target = raw_data.get("target")
-    metric = raw_data.get("metric")
+    techniques = data.get("techniques", ["dspy", "judge"])
+    target = data.get("target")
+    metric = data.get("metric")
     
     if not target:
         return error_response("target component required", context=context)
@@ -637,7 +701,7 @@ async def handle_compare(raw_data: Dict[str, Any], context: Optional[Dict[str, A
             result = await adapter.optimize(
                 target=target,
                 metric=metric,
-                **raw_data
+                **data
             )
             results[technique] = result
         except Exception as e:
@@ -655,20 +719,21 @@ async def handle_compare(raw_data: Dict[str, Any], context: Optional[Dict[str, A
 
 
 @event_handler("optimization:format_examples")
-async def handle_format_examples(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_format_examples(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Format training data for optimization frameworks."""
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
-    framework = raw_data.get("framework", "dspy")
+    framework = data.get("framework", "dspy")
     
     if framework not in optimization_frameworks:
         return error_response(f"Unknown framework: {framework}", context=context)
     
     adapter_class = optimization_frameworks[framework]
     if hasattr(adapter_class, 'format_examples'):
-        return await adapter_class.format_examples(raw_data, context)
+        return await adapter_class.format_examples(data, context)
     
     # Default formatting
-    examples = raw_data.get("examples", [])
+    examples = data.get("examples", [])
     return event_response_builder({
         "formatted_examples": examples,
         "count": len(examples),
@@ -677,13 +742,14 @@ async def handle_format_examples(raw_data: Dict[str, Any], context: Optional[Dic
 
 
 @event_handler("optimization:get_git_info")
-async def handle_get_git_info(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_get_git_info(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get git-based optimization tracking information."""
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     from .git_tracking.optimization_tracker import OptimizationTracker
     
-    component_name = raw_data.get("component_name")
-    list_experiments = raw_data.get("list_experiments", False)
+    component_name = data.get("component_name")
+    list_experiments = data.get("list_experiments", False)
     
     tracker = OptimizationTracker()
     
@@ -735,7 +801,7 @@ async def get_mlflow_optimization_data(opt_id: str) -> Optional[Dict[str, Any]]:
         import mlflow
         
         # Set tracking URI to KSI's MLflow server
-        mlflow.set_tracking_uri("http://127.0.0.1:5001")
+        mlflow.set_tracking_uri(config.mlflow_tracking_uri)
         
         runs = mlflow.search_runs(
             experiment_names=["ksi_optimizations"],
@@ -857,3 +923,147 @@ async def handle_shutdown(data: Dict[str, Any]) -> None:
     await stop_mlflow_server()
     
     logger.info("Optimization service shutdown complete - all subprocesses terminated")
+
+
+@event_handler("optimization:introspect")
+async def handle_optimization_introspection(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Provide deep introspection into optimization runs using context history."""
+    
+    opt_id = data.get("optimization_id")
+    if not opt_id:
+        return error_response("optimization_id required", context=context)
+    
+    try:
+        from ksi_daemon.core.context_manager import get_context_manager
+        cm = get_context_manager()
+        
+        # Get current optimization status from async operations
+        from ksi_common.async_operations import get_active_operations_summary
+        summary = get_active_operations_summary(
+            service_name="optimization",
+            operation_type="optimization"
+        )
+        
+        optimization_data = summary.get("active_operations", {}).get(opt_id) or \
+                          summary.get("completed_operations", {}).get(opt_id) or \
+                          summary.get("failed_operations", {}).get(opt_id)
+        
+        if not optimization_data:
+            return error_response(f"Optimization {opt_id} not found", context=context)
+        
+        # Enhanced introspection data
+        introspection_result = {
+            "optimization_id": opt_id,
+            "current_status": optimization_data.get("status"),
+            "started_at": optimization_data.get("started_at"),
+            "completed_at": optimization_data.get("completed_at"),
+            "duration": optimization_data.get("duration"),
+            "metadata": optimization_data.get("metadata", {}),
+            "framework": optimization_data.get("metadata", {}).get("framework"),
+            "target_component": optimization_data.get("metadata", {}).get("component"),
+            "context_snapshots": []  # Will be populated when context query is implemented
+        }
+        
+        # Add error information if available
+        if optimization_data.get("status") == "failed":
+            introspection_result["error"] = optimization_data.get("error")
+            introspection_result["error_type"] = optimization_data.get("error_type")
+        
+        # Add result information if completed
+        if optimization_data.get("status") == "completed":
+            introspection_result["result"] = optimization_data.get("result")
+        
+        return event_response_builder(introspection_result, context=context)
+        
+    except Exception as e:
+        logger.error(f"Error during optimization introspection: {e}")
+        return error_response(f"Introspection failed: {str(e)}", context=context)
+
+
+@event_handler("optimization:analyze_performance") 
+async def handle_optimization_analysis(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Analyze optimization performance patterns using context data."""
+    
+    framework = data.get("framework")
+    component_pattern = data.get("component_pattern")  # Optional pattern to filter components
+    
+    try:
+        from ksi_common.async_operations import get_active_operations_summary
+        summary = get_active_operations_summary(
+            service_name="optimization",
+            operation_type="optimization"
+        )
+        
+        # Aggregate performance data
+        performance_analysis = {
+            "framework_performance": {},
+            "component_performance": {},
+            "success_rate": 0,
+            "average_duration": 0,
+            "improvement_distribution": []
+        }
+        
+        all_ops = {}
+        all_ops.update(summary.get("completed_operations", {}))
+        all_ops.update(summary.get("failed_operations", {}))
+        
+        completed_count = 0
+        total_duration = 0
+        framework_stats = {}
+        component_stats = {}
+        
+        for opt_id, opt_data in all_ops.items():
+            opt_framework = opt_data.get("metadata", {}).get("framework")
+            opt_component = opt_data.get("metadata", {}).get("component")
+            
+            # Filter by framework if specified
+            if framework and opt_framework != framework:
+                continue
+            
+            # Filter by component pattern if specified
+            if component_pattern and opt_component and component_pattern not in opt_component:
+                continue
+            
+            # Update framework stats
+            if opt_framework not in framework_stats:
+                framework_stats[opt_framework] = {"total": 0, "completed": 0, "failed": 0, "avg_duration": 0}
+            
+            framework_stats[opt_framework]["total"] += 1
+            if opt_data.get("status") == "completed":
+                framework_stats[opt_framework]["completed"] += 1
+                completed_count += 1
+                
+                if opt_data.get("duration"):
+                    total_duration += opt_data["duration"]
+                    framework_stats[opt_framework]["avg_duration"] += opt_data["duration"]
+            else:
+                framework_stats[opt_framework]["failed"] += 1
+            
+            # Update component stats
+            if opt_component:
+                if opt_component not in component_stats:
+                    component_stats[opt_component] = {"total": 0, "completed": 0, "failed": 0}
+                
+                component_stats[opt_component]["total"] += 1
+                if opt_data.get("status") == "completed":
+                    component_stats[opt_component]["completed"] += 1
+                else:
+                    component_stats[opt_component]["failed"] += 1
+        
+        # Calculate averages
+        for fw_name, fw_stats in framework_stats.items():
+            if fw_stats["completed"] > 0:
+                fw_stats["avg_duration"] = fw_stats["avg_duration"] / fw_stats["completed"]
+                fw_stats["success_rate"] = fw_stats["completed"] / fw_stats["total"]
+        
+        performance_analysis["framework_performance"] = framework_stats
+        performance_analysis["component_performance"] = component_stats
+        performance_analysis["success_rate"] = completed_count / len(all_ops) if all_ops else 0
+        performance_analysis["average_duration"] = total_duration / completed_count if completed_count > 0 else 0
+        performance_analysis["total_optimizations"] = len(all_ops)
+        
+        return event_response_builder(performance_analysis, context=context)
+        
+    except Exception as e:
+        logger.error(f"Error during optimization analysis: {e}")
+        return error_response(f"Analysis failed: {str(e)}", context=context)

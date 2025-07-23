@@ -155,31 +155,31 @@ class DSPyFramework:
         instance = cls()
         
         if instance.dspy_models is None:
-            return {
+            return event_response_builder({
                 "valid": False,
                 "reason": "DSPy models not configured",
                 "required_config": [
                     "optimization_prompt_model",
                     "optimization_task_model"
                 ]
-            }
+            }, context=context)
         
         # Test model availability with simple check
         try:
             # Just verify models are configured properly
-            return {
+            return event_response_builder({
                 "valid": True,
                 "models": {
                     "prompt_model": str(instance.dspy_models.get("prompt_model", "none")),
                     "task_model": str(instance.dspy_models.get("task_model", "none"))
                 },
                 "adapter": "litellm"
-            }
+            }, context=context)
         except Exception as e:
-            return {
+            return event_response_builder({
                 "valid": False,
                 "reason": f"Model test failed: {str(e)}"
-            }
+            }, context=context)
     
     async def optimize(self, target: str, signature: str, metric: str, **kwargs) -> Dict[str, Any]:
         """Run DSPy optimization on a component."""

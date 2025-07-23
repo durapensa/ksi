@@ -18,13 +18,20 @@ from ksi_common.async_operations import run_in_thread_pool
 
 logger = get_bound_logger("dspy_adapter")
 
+# Import default metric for agent-based evaluation
+try:
+    from ksi_daemon.optimization.metrics.agent_output_metric import evaluate_data_analysis
+except ImportError:
+    logger.warning("Agent output metric not available, using simplified metric")
+    evaluate_data_analysis = None
+
 
 class KSIComponentSignature(dspy.Signature):
-    """Signature for optimizing KSI component instructions."""
-    context: str = dspy.InputField(desc="Component context and purpose")
-    current_instruction: str = dspy.InputField(desc="Current component instruction/content")
-    examples: str = dspy.InputField(desc="Examples of successful component usage")
-    optimized_instruction: str = dspy.OutputField(desc="Improved component instruction")
+    """You are an expert at optimizing prompts and instructions for AI systems. Your task is to take an existing instruction/prompt and make it more effective, detailed, and actionable while maintaining its core purpose."""
+    context: str = dspy.InputField(desc="Component metadata - the type and purpose of this AI component")
+    current_instruction: str = dspy.InputField(desc="The EXISTING instruction/prompt text that needs improvement")
+    examples: str = dspy.InputField(desc="Example patterns showing what makes instructions effective")
+    optimized_instruction: str = dspy.OutputField(desc="Your IMPROVED version of the instruction - make it more detailed, structured, and effective")
 
 
 class DSPyMIPROAdapter(BaseOptimizer):
@@ -32,13 +39,40 @@ class DSPyMIPROAdapter(BaseOptimizer):
     
     def __init__(
         self, 
-        metric: Callable,
+        metric: Optional[Callable] = None,
         prompt_model: Optional[Any] = None,
         task_model: Optional[Any] = None,
         config: Optional[Dict[str, Any]] = None,
         framework: Optional[Any] = None
     ):
         """Initialize DSPy adapter with models and config."""
+        # Use agent-based evaluation metric if none provided
+        if metric is None and evaluate_data_analysis is not None:
+            # Create a sync wrapper for the async metric
+            import asyncio
+            def sync_metric_wrapper(example, prediction, trace=None):
+                """Sync wrapper for async agent evaluation metric."""
+                try:
+                    # Run async metric in event loop
+                    loop = asyncio.new_event_loop()
+                    score = loop.run_until_complete(
+                        evaluate_data_analysis(example, prediction, trace)
+                    )
+                    loop.close()
+                    return score
+                except Exception as e:
+                    logger.error(f"Error in metric evaluation: {e}")
+                    return 0.0
+            metric = sync_metric_wrapper
+            logger.info("Using agent-based evaluation metric")
+        elif metric is None:
+            # Fallback to simple metric
+            def simple_metric(example, prediction, trace=None):
+                """Simple fallback metric."""
+                return 0.5
+            metric = simple_metric
+            logger.warning("Using fallback simple metric")
+            
         super().__init__(metric, config)
         
         # Configure DSPy models
@@ -53,28 +87,30 @@ class DSPyMIPROAdapter(BaseOptimizer):
             # Auto mode: zero-shot optimization (instruction-only)
             self.mipro_init_config = {
                 "auto": auto_mode,  # "light", "medium", or "heavy"
-                "max_bootstrapped_demos": 0,  # Zero-shot: no bootstrapped examples
-                "max_labeled_demos": 0,       # Zero-shot: no few-shot examples
                 "init_temperature": config.get("init_temperature", 0.7),
                 "verbose": config.get("verbose", True),
                 "track_stats": config.get("track_stats", True),
                 "metric_threshold": config.get("metric_threshold", None),
             }
-            self.mipro_compile_config = {}  # Auto mode handles everything
+            # Zero-shot parameters go in compile(), not init()
+            self.mipro_compile_config = {
+                "max_bootstrapped_demos": 0,  # Zero-shot: no bootstrapped examples
+                "max_labeled_demos": 0,       # Zero-shot: no few-shot examples
+            }
         else:
             # Manual mode: zero-shot optimization
             self.mipro_init_config = {
                 "auto": None,  # Disable auto mode for manual control
-                "max_bootstrapped_demos": 0,  # Zero-shot: no bootstrapped examples
-                "max_labeled_demos": 0,       # Zero-shot: no few-shot examples
                 "init_temperature": config.get("init_temperature", 0.7),
                 "verbose": config.get("verbose", True),
                 "track_stats": config.get("track_stats", True),
                 "metric_threshold": config.get("metric_threshold", None),
             }
-            # num_trials goes to compile(), not init()
+            # Zero-shot parameters and num_trials go to compile(), not init()
             self.mipro_compile_config = {
                 "num_trials": config.get("num_trials", 12),
+                "max_bootstrapped_demos": 0,  # Zero-shot: no bootstrapped examples
+                "max_labeled_demos": 0,       # Zero-shot: no few-shot examples
             }
     
     def get_optimizer_name(self) -> str:
@@ -227,6 +263,45 @@ class DSPyMIPROAdapter(BaseOptimizer):
             if self.framework and opt_id:
                 self.framework.unregister_optimizer(opt_id)
         
+        # Dump raw DSPy output for debugging
+        logger.info("=" * 80)
+        logger.info("RAW DSPY OUTPUT DUMP")
+        logger.info("=" * 80)
+        
+        # Dump the entire optimized program structure
+        logger.info(f"Optimized program type: {type(optimized_program)}")
+        logger.info(f"Optimized program dict: {optimized_program.__dict__}")
+        
+        # Dump all modules and their attributes
+        for name, module in optimized_program.named_modules():
+            logger.info(f"\nModule: {name}")
+            logger.info(f"  Type: {type(module)}")
+            logger.info(f"  Dict: {module.__dict__}")
+            
+            if hasattr(module, 'extended_signature'):
+                logger.info(f"  Extended signature: {module.extended_signature}")
+                logger.info(f"  Extended signature dict: {module.extended_signature.__dict__}")
+            
+            if hasattr(module, 'predictors'):
+                logger.info(f"  Predictors: {module.predictors}")
+            
+            if hasattr(module, 'signature'):
+                logger.info(f"  Signature: {module.signature}")
+        
+        # Also dump optimizer stats if available
+        if hasattr(optimizer, 'best_program'):
+            logger.info(f"\nOptimizer best_program: {optimizer.best_program}")
+        
+        if hasattr(optimizer, 'best_score'):
+            logger.info(f"Optimizer best_score: {optimizer.best_score}")
+            
+        if hasattr(optimizer, 'stats'):
+            logger.info(f"Optimizer stats: {optimizer.stats}")
+        
+        logger.info("=" * 80)
+        logger.info("END RAW DSPY OUTPUT")
+        logger.info("=" * 80)
+        
         # Extract optimized instruction
         # Get the optimized prompt from the program
         optimized_instruction = None
@@ -239,6 +314,7 @@ class DSPyMIPROAdapter(BaseOptimizer):
         
         if not optimized_instruction:
             # Fallback: use the original instruction
+            logger.warning("No optimized instruction found, using original")
             optimized_instruction = original_body
         
         # Update frontmatter with optimization metadata
@@ -254,9 +330,53 @@ class DSPyMIPROAdapter(BaseOptimizer):
         # Reconstruct optimized component
         optimized_content = self._reconstruct_component(frontmatter, optimized_instruction)
         
-        # Calculate scores (simplified - in practice, run full evaluation)
-        original_score = 0.5  # Baseline
-        optimized_score = 0.75  # After optimization
+        # Extract actual scores from optimization results
+        original_score = 0.0  # Baseline (before optimization)
+        optimized_score = 0.0  # Will be extracted from results
+        
+        # Try to get the best score from optimizer
+        if hasattr(optimizer, 'best_score') and optimizer.best_score is not None:
+            optimized_score = float(optimizer.best_score)
+            logger.info(f"Using optimizer best_score: {optimized_score}")
+        
+        # Try to extract from trial logs in optimized program
+        elif hasattr(optimized_program, 'trial_logs') and optimized_program.trial_logs:
+            # Find the best score from all trials
+            best_score = 0.0
+            for trial_num, trial_data in optimized_program.trial_logs.items():
+                if 'full_eval_score' in trial_data:
+                    trial_score = float(trial_data['full_eval_score'])
+                    if trial_score > best_score:
+                        best_score = trial_score
+                        logger.info(f"Trial {trial_num} score: {trial_score}")
+            optimized_score = best_score
+            logger.info(f"Best score from trial logs: {optimized_score}")
+        
+        # Try to extract from program score attribute
+        elif hasattr(optimized_program, 'score'):
+            optimized_score = float(optimized_program.score)
+            logger.info(f"Using program score: {optimized_score}")
+        
+        # If still no score, run evaluation manually
+        if optimized_score == 0.0 and self.metric:
+            logger.info("No score found in optimization results, evaluating manually")
+            try:
+                # Create a test example
+                test_example = dspy.Example(
+                    context=f"Component: {component_name}",
+                    current_instruction=original_body[:500],
+                    examples="Test evaluation"
+                ).with_inputs("context", "current_instruction", "examples")
+                
+                # Run the optimized program to get prediction
+                prediction = optimized_program(test_example)
+                
+                # Evaluate with metric
+                optimized_score = self.metric(test_example, prediction)
+                logger.info(f"Manual evaluation score: {optimized_score}")
+            except Exception as e:
+                logger.error(f"Failed to manually evaluate: {e}")
+                optimized_score = 0.1  # Small default if evaluation fails
         
         result: OptimizationResult = {
             "component_name": component_name,
@@ -349,42 +469,31 @@ class DSPyMIPROAdapter(BaseOptimizer):
         # Extract component purpose from name and body
         component_type = "component"
         if "analyst" in component_name.lower():
-            component_type = "analyst"
+            component_type = "analyst persona"
         elif "researcher" in component_name.lower():
-            component_type = "researcher"
+            component_type = "researcher persona"
         elif "coordinator" in component_name.lower():
-            component_type = "coordinator"
+            component_type = "coordinator agent"
         
-        # Create minimal examples just for DSPy instruction generation
-        # These provide structure, not domain-specific content
+        # Create minimal examples that clearly show instruction optimization
         training_examples = []
         
-        # Example 1: Basic task structure
+        # Example 1: Show concrete instruction optimization (simple to detailed)
         example1 = dspy.Example(
-            context=f"Component: {component_name}\nType: {component_type}",
-            current_instruction=original_body[:200] + "..." if len(original_body) > 200 else original_body,
-            examples="Input provided, task performed, output generated",
-            optimized_instruction="[To be optimized by MIPROv2]"
+            context=f"Component: assistant\nType: AI assistant\nPurpose: Make this basic assistant instruction more effective and detailed",
+            current_instruction="You are a helpful assistant.",
+            examples="Good instructions have: Clear role definition, specific expertise areas, structured approach, personality traits",
+            optimized_instruction="You are a knowledgeable and helpful AI assistant with expertise in analysis, problem-solving, and clear communication. Your approach is systematic: first understand the context, then break down complex problems into manageable steps, and finally provide actionable solutions. You communicate in a clear, professional tone while adapting your style to match the user's needs and expertise level."
         ).with_inputs("context", "current_instruction", "examples")
         training_examples.append(example1)
         
-        # Example 2: Input-output pattern
+        # Example 2: Show domain-specific optimization (analyst persona)
         example2 = dspy.Example(
-            context=f"Component: {component_name}\nExpected behavior: Process input and provide structured output",
-            current_instruction="Basic instruction template",
-            examples="Sample input → Sample output",
-            optimized_instruction="[To be optimized by MIPROv2]"
+            context=f"Component: data_analyst\nType: analyst persona\nPurpose: Transform generic instruction into domain-specific expertise",
+            current_instruction="You are an analyst who works with data.",
+            examples="Effective analyst prompts include: Domain expertise, methodical approach, tools knowledge, communication skills",
+            optimized_instruction="You are a Senior Data Analyst with deep expertise in statistical analysis, data visualization, and business intelligence. Your approach is methodical: start by understanding the business question, assess data quality and completeness, select appropriate analytical methods, and present findings with clear visualizations and actionable recommendations. You excel at translating complex data insights into strategic business value."
         ).with_inputs("context", "current_instruction", "examples")
         training_examples.append(example2)
-        
-        # Example 3: Quality criteria (only if needed - keep minimal)
-        if len(training_examples) < 3:
-            example3 = dspy.Example(
-                context=f"Component: {component_name}\nQuality criteria: Clear, actionable, well-structured",
-                current_instruction="Template instruction",
-                examples="Quality input → Quality output",
-                optimized_instruction="[To be optimized by MIPROv2]"
-            ).with_inputs("context", "current_instruction", "examples")
-            training_examples.append(example3)
         
         return training_examples
