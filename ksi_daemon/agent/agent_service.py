@@ -2341,24 +2341,31 @@ async def handle_agent_conversation_summary(data: AgentConversationSummaryData, 
 class AgentConversationResetData(TypedDict):
     """Reset agent conversation data structure."""
     agent_id: Required[str]  # Agent ID to reset conversation for
+    depth: NotRequired[int]  # Number of contexts to keep (0 = full reset)
     _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("agent:conversation_reset", schema=AgentConversationResetData)
 async def handle_agent_conversation_reset(data: AgentConversationResetData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Reset an agent's conversation, clearing their session history.
+    """Reset an agent's conversation, optionally keeping recent context.
     
-    This allows an agent to start fresh with a new conversation context.
+    This allows an agent to start fresh or partially reset their conversation.
     Uses an internal event to communicate with the completion service.
+    
+    Args:
+        agent_id: Agent to reset
+        depth: Number of recent contexts to keep (0 = full reset, default)
     """
     agent_id = data["agent_id"]  # Validated by enhanced event_handler
+    depth = data.get("depth", 0)  # Default to full reset
     
     # Use internal event to reset conversation in completion service
     reset_result = await agent_emit_event(
         "system",  # System-level event
         "completion:reset_conversation",
         {
-            "agent_id": agent_id
+            "agent_id": agent_id,
+            "depth": depth
         },
         context
     )
@@ -2374,7 +2381,12 @@ async def handle_agent_conversation_reset(data: AgentConversationResetData, cont
         return error_response(f"Failed to reset conversation: {reset_result.get('error', 'Unknown error')}", context)
     
     # Log the reset for monitoring
-    logger.info(f"Reset conversation for agent {agent_id}", had_session=reset_result.get("had_active_session", False))
+    logger.info(
+        f"Reset conversation for agent {agent_id}",
+        had_session=reset_result.get("had_active_session", False),
+        reset_type=reset_result.get("reset_type", "full"),
+        contexts_kept=reset_result.get("contexts_kept", 0)
+    )
     
     # Return the reset confirmation
     return event_response_builder(reset_result, context)

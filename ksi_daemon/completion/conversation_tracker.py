@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc, utc_now
 from ksi_daemon.event_system import emit_event
+from ksi_daemon.core.context_manager import get_context_manager
 
 
 logger = get_bound_logger("completion.conversation_tracker")
@@ -47,6 +48,10 @@ class SessionMetadata:
     conversation_locked: bool = False
     lock_holder: Optional[str] = None
     lock_expiry: Optional[datetime] = None
+    # Context continuity fields
+    context_chain: List[str] = field(default_factory=list)  # Ordered list of context refs
+    first_context_ref: Optional[str] = None  # Reference to conversation start
+    last_context_ref: Optional[str] = None   # Reference to latest context
     
     def update_activity(self) -> None:
         """Update last activity timestamp."""
@@ -401,3 +406,177 @@ class ConversationTracker:
                 
         if expired_count:
             logger.info(f"Cleaned up {expired_count} expired locks")
+    
+    # Context Continuity Methods
+    
+    def add_context_to_session(self, session_id: str, context_ref: str) -> bool:
+        """
+        Add a context reference to a session's context chain.
+        
+        Args:
+            session_id: Session to update
+            context_ref: Context reference to add
+            
+        Returns:
+            True if added successfully, False if session not found
+        """
+        if session_id not in self._sessions:
+            logger.warning(f"Cannot add context to unknown session {session_id}")
+            return False
+            
+        session = self._sessions[session_id]
+        session.context_chain.append(context_ref)
+        session.last_context_ref = context_ref
+        session.update_activity()
+        
+        # Set first context if this is the first one
+        if not session.first_context_ref:
+            session.first_context_ref = context_ref
+            
+        logger.debug(f"Added context {context_ref} to session {session_id}")
+        return True
+    
+    def get_session_context_chain(self, session_id: str) -> List[str]:
+        """
+        Get the ordered context chain for a session.
+        
+        Args:
+            session_id: Session to query
+            
+        Returns:
+            List of context references in chronological order
+        """
+        if session_id not in self._sessions:
+            return []
+            
+        return self._sessions[session_id].context_chain.copy()
+    
+    def get_agent_conversation_contexts(self, agent_id: str, limit: int = 10) -> List[str]:
+        """
+        Get recent conversation contexts for an agent.
+        
+        Args:
+            agent_id: Agent to query
+            limit: Maximum number of contexts to return
+            
+        Returns:
+            List of recent context references for the agent's current session
+        """
+        session_id = self.get_agent_session(agent_id)
+        if not session_id:
+            return []
+            
+        context_chain = self.get_session_context_chain(session_id)
+        return context_chain[-limit:] if len(context_chain) > limit else context_chain
+    
+    async def get_agent_conversation_summary(self, agent_id: str, include_fields: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        Get a summary of an agent's current conversation with resolved context data.
+        
+        Args:
+            agent_id: Agent to query
+            include_fields: Specific context fields to include (optional)
+            
+        Returns:
+            Conversation summary with resolved contexts
+        """
+        session_id = self.get_agent_session(agent_id)
+        if not session_id:
+            return {
+                "agent_id": agent_id,
+                "status": "no_active_session",
+                "contexts": []
+            }
+            
+        session = self._sessions[session_id]
+        context_refs = session.context_chain
+        
+        # Resolve contexts using the context manager
+        try:
+            cm = get_context_manager()
+            resolved_contexts = []
+            
+            for ref in context_refs[-5:]:  # Get last 5 contexts
+                context_data = await cm.get_context(ref)
+                if context_data:
+                    # Apply field filtering if requested
+                    if include_fields:
+                        filtered_context = {k: v for k, v in context_data.items() if k in include_fields}
+                    else:
+                        filtered_context = context_data
+                    
+                    resolved_contexts.append({
+                        "ref": ref,
+                        "context": filtered_context
+                    })
+            
+            return {
+                "agent_id": agent_id,
+                "session_id": session_id,
+                "status": "active_session",
+                "conversation_started": session.first_context_ref,
+                "last_activity": session.last_activity.isoformat(),
+                "request_count": session.request_count,
+                "context_chain_length": len(context_refs),
+                "contexts": resolved_contexts
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to resolve contexts for agent {agent_id}: {e}")
+            return {
+                "agent_id": agent_id,
+                "session_id": session_id,
+                "status": "context_resolution_failed",
+                "error": str(e),
+                "context_refs": context_refs[-5:]  # Return raw refs as fallback
+            }
+    
+    def reset_agent_conversation(self, agent_id: str, depth: int = 0) -> bool:
+        """
+        Reset an agent's conversation context, optionally keeping recent contexts.
+        
+        Args:
+            agent_id: Agent to reset
+            depth: Number of recent contexts to keep (0 = full reset)
+            
+        Returns:
+            True if reset successfully, False if agent had no active session
+        """
+        current_session_id = self._agent_sessions.get(agent_id)
+        if not current_session_id:
+            logger.debug(f"Agent {agent_id} had no active session to reset")
+            return False
+            
+        if depth == 0:
+            # Full reset - clear session mapping
+            self._agent_sessions.pop(agent_id, None)
+            logger.info(f"Full reset: cleared conversation for agent {agent_id} (was session {current_session_id})")
+            return True
+        else:
+            # Partial reset - keep only the last N contexts
+            if current_session_id in self._sessions:
+                session = self._sessions[current_session_id]
+                if len(session.context_chain) > depth:
+                    # Trim context chain to keep only last N contexts
+                    kept_contexts = session.context_chain[-depth:]
+                    removed_count = len(session.context_chain) - depth
+                    session.context_chain = kept_contexts
+                    
+                    # Update first context reference if we removed it
+                    if kept_contexts:
+                        session.first_context_ref = kept_contexts[0]
+                    
+                    logger.info(
+                        f"Partial reset: kept {depth} most recent contexts for agent {agent_id}, "
+                        f"removed {removed_count} older contexts"
+                    )
+                    return True
+                else:
+                    logger.info(
+                        f"No reset needed: agent {agent_id} has {len(session.context_chain)} contexts "
+                        f"(requested to keep {depth})"
+                    )
+                    return False
+            else:
+                logger.warning(f"Session {current_session_id} not found for partial reset")
+                return False

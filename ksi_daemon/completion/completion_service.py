@@ -1075,6 +1075,7 @@ async def handle_get_conversation_summary(data: CompletionConversationSummaryDat
 class CompletionResetConversationData(TypedDict):
     """Reset agent conversation."""
     agent_id: str  # Agent ID to reset conversation for
+    depth: NotRequired[int]  # Number of contexts to keep (0 = full reset)
     _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
@@ -1090,20 +1091,25 @@ async def handle_reset_conversation(data: CompletionResetConversationData, conte
     if not agent_id:
         return error_response("agent_id required", context)
     
+    depth = data.get("depth", 0)  # Default to full reset
+    
     try:
         # Reset the agent's conversation
-        was_reset = conversation_tracker.reset_agent_conversation(agent_id)
+        was_reset = conversation_tracker.reset_agent_conversation(agent_id, depth=depth)
         
         # Emit event to notify about the reset
         await emit_event("conversation:reset", {
             "agent_id": agent_id,
-            "had_active_session": was_reset
+            "had_active_session": was_reset,
+            "depth": depth
         })
         
         return event_response_builder({
             "agent_id": agent_id,
             "reset": True,
-            "had_active_session": was_reset
+            "had_active_session": was_reset,
+            "reset_type": "partial" if depth > 0 else "full",
+            "contexts_kept": depth if depth > 0 else 0
         }, context)
         
     except Exception as e:
