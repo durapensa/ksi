@@ -6,22 +6,22 @@ Core KSI functionality: The event system enriches all events with originator
 information (originator_id, agent_id, session_id, etc.) to ensure complete 
 event traceability and context awareness throughout the system.
 
-This module provides the standard utilities for handlers to work with enriched
-events, cleanly separating handler-specific data from system-injected metadata.
-This is the expected pattern for all event handlers in KSI.
+This module provides constants and utilities for the unified _ksi_context pattern.
+All system metadata is now contained within the _ksi_context field of event data.
 
 Usage:
-    from ksi_common.event_parser import parse_event_data
+    from typing_extensions import TypedDict, NotRequired
+    
+    class MyEventData(TypedDict):
+        field: str
+        _ksi_context: NotRequired[Dict[str, Any]]  # Include in all TypedDicts
     
     @event_handler("my:event")
-    async def handle_my_event(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None):
-        # Standard pattern: extract handler-specific data
-        data = parse_event_data(raw_data, MyEventData)
-        
-        # Process with clean, type-safe data
+    async def handle_my_event(data: MyEventData, context: Optional[Dict[str, Any]] = None):
+        # Direct data access - no extraction needed
         result = process_my_event(data)
         
-        # Return response with originator context
+        # Return response
         return build_response(result, "my_handler", "my:event", context)
 """
 from typing import Any, Dict, TypeVar, Type, Optional, Set, get_type_hints, get_args, get_origin
@@ -31,45 +31,19 @@ T = TypeVar('T')
 
 # Standard system metadata fields injected by event system
 # NOTE: session_id is NOT included - it's private to completion system
-# NOTE: correlation_id is NOT included - it's internal to modules that use it
 SYSTEM_METADATA_FIELDS = {
     "_agent_id",
     "_client_id",
     "_event_id",
-    "_event_timestamp"
+    "_event_timestamp",
+    "_correlation_id",    # Tracks related events across the system
+    "_parent_event_id",   # Links events in causal chains
+    "_root_event_id",     # Original event that started the chain
+    "_event_depth"        # How deep in the event chain (0 = root)
 }
 
 
-def event_format_linter(raw_data: Dict[str, Any], expected_type: Type[T] = None) -> Dict[str, Any]:
-    """Strip system metadata from event data, returning clean handler data.
-    
-    Args:
-        raw_data: The raw event data potentially containing injected system fields
-        expected_type: Optional TypedDict type for validation/filtering
-        
-    Returns:
-        Clean data dictionary without injected system metadata fields
-    """
-    if not isinstance(raw_data, dict):
-        # Non-dict data is returned as-is
-        return raw_data
-    
-    # Separate originator fields from actual data
-    clean_data = {}
-    
-    if expected_type:
-        # If we have a type, only include expected fields
-        expected_fields = get_expected_fields(expected_type)
-        for key, value in raw_data.items():
-            if key in expected_fields:
-                clean_data[key] = value
-    else:
-        # No type specified, remove known system metadata fields
-        for key, value in raw_data.items():
-            if key not in SYSTEM_METADATA_FIELDS:
-                clean_data[key] = value
-                
-    return clean_data
+# REMOVED: event_format_linter - deprecated in favor of _ksi_context
 
 
 def extract_system_metadata(raw_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -92,23 +66,7 @@ def extract_system_metadata(raw_data: Dict[str, Any]) -> Dict[str, Any]:
     return metadata_info
 
 
-def extract_system_handler_data(raw_data: Dict[str, Any], expected_type: Type[T] = None) -> tuple[Dict[str, Any], Dict[str, Any]]:
-    """Extract clean business data and system metadata for system infrastructure handlers.
-    
-    This is the standard utility for system infrastructure handlers (monitor, event_system, 
-    transport) that need to work with both clean business data and system metadata.
-    Uses SYSTEM_METADATA_FIELDS as the single source of truth.
-    
-    Args:
-        raw_data: The raw enriched event data from the event system
-        expected_type: Optional TypedDict type for validation
-        
-    Returns:
-        Tuple of (clean_business_data, system_metadata_dict)
-    """
-    clean_data = event_format_linter(raw_data, expected_type)
-    system_metadata = extract_system_metadata(raw_data)
-    return clean_data, system_metadata
+# REMOVED: extract_system_handler_data - deprecated in favor of _ksi_context
 
 
 def get_expected_fields(typed_dict_class: Type[Any]) -> Set[str]:

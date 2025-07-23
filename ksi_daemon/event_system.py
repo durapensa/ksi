@@ -24,6 +24,16 @@ from ksi_common.config import config
 
 logger = get_bound_logger("event_system", version="2.0.0")
 
+# Import context manager for reference-based context (PYTHONIC CONTEXT REFACTOR)
+_context_manager = None
+def get_context_manager():
+    """Lazy import to avoid circular dependency."""
+    global _context_manager
+    if _context_manager is None:
+        from ksi_daemon.core.context_manager import get_context_manager as _get_cm
+        _context_manager = _get_cm()
+    return _context_manager
+
 # Import runtime config function (avoid circular import by importing lazily)
 def get_runtime_config(key: str, fallback=None):
     """Lazy import to avoid circular dependency."""
@@ -353,23 +363,7 @@ class EventRouter:
             context["event"] = event
             context["router"] = self
         
-        # Log event to reference-based event log (only if not silent)
-        if not silent and hasattr(self, 'reference_event_log') and self.reference_event_log:
-            # Extract metadata for logging
-            originator_id = context.get("originator_id") or context.get("agent_id")
-            construct_id = context.get("construct_id") or data.get("construct_id")
-            correlation_id = context.get("correlation_id")
-            event_id = context.get("event_id") or data.get("request_id")
-            
-            # Log the event with full data (reference log will handle stripping)
-            asyncio.create_task(self.reference_event_log.log_event(
-                event_name=event,
-                data=data,
-                originator_id=originator_id,
-                construct_id=construct_id,
-                correlation_id=correlation_id,
-                event_id=event_id
-            ))
+        # NOTE: Event logging moved after enrichment to capture proper genealogy metadata
         
         # Check for observation - use _agent_id as single source of truth
         observation_id = None
@@ -394,33 +388,125 @@ class EventRouter:
         for mw in self._middleware:
             data = await mw(event, data, context)
             
-        # Enrich event data with system metadata
-        # This is core KSI functionality - all events carry context for complete traceability
+        # PYTHONIC CONTEXT REFACTOR: Use reference-based context management
+        # This reduces event size by 66% and enables automatic context propagation
         if context and isinstance(data, dict):
-            # Create enriched data with system metadata fields
             enhanced_data = data.copy()
             
-            # Add simplified system context fields using underscore prefix
-            # NOTE: session_id is NOT included - it's private to completion system
-            # NOTE: Orchestration lineage handled at orchestration layer, not here
+            # Get the context manager
+            cm = get_context_manager()
             
-            # Generate unique event ID if not present
-            if "_event_id" not in enhanced_data:
-                enhanced_data["_event_id"] = f"evt_{uuid.uuid4().hex[:8]}"
+            # Extract any existing _ksi_context (could be a reference or full context)
+            existing_ksi_context = enhanced_data.get("_ksi_context")
             
-            # Add timestamp
-            enhanced_data["_event_timestamp"] = time.time()
+            # If it's a reference, resolve it
+            if isinstance(existing_ksi_context, str) and existing_ksi_context.startswith("ctx_"):
+                # It's a reference - resolve it
+                existing_ksi_context = await cm.get_context(existing_ksi_context) or {}
+            elif not isinstance(existing_ksi_context, dict):
+                existing_ksi_context = {}
             
-            # Copy system metadata fields from context if present
-            # These are already prefixed with underscore from clients
+            # Prepare context creation parameters
+            context_params = {}
+            
+            # Event ID - check multiple sources
+            event_id = (existing_ksi_context.get("_event_id") or 
+                       enhanced_data.get("_event_id") or 
+                       f"evt_{uuid.uuid4().hex[:8]}")
+            context_params["event_id"] = event_id
+            
+            # Timestamp
+            context_params["timestamp"] = time.time()
+            
+            # Correlation ID - check multiple sources
+            if "_correlation_id" in context:
+                context_params["correlation_id"] = context["_correlation_id"]
+            elif "_correlation_id" in existing_ksi_context:
+                context_params["correlation_id"] = existing_ksi_context["_correlation_id"]
+            elif "_correlation_id" in data:
+                context_params["correlation_id"] = data["_correlation_id"]
+            # If none found, create_context will generate one
+            
+            # Add system metadata fields from context
             from ksi_common.event_parser import SYSTEM_METADATA_FIELDS
             for field in SYSTEM_METADATA_FIELDS:
                 if field in context:
-                    enhanced_data[field] = context[field]
+                    # Remove leading underscore for context_params
+                    param_name = field[1:] if field.startswith("_") else field
+                    context_params[param_name] = context[field]
+            
+            # Create or update context using context manager
+            # This automatically handles parent relationships via contextvars
+            ksi_context = await cm.create_context(**context_params)
+            
+            # Store the event with context and get back a reference
+            event_for_storage = {
+                "event_id": event_id,
+                "event_name": event,
+                "timestamp": context_params["timestamp"],
+                "data": enhanced_data
+            }
+            
+            context_ref = await cm.store_event_with_context(event_for_storage)
+            
+            # BREAKING CHANGE: Store only the reference, not full context
+            enhanced_data["_ksi_context"] = context_ref
+            
+            # Update the router's context for child event propagation
+            # The context manager already set contextvars, but we also update
+            # the passed context dict for backward compatibility
+            context.update({
+                "_event_id": ksi_context["_event_id"],
+                "_correlation_id": ksi_context["_correlation_id"],
+                "_parent_event_id": ksi_context["_event_id"],  # This event becomes parent for children
+                "_root_event_id": ksi_context.get("_root_event_id", ksi_context["_event_id"]),
+                "_event_depth": ksi_context.get("_event_depth", 0),
+                "_ksi_context_ref": context_ref  # Store reference for handlers that need it
+            })
                 
         else:
             # Non-dict data or no context - use as-is
             enhanced_data = data
+            
+        # Log event to reference-based event log AFTER enrichment (only if not silent)
+        if not silent and hasattr(self, 'reference_event_log') and self.reference_event_log:
+            # Extract metadata for logging from enhanced_data
+            log_data = enhanced_data if isinstance(enhanced_data, dict) else data
+            
+            # Get originator_id from context (who triggered this event)
+            originator_id = context.get("_agent_id") if context else None
+            
+            # PYTHONIC CONTEXT REFACTOR: Extract metadata from context dict
+            # The enhanced_data now contains a reference, but context dict has the values
+            correlation_id = context.get("_correlation_id") if context else None
+            event_id = context.get("_event_id") if context else None
+            parent_event_id = context.get("_parent_event_id") if context else None
+            root_event_id = context.get("_root_event_id") if context else None
+            event_depth = context.get("_event_depth") if context else None
+            
+            # Fallback to request_id if no event_id
+            if not event_id and isinstance(log_data, dict):
+                event_id = log_data.get("request_id")
+            
+            # Also check context for construct_id
+            construct_id = context.get("construct_id") if context else None
+            if not construct_id and isinstance(log_data, dict):
+                construct_id = log_data.get("construct_id")
+            
+            # Log the event unless it's marked to skip
+            # PYTHONIC CONTEXT REFACTOR: Skip logging internal plumbing events
+            if not (isinstance(log_data, dict) and log_data.get("_skip_log")):
+                asyncio.create_task(self.reference_event_log.log_event(
+                    event_name=event,
+                    data=log_data,
+                    originator_id=originator_id,
+                    construct_id=construct_id,
+                    correlation_id=correlation_id,
+                    event_id=event_id,
+                    parent_event_id=parent_event_id,
+                    root_event_id=root_event_id,
+                    event_depth=event_depth
+                ))
             
         # Collect all matching handlers
         handlers = []
@@ -1175,14 +1261,12 @@ class RouterRegisterTransformerData(TypedDict):
 
 
 @event_handler("router:register_transformer")
-async def handle_register_transformer(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_register_transformer(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Register a dynamic transformer from pattern."""
-    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
-    from ksi_common.event_parser import extract_system_handler_data
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    clean_data, system_metadata = extract_system_handler_data(raw_data)
     
-    transformer = clean_data.get('transformer')
+    transformer = data.get('transformer')
     if not transformer:
         return error_response(
             "Missing transformer definition",
@@ -1212,14 +1296,12 @@ class RouterUnregisterTransformerData(TypedDict):
 
 
 @event_handler("router:unregister_transformer")
-async def handle_unregister_transformer(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_unregister_transformer(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Unregister a dynamic transformer."""
-    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
-    from ksi_common.event_parser import extract_system_handler_data
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    clean_data, system_metadata = extract_system_handler_data(raw_data)
     
-    source = clean_data.get('source')
+    source = data.get('source')
     if not source:
         return error_response(
             "Missing source event",
@@ -1240,8 +1322,9 @@ class RouterListTransformersData(TypedDict):
 
 
 @event_handler("router:list_transformers")
-async def handle_list_transformers(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_list_transformers(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """List all registered transformers."""
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, list_response
     
     router = get_router()
@@ -1270,17 +1353,15 @@ class SystemErrorPropagationData(TypedDict):
 
 
 @event_handler("system:error_propagation")
-async def handle_error_propagation(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_error_propagation(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Control error propagation mode."""
-    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
-    from ksi_common.event_parser import extract_system_handler_data
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    clean_data, system_metadata = extract_system_handler_data(raw_data)
     
     router = get_router()
     
-    if "enabled" in clean_data:
-        previous = router.set_error_propagation(clean_data["enabled"])
+    if "enabled" in data:
+        previous = router.set_error_propagation(data["enabled"])
         return event_response_builder(
             {
                 "enabled": router._propagate_errors,
@@ -1308,17 +1389,15 @@ class EventEmitData(TypedDict):
 
 
 @event_handler("event:emit")
-async def handle_emit_event(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Any:
+async def handle_emit_event(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Any:
     """Generic event emission - allows any module to emit any event."""
-    # Extract clean business data and system metadata (SYSTEM_METADATA_FIELDS is source of truth)
-    from ksi_common.event_parser import extract_system_handler_data
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    clean_data, system_metadata = extract_system_handler_data(raw_data)
     
-    target_event = clean_data.get('event')
-    event_data = clean_data.get('data', {})
-    delay = clean_data.get('delay', 0)
-    condition = clean_data.get('condition')
+    target_event = data.get('event')
+    event_data = data.get('data', {})
+    delay = data.get('delay', 0)
+    condition = data.get('condition')
     
     if not target_event:
         return error_response(

@@ -18,7 +18,6 @@ Usage:
     )
 """
 from typing import Any, Dict, Optional, Union
-from .event_parser import SYSTEM_METADATA_FIELDS
 
 
 def event_response_builder(
@@ -54,18 +53,24 @@ def event_response_builder(
         if "status" not in response:
             response["status"] = "success"  # Default status
         
-        # Add response metadata
+        # BREAKING CHANGE: Package metadata into _ksi_context instead of flat fields
         import time
         import uuid
-        response["_timestamp"] = time.time()
-        response["_response_id"] = f"resp_{uuid.uuid4().hex[:8]}"
-    
-    # Extract and add system metadata from context
-    if context:
-        # Add system metadata fields to response
-        for field in SYSTEM_METADATA_FIELDS:
-            if field in context and field not in response:
-                response[field] = context[field]
+        ksi_context = {
+            "_timestamp": time.time(),
+            "_response_id": f"resp_{uuid.uuid4().hex[:8]}"
+        }
+        
+        # Extract and add system metadata from context
+        if context:
+            # Copy system metadata fields from context to _ksi_context
+            for field in ["_event_id", "_correlation_id", "_parent_event_id", 
+                         "_root_event_id", "_event_depth", "_client_id", "_agent_id"]:
+                if field in context:
+                    ksi_context[field] = context[field]
+        
+        # Add _ksi_context to response
+        response["_ksi_context"] = ksi_context
     
     return response
 

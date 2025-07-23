@@ -26,9 +26,8 @@ from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc
 from ksi_common.agent_utils import (
     query_agent_state, query_agent_metadata, query_agent_relationships, 
-    unwrap_list_response, emit_agent_event, gather_agent_info, validate_event_handler_data
+    unwrap_list_response, emit_agent_event, gather_agent_info
 )
-from ksi_common.event_parser import event_format_linter
 from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_common.json_utils import parse_json_parameter
 from .identity_operations import (
@@ -73,14 +72,13 @@ def event_handler(event_name, schema=None, require_agent=True, auto_response=Tru
     def decorator(func):
         @base_event_handler(event_name, **kwargs)
         @wraps(func)
-        async def wrapper(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-            # Import here to avoid circular imports
-            from ksi_common.event_parser import event_format_linter
+        async def wrapper(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+            # BREAKING CHANGE: Direct typed data access, _ksi_context contains system metadata
             from ksi_common.event_response_builder import event_response_builder, error_response
             
             try:
-                # Parse data if schema provided
-                data = event_format_linter(raw_data, schema) if schema else raw_data
+                # Data is already properly typed from event system - no parsing needed
+                # Schema parameter is now used only for documentation/type hints
                 
                 # Validate agent exists if required
                 if require_agent and "agent_id" in data:
@@ -111,24 +109,25 @@ class SystemContextData(TypedDict):
     """System context with runtime references."""
     emit_event: NotRequired[Any]  # Event emitter function
     shutdown_event: NotRequired[Any]  # Shutdown event object
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class SystemStartupData(TypedDict):
     """System startup configuration."""
     # No specific fields required for agent service
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class SystemReadyData(TypedDict):
     """System ready notification."""
     # No specific fields for agent service
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class SystemShutdownData(TypedDict):
     """System shutdown notification."""
     # No specific fields for shutdown
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class ObservationReadyData(TypedDict):
@@ -136,24 +135,27 @@ class ObservationReadyData(TypedDict):
     status: NotRequired[str]  # Ready status
     ephemeral: NotRequired[bool]  # Ephemeral subscriptions flag
     message: NotRequired[str]  # Status message
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class ObservationRestoredData(TypedDict):
     """Observation subscriptions restored from checkpoint."""
     subscriptions_restored: NotRequired[int]  # Number of subscriptions restored
     from_checkpoint: NotRequired[str]  # Checkpoint timestamp
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class CheckpointCollectData(TypedDict):
     """Collect checkpoint data."""
     # No specific fields - collects all agent state
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class CheckpointRestoreData(TypedDict):
     """Restore from checkpoint data."""
     agents: NotRequired[Dict[str, Any]]  # Agent state to restore
     identities: NotRequired[Dict[str, Any]]  # Agent identities to restore
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class AgentSpawnData(TypedDict):
@@ -172,6 +174,7 @@ class AgentSpawnData(TypedDict):
     sandbox_dir: NotRequired[str]  # Sandbox directory
     mcp_config_path: NotRequired[str]  # MCP configuration path
     conversation_id: NotRequired[str]  # Conversation ID
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class AgentTerminateData(TypedDict):
@@ -184,11 +187,13 @@ class AgentTerminateData(TypedDict):
     all: NotRequired[bool]  # Terminate all agents (use with caution)
     force: NotRequired[bool]  # Force termination
     dry_run: NotRequired[bool]  # Show what would be terminated without doing it
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class AgentRestartData(TypedDict):
     """Restart an agent."""
     agent_id: Required[str]  # Agent ID to restart
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class AgentRegisterData(TypedDict):
@@ -196,43 +201,50 @@ class AgentRegisterData(TypedDict):
     agent_id: Required[str]  # Agent ID to register
     profile: NotRequired[str]  # Agent profile
     capabilities: NotRequired[List[str]]  # Agent capabilities
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class AgentUnregisterData(TypedDict):
     """Unregister an agent."""
     agent_id: Required[str]  # Agent ID to unregister
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class AgentListData(TypedDict):
     """List agents."""
     status: NotRequired[str]  # Filter by status
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 # Construct-specific handlers removed - use orchestration patterns instead
     include_terminated: NotRequired[bool]  # Include terminated agents
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class AgentCreateIdentityData(TypedDict):
     """Create a new agent identity."""
     agent_id: Required[str]  # Agent ID
     identity: Required[Dict[str, Any]]  # Identity information
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class AgentUpdateIdentityData(TypedDict):
     """Update an agent identity."""
     agent_id: Required[str]  # Agent ID
     identity: Required[Dict[str, Any]]  # Updated identity information
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class AgentRemoveIdentityData(TypedDict):
     """Remove an agent identity."""
     agent_id: Required[str]  # Agent ID
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class AgentListIdentitiesData(TypedDict):
     """List agent identities."""
     # No specific fields - returns all identities
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class AgentRouteTaskData(TypedDict):
@@ -240,6 +252,7 @@ class AgentRouteTaskData(TypedDict):
     task: Required[Dict[str, Any]]  # Task to route
     requirements: NotRequired[List[str]]  # Required capabilities
     exclude_agents: NotRequired[List[str]]  # Agents to exclude
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class AgentSendMessageData(TypedDict):
@@ -248,6 +261,7 @@ class AgentSendMessageData(TypedDict):
     message: Required[Dict[str, Any]]  # Message to send
     wait_for_response: NotRequired[bool]  # Wait for response
     timeout: NotRequired[float]  # Response timeout
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class AgentBroadcastData(TypedDict):
@@ -255,12 +269,14 @@ class AgentBroadcastData(TypedDict):
     message: Required[Dict[str, Any]]  # Message to broadcast
     exclude_agents: NotRequired[List[str]]  # Agents to exclude
     agent_types: NotRequired[List[str]]  # Filter by agent types
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class AgentUpdateCompositionData(TypedDict):
     """Update agent composition."""
     agent_id: Required[str]  # Agent ID
     composition: Required[str]  # New composition name
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class AgentDiscoverPeersData(TypedDict):
@@ -268,6 +284,7 @@ class AgentDiscoverPeersData(TypedDict):
     agent_id: NotRequired[str]  # Requesting agent ID
     capabilities: NotRequired[List[str]]  # Required capabilities
     agent_types: NotRequired[List[str]]  # Filter by agent types
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class AgentNegotiateRolesData(TypedDict):
@@ -275,6 +292,7 @@ class AgentNegotiateRolesData(TypedDict):
     agents: Required[List[str]]  # Agent IDs to negotiate
     roles: Required[Dict[str, str]]  # Role assignments
     context: NotRequired[Dict[str, Any]]  # Negotiation context
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class AgentInfoData(TypedDict):
@@ -284,6 +302,7 @@ class AgentInfoData(TypedDict):
     depth: NotRequired[int]  # Graph traversal depth for relationships (default: 1, max: 3)
     event_limit: NotRequired[int]  # Max number of recent events to include (default: 10)
     message_limit: NotRequired[int]  # Max number of recent messages to include (default: 10)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 # Helper functions
@@ -1126,14 +1145,7 @@ async def handle_terminate_agent(data: Dict[str, Any], context: Optional[Dict[st
     
     logger.info(f"Bulk termination complete: {len(terminated_agents)} terminated, {len(failed_agents)} failed")
     
-    # Return single agent format for backward compatibility
-    if len(target_agent_ids) == 1 and not data.get("agent_ids") and not data.get("pattern") and not data.get("older_than_hours") and not data.get("profile") and not data.get("all"):
-        if terminated_agents:
-            return event_response_builder({"agent_id": terminated_agents[0], "status": "terminated"}, context)
-        elif failed_agents:
-            return error_response(failed_agents[0].get("error", "Termination failed"), context)
-    
-    # Return bulk format
+    # Always return bulk format (BREAKING CHANGE: No backward compatibility)
     return event_response_builder({
         "terminated": terminated_agents,
         "failed": failed_agents,
@@ -2093,12 +2105,12 @@ async def handle_negotiate_roles(data: Dict[str, Any], context: Optional[Dict[st
 @event_handler("agent:needs_continuation", require_agent=False)
 async def handle_agent_needs_continuation(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle agent continuation requests for step-wise execution."""
-    # Extract agent_id from event metadata
-    agent_id = data.get("_agent_id")  # This is set by event extraction
+    # Extract agent_id from context
+    ksi_context = data.get("_ksi_context", {})
+    agent_id = ksi_context.get("_agent_id") if ksi_context else None
     
     # Validate agent exists
-    error = validate_event_handler_data({"agent_id": agent_id}, ["agent_id"], context)
-    if error:
+    if not agent_id:
         return error_response("No agent_id in continuation request", context)
     
     if agent_id not in agents:
@@ -2145,6 +2157,7 @@ class AgentSpawnFromComponentData(TypedDict):
     conversation_id: NotRequired[str]  # Conversation ID
     track_component_usage: NotRequired[bool]  # Track component usage (default: True)
     originator: NotRequired[Dict[str, Any]]  # Originator context for event streaming
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @event_handler("agent:spawn_from_component", schema=AgentSpawnFromComponentData, require_agent=False)
