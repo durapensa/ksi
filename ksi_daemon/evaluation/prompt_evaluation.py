@@ -23,7 +23,7 @@ logger = get_bound_logger("prompt_evaluation", version="2.0.0")
 class SystemStartupData(TypedDict):
     """System startup configuration."""
     # No specific fields required for prompt evaluation
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class PromptEvaluationData(TypedDict):
@@ -35,12 +35,13 @@ class PromptEvaluationData(TypedDict):
     test_prompts: NotRequired[List[Dict[str, Any]]]  # Custom test prompts
     update_metadata: NotRequired[bool]  # Save results to disk (default: False)
     notes: NotRequired[str]  # Optional notes about evaluation run
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class EvaluationListSuitesData(TypedDict):
     """List available test suites."""
     # No specific fields - returns all available suites
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class EvaluationCompareData(TypedDict):
@@ -50,6 +51,7 @@ class EvaluationCompareData(TypedDict):
     model: NotRequired[str]  # Model for testing (default: 'claude-cli/sonnet')
     update_metadata: NotRequired[bool]  # Save results to compositions (default: False)
     format: NotRequired[Literal['summary', 'rankings', 'detailed']]  # Output format (default: 'summary')
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class EvaluationListData(TypedDict):
@@ -57,12 +59,13 @@ class EvaluationListData(TypedDict):
     composition_name: str  # Composition name to list evaluations for
     composition_type: NotRequired[str]  # Composition type filter
     limit: NotRequired[int]  # Maximum results to return
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class EvaluationRefreshIndexData(TypedDict):
     """Refresh the evaluation index."""
     # No specific fields - refreshes entire index
-    pass
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 # Cache for loaded test suites
@@ -146,11 +149,10 @@ def save_evaluation_result(composition_type: str, composition_name: str,
 
 
 @event_handler("system:startup")
-async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_startup(data: SystemStartupData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize prompt evaluation module."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, SystemStartupData)
     
     logger.info("Prompt evaluation module started")
     return event_response_builder(
@@ -160,11 +162,10 @@ async def handle_startup(raw_data: Dict[str, Any], context: Optional[Dict[str, A
 
 
 @event_handler("evaluation:prompt")
-async def handle_prompt_evaluate(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_prompt_evaluate(data: PromptEvaluationData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Run prompt evaluation tests for a composition."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    data = event_format_linter(raw_data, PromptEvaluationData)
     
     composition_name = data['composition_name']  # Composition/profile to test
     composition_type = data.get('composition_type', 'profile')  # Type of composition
@@ -394,11 +395,10 @@ async def _run_single_test(composition_name: str,
 
 
 @event_handler("evaluation:list_suites")
-async def handle_list_suites(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_list_suites(data: EvaluationListSuitesData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """List available test suites."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
-    data = event_format_linter(raw_data, EvaluationListSuitesData)
     
     available_suites = list_available_test_suites()
     
@@ -427,12 +427,10 @@ async def handle_list_suites(raw_data: Dict[str, Any], context: Optional[Dict[st
 
 
 @event_handler("evaluation:compare")
-async def handle_compare_compositions(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_compare_compositions(data: EvaluationCompareData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Compare multiple compositions by running evaluations on each."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    
-    data = event_format_linter(raw_data, EvaluationCompareData)
     compositions = data.get('compositions', [])  # List of composition names to compare
     test_suite = data.get('test_suite', 'basic_effectiveness')  # Test suite to use
     model = data.get('model', 'claude-cli/sonnet')  # Model for testing
@@ -718,12 +716,10 @@ def _format_rankings_response(results: Dict[str, Dict[str, Any]], comparison: Di
 
 
 @event_handler("evaluation:list")
-async def handle_list_evaluations(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_list_evaluations(data: EvaluationListData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """List evaluations for a specific composition."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    
-    data = event_format_linter(raw_data, EvaluationListData)
     composition_name = data.get('composition_name')  # Required
     composition_type = data.get('composition_type', 'profile')  # Type of composition
     detail_level = data.get('detail_level', 'detailed')  # Level of detail
@@ -752,12 +748,10 @@ async def handle_list_evaluations(raw_data: Dict[str, Any], context: Optional[Di
 
 
 @event_handler("evaluation:refresh_index")
-async def handle_refresh_index(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_refresh_index(data: EvaluationRefreshIndexData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Refresh the evaluation index."""
-    from ksi_common.event_parser import event_format_linter
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
-    
-    data = event_format_linter(raw_data, EvaluationRefreshIndexData)
     try:
         evaluation_index.refresh()
         return event_response_builder({

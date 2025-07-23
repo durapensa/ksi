@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Tournament evaluation handler for real judge agent responses."""
 
-from typing import Dict, Any, Optional, AsyncIterator
+from typing import Dict, Any, Optional, AsyncIterator, TypedDict
+from typing_extensions import NotRequired, Required
 import asyncio
 import json
 from datetime import timedelta
 
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import utc_now
-from ksi_common.event_parser import event_format_linter
+# Removed event_format_linter import - BREAKING CHANGE: Direct TypedDict access
 from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_daemon.event_system import event_handler, emit_event
 from ksi_common.event_utils import get_nested_value
@@ -23,8 +24,27 @@ _pending_evaluations: Dict[str, asyncio.Event] = {}
 _evaluation_results: Dict[str, Dict[str, Any]] = {}
 
 
+# TypedDict definitions for event handlers
+
+class TournamentEvaluationResponseData(TypedDict):
+    """Tournament evaluation response from judge agent."""
+    match_id: Required[str]  # Tournament match identifier
+    agent_id: NotRequired[str]  # Judge agent that provided evaluation
+    evaluation: NotRequired[Dict[str, Any]]  # Evaluation results
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
+
+
+class CompletionResultData(TypedDict):
+    """Completion result data for monitoring tournament evaluations."""
+    result: NotRequired[Dict[str, Any]]  # Completion result
+    response: NotRequired[str]  # Response text
+    agent_id: NotRequired[str]  # Agent ID
+    client_id: NotRequired[str]  # Client ID
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
+
+
 @event_handler("tournament:evaluation_response")
-async def handle_evaluation_response(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_evaluation_response(data: TournamentEvaluationResponseData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Handle evaluation response from a judge agent.
     
@@ -33,6 +53,7 @@ async def handle_evaluation_response(data: Dict[str, Any]) -> Dict[str, Any]:
         agent_id: Judge agent that provided evaluation
         evaluation: Evaluation results
     """
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     match_id = data.get('match_id')
     agent_id = data.get('agent_id')
     evaluation = data.get('evaluation', {})
@@ -276,14 +297,14 @@ def extract_evaluation_from_response(
 
 
 @event_handler("completion:result")
-async def handle_completion_result(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_completion_result(data: CompletionResultData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Monitor completion results for tournament evaluations.
     
     Since metadata isn't preserved through completion flow,
     we check all completion results for tournament evaluation patterns.
     """
-    data = event_format_linter(raw_data, dict)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     # Get the response content
     response_text = get_nested_value(data, 'result.response.result', '')

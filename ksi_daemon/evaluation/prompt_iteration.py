@@ -2,7 +2,8 @@
 """Prompt iteration and testing framework for systematic prompt improvement."""
 
 import asyncio
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, TypedDict
+from typing_extensions import NotRequired, Required
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -11,13 +12,30 @@ from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import utc_now, timestamp_utc, filename_timestamp
 from ksi_common.file_utils import save_yaml_file, load_yaml_file, ensure_directory
-from ksi_common.event_parser import event_format_linter
+# Removed event_format_linter import - BREAKING CHANGE: Direct TypedDict access
 from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_daemon.event_system import event_handler
 from .completion_utils import send_completion_and_wait
 from .evaluators import create_evaluator
 
 logger = get_bound_logger("prompt_iteration")
+
+
+# TypedDict definitions for event handlers
+
+class IteratePromptData(TypedDict):
+    """Run prompt iteration testing on a specific test."""
+    test_file: Required[str]  # Path to iteration test YAML file
+    composition_name: NotRequired[str]  # Composition to test with (default: 'base-single-agent')
+    model: NotRequired[str]  # Model to use (default: 'claude-cli/sonnet')
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
+
+
+class PromptPatternsData(TypedDict):
+    """Analyze iteration results to extract successful prompt patterns."""
+    test_name: NotRequired[str]  # Optional specific test to analyze
+    min_success_rate: NotRequired[float]  # Minimum success rate to consider (default: 0.7)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @dataclass
@@ -260,7 +278,7 @@ class PromptIterationEngine:
 
 
 @event_handler("evaluation:iterate_prompt")
-async def handle_iterate_prompt(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_iterate_prompt(data: IteratePromptData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Run prompt iteration testing on a specific test.
     
@@ -269,6 +287,7 @@ async def handle_iterate_prompt(data: Dict[str, Any]) -> Dict[str, Any]:
         composition_name: Composition to test with
         model: Model to use (default: claude-cli/sonnet)
     """
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     test_file = data.get('test_file')  # Path to iteration test YAML
     composition_name = data.get('composition_name', 'base-single-agent')
     model = data.get('model', 'claude-cli/sonnet')
@@ -316,7 +335,7 @@ async def handle_iterate_prompt(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @event_handler("evaluation:prompt_patterns")
-async def handle_prompt_patterns(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_prompt_patterns(data: PromptPatternsData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Analyze all iteration results to extract successful prompt patterns.
     
@@ -324,7 +343,7 @@ async def handle_prompt_patterns(raw_data: Dict[str, Any], context: Optional[Dic
         test_name: Optional specific test to analyze
         min_success_rate: Minimum success rate to consider (default: 0.7)
     """
-    data = event_format_linter(raw_data, dict)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     test_name = data.get('test_name')
     min_success_rate = data.get('min_success_rate', 0.7)

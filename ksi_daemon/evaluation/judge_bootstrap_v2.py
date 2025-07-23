@@ -3,7 +3,8 @@
 This version leverages existing KSI capabilities instead of requiring new features.
 """
 
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List, Tuple, Optional, TypedDict
+from typing_extensions import NotRequired
 from dataclasses import dataclass, field
 from datetime import datetime
 import asyncio
@@ -18,12 +19,23 @@ from ksi_common.file_utils import save_yaml_file, load_yaml_file, ensure_directo
 from ksi_common.event_utils import is_success_response, get_response_error, build_error_response, build_success_response
 from ksi_common.validation_utils import Validator, validate_dict_structure
 from ksi_common.prompt_library import prompt_library
-from ksi_common.event_parser import event_format_linter
+# Removed event_format_linter import - BREAKING CHANGE: Direct TypedDict access
 from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_daemon.event_system import event_handler, emit_event, emit_event_first
 from ksi_client import EventClient
 
 logger = get_bound_logger("judge_bootstrap_v2")
+
+
+# TypedDict definitions for event handlers
+
+class BootstrapJudgesV2Data(TypedDict):
+    """Run improved judge bootstrap protocol using KSI capabilities."""
+    roles: NotRequired[List[str]]  # List of judge roles to bootstrap (default: ['evaluator', 'analyst', 'rewriter'])
+    techniques_per_role: NotRequired[int]  # Number of techniques to test per role (default: 3)
+    run_tournament: NotRequired[bool]  # Whether to run cross-evaluation tournament (default: True)
+    save_selected: NotRequired[bool]  # Whether to save selected judges to disk (default: True)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @dataclass
@@ -488,7 +500,7 @@ JUDGE_TECHNIQUES = {
 
 
 @event_handler("evaluation:bootstrap_judges_v2")
-async def handle_bootstrap_judges_v2(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_bootstrap_judges_v2(data: BootstrapJudgesV2Data, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Run improved judge bootstrap protocol using KSI capabilities.
     
@@ -498,7 +510,7 @@ async def handle_bootstrap_judges_v2(raw_data: Dict[str, Any], context: Optional
         run_tournament: Whether to run cross-evaluation tournament
         save_selected: Whether to save selected judges to disk
     """
-    data = event_format_linter(raw_data, dict)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     # Validate input
     validation_error = validate_dict_structure(

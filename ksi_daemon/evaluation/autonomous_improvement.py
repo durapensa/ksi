@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Autonomous evaluation improvement system with judge agents."""
 
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, TypedDict
+from typing_extensions import NotRequired, Required
 from dataclasses import dataclass, field
 from datetime import datetime
 import asyncio
@@ -13,13 +14,31 @@ from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import utc_now, timestamp_utc, filename_timestamp
 from ksi_common.file_utils import save_yaml_file, load_yaml_file, ensure_directory
-from ksi_common.event_parser import event_format_linter
+# Removed event_format_linter import - BREAKING CHANGE: Direct TypedDict access
 from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_daemon.event_system import event_handler
 from ksi_daemon.agent.agent_service import spawn_agent
 from .prompt_iteration import PromptIterationEngine
 
 logger = get_bound_logger("autonomous_improvement")
+
+
+# TypedDict definitions for event handlers
+
+class AutonomousImproveData(TypedDict):
+    """Start autonomous improvement for a test."""
+    test_name: Required[str]  # Name of test to improve
+    test_file: Required[str]  # Test configuration file
+    composition_name: NotRequired[str]  # Composition to test with (default: 'base-single-agent')
+    human_breakpoints: NotRequired[List[str]]  # List of breakpoint conditions
+    max_iterations: NotRequired[int]  # Override default iteration limit
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
+
+
+class CycleStatusData(TypedDict):
+    """Get status of an improvement cycle."""
+    cycle_id: Required[str]  # Cycle ID to check
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 @dataclass
@@ -370,7 +389,7 @@ Run the evaluation and return scores."""
 
 
 @event_handler("evaluation:autonomous_improve")
-async def handle_autonomous_improve(raw_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def handle_autonomous_improve(data: AutonomousImproveData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Start autonomous improvement for a test.
     
@@ -381,7 +400,7 @@ async def handle_autonomous_improve(raw_data: Dict[str, Any], context: Optional[
         human_breakpoints: List of breakpoint conditions
         max_iterations: Override default iteration limit
     """
-    data = event_format_linter(raw_data, dict)
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     test_name = data.get('test_name')
     test_file = data.get('test_file')
@@ -431,8 +450,9 @@ async def handle_autonomous_improve(raw_data: Dict[str, Any], context: Optional[
 
 
 @event_handler("evaluation:cycle_status")
-async def handle_cycle_status(data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_cycle_status(data: CycleStatusData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get status of an improvement cycle."""
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     cycle_id = data.get('cycle_id')
     
     if not cycle_id:
