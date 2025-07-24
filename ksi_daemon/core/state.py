@@ -579,8 +579,35 @@ async def handle_context(data: Dict[str, Any], context: Optional[Dict[str, Any]]
     # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     if state_manager:
         logger.info("Graph state manager connected to event system")
-    else:
-        logger.error("State manager not available")
+
+
+@event_handler("system:startup")
+async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Initialize state service on startup."""
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
+    from ksi_common.event_response_builder import event_response_builder
+    
+    # Load service-specific transformers
+    try:
+        router = get_router()
+        if router and router.emit:
+            from ksi_common.transformer_loader import load_service_transformers
+            result = await load_service_transformers(
+                service_name="state_service",
+                transformer_file="state_config_propagation.yaml",
+                event_emitter=router.emit
+            )
+            if result['status'] == 'success':
+                logger.info(f"Loaded {result['loaded']} state service transformers")
+            else:
+                logger.warning(f"Issue loading state service transformers: {result}")
+    except Exception as e:
+        logger.warning(f"Failed to load state service transformers: {e}")
+    
+    return event_response_builder(
+        {"status": "state_service_ready"},
+        context=context
+    )
 
 
 class EntityCreateData(TypedDict):

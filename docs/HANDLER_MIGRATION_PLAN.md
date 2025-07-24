@@ -36,6 +36,7 @@
 - Transformers complement handlers rather than replace them entirely
 - Multi-transformer support enables rich event propagation patterns
 - Breaking changes approach simplifies migration (no backward compatibility)
+- **CRITICAL**: Services must emit source events (e.g., agent:terminated) instead of directly calling downstream events for transformers to work
 
 **Approach**: 4-phase progressive migration strategy targeting simple forwarders first, then advancing to complex routing patterns.
 

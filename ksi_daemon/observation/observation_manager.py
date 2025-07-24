@@ -111,6 +111,34 @@ async def handle_context(data: SystemContextData, context: Optional[Dict[str, An
     logger.info("Observation manager initialized")
 
 
+@event_handler("system:startup")
+async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Initialize observation service on startup."""
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
+    from ksi_common.event_response_builder import event_response_builder
+    
+    # Load service-specific transformers
+    try:
+        if _event_emitter:
+            from ksi_common.transformer_loader import load_service_transformers
+            result = await load_service_transformers(
+                service_name="observation_service",
+                transformer_file="observation_monitoring.yaml",
+                event_emitter=_event_emitter
+            )
+            if result['status'] == 'success':
+                logger.info(f"Loaded {result['loaded']} observation service transformers")
+            else:
+                logger.warning(f"Issue loading observation service transformers: {result}")
+    except Exception as e:
+        logger.warning(f"Failed to load observation service transformers: {e}")
+    
+    return event_response_builder(
+        {"status": "observation_service_ready"},
+        context=context
+    )
+
+
 @event_handler("system:ready")
 async def observation_system_ready(data: SystemReadyData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Signal that observation system is ready for subscriptions.

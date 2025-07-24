@@ -436,6 +436,22 @@ async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]]
     loaded_identities = await load_all_identities(identity_storage_path)
     identities.update(loaded_identities)
     
+    # Load service-specific transformers
+    try:
+        if event_emitter:
+            from ksi_common.transformer_loader import load_service_transformers
+            result = await load_service_transformers(
+                service_name="agent_service",
+                transformer_file="agent_routing.yaml",
+                event_emitter=event_emitter
+            )
+            if result['status'] == 'success':
+                logger.info(f"Loaded {result['loaded']} agent service transformers")
+            else:
+                logger.warning(f"Issue loading agent service transformers: {result}")
+    except Exception as e:
+        logger.warning(f"Failed to load agent service transformers: {e}")
+    
     logger.info(f"Agent service started - agents: {len(agents)}, "
                 f"identities: {len(identities)}")
     
