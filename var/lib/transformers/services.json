@@ -1,0 +1,56 @@
+{
+  "agent_service": {
+    "transformer_files": [
+      "agent_routing.yaml",
+      "agent_result_routing.yaml"
+    ],
+    "auto_discover": true,
+    "dependencies": [],
+    "critical": true
+  },
+  "completion_service": {
+    "transformer_files": [
+      "completion_routing.yaml"
+    ],
+    "auto_discover": true,
+    "dependencies": ["agent_service"],
+    "critical": true
+  },
+  "orchestration_service": {
+    "transformer_files": [
+      "orchestration_routing.yaml",
+      "hierarchical_routing.yaml"
+    ],
+    "auto_discover": true,
+    "dependencies": ["agent_service"],
+    "critical": true
+  },
+  "optimization_service": {
+    "transformer_files": [
+      "optimization_routing.yaml"
+    ],
+    "auto_discover": true,
+    "dependencies": [],
+    "critical": false
+  },
+  "observation_service": {
+    "transformer_files": [
+      "observation_monitoring.yaml"
+    ],
+    "auto_discover": true,
+    "dependencies": [],
+    "critical": true
+  },
+  "state_service": {
+    "transformer_files": [],
+    "auto_discover": true,
+    "dependencies": [],
+    "critical": false
+  },
+  "config_service": {
+    "transformer_files": [],
+    "auto_discover": true,
+    "dependencies": [],
+    "critical": false
+  }
+}

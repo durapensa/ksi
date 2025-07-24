@@ -80,6 +80,18 @@ ksi send config:set --type daemon --key log_level --value INFO
 - **Use discovery system first** - `ksi discover`, `ksi help event:name`
 - **Event handlers use TypedDict** - For parameter documentation and validation
 
+### Shared Utilities (MANDATORY USAGE ✅)
+- **Service Transformer Manager** - Use `auto_load_service_transformers(service_name)` instead of manual loading
+- **Transformer Patterns** - Use `TransformerTemplateBuilder` for common routing patterns
+- **Condition Evaluator** - Complex boolean expressions for transformer conditions
+- **Event Response Builder** - Standardized responses with KSI context
+
+**When** creating service transformers:
+- **Then** use `ServiceTransformerManager` for centralized loading
+- **Then** add service to `var/lib/transformers/services.json` configuration
+- **Then** use `TransformerPatterns` for broadcast, state update, error routing
+- **Then** leverage `CommonConditions` and `CommonMappings` libraries
+
 ### Component Creation (Unified Architecture 2025)
 **CRITICAL**: Everything is a component! The system forms a directed graph where:
 - **Nodes**: Event-emitting entities (agents, orchestrations)

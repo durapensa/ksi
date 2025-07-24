@@ -307,25 +307,26 @@ class SystemReadyData(TypedDict):
     _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
-@event_handler("system:ready")
+@event_handler("system:ready")  
 async def handle_ready(data: SystemReadyData, context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """Return the completion service manager task."""
     # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
+    from ksi_common.service_transformer_manager import auto_load_service_transformers
     from ksi_common.event_response_builder import event_response_builder
-    from ksi_common.transformer_loader import load_service_transformers
     
     logger.info("Completion service requesting service manager task")
     
-    # Load completion service transformers
-    try:
-        await load_service_transformers("completion_service", "completion_routing.yaml")
-        logger.info("Loaded completion routing transformers")
-    except Exception as e:
-        logger.error(f"Failed to load completion transformers: {e}")
+    # Load completion service transformers using shared utility
+    transformer_result = await auto_load_service_transformers("completion_service")
+    if transformer_result.get("status") == "success":
+        logger.info(f"Loaded {transformer_result.get('total_loaded', 0)} completion transformers")
+    else:
+        logger.warning(f"Issue loading completion transformers: {transformer_result}")
     
     return event_response_builder(
         {
             "service": "completion_service",
+            "transformer_result": transformer_result,
             "tasks": [
                 {
                     "name": "service_manager",

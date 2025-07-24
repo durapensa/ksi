@@ -454,32 +454,13 @@ async def handle_ready(data: Dict[str, Any], context: Optional[Dict[str, Any]] =
     loaded_agents = 0
     
     # Load service-specific transformers now that event_emitter is available
-    try:
-        if event_emitter:
-            from ksi_common.transformer_loader import load_service_transformers
-            # Load basic agent routing transformers
-            result = await load_service_transformers(
-                service_name="agent_service",
-                transformer_file="agent_routing.yaml",
-                event_emitter=event_emitter
-            )
-            if result['status'] == 'success':
-                logger.info(f"Loaded {result['loaded']} agent service transformers")
-            else:
-                logger.warning(f"Issue loading agent service transformers: {result}")
-                
-            # Load agent result routing transformers  
-            result2 = await load_service_transformers(
-                service_name="agent_service",
-                transformer_file="agent_result_routing.yaml",
-                event_emitter=event_emitter
-            )
-            if result2['status'] == 'success':
-                logger.info(f"Loaded {result2['loaded']} agent result routing transformers")
-            else:
-                logger.warning(f"Issue loading agent result routing transformers: {result2}")
-    except Exception as e:
-        logger.warning(f"Failed to load agent service transformers: {e}")
+    if event_emitter:
+        from ksi_common.service_transformer_manager import auto_load_service_transformers
+        transformer_result = await auto_load_service_transformers("agent_service", event_emitter)
+        if transformer_result.get("status") == "success":
+            logger.info(f"Loaded {transformer_result.get('total_loaded', 0)} agent service transformers from {transformer_result.get('files_loaded', 0)} files")
+        else:
+            logger.warning(f"Issue loading agent service transformers: {transformer_result}")
     
     if not event_emitter:
         logger.error("Event emitter not available, cannot load agents from state")

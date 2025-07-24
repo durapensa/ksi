@@ -4,20 +4,28 @@ Essential technical reference for developing with KSI (Knowledge System Infrastr
 
 ## Recent Major Accomplishments
 
-### Event Context Simplification (COMPLETE ✅)
+### Event Context Simplification & Transformer Migration (COMPLETE ✅)
 - **70.6% storage reduction** through reference-based architecture
-- Full migration from embedded to reference-based contexts
+- **Declarative event routing** - 200+ lines of Python → 80+ lines of YAML
+- **All major handler migration phases completed**:
+  - ✅ System lifecycle handlers (startup/shutdown)
+  - ✅ Agent event routing with conditions
+  - ✅ Error & completion routing patterns  
+  - ✅ Orchestration & hierarchical routing
+  - ✅ Evaluation & metrics chains
+- **Critical bug fixes**: Transformer async execution, complex condition evaluation
+- **Shared utilities**: Service transformer manager, transformer patterns library
 - See: `/docs/CONTEXT_REFERENCE_ARCHITECTURE.md`
 - See: `/docs/EVENT_CONTEXT_SIMPLIFICATION.md`
+- See: `/docs/HANDLER_MIGRATION_PLAN.md`
 
 ### Unified Template Utility Integration (COMPLETE ✅)
 - **Template duplication eliminated** - Unified all template processing across KSI
 - **Enhanced features**: `{{$}}` pass-through, `{{_ksi_context.x}}` access, `{{func()}}` calls
 - **Event system integration** - 60+ lines of duplicate code removed
-- **Migration ready**: 302 handlers identified, 200+ ready for immediate transformer migration
+- **Transformer architecture**: Hot-reloadable YAML configurations with complex conditions
 - See: `/docs/UNIFIED_TEMPLATE_UTILITY_PROPOSAL.md`
 - See: `/docs/TRANSFORMER_MIGRATION_GUIDE.md`
-- See: `/docs/HANDLER_MIGRATION_PLAN.md` - **4-phase migration strategy**
 
 ### DSPy/MIPROv2 Component Optimization (ACTIVE 🚀)
 - Successfully optimized personas and behaviors with 9-10/10 quality scores
@@ -204,6 +212,46 @@ ksi send composition:rebuild_index
    - **Training Examples**: Must show concrete transformation examples
 
 **Current Status**: DSPy signature clarity fixed, ready for optimization runs with non-zero scores.
+
+## Transformer Architecture (PRODUCTION READY ✅)
+
+### Declarative Event Routing System
+- **YAML Configurations**: Replace imperative Python handlers with declarative transformers
+- **Hot-Reloadable**: Update routing without daemon restart
+- **Complex Conditions**: Boolean expressions, method calls, nested logic
+- **Multi-Transformer Support**: Multiple transformers per source event
+- **Async Task Management**: Proper await for transformer completion
+
+### Transformer Organization
+```
+var/lib/transformers/
+├── system/           # Auto-loaded at daemon startup
+│   ├── system_lifecycle.yaml
+│   └── error_propagation.yaml
+└── services/         # Loaded by respective services
+    ├── agent_routing.yaml
+    ├── completion_routing.yaml
+    ├── orchestration_routing.yaml
+    └── services.json   # Configuration for auto-loading
+```
+
+### Service Transformer Manager
+- **Auto-Discovery**: Finds transformer files by convention
+- **Dependency Management**: Load transformers in correct order  
+- **Standardized Loading**: Eliminates repetitive transformer loading code
+- **Centralized Configuration**: `services.json` defines all service transformers
+
+### Transformer Patterns Library
+- **Reusable Templates**: Common patterns (broadcast, state update, error routing, cleanup)
+- **Condition Library**: Standard expressions (status checks, agent conditions, retry logic)
+- **Mapping Utilities**: Common field mappings (timestamps, agent context, error handling)
+- **Template Builder**: Programmatic transformer generation
+
+### Migration Impact
+- **Code Reduction**: 200+ lines Python → 80+ lines YAML
+- **Performance**: Routing runs in core event system
+- **Maintainability**: Visual, declarative routing rules
+- **Reliability**: Centralized condition evaluation with error handling
 
 ## Critical Fixes (2025)
 
@@ -595,6 +643,11 @@ echo "personas/deep_analyst.md model=claude-opus performance=reasoning" >> .gita
 
 ### Key File Locations
 - **Core Systems**: `ksi_common/json_utils.py`, `ksi_common/component_renderer.py`, `ksi_common/composition_utils.py`
+- **Transformer System**: 
+  - `ksi_common/service_transformer_manager.py` - Centralized transformer loading & management
+  - `ksi_common/transformer_patterns.py` - Reusable transformer patterns & templates
+  - `ksi_common/condition_evaluator.py` - Complex boolean condition evaluation
+  - `var/lib/transformers/` - YAML transformer configurations (system/, services/)
 - **Event Handlers**: `ksi_daemon/composition/composition_service.py`
 - **Discovery Cache**: `ksi_daemon/core/discovery_cache.py`
 - **Hierarchical Routing**: `ksi_daemon/core/hierarchical_routing.py`
