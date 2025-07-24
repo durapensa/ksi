@@ -283,15 +283,26 @@ class EventRouter:
         transformers = []
         if event in self._transformers:
             transformers.extend(self._transformers[event])
+            logger.debug(f"Found {len(self._transformers[event])} direct transformers for {event}")
         
         # Also check pattern transformers
         for pattern, transformer_def in self._pattern_transformers:
             if self._matches_pattern(event, pattern):
                 transformers.append(transformer_def)
+                logger.debug(f"Pattern {pattern} matched event {event}")
+        
+        if transformers:
+            logger.info(f"DEBUG: Total transformers found for {event}: {len(transformers)}")
+        else:
+            logger.info(f"DEBUG: No transformers found for {event}")
+        
+        # Collect transformer tasks to await their completion
+        transformer_tasks = []
         
         # Process all matching transformers
         for transformer in transformers:
             target = transformer.get('target')
+            logger.info(f"DEBUG: Processing transformer: {event} -> {target}")
             
             # Check condition if present
             should_transform = True
@@ -332,13 +343,15 @@ class EventRouter:
                         # Create background task for async transformation
                         async def run_async_transform():
                             try:
-                                logger.debug(f"Async transforming {event} -> {target} (id: {transform_id})")
-                                await self.emit(target, transformed_data, context)
+                                logger.info(f"DEBUG: Async transforming {event} -> {target} (id: {transform_id})")
+                                result = await self.emit(target, transformed_data, context)
+                                logger.info(f"DEBUG: Async transformed event {target} result: {result}")
                             except Exception as e:
                                 logger.error(f"Async transformer failed for {event} -> {target}: {e}")
                         
-                        # Spawn as background task - don't await
-                        asyncio.create_task(run_async_transform())
+                        # Collect task instead of just creating it
+                        task = asyncio.create_task(run_async_transform())
+                        transformer_tasks.append(task)
                         logger.debug(f"Spawned async transformer {event} -> {target} as background task")
                         
                         # Continue to normal handler execution
@@ -355,11 +368,15 @@ class EventRouter:
                         # Spawn transformation as task to allow multiple transformers and handlers to run
                         async def run_sync_transform():
                             try:
-                                await self.emit(target, transformed_data, context)
+                                logger.info(f"DEBUG: Emitting transformed event {target} with data: {transformed_data}")
+                                result = await self.emit(target, transformed_data, context)
+                                logger.info(f"DEBUG: Transformed event {target} result: {result}")
                             except Exception as e:
                                 logger.error(f"Sync transformer failed for {event} -> {target}: {e}")
                         
-                        asyncio.create_task(run_sync_transform())
+                        # Collect sync transformer task
+                        task = asyncio.create_task(run_sync_transform())
+                        transformer_tasks.append(task)
                 except Exception as e:
                     logger.error(f"Dynamic transformer failed for {event}: {e}")
                     # Fall through to normal handling
@@ -576,6 +593,17 @@ class EventRouter:
                 await notify_observers_async(matching_subscriptions, "end", event, 
                                            {"status": "no_handlers"}, source_agent)
             
+            # Check if transformers processed this event
+            if transformers:
+                # Wait for transformer tasks to complete before returning
+                if transformer_tasks:
+                    logger.info(f"Awaiting {len(transformer_tasks)} transformer tasks for {event}")
+                    await asyncio.gather(*transformer_tasks, return_exceptions=True)
+                    logger.info(f"All transformer tasks completed for {event}")
+                # Transformers handled this event, return success
+                logger.info(f"Event {event} handled by {len(transformers)} transformer(s), no direct handlers")
+                return [{"status": "transformed", "transformers": len(transformers)}]
+            
             # Unknown event - provide discovery guidance
             unknown_event_response = await handle_unknown_event(
                 event_name=event,
@@ -630,6 +658,12 @@ class EventRouter:
                     })
                 elif result is not None:
                     valid_results.append(result)
+        
+        # Wait for transformer tasks to complete even when we have handlers
+        if transformer_tasks:
+            logger.info(f"Awaiting {len(transformer_tasks)} transformer tasks alongside handlers for {event}")
+            await asyncio.gather(*transformer_tasks, return_exceptions=True)
+            logger.info(f"All transformer tasks completed alongside handlers for {event}")
         
         # Notify observers of event completion
         if matching_subscriptions:
@@ -1302,14 +1336,15 @@ async def handle_list_transformers(data: Dict[str, Any], context: Optional[Dict[
     transformers = []
     
     # Direct transformers
-    for source, config in router._transformers.items():
-        transformers.append({
-            "source": source,
-            "target": config.get('target'),
-            "async": config.get('async', False),
-            "has_condition": 'condition' in config,
-            "has_response_route": 'response_route' in config
-        })
+    for source, configs in router._transformers.items():
+        for config in configs:
+            transformers.append({
+                "source": source,
+                "target": config.get('target'),
+                "async": config.get('async', False),
+                "has_condition": 'condition' in config,
+                "has_response_route": 'response_route' in config
+            })
     
     # Pattern transformers
     for pattern, config in router._pattern_transformers:

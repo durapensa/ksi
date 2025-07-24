@@ -23,6 +23,7 @@
 - ✅ Phase 2A: Agent event routing patterns
 - ✅ Phase 2B: State & configuration propagation
 - ✅ Phase 2C: Observation & monitoring handlers
+- ✅ Service Refactoring: Agent service emits source events (agent:spawned, agent:terminated)
 
 **Transformer Files Created**:
 1. **system/system_lifecycle.yaml** - System startup/shutdown event propagation (auto-loaded)
@@ -37,6 +38,8 @@
 - Multi-transformer support enables rich event propagation patterns
 - Breaking changes approach simplifies migration (no backward compatibility)
 - **CRITICAL**: Services must emit source events (e.g., agent:terminated) instead of directly calling downstream events for transformers to work
+- **COMPLETED**: Agent service now emits agent:spawned and agent:terminated events
+- **ISSUE**: Transformers are registered but not processing events - needs investigation
 
 **Approach**: 4-phase progressive migration strategy targeting simple forwarders first, then advancing to complex routing patterns.
 
@@ -788,6 +791,7 @@ not (source_event.startswith('transport:') or source_event == 'monitor:subscribe
 ---
 
 **Status**: Ready for implementation  
-**Next Step**: Begin Phase 1A - Infrastructure Setup  
+**Current Status**: Debugging transformer event processing
+**Next Step**: Fix transformer routing issue, then proceed to Phase 3A  
 **Timeline**: 8 weeks for complete migration  
 **Expected Completion**: 50-70% handler code reduction achieved
