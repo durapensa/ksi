@@ -43,9 +43,6 @@ SYSTEM_METADATA_FIELDS = {
 }
 
 
-# REMOVED: event_format_linter - deprecated in favor of _ksi_context
-
-
 def extract_system_metadata(raw_data: Dict[str, Any]) -> Dict[str, Any]:
     """Extract system metadata from event data.
     
@@ -64,9 +61,6 @@ def extract_system_metadata(raw_data: Dict[str, Any]) -> Dict[str, Any]:
             metadata_info[field] = raw_data[field]
             
     return metadata_info
-
-
-# REMOVED: extract_system_handler_data - deprecated in favor of _ksi_context
 
 
 def get_expected_fields(typed_dict_class: Type[Any]) -> Set[str]:
