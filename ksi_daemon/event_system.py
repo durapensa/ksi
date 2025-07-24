@@ -21,6 +21,7 @@ from pathlib import Path
 from ksi_common.logging import get_bound_logger
 from ksi_common.error_handler import initialize_error_handler, enhance_error, handle_unknown_event
 from ksi_common.config import config
+from ksi_common.template_utils import apply_mapping
 
 logger = get_bound_logger("event_system", version="2.0.0")
 
@@ -288,7 +289,7 @@ class EventRouter:
                         logger.debug(f"Async transformer data: {data_with_transform_id}")
                         
                         # Apply mapping with transform_id available
-                        transformed_data = self._apply_mapping(transformer.get('mapping', {}), data_with_transform_id)
+                        transformed_data = apply_mapping(transformer.get('mapping', {}), data_with_transform_id)
                         logger.debug(f"Transformed data: {transformed_data}")
                         
                         # Store context for later injection (if available)
@@ -307,7 +308,7 @@ class EventRouter:
                         }]
                     else:
                         # Synchronous transformation
-                        transformed_data = self._apply_mapping(transformer.get('mapping', {}), data)
+                        transformed_data = apply_mapping(transformer.get('mapping', {}), data)
                         logger.debug(f"Transforming {event} -> {target}")
                         return await self.emit(target, transformed_data, context)
                 except Exception as e:
@@ -983,72 +984,11 @@ def event_handler(event: str,
     return decorator
 
 
-# Helper methods for dynamic transformers
-
-def _apply_mapping(self, mapping: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
-    """Apply field mapping from transformer definition."""
-    
-    def substitute_template(value: Any, data: Dict[str, Any]) -> Any:
-        """Recursively substitute template variables in any structure."""
-        if isinstance(value, str):
-            # Check for embedded templates in strings
-            import re
-            template_pattern = r'\{\{([^}]+)\}\}'
-            
-            def replace_template(match):
-                template = match.group(1).strip()
-                # Simple dot notation support with array indexing
-                parts = template.split('.')
-                result = data
-                for part in parts:
-                    if isinstance(result, dict) and part in result:
-                        result = result[part]
-                    elif isinstance(result, list) and part.isdigit():
-                        # Array index access
-                        index = int(part)
-                        if 0 <= index < len(result):
-                            result = result[index]
-                        else:
-                            return match.group(0)  # Return original if not found
-                    else:
-                        return match.group(0)  # Return original if not found
-                return str(result)
-            
-            # Replace all templates in the string
-            return re.sub(template_pattern, replace_template, value)
-        elif isinstance(value, dict):
-            # Recursively process dictionary
-            return {k: substitute_template(v, data) for k, v in value.items()}
-        elif isinstance(value, list):
-            # Recursively process list
-            return [substitute_template(item, data) for item in value]
-        else:
-            # Static value
-            return value
-    
-    result = {}
-    
-    for target_field, source_value in mapping.items():
-        # Apply template substitution recursively
-        processed_value = substitute_template(source_value, data)
-        
-        # Handle nested target fields
-        if '.' in target_field:
-            # Create nested structure
-            current = result
-            parts = target_field.split('.')
-            for part in parts[:-1]:
-                if part not in current:
-                    current[part] = {}
-                current = current[part]
-            current[parts[-1]] = processed_value
-        else:
-            result[target_field] = processed_value
-    
-    return result
+# Note: Template processing has been moved to ksi_common.template_utils
+# Only condition evaluation remains here as it's specific to event routing
 
 def _evaluate_condition(self, condition: str, data: Dict[str, Any]) -> bool:
-    """Evaluate simple condition expressions."""
+    """Evaluate simple condition expressions for event routing."""
     # Very basic implementation - can be enhanced
     # Supports: field == value, field > value, field < value
     try:
@@ -1075,8 +1015,7 @@ def _evaluate_condition(self, condition: str, data: Dict[str, Any]) -> bool:
         logger.warning(f"Failed to evaluate condition '{condition}': {e}")
         return True
 
-# Bind helper methods to EventRouter class
-EventRouter._apply_mapping = _apply_mapping
+# Bind helper method to EventRouter class
 EventRouter._evaluate_condition = _evaluate_condition
 
 async def _handle_async_response(self, event: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:

@@ -1,0 +1,245 @@
+#!/usr/bin/env python3
+"""
+Centralized template processing utilities for KSI.
+
+This module provides a unified interface for template substitution throughout
+the KSI system, replacing scattered implementations with a single, well-tested
+solution.
+
+Template Syntax:
+    {{variable}} - Simple variable substitution
+    {{object.field}} - Nested object access with dot notation
+    {{array.0}} - Array indexing
+    {{deep.nested.path.to.value}} - Arbitrary depth traversal
+
+Example:
+    >>> data = {"user": {"name": "Alice", "id": 123}, "items": ["a", "b", "c"]}
+    >>> template = "Hello {{user.name}} (ID: {{user.id}}), first item: {{items.0}}"
+    >>> substitute_template(template, data)
+    'Hello Alice (ID: 123), first item: a'
+"""
+
+import re
+from typing import Any, Dict, List, Union
+
+
+# Template pattern for matching {{variable}} syntax
+TEMPLATE_PATTERN = re.compile(r'\{\{([^}]+)\}\}')
+
+
+def substitute_template(template: Any, context: Dict[str, Any]) -> Any:
+    """
+    Recursively substitute template variables in any data structure.
+    
+    This function processes strings, dictionaries, and lists, replacing
+    {{variable}} patterns with values from the provided context.
+    
+    Args:
+        template: The template to process (string, dict, list, or any value)
+        context: Dictionary containing values for substitution
+        
+    Returns:
+        The processed template with all variables substituted
+        
+    Examples:
+        >>> substitute_template("Hello {{name}}", {"name": "World"})
+        'Hello World'
+        
+        >>> substitute_template({"msg": "Hi {{user}}"}, {"user": "Alice"})
+        {'msg': 'Hi Alice'}
+        
+        >>> substitute_template(["{{x}}", "{{y}}"], {"x": 1, "y": 2})
+        ['1', '2']
+    """
+    if isinstance(template, str):
+        return _substitute_string(template, context)
+    elif isinstance(template, dict):
+        return {k: substitute_template(v, context) for k, v in template.items()}
+    elif isinstance(template, list):
+        return [substitute_template(item, context) for item in template]
+    else:
+        # Static value - return as-is
+        return template
+
+
+def _substitute_string(template: str, context: Dict[str, Any]) -> str:
+    """
+    Substitute variables in a string template.
+    
+    Args:
+        template: String containing {{variable}} patterns
+        context: Dictionary with substitution values
+        
+    Returns:
+        String with all templates substituted
+    """
+    def replace_match(match):
+        variable_path = match.group(1).strip()
+        value = resolve_path(variable_path, context)
+        
+        if value is None:
+            # Return original template if variable not found
+            return match.group(0)
+        
+        return str(value)
+    
+    return TEMPLATE_PATTERN.sub(replace_match, template)
+
+
+def resolve_path(path: str, context: Dict[str, Any]) -> Any:
+    """
+    Resolve a dot-separated path in a nested data structure.
+    
+    Supports:
+    - Object property access: "user.name"
+    - Array indexing: "items.0"
+    - Mixed access: "data.users.0.name"
+    
+    Args:
+        path: Dot-separated path string
+        context: The data structure to traverse
+        
+    Returns:
+        The value at the path, or None if not found
+        
+    Examples:
+        >>> data = {"user": {"name": "Alice"}, "items": ["a", "b"]}
+        >>> resolve_path("user.name", data)
+        'Alice'
+        >>> resolve_path("items.0", data)
+        'a'
+    """
+    parts = path.split('.')
+    current = context
+    
+    for part in parts:
+        if isinstance(current, dict) and part in current:
+            current = current[part]
+        elif isinstance(current, list) and part.isdigit():
+            # Array index access
+            index = int(part)
+            if 0 <= index < len(current):
+                current = current[index]
+            else:
+                return None
+        else:
+            return None
+    
+    return current
+
+
+def apply_mapping(mapping: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Apply a field mapping with template substitution.
+    
+    This function is used for transforming data structures according to
+    a mapping specification. It supports nested target fields and template
+    substitution in values.
+    
+    Args:
+        mapping: Dictionary mapping target fields to source values/templates
+        data: Source data for template substitution
+        
+    Returns:
+        New dictionary with mapped and substituted values
+        
+    Examples:
+        >>> mapping = {
+        ...     "user_id": "{{id}}",
+        ...     "full_name": "{{first}} {{last}}",
+        ...     "meta.created": "{{timestamp}}"
+        ... }
+        >>> data = {"id": 123, "first": "John", "last": "Doe", "timestamp": "2024-01-01"}
+        >>> apply_mapping(mapping, data)
+        {'user_id': '123', 'full_name': 'John Doe', 'meta': {'created': '2024-01-01'}}
+    """
+    result = {}
+    
+    for target_field, source_value in mapping.items():
+        # Apply template substitution to the source value
+        processed_value = substitute_template(source_value, data)
+        
+        # Handle nested target fields
+        if '.' in target_field:
+            # Create nested structure
+            current = result
+            parts = target_field.split('.')
+            for part in parts[:-1]:
+                if part not in current:
+                    current[part] = {}
+                current = current[part]
+            current[parts[-1]] = processed_value
+        else:
+            result[target_field] = processed_value
+    
+    return result
+
+
+def extract_variables(template: Any) -> List[str]:
+    """
+    Extract all variable names from a template.
+    
+    Recursively searches through strings, dictionaries, and lists to find
+    all {{variable}} patterns.
+    
+    Args:
+        template: The template to analyze
+        
+    Returns:
+        List of unique variable paths found in the template
+        
+    Examples:
+        >>> extract_variables("Hello {{name}}, your ID is {{user.id}}")
+        ['name', 'user.id']
+        
+        >>> extract_variables({"msg": "{{greeting}} {{name}}!"})
+        ['greeting', 'name']
+    """
+    variables = set()
+    
+    if isinstance(template, str):
+        for match in TEMPLATE_PATTERN.finditer(template):
+            variables.add(match.group(1).strip())
+    elif isinstance(template, dict):
+        for value in template.values():
+            variables.update(extract_variables(value))
+    elif isinstance(template, list):
+        for item in template:
+            variables.update(extract_variables(item))
+    
+    return sorted(list(variables))
+
+
+def validate_template(template: Any, required_vars: List[str] = None) -> bool:
+    """
+    Validate that a template contains expected variables.
+    
+    Args:
+        template: The template to validate
+        required_vars: List of variable names that must be present
+        
+    Returns:
+        True if template is valid and contains all required variables
+        
+    Examples:
+        >>> validate_template("Hello {{name}}", ["name"])
+        True
+        >>> validate_template("Hello {{name}}", ["name", "id"])
+        False
+    """
+    if required_vars is None:
+        return True
+    
+    found_vars = extract_variables(template)
+    return all(var in found_vars for var in required_vars)
+
+
+# Convenience function for backward compatibility with event_system
+def apply_event_mapping(mapping: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Apply mapping for event transformation (alias for apply_mapping).
+    
+    This function maintains compatibility with the event system's
+    transformer functionality.
+    """
+    return apply_mapping(mapping, data)
