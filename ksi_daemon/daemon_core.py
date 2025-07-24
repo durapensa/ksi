@@ -220,25 +220,26 @@ class EventDaemonCore:
         
         # Define critical system transformers that must be auto-loaded
         system_transformers = [
-            {
-                "name": "universal_broadcast",
-                "config": {
-                    "source": "*",  # Match ALL events
-                    "target": "monitor:broadcast_event",
-                    # TODO: Fix condition evaluation to support complex expressions
-                    # "condition": "not (source_event.startswith('transport:') or source_event == 'monitor:subscribe' or source_event == 'monitor:broadcast_event')",
-                    "mapping": {
-                        "event_name": "{{_ksi_context.event}}",
-                        "event_data": "{{$}}",
-                        "broadcast_metadata": {
-                            "originator_agent": "{{_ksi_context._agent_id|system}}",
-                            "timestamp": "{{timestamp_utc()}}",
-                            "subscription_required": True
-                        }
-                    },
-                    "async": True
-                }
-            }
+            # DISABLED: Universal broadcast creates infinite loop without proper condition evaluation
+            # {
+            #     "name": "universal_broadcast",
+            #     "config": {
+            #         "source": "*",  # Match ALL events
+            #         "target": "monitor:broadcast_event",
+            #         # TODO: Fix condition evaluation to support complex expressions
+            #         # "condition": "not (source_event.startswith('transport:') or source_event == 'monitor:subscribe' or source_event == 'monitor:broadcast_event')",
+            #         "mapping": {
+            #             "event_name": "{{_ksi_context.event}}",
+            #             "event_data": "{{$}}",
+            #             "broadcast_metadata": {
+            #                 "originator_agent": "{{_ksi_context._agent_id|system}}",
+            #                 "timestamp": "{{timestamp_utc()}}",
+            #                 "subscription_required": True
+            #             }
+            #         },
+            #         "async": True
+            #     }
+            # }
             # Additional system transformers can be added here
         ]
         
