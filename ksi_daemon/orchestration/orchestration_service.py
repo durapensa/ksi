@@ -941,6 +941,38 @@ async def handle_startup(data: SystemStartupData, context: Optional[Dict[str, An
     }, context)
 
 
+class SystemReadyData(TypedDict):
+    """System ready notification."""
+    # No specific fields for ready
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
+
+
+@event_handler("system:ready")
+async def handle_ready(data: SystemReadyData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Load orchestration service transformers on system ready."""
+    from ksi_common.transformer_loader import load_service_transformers
+    from ksi_common.event_response_builder import event_response_builder
+    
+    try:
+        # Load orchestration routing transformers
+        result = await load_service_transformers("orchestration_service", "orchestration_routing.yaml")
+        if result['status'] == 'success':
+            logger.info(f"Loaded {result['loaded']} orchestration routing transformers")
+        else:
+            logger.warning(f"Issue loading orchestration routing transformers: {result}")
+            
+        # Load hierarchical routing transformers
+        result2 = await load_service_transformers("orchestration_service", "hierarchical_routing.yaml")
+        if result2['status'] == 'success':
+            logger.info(f"Loaded {result2['loaded']} hierarchical routing transformers")
+        else:
+            logger.warning(f"Issue loading hierarchical routing transformers: {result2}")
+    except Exception as e:
+        logger.error(f"Failed to load orchestration transformers: {e}")
+    
+    return event_response_builder({"service": "orchestration_service", "status": "ready"}, context)
+
+
 class SystemShutdownData(TypedDict):
     """System shutdown notification."""
     # No specific fields for shutdown

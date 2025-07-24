@@ -1,0 +1,205 @@
+---
+# Hierarchical Event Routing Transformers for Orchestrations
+# Migrated from hierarchical_routing.py and related orchestration patterns
+transformers:
+  # Level 0: Agent-to-self routing (no hierarchical propagation)
+  - name: "hierarchical_level_0_routing"
+    source: "agent:hierarchical_event"
+    target: "agent:internal_event"
+    condition: "subscription_level == 0"
+    mapping:
+      agent_id: "{{source_agent_id}}"
+      event_data:
+        type: "internal"
+        event: "{{event_name}}"
+        data: "{{event_data}}"
+        source: "self"
+        level: 0
+    description: "Level 0: Route events only to source agent (no propagation)"
+
+  # Level 1: Agent-to-direct-children routing
+  - name: "hierarchical_level_1_routing"
+    source: "agent:hierarchical_event"
+    target: "completion:async"
+    condition: "subscription_level == 1 and is_direct_child(target_agent_id, source_agent_id)"
+    mapping:
+      agent_id: "{{target_agent_id}}"
+      prompt: "Hierarchical event from parent {{source_agent_id}}: {{event_name}}"
+      event_notification:
+        source_agent: "{{source_agent_id}}"
+        event: "{{event_name}}"
+        data: "{{event_data}}"
+        hierarchy_level: 1
+        relationship: "parent_to_child"
+        orchestration_id: "{{orchestration_id}}"
+      context:
+        notification_type: "hierarchical_level_1"
+        no_response_required: "{{event_name starts_with 'notification:'}}"
+    foreach: "direct_children"
+    description: "Level 1: Route events to direct child agents only"
+
+  # Level 2: Agent-to-grandchildren routing
+  - name: "hierarchical_level_2_routing"
+    source: "agent:hierarchical_event"
+    target: "completion:async"
+    condition: "subscription_level == 2 and hierarchy_distance(target_agent_id, source_agent_id) <= 2"
+    mapping:
+      agent_id: "{{target_agent_id}}"
+      prompt: "Hierarchical event from ancestor {{source_agent_id}}: {{event_name}}"
+      event_notification:
+        source_agent: "{{source_agent_id}}"
+        event: "{{event_name}}"
+        data: "{{event_data}}"
+        hierarchy_level: 2
+        relationship: "{{get_relationship(source_agent_id, target_agent_id)}}"
+        orchestration_id: "{{orchestration_id}}"
+        distance: "{{hierarchy_distance(target_agent_id, source_agent_id)}}"
+      context:
+        notification_type: "hierarchical_level_2"
+        no_response_required: "{{event_name starts_with 'notification:'}}"
+    foreach: "hierarchy_level_2_targets"
+    description: "Level 2: Route events up to 2 levels in hierarchy"
+
+  # Level -1: Agent-to-all-orchestration routing (full subtree)
+  - name: "hierarchical_full_subtree_routing"
+    source: "agent:hierarchical_event"
+    target: "completion:async"
+    condition: "subscription_level == -1 and target_agent_id != source_agent_id and same_orchestration(target_agent_id, source_agent_id)"
+    mapping:
+      agent_id: "{{target_agent_id}}"
+      prompt: "Orchestration-wide event from {{source_agent_id}}: {{event_name}}"
+      event_notification:
+        source_agent: "{{source_agent_id}}"
+        event: "{{event_name}}"
+        data: "{{event_data}}"
+        hierarchy_level: -1
+        relationship: "{{get_relationship(source_agent_id, target_agent_id)}}"
+        orchestration_id: "{{orchestration_id}}"
+        broadcast_type: "full_orchestration"
+      context:
+        notification_type: "hierarchical_full"
+        no_response_required: "{{event_name starts_with 'notification:'}}"
+    foreach: "all_orchestration_agents"
+    description: "Level -1: Route events to all agents in orchestration"
+
+  # Cross-orchestration routing for nested orchestrations
+  - name: "cross_orchestration_routing"
+    source: "agent:cross_orchestration_event"
+    target: "orchestration:external_event"
+    condition: "target_orchestration_id != source_orchestration_id"
+    mapping:
+      orchestration_id: "{{target_orchestration_id}}"
+      external_event:
+        source_orchestration: "{{source_orchestration_id}}"
+        source_agent: "{{source_agent_id}}"
+        event: "{{event_name}}"
+        data: "{{event_data}}"
+        cross_orchestration: true
+        routing_depth: "{{orchestration_depth}}"
+      context:
+        routing_type: "cross_orchestration"
+        requires_permission_check: true
+    description: "Route events between different orchestrations"
+
+  # Coordinator-to-subordinates broadcasting
+  - name: "coordinator_broadcast_routing"
+    source: "agent:coordinator_broadcast"
+    target: "completion:async"
+    condition: "is_coordinator(source_agent_id) and is_subordinate(target_agent_id, source_agent_id)"
+    mapping:
+      agent_id: "{{target_agent_id}}"
+      prompt: "Coordinator broadcast from {{source_agent_id}}: {{event_name}}"
+      broadcast_data:
+        coordinator: "{{source_agent_id}}"
+        message_type: "{{event_name}}"
+        data: "{{event_data}}"
+        broadcast_time: "{{timestamp_utc()}}"
+        priority: "{{priority|'normal'}}"
+        requires_acknowledgment: "{{requires_ack|false}}"
+      context:
+        notification_type: "coordinator_broadcast"
+        response_required: "{{requires_ack}}"
+    foreach: "subordinate_agents"
+    description: "Broadcast from coordinator agents to their subordinates"
+
+  # Subordinate-to-coordinator reporting
+  - name: "subordinate_report_routing"
+    source: "agent:subordinate_report"
+    target: "completion:async"
+    condition: "is_subordinate(source_agent_id) and coordinator_agent_id exists"
+    mapping:
+      agent_id: "{{coordinator_agent_id}}"
+      prompt: "Report from subordinate {{source_agent_id}}: {{report_type}}"
+      report_data:
+        subordinate: "{{source_agent_id}}"
+        report_type: "{{report_type}}"
+        data: "{{report_data}}"
+        report_time: "{{timestamp_utc()}}"
+        status: "{{status|'normal'}}"
+        requires_action: "{{requires_action|false}}"
+      context:
+        notification_type: "subordinate_report"
+        response_required: "{{requires_action}}"
+    description: "Route subordinate reports to their coordinator"
+
+  # Peer-to-peer communication routing
+  - name: "peer_communication_routing"
+    source: "agent:peer_message"
+    target: "completion:async"
+    condition: "are_peers(source_agent_id, target_agent_id) and peer_communication_allowed"
+    mapping:
+      agent_id: "{{target_agent_id}}"
+      prompt: "Peer message from {{source_agent_id}}: {{message_type}}"
+      peer_message:
+        from_peer: "{{source_agent_id}}"
+        message_type: "{{message_type}}"
+        data: "{{message_data}}"
+        timestamp: "{{timestamp_utc()}}"
+        conversation_id: "{{conversation_id|generate_uuid()}}"
+      context:
+        notification_type: "peer_communication"
+        response_expected: "{{expect_response|false}}"
+    description: "Route peer-to-peer messages between agents at same hierarchy level"
+
+  # Event filtering based on agent capabilities
+  - name: "capability_filtered_routing"
+    source: "agent:capability_event"
+    target: "completion:async"
+    condition: "agent_has_capability(target_agent_id, required_capability)"
+    mapping:
+      agent_id: "{{target_agent_id}}"
+      prompt: "Capability-specific event: {{event_name}}"
+      capability_event:
+        required_capability: "{{required_capability}}"
+        event: "{{event_name}}"
+        data: "{{event_data}}"
+        source_agent: "{{source_agent_id}}"
+        capability_level: "{{get_agent_capability_level(target_agent_id, required_capability)}}"
+      context:
+        notification_type: "capability_filtered"
+        response_required: "{{requires_capability_response}}"
+    foreach: "capable_agents"
+    description: "Route events only to agents with specific capabilities"
+
+  # Error propagation in hierarchy
+  - name: "hierarchical_error_propagation"
+    source: "agent:hierarchical_error"
+    target: "completion:async"
+    condition: "is_ancestor(target_agent_id, source_agent_id) or is_coordinator(target_agent_id)"
+    mapping:
+      agent_id: "{{target_agent_id}}"
+      prompt: "Error notification from {{source_agent_id}}: {{error_type}}"
+      error_notification:
+        error_source: "{{source_agent_id}}"
+        error_type: "{{error_type}}"
+        error_message: "{{error_message}}"
+        error_data: "{{error_data}}"
+        hierarchy_level: "{{get_hierarchy_level(source_agent_id)}}"
+        requires_intervention: "{{severity == 'critical'}}"
+        error_time: "{{timestamp_utc()}}"
+      context:
+        notification_type: "hierarchical_error"
+        response_required: "{{severity == 'critical'}}"
+        priority: "high"
+    foreach: "error_escalation_targets"
+    description: "Propagate errors up the hierarchy to supervisors and coordinators"
