@@ -23,14 +23,11 @@ This document serves as your primary instructions for KSI development. For techn
 
 ## Current Development Priority (2025-01-24)
 
-**COMPLETE**: Event Context Simplification Migration - 70.6% storage reduction achieved ✅
-**COMPLETE**: Introspection System Enhancement - Real-time monitoring & impact analysis ✅
-
-**ACTIVE**: DSPy Component Library - Bootstrap to Production Migration
-- **Current**: Bootstrap phase complete (`optimize_ksi_analyst.py` - 0.90 score)
-- **Next**: Migrate to KSI-native optimization using `optimization:*` events
-- **Target**: Production orchestrations for systematic component optimization
-- **Anti-Pattern**: Avoid standalone scripts bypassing event system
+**ACTIVE**: Building Longer-Running Orchestrations
+- **Foundation**: Agent communication patterns proven ✅
+- **Next**: State-based coordination patterns
+- **Target**: Multi-phase orchestrations with orchestrator agents
+- **Goal**: Self-improving patterns from composition components
 
 ## Investigation-First Philosophy
 
@@ -133,11 +130,9 @@ ksi send composition:create_component --name "personas/analysts/data_analyst" \
 - `evaluations/` - Quality assessments (metrics/, judges/, suites/)
 - `tools/` - External integrations (mcp/, git/, apis/)
 
-### Persona-First Agent Design (PROVEN WORKING) ✅
+### Persona-First Agent Design ✅ PROVEN
 
 **Core Principle**: Agents are **Claude adopting personas**, not "KSI agents".
-
-**MAJOR SUCCESS**: This approach completely solved the JSON emission problem!
 
 **Working Component Architecture**:
 ```bash
@@ -151,17 +146,22 @@ components/capabilities/claude_code_1.0.x/ksi_json_reporter.md
 components/agents/ksi_aware_analyst.md
 ```
 
-**Proven Pattern**:
-```bash
-# Agent spawned successfully
-ksi send agent:spawn_from_component --component "components/agents/ksi_aware_analyst"
+### Agent Communication Pattern ✅ NEW BREAKTHROUGH
 
-# Real events captured by system
-ksi send monitor:get_events --event-patterns "agent:*"
-# Result: agent:status events with _extracted_from_response: true
+**Direct Agent-to-Agent Messaging**:
+```json
+// Researcher agent sends findings to analyzer
+{"event": "completion:async", "data": {"agent_id": "analyzer", "prompt": "FINDINGS: [research results]. Please analyze."}}
+
+// Analyzer sends analysis back to researcher
+{"event": "completion:async", "data": {"agent_id": "researcher", "prompt": "ANALYSIS: [analysis results]. Communication complete."}}
 ```
 
-**Revolutionary Insight**: JSON becomes a natural reporting tool for domain experts, not forced "agent behavior".
+**Proven Working Pattern**:
+1. Use clear MANDATORY instructions for JSON emission
+2. Agents communicate via `completion:async` events targeting `agent_id`
+3. Rich content exchange works reliably
+4. Foundation for complex multi-agent orchestrations
 
 ### JSON Emission Standards (MANDATORY PATTERNS)
 
@@ -456,6 +456,9 @@ git commit -m "Update composition submodule"
 - **Agents not responding**: Check if profile has `prompt` field
 - **JSON extraction failing**: Validate JSON format, verify legitimate KSI events
 - **Session management**: Never create session IDs, use returned values
+- **sandbox_uuid missing error**: Agent state entity not created by transformer
+  - **Workaround**: Manually create state entity: `ksi send state:entity:create --type agent --id "agent_id" --properties '{"sandbox_uuid": "uuid_from_agent_info"}'`
+  - **Root cause**: `agent_spawned_state_create` transformer not firing
 
 **Component System Issues**:
 - **Components not found**: Run `ksi send composition:rebuild_index`
@@ -467,15 +470,19 @@ git commit -m "Update composition submodule"
   - **Workaround**: `tail -f /tmp/ksi_hook_diagnostic.log`
   - **Hook control**: `echo ksi_verbose` / `ksi_summary` / `ksi_silent`
 
-## Long-Running Optimization Pattern
+## Building Longer-Running Orchestrations
 
-**When** running DSPy optimizations or other long-running processes:
-- **Then** start the optimization with async event and proceed with other work
-- **Then** trust the subprocess system to handle 5-15 minute optimizations
-- **Then** avoid checking status every few minutes - the system will complete
-- **Then** build complementary systems (evaluators, pipelines) while waiting
+**When** creating multi-phase orchestrations:
+- **Then** use orchestrator agents to coordinate phases
+- **Then** spawn subagents for specific tasks within phases
+- **Then** use state-based coordination for shared context
+- **Then** leverage proven agent communication patterns
 
-**Remember**: "we don't really want to stop for status reports every few minutes"
+**Pattern Evolution**:
+1. Simple message passing (2 agents) → ✅ Working
+2. State-based coordination → Next priority
+3. Multi-phase orchestrations with orchestrator
+4. Self-improving patterns from proven components
 
 ## Meta-Principles
 
@@ -541,4 +548,4 @@ git commit -m "Update composition submodule"
 
 **Remember**: This is your workflow guide. For technical details, implementation patterns, and architecture, always refer to `memory/claude_code/project_knowledge.md`.
 
-*Last updated: 2025-07-20*
+*Last updated: 2025-01-24*

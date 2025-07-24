@@ -2,43 +2,6 @@
 
 Essential technical reference for developing with KSI (Knowledge System Infrastructure) - an event-driven orchestration system for autonomous AI agents.
 
-## Recent Major Accomplishments
-
-### Event Context Simplification & Transformer Migration (COMPLETE ✅)
-- **70.6% storage reduction** through reference-based architecture
-- **Declarative event routing** - 200+ lines of Python → 80+ lines of YAML
-- **All major handler migration phases completed**:
-  - ✅ System lifecycle handlers (startup/shutdown)
-  - ✅ Agent event routing with conditions
-  - ✅ Error & completion routing patterns  
-  - ✅ Orchestration & hierarchical routing
-  - ✅ Evaluation & metrics chains
-- **Critical bug fixes**: Transformer async execution, complex condition evaluation
-- **Shared utilities**: Service transformer manager, transformer patterns library
-- See: `/docs/CONTEXT_REFERENCE_ARCHITECTURE.md`
-- See: `/docs/EVENT_CONTEXT_SIMPLIFICATION.md`
-- See: `/docs/HANDLER_MIGRATION_PLAN.md`
-
-### Unified Template Utility Integration (COMPLETE ✅)
-- **Template duplication eliminated** - Unified all template processing across KSI
-- **Enhanced features**: `{{$}}` pass-through, `{{_ksi_context.x}}` access, `{{func()}}` calls
-- **Event system integration** - 60+ lines of duplicate code removed
-- **Transformer architecture**: Hot-reloadable YAML configurations with complex conditions
-- See: `/docs/UNIFIED_TEMPLATE_UTILITY_PROPOSAL.md`
-- See: `/docs/TRANSFORMER_MIGRATION_GUIDE.md`
-
-### DSPy/MIPROv2 Component Optimization (ACTIVE 🚀)
-- Successfully optimized personas and behaviors with 9-10/10 quality scores
-- Created infrastructure for autonomous component optimization
-- See: `/docs/OPTIMIZATION_APPROACH.md`
-- See: `/docs/OPTIMIZATION_EVENT_BREAKDOWN.md`
-- See: `/docs/OPTIMIZATION_RESULTS_SUMMARY.md`
-
-### Unbounded Agent System Development (IN PROGRESS 🏗️)
-- Building toward self-improving, coordinating agent systems
-- See: `/docs/UNBOUNDED_AGENT_SYSTEM_ROADMAP.md`
-- See: `/docs/PRAGMATIC_AGENT_EVOLUTION_PLAN.md`
-
 ## Core Architecture
 
 ### Event-Driven System
@@ -122,96 +85,6 @@ ksi send composition:rebuild_index
 
 **Common Mistake**: Searching for `--type component` returns nothing because components are classified by their specific purpose (behavior, core, capability, etc.).
 
-### DSPy Zero-Shot Optimization ✅
-
-**Critical Fixes Applied**:
-
-1. **Claude CLI Response Unwrapping**: DSPy expects raw JSON, but Claude CLI wraps responses
-   ```python
-   # In litellm_dspy_adapter.py - unwrap Claude CLI responses
-   if self.model.startswith("claude-cli/"):
-       parsed = json.loads(content)
-       if isinstance(parsed, dict) and "type" in parsed and "result" in parsed:
-           content = parsed["result"]  # Extract actual response
-   ```
-
-2. **Zero-Shot Configuration**: Parameters must go in `compile()` method
-   ```python
-   teleprompter = MIPROv2(metric=validate_metric, auto="light")
-   optimized = teleprompter.compile(
-       program, trainset=trainset,
-       max_bootstrapped_demos=0,  # ✅ In compile() method
-       max_labeled_demos=0,       # ✅ In compile() method  
-   )
-   ```
-
-3. **JSON Import Scope**: Avoid conditional imports that create UnboundLocalError
-   ```python
-   # ❌ WRONG: Creates local scope issue
-   if isinstance(config_data, str):
-       import json
-       config_data = json.loads(config_data)
-   
-   # ✅ CORRECT: Use module-level import
-   config_data = json.loads(config_data)
-   ```
-
-**Fundamental Issue Discovered**:
-
-4. **Evaluation Level Mismatch**: DSPy optimizes instructions, but metrics evaluate outputs
-   - **Problem**: `validate_json_emission` metric was checking instruction text for JSON
-   - **Reality**: DSPy generates optimized instructions like "You are an expert system architect..."
-   - **Solution**: Need agent-in-the-loop evaluation where:
-     1. DSPy proposes instruction
-     2. Agent spawns with instruction
-     3. Agent generates outputs
-     4. Metric evaluates outputs
-
-5. **System Feedback for JSON Validation**: 
-   ```python
-   # For JSON emission, use KSI's own validation
-   async def ksi_system_metric(instruction, test_prompts):
-       agent = await spawn_with_instruction(instruction)
-       for prompt in test_prompts:
-           response = await agent.complete(prompt)
-           events = extract_json_events(response)
-           # Use KSI system to validate
-           for event in events:
-               result = await ksi.send_event(event)
-               scores.append(1.0 if result.status == "success" else 0.0)
-   ```
-
-6. **Optimization Strategy**:
-   - **Phase 1**: Optimize non-JSON components (analysts, reasoning) with LLM-as-Judge
-   - **Phase 2**: Optimize JSON emission with KSI system feedback
-   - **Key**: Evaluate at the right level - outputs not instructions
-
-**Critical Metric Discovery (2025-01-21)**:
-
-7. **Simple Effectiveness Metric Failures**: All DSPy trials scored 0.0 due to fundamental flaws
-   - **Keyword Counting**: Metric looks for exact words ('approach', 'expert', 'clear')
-   - **Length Bias**: Requires 200-2000 chars, penalizes concise improvements
-   - **Wrong Evaluation Level**: Scores instruction TEXT not agent BEHAVIOR
-   - **Placeholder Training Data**: Examples like "Input provided, task performed, output generated"
-   
-8. **Subprocess Context Limitations**:
-   - Can't spawn agents in optimization subprocess
-   - Agent-based metrics fall back to keyword counting
-   - Result file not written properly in subprocess
-   - Git operations should be deferred to later stages
-
-9. **Solution Architecture**:
-   - **Phase 1**: Baseline metric that rewards any structural improvement
-   - **Phase 2**: True agent-in-the-loop (run in main process)
-   - **Phase 3**: Tournament-based optimization with pairwise comparisons
-
-10. **DSPy Prompt Clarity Issues (2025-01-21)**:
-   - **Vague Signatures**: LLMs misunderstand optimization task without clear framing
-   - **Solution**: Explicit task description in signature docstring
-   - **Key Pattern**: "You are an expert at... Your task is to..." framing
-   - **Training Examples**: Must show concrete transformation examples
-
-**Current Status**: DSPy signature clarity fixed, ready for optimization runs with non-zero scores.
 
 ## Transformer Architecture (PRODUCTION READY ✅)
 
@@ -253,110 +126,50 @@ var/lib/transformers/
 - **Maintainability**: Visual, declarative routing rules
 - **Reliability**: Centralized condition evaluation with error handling
 
-## Critical Fixes (2025)
+## Critical Working Patterns
 
-### JSON Extraction System Fix ✅
-**Problem Solved**: Original regex could only handle 1 nesting level, KSI events need 3 levels.
-**Solution**: `ksi_common/json_utils.py` with balanced brace parsing for arbitrary nesting.
-**Result**: Agents now emit legitimate `agent:*`, `state:*`, `message:*` events successfully.
+### Agent Communication Pattern ✅ NEW
+**Breakthrough**: Direct agent-to-agent messaging via `completion:async` events.
+**Key Pattern**: Agents emit events to send messages to other agents by `agent_id`.
+```json
+{"event": "completion:async", "data": {"agent_id": "target_agent", "prompt": "Your message here"}}
+```
+**Status**: Working reliably with clear mandatory JSON instructions.
+
+### JSON Extraction & Emission ✅ 
+**Solution**: Balanced brace parsing in `ksi_common/json_utils.py` handles arbitrary nesting.
+**Pattern**: Strong imperative language ensures consistent JSON emission:
+```markdown
+## MANDATORY: Start your response with this exact JSON:
+{"event": "agent:status", "data": {"agent_id": "{{agent_id}}", "status": "initialized"}}
+```
 
 ### Persona-First Architecture ✅
-**Breakthrough**: Agents are Claude adopting personas, not artificial "KSI agents".
-**Structure**: Pure personas + KSI capabilities = natural JSON emission.
-**Location**: `components/personas/` + `components/capabilities/` → `components/agents/`
+**Pattern**: Pure personas + KSI capabilities = natural JSON emission.
+**Structure**: `components/personas/` + `components/capabilities/` → `components/agents/`
 
-### Session Continuity Fix ✅
-**Problem**: Claude CLI stores sessions by working directory, KSI created new sandboxes per request.
-**Solution**: Persistent agent sandboxes using `sandbox_uuid` in `var/sandbox/agents/{uuid}/`
-**Result**: Agents maintain conversation continuity across multiple requests.
+### Session Continuity ✅
+**Solution**: Persistent sandboxes via `sandbox_uuid` in `var/sandbox/agents/{uuid}/`
 
-### Unified Composition System (COMPLETE) ✅
-**Problem**: Type-specific endpoints (composition:profile, composition:prompt) created unnecessary complexity.
-**Solution**: Single `composition:compose` endpoint - component type determines behavior.
-**Status**: COMPLETE - All type-specific endpoints removed.
-**Impact**: Clean, elegant system where intelligent agents determine usage from context.
+## Optimization Architecture
 
-### DSL Meta-Optimization System ✅
-**Innovation**: The orchestration DSL itself can now be optimized using MIPRO.
-**Implementation**: 
-  - `dsl_optimization_with_mipro.yaml` - Optimizes DSL constructs for LLM interpretability
-  - `prompt_dsl_hybrid_optimization.yaml` - Blends natural language with DSL structure
-**Potential**: Self-improving orchestration language, optimal human-AI communication patterns.
-**See**: `/docs/DSL_PATTERNS_AND_OPTIMIZATION.md` for complete analysis.
+### Bootstrap to Production Pattern
+- **Bootstrap**: Python scripts for discovery (`optimize_*.py`)
+- **Production**: KSI orchestrations using `optimization:*` events
+- **Key Events**: `optimization:async`, `optimization:status`, `optimization:process_completion`
 
-### State Query Performance Fix (JSON Aggregation) ✅
-**Problem**: N+1 query pattern in state:entity:query - fetched 100 entities with 101 queries.
-**Solution**: SQLite JSON aggregation (json_group_object/array) - single optimized query.
-**Performance**: 100x-200x faster (10+ seconds → <100ms for typical queries).
-**See**: `/docs/KUZU_MIGRATION_ANALYSIS.md` for migration strategy.
+### DSPy Integration ✅
+**Working Configuration**:
+```yaml
+optimization_prompt_model: claude-3-5-haiku-20241022
+optimization_task_model: claude-3-5-haiku-20241022
+```
+**Critical**: Evaluate agent outputs, not instruction text.
 
-### Composition Path Resolution Fix ✅
-**Problem**: `composition:get_component` failed for orchestrations - incorrectly assumed all under COMPONENTS_BASE.
-**Solution**: Created `ksi_common/composition_utils.py` with shared path resolution utilities.
-**Result**: Both `composition:get` and `composition:get_component` now correctly resolve all composition types.
-**Key Functions**: `resolve_composition_path()`, `get_composition_base_path()`, `load_composition_with_metadata()`.
-
-### Web UI Agent-State Visualization System ✅
-**Architecture**: Clear separation between Agent Ecosystem (left) and State System (right).
-**Agent Ecosystem**: Shows agents, orchestrations, spawning edges, event routing, orchestrator feedback.
-**State System**: Shows arbitrary data entities agents create, color-coded by type, hover tooltips.
-**Interactions**: Agent hover → pulsate related state entities, draggable panel dividers.
-**Event Routing**: Real-time edge animation, subscription level labels, hierarchical relationships.
-**Implementation**: Native WebSocket transport, systematic entity routing, duplicate prevention.
-
-## Optimization Architecture (2025) ✅
-
-### Philosophy: Bootstrap to Production Pattern
-**Key Insights**: 
-- **Bootstrap Pattern**: Python scripts acceptable for discovery and pattern development
-- **Production Pattern**: All optimization must use KSI orchestrations with optimization service events
-- **Anti-Pattern**: Standalone scripts bypassing event system (development only)
-- **Architecture Principle**: Everything observable through introspection system
-
-**Optimization Flow**:
-- **Discovery Phase**: `optimize_*.py` scripts for technique validation
-- **Integration Phase**: `ksi send optimization:optimize` using proven techniques  
-- **Production Phase**: Orchestrations using `optimization:*` event patterns
-
-### Bootstrapping Methodology ✅
-**DSPy-First Approach**: Programmatic → Judge → Hybrid
-1. **Manual Discovery**: Spawn agents directly, run optimization manually
-2. **Pattern Recognition**: Track decisions, identify what works
-3. **Crystallize Patterns**: Create minimal orchestrations only after proving value
-
-### DSPy Integration Events (PRODUCTION READY) ✅
-- `optimization:optimize` - Run optimization (MIPRO, DSPy, Judge)
-- `optimization:async` - Background optimization with MLflow tracking
-- `optimization:evaluate` - Score with custom metrics (LLM judges supported)
-- `optimization:status` - Monitor optimization progress
-- `optimization:list` - List active/completed optimizations
-- `optimization:cancel` - Stop running optimization
-- `optimization:bootstrap` - Generate training examples
-
-### Component Types for Optimization
-- **Signatures**: `components/signatures/` - DSPy input/output specs
-- **Metrics**: `components/metrics/` - Programmatic and judge-based
-- **Personas**: `components/personas/developers/optimization_engineer.md`
-- **Behaviors**: `components/behaviors/optimization/continuous_iterator.md`
-
-### LLM-as-Judge System ✅
-**Rankings Over Scores**: Pairwise comparisons, not numeric ratings
-- **"Is A better than B?"** not "Rate A from 1-10"
-- **Stable preferences**: Relative comparisons more consistent
-- **No calibration issues**: Avoids subjective score interpretation
-- **Ranking systems**: Elo, Bradley-Terry, TrueSkill
-
-### Hybrid Optimization Marketplace ✅
-**Innovation**: Run optimization techniques in parallel, select empirically
-- **Technique Competition**: DSPy vs Judge vs Hybrid approaches
-- **Domain Learning**: System discovers which technique works where
-- **Meta-Optimization**: Build knowledge about technique-domain mappings
-- **Key Orchestrations**:
-  - `mipro_judge_based_optimization.yaml` - Pure judge approach
-  - `hybrid_optimization_marketplace.yaml` - Technique comparison
-  - `test_hybrid_optimization.yaml` - Simple hybrid demo
-
-**Pattern**: Let techniques compete during bootstrapping, use winner for production.
+### LLM-as-Judge Pattern
+- **Pairwise comparisons** not numeric scores
+- **Rankings**: Bradley-Terry, Elo systems
+- **Pattern**: Tournament-based optimization
 
 ## Component Architecture (Everything is a Component)
 
@@ -607,39 +420,21 @@ git checkout claude-sonnet-optimized  # Speed/efficiency
 echo "personas/deep_analyst.md model=claude-opus performance=reasoning" >> .gitattributes
 ```
 
-## System Status (Current)
+## System Status
 
 ### Production Ready ✅
-- **Unified Component System**: Everything is a component with type attribute (2025 reorganization)
-- **JSON Extraction**: Balanced brace parsing, error feedback
-- **Session Continuity**: Agent-based persistent sandboxes
-- **Persona-First Architecture**: Proven natural JSON emission
-- **Behavioral Override System**: Dependencies properly processed, field mapping fixed
-- **Hybrid Evaluation**: Component definitions + runtime data separation
-- **Context Reference Architecture**: 70.6% storage reduction, full introspection capabilities
-- **DSPy/MIPROv2 Integration**: Autonomous component optimization working
+- **Agent Communication**: Direct messaging via `completion:async` events
+- **JSON Emission**: Reliable with mandatory instruction patterns
+- **Component System**: Everything has `component_type` attribute
+- **Context Architecture**: 70% storage reduction, reference-based
+- **Transformer System**: State-based configuration, checkpoint integration
+- **Optimization**: DSPy/MIPROv2 with baseline metrics working
 
-### Optimization Infrastructure Components
-#### Orchestrations
-- `orchestrations/simple_component_optimization.yaml` - Basic DSPy optimization
-- `orchestrations/component_tournament_evaluation.yaml` - Tournament-based evaluation
-- `orchestrations/optimization_quality_review.yaml` - Quality gating with git commits
-- `orchestrations/orchestration_factory.yaml` - Meta-orchestration for pattern discovery
-- `orchestrations/knowledge_work_coordination_lab.yaml` - Communication pattern testing
-- `orchestrations/prisoners_dilemma_self_improving.yaml` - Self-improving game theory
-
-#### Agent Components
-- `components/agents/dspy_optimization_agent.md` - Autonomous optimization agent
-- `components/agents/optimization_quality_supervisor.md` - LLM-as-Judge quality gating
-
-#### Evaluation Components
-- `components/evaluations/metrics/effectiveness_judge.md` - Pairwise comparison judge
-- `components/evaluations/metrics/clarity_score_metric.md` - Programmatic clarity metric
-- `components/evaluations/suites/component_optimization_suite.md` - Comprehensive evaluation
-
-### Known Issues
-- **No current critical issues** - State timeout and discovery performance issues resolved
-- **Minor gap**: `agent:conversation_summary` handler not implemented (non-critical)
+### Key Orchestration Patterns
+- `simple_message_passing.yaml` - Basic 2-agent communication
+- `prisoners_dilemma_self_improving.yaml` - Self-improvement trigger pattern
+- `simple_component_optimization.yaml` - DSPy optimization orchestration
+- `knowledge_work_coordination_lab.yaml` - Communication testing lab
 
 ### Discovery Cache System ✅
 - **SQLite cache**: `var/db/discovery_cache.db` caches expensive TypedDict/AST analysis
@@ -662,97 +457,21 @@ echo "personas/deep_analyst.md model=claude-opus performance=reasoning" >> .gita
 - **Evaluation Data**: `var/lib/evaluations/` (runtime results)
 - **Logs**: `var/logs/daemon/daemon.log.jsonl`, `var/logs/responses/{session_id}.jsonl`
 
-## System Evolution Roadmap
+## Current Development Focus
 
-### Current Development Priorities (2025-01-24)
+### Building Longer-Running Orchestrations (2025-01-24)
+- **Goal**: Orchestrator agents with spawned subagents working through phases
+- **Foundation**: Agent communication patterns proven and working
+- **Next Steps**: State-based coordination, multi-phase orchestrations
+- **Pattern**: Composition components driving all behavior
 
-#### Priority 1: Event Context Simplification Migration (COMPLETE ✅)
-- **Status**: Migration complete - Reference-based context system implemented
-- **Achievement**: 70.6% storage reduction achieved (exceeded 66% target)
-- **Implementation**: `ksi_daemon/core/context_manager.py` + `event_system.py`
-- **Result**: Unified `_ksi_context` as references, no scattered metadata
+### Critical Issues Discovered (2025-01-24)
+- **Agent State Entity Transformer Not Working**: The `agent_spawned_state_create` transformer in `var/lib/transformers/services/agent_routing.yaml` is not creating state entities for spawned agents
+- **Workaround**: Manually create state entities with `state:entity:create` including `sandbox_uuid` property
+- **Impact**: Completion system requires state entities to find agent sandbox_uuid
+- **Behavior Override Not Working**: Agents ignore JSON emission instructions in prompts, requesting bash permissions instead
 
-#### Priority 2: Introspection System Enhancement (COMPLETE ✅)
-- **Status**: Enhanced with real-time monitoring, impact analysis, and performance tracking
-- **Foundation**: Reference-based context system provides perfect introspection base
-- **Features**: Event chains, parent-child relationships, impact analysis, real-time streams, performance metrics
-- **Implementation**: `ksi_daemon/introspection/event_genealogy.py` with 5 analysis handlers
-
-#### Priority 3: DSPy Validated Component Library
-- **Objective**: Resume building validated composition components
-- **Focus**: Personas, behaviors, orchestrations with quality metrics
-- **Validation**: DSPy/MIPROv2 optimization with LLM-as-Judge
-- **Target**: Production-ready component library
-
-### Long-Term Roadmap
-
-#### Phase 1: Transformer Architecture (Q2 2025)
-- **Event Transformation Pipeline**: High-level events transform to primitives
-- **Early-loading Transformer Module**: Load before other modules to enable virtual events
-- **Virtual Namespace Registration**: Transformers create namespaces that don't exist in code
-
-#### Phase 2: Dynamic Event System (Q3 2025)
-- **Event Registry in State**: Queryable metadata tree of all events
-- **Namespace Emergence**: Namespaces created dynamically as modules register
-- **Event Builder**: Generate event handlers from function type annotations
-
-#### Phase 3: Self-Describing Meta-System (Q4 2025)
-- **System Introspection**: Components can query entire system structure
-- **Runtime Modification**: Orchestrations can modify system behavior
-- **Graph Database Migration**: Move to Kùzu when graph operations exceed 50% of queries
-
-## Shared Utilities System (ENHANCED ✅)
-
-**Major improvements to shared utilities** completed January 2025:
-
-### State-Based Configuration
-- **ServiceTransformerManager refactored**: Eliminated file-based configuration anti-pattern
-- **Checkpoint/restore integration**: Transformer state persists across restarts
-- **State system storage**: Configuration stored alongside logging levels
-
-### Comprehensive Task Management
-- **38 asyncio.create_task calls migrated** to `create_tracked_task`
-- **Named tasks**: Better debugging and monitoring
-- **Graceful shutdown**: All tasks properly cleaned up on service stop
-
-### Service Lifecycle Decorators
-- **16 services migrated** to use `@service_startup` and `@service_shutdown`
-- **~300 lines of boilerplate eliminated**
-- **Automatic transformer loading**: Decorators handle all initialization
-
-### Checkpoint Participation Utility
-- **New utility**: `ksi_common/checkpoint_participation.py`
-- **Simple decorator**: `@checkpoint_participant("service_name")`
-- **50+ lines saved per service** implementing checkpoint support
-
-**Documentation**: See `/docs/SHARED_UTILITIES_IMPROVEMENTS.md` for complete details
-
-## Document Maintenance Patterns
-
-### CRITICAL: Keep Lean (Target: ~100 lines)
-
-**REPLACE, DON'T ACCUMULATE**: When updating this document:
-- **Replace outdated status** instead of adding "Recent Updates" sections
-- **Update patterns in place** rather than documenting pattern evolution
-- **Remove resolved issues** when problems are fixed
-- **Consolidate discoveries** into existing sections
-
-### What Belongs Here
-- **Current System Status**: Production readiness, major accomplishments
-- **Critical Patterns**: Proven working approaches, essential technical knowledge
-- **Key Locations**: File paths, important commands, debugging approaches
-- **Immediate Development Needs**: Current standards, working examples
-
-### What Doesn't Belong Here
-- **Development History**: Belongs in git commits only
-- **Completed Tasks**: Remove when finished, don't accumulate
-- **Detailed Architecture**: Belongs in PROGRESSIVE_COMPONENT_SYSTEM.md
-- **Workflow Instructions**: Belongs in CLAUDE.md
-- **Session Details**: Temporary information that becomes outdated
-
-**Update Pattern**: When discoveries are made, update existing sections rather than adding new ones. Remove content that's no longer essential for immediate development.
 
 ---
 
-*Essential development knowledge only - for workflow instructions see CLAUDE.md*
-*Last updated: 2025-01-18*
+*Essential development knowledge - for workflows see CLAUDE.md*
