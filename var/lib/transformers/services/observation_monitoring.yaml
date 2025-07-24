@@ -1,0 +1,90 @@
+# Observation & Monitoring Event Routing Transformers
+# Routes observation notifications and monitoring events
+
+transformers:
+  # Observation event routing to observers
+  - name: "observation_begin_to_observer"
+    source: "observe:begin"
+    target: "agent:observation_notification"
+    mapping:
+      observer_id: "{{observer}}"
+      target_id: "{{target}}"
+      event_name: "{{event_name}}"
+      event_type: "begin"
+      data: "{{original_data}}"
+      subscription_id: "{{subscription_id}}"
+      timestamp: "{{timestamp_utc()}}"
+  
+  - name: "observation_end_to_observer"
+    source: "observe:end"
+    target: "agent:observation_notification"
+    mapping:
+      observer_id: "{{observer}}"
+      target_id: "{{target}}"
+      event_name: "{{event_name}}"
+      event_type: "end"
+      result: "{{result}}"
+      subscription_id: "{{subscription_id}}"
+      timestamp: "{{timestamp_utc()}}"
+  
+  # Observation system status propagation
+  - name: "observation_ready_to_agents"
+    source: "observation:ready"
+    target: "agent:observation_system_ready"
+    mapping:
+      status: "{{status}}"
+      ephemeral: "{{ephemeral}}"
+      message: "{{message}}"
+  
+  - name: "observation_restored_notification"
+    source: "observation:restored"
+    target: "monitor:observation_restored"
+    mapping:
+      subscriptions_restored: "{{subscriptions_restored}}"
+      from_checkpoint: "{{from_checkpoint}}"
+      timestamp: "{{timestamp_utc()}}"
+  
+  # Monitor event chain results routing
+  - name: "event_chain_to_external_monitor"
+    source: "monitor:event_chain_result"
+    target: "external:event_chain_update"
+    condition: "originator_type == 'external'"
+    mapping:
+      originator_id: "{{originator_id}}"
+      source_agent: "{{source_agent}}"
+      event: "{{event}}"
+      data: "{{data}}"
+      chain_id: "{{chain_id}}"
+      timestamp: "{{timestamp}}"
+  
+  # System monitoring event propagation
+  - name: "system_event_to_monitor"
+    source: "monitor:system_event"
+    target: "monitor:log_system_event"
+    mapping:
+      source_agent: "{{source_agent}}"
+      event: "{{event}}"
+      data: "{{data}}"
+      chain_id: "{{chain_id}}"
+      timestamp: "{{timestamp}}"
+  
+  # Subscription lifecycle monitoring
+  - name: "subscription_created_monitor"
+    source: "observation:subscription_created"
+    target: "monitor:subscription_created"
+    mapping:
+      subscription_id: "{{subscription_id}}"
+      observer_id: "{{observer}}"
+      target_id: "{{target}}"
+      event_patterns: "{{event_patterns}}"
+      timestamp: "{{timestamp_utc()}}"
+  
+  - name: "subscription_removed_monitor"
+    source: "observation:subscription_removed"
+    target: "monitor:subscription_removed"
+    mapping:
+      subscription_id: "{{subscription_id}}"
+      observer_id: "{{observer}}"
+      target_id: "{{target}}"
+      reason: "{{reason|manual}}"
+      timestamp: "{{timestamp_utc()}}"

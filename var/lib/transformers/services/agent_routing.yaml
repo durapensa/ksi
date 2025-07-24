@@ -1,0 +1,112 @@
+# Agent Event Routing Transformers
+# Replaces imperative routing handlers in agent_service.py with declarative transformers
+
+transformers:
+  # Agent termination cascade
+  - name: "agent_termination_sandbox_cleanup"
+    source: "agent:terminated"
+    target: "sandbox:remove"
+    mapping:
+      agent_id: "{{agent_id}}"
+      force: "{{force|false}}"
+  
+  - name: "agent_termination_permission_cleanup" 
+    source: "agent:terminated"
+    target: "permission:remove_agent"
+    mapping:
+      agent_id: "{{agent_id}}"
+  
+  - name: "agent_termination_state_update"
+    source: "agent:terminated"
+    target: "state:entity:update"
+    mapping:
+      id: "{{agent_id}}"
+      properties:
+        status: "terminated"
+        terminated_at: "{{_ksi_context._timestamp|now}}"
+        terminated_at_iso: "{{timestamp_utc()}}"
+        termination_reason: "{{reason|normal}}"
+  
+  - name: "agent_termination_session_cleanup"
+    source: "agent:terminated"
+    target: "completion:clear_agent_session"
+    mapping:
+      agent_id: "{{agent_id}}"
+  
+  - name: "agent_termination_monitor"
+    source: "agent:terminated"
+    target: "monitor:agent_terminated"
+    mapping:
+      agent_id: "{{agent_id}}"
+      reason: "{{reason|normal}}"
+      timestamp: "{{timestamp_utc()}}"
+  
+  # Agent spawning cascade
+  - name: "agent_spawned_monitor"
+    source: "agent:spawned"
+    target: "monitor:agent_created"
+    mapping:
+      agent_id: "{{agent_id}}"
+      profile: "{{profile}}"
+      composition: "{{composition}}"
+      timestamp: "{{timestamp_utc()}}"
+      spawned_by: "{{_ksi_context._agent_id|system}}"
+  
+  - name: "agent_spawned_state_create"
+    source: "agent:spawned" 
+    target: "state:entity:create"
+    mapping:
+      type: "agent"
+      id: "{{agent_id}}"
+      properties:
+        agent_id: "{{agent_id}}"
+        profile: "{{profile}}"
+        composition: "{{composition}}"
+        status: "active"
+        created_at: "{{_ksi_context._timestamp|now}}"
+        created_at_iso: "{{timestamp_utc()}}"
+        sandbox_uuid: "{{sandbox_uuid}}"
+  
+  # Agent status updates
+  - name: "agent_status_to_monitor"
+    source: "agent:status"
+    target: "monitor:agent_status"
+    mapping:
+      agent_id: "{{agent_id}}"
+      status: "{{status}}"
+      phase: "{{phase}}"
+      timestamp: "{{timestamp_utc()}}"
+      metadata: "{{metadata}}"
+  
+  - name: "agent_status_to_state"
+    source: "agent:status"
+    target: "state:entity:update"
+    condition: "status in ['initialized', 'processing', 'completed', 'failed']"
+    mapping:
+      id: "{{agent_id}}"
+      properties:
+        status: "{{status}}"
+        last_activity: "{{_ksi_context._timestamp|now}}"
+        phase: "{{phase|active}}"
+  
+  # Agent error propagation
+  - name: "agent_error_to_monitor"
+    source: "agent:error"
+    target: "monitor:agent_error"
+    mapping:
+      agent_id: "{{agent_id}}"
+      error: "{{error}}"
+      error_type: "{{error_type|unknown}}"
+      timestamp: "{{timestamp_utc()}}"
+      context: "{{error_context}}"
+  
+  - name: "agent_error_to_state"
+    source: "agent:error"
+    target: "state:entity:update"
+    condition: "critical == true"
+    mapping:
+      id: "{{agent_id}}"
+      properties:
+        status: "error"
+        last_error: "{{error}}"
+        error_timestamp: "{{timestamp_utc()}}"

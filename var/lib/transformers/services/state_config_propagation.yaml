@@ -1,0 +1,85 @@
+# State & Configuration Propagation Transformers
+# Routes state changes and config updates to monitoring and dependent services
+
+transformers:
+  # State entity lifecycle propagation
+  - name: "state_entity_created_monitor"
+    source: "state:entity:created"
+    target: "monitor:entity_created"
+    mapping:
+      entity_type: "{{type}}"
+      entity_id: "{{id}}"
+      properties: "{{properties}}"
+      created_by: "{{_ksi_context._agent_id|system}}"
+      timestamp: "{{timestamp_utc()}}"
+  
+  - name: "state_entity_updated_monitor"
+    source: "state:entity:updated"
+    target: "monitor:entity_updated"
+    mapping:
+      entity_type: "{{type|unknown}}"
+      entity_id: "{{id}}"
+      changes: "{{properties}}"
+      updated_by: "{{_ksi_context._agent_id|system}}"
+      timestamp: "{{timestamp_utc()}}"
+  
+  - name: "state_entity_deleted_monitor"
+    source: "state:entity:deleted"
+    target: "monitor:entity_deleted"
+    mapping:
+      entity_type: "{{type|unknown}}"
+      entity_id: "{{id}}"
+      deleted_by: "{{_ksi_context._agent_id|system}}"
+      timestamp: "{{timestamp_utc()}}"
+  
+  # Configuration change propagation
+  - name: "config_changed_monitor"
+    source: "config:changed"
+    target: "monitor:config_change"
+    mapping:
+      config_type: "{{config_type}}"
+      file_path: "{{file_path}}"
+      key: "{{key}}"
+      value: "{{value}}"
+      changed_by: "{{_ksi_context._agent_id|system}}"
+      timestamp: "{{timestamp_utc()}}"
+  
+  - name: "config_changed_service_reload"
+    source: "config:changed"
+    target: "services:reload_config"
+    condition: "config_type in ['daemon', 'service']"
+    mapping:
+      service: "{{config_type}}"
+      config_section: "{{key}}"
+      reload_required: true
+  
+  - name: "config_rolled_back_monitor"
+    source: "config:rolled_back"
+    target: "monitor:config_rollback"
+    mapping:
+      config_type: "{{config_type}}"
+      file_path: "{{file_path}}"
+      backup_name: "{{backup_name}}"
+      rolled_back_by: "{{_ksi_context._agent_id|system}}"
+      timestamp: "{{timestamp_utc()}}"
+  
+  # System state change handling (from daemon_core.py)
+  - name: "system_state_to_runtime_config"
+    source: "state:entity:updated"
+    target: "runtime:apply_config"
+    condition: "id == 'system' and properties.log_level"
+    mapping:
+      config_key: "log_level"
+      config_value: "{{properties.log_level}}"
+      apply_immediately: true
+  
+  # State query result enrichment
+  - name: "state_query_result_monitor"
+    source: "state:query:completed"
+    target: "monitor:state_query"
+    mapping:
+      query_type: "{{query_type}}"
+      entity_count: "{{result_count|0}}"
+      query_time_ms: "{{query_time_ms}}"
+      queried_by: "{{_ksi_context._agent_id|system}}"
+      timestamp: "{{timestamp_utc()}}"

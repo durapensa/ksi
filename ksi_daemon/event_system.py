@@ -120,7 +120,7 @@ class EventRouter:
         self._pattern_handlers: List[Tuple[str, EventHandler]] = []
         
         # Dynamic transformers loaded from patterns
-        self._transformers: Dict[str, Dict[str, Any]] = {}  # source -> transformer config
+        self._transformers: Dict[str, List[Dict[str, Any]]] = {}  # source -> list of transformer configs
         self._pattern_transformers: List[Tuple[str, Dict[str, Any]]] = []  # pattern -> transformer config
         self._async_transformers: Dict[str, str] = {}  # transform_id -> source event
         self._transform_contexts: Dict[str, Dict[str, Any]] = {}  # transform_id -> context
@@ -208,16 +208,19 @@ class EventRouter:
             # Pattern transformer
             self._pattern_transformers.append((source, transformer_def))
         else:
-            # Direct event transformer
-            self._transformers[source] = transformer_def
+            # Direct event transformer - support multiple transformers per source
+            if source not in self._transformers:
+                self._transformers[source] = []
+            self._transformers[source].append(transformer_def)
             
         logger.info(f"Registered dynamic transformer: {source} -> {transformer_def.get('target')}")
     
     def unregister_transformer(self, source: str):
-        """Remove a transformer."""
+        """Remove all transformers for a source."""
         if source in self._transformers:
+            count = len(self._transformers[source])
             del self._transformers[source]
-            logger.info(f"Unregistered transformer: {source}")
+            logger.info(f"Unregistered {count} transformer(s) for: {source}")
         else:
             # Check pattern transformers
             for i, (pattern, transformer_def) in enumerate(self._pattern_transformers):
@@ -273,24 +276,27 @@ class EventRouter:
     async def emit(self, event: str, data: Any = None, 
                    context: Optional[Dict[str, Any]] = None) -> List[Any]:
         """Emit an event to all matching handlers."""
-        # Check for dynamic transformer first
-        transformer = None
-        if event in self._transformers:
-            transformer = self._transformers[event]
-        else:
-            # Check pattern transformers
-            for pattern, transformer_def in self._pattern_transformers:
-                if self._matches_pattern(event, pattern):
-                    transformer = transformer_def
-                    break
+        # Store current event for condition evaluation
+        self._current_event = event
         
-        if transformer:
+        # Check for dynamic transformers first
+        transformers = []
+        if event in self._transformers:
+            transformers.extend(self._transformers[event])
+        
+        # Also check pattern transformers
+        for pattern, transformer_def in self._pattern_transformers:
+            if self._matches_pattern(event, pattern):
+                transformers.append(transformer_def)
+        
+        # Process all matching transformers
+        for transformer in transformers:
             target = transformer.get('target')
             
             # Check condition if present
             should_transform = True
             if 'condition' in transformer:
-                # Simple condition evaluation (can be enhanced)
+                # Evaluate condition with proper context
                 if not self._evaluate_condition(transformer['condition'], data):
                     # Condition not met, skip transformation
                     logger.debug(f"Transformer condition not met for {event}")
@@ -338,14 +344,22 @@ class EventRouter:
                         # Continue to normal handler execution
                         # DO NOT RETURN - let handlers run and return their responses
                     else:
-                        # Synchronous transformation
+                        # Synchronous transformation - but don't block handler execution
                         # Prepare context for transformer with standardized structure
                         prepared_data, ksi_context = prepare_transformer_context(event, data, context)
                         
                         # Apply mapping with standardized context
                         transformed_data = apply_mapping(transformer.get('mapping', {}), prepared_data, ksi_context)
                         logger.debug(f"Transforming {event} -> {target}")
-                        return await self.emit(target, transformed_data, context)
+                        
+                        # Spawn transformation as task to allow multiple transformers and handlers to run
+                        async def run_sync_transform():
+                            try:
+                                await self.emit(target, transformed_data, context)
+                            except Exception as e:
+                                logger.error(f"Sync transformer failed for {event} -> {target}: {e}")
+                        
+                        asyncio.create_task(run_sync_transform())
                 except Exception as e:
                     logger.error(f"Dynamic transformer failed for {event}: {e}")
                     # Fall through to normal handling
@@ -1023,32 +1037,15 @@ def event_handler(event: str,
 # Only condition evaluation remains here as it's specific to event routing
 
 def _evaluate_condition(self, condition: str, data: Dict[str, Any]) -> bool:
-    """Evaluate simple condition expressions for event routing."""
-    # Very basic implementation - can be enhanced
-    # Supports: field == value, field > value, field < value
-    try:
-        # Extract field and comparison
-        if ' == ' in condition:
-            field, value = condition.split(' == ')
-            field_value = data.get(field.strip())
-            compare_value = value.strip().strip('"').strip("'")
-            return str(field_value) == compare_value
-        elif ' > ' in condition:
-            field, value = condition.split(' > ')
-            field_value = float(data.get(field.strip(), 0))
-            compare_value = float(value.strip())
-            return field_value > compare_value
-        elif ' < ' in condition:
-            field, value = condition.split(' < ')
-            field_value = float(data.get(field.strip(), 0))
-            compare_value = float(value.strip())
-            return field_value < compare_value
-        else:
-            # Unknown condition format
-            return True
-    except Exception as e:
-        logger.warning(f"Failed to evaluate condition '{condition}': {e}")
-        return True
+    """Evaluate condition expressions for event routing."""
+    from ksi_common.condition_evaluator import evaluate_condition
+    
+    # Prepare context with the current event name
+    context = {
+        'event': self._current_event if hasattr(self, '_current_event') else None,
+    }
+    
+    return evaluate_condition(condition, data, context)
 
 # Bind helper method to EventRouter class
 EventRouter._evaluate_condition = _evaluate_condition

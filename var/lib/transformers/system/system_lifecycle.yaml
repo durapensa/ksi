@@ -1,0 +1,57 @@
+# System Lifecycle Event Transformers
+# Propagates system startup/shutdown events to relevant services
+
+transformers:
+  # System startup notifications - agent notification
+  - name: "system_startup_agent_ready"
+    source: "system:startup"
+    target: "agent:system_ready"
+    mapping: "{{$}}"
+  
+  # System startup notifications - monitoring
+  - name: "system_startup_monitor"
+    source: "system:startup"
+    target: "monitor:system_startup"
+    mapping:
+      timestamp: "{{timestamp_utc()}}"
+      config: "{{$}}"
+      startup_time: "{{_ksi_context._timestamp|now}}"
+  
+  # System shutdown cascade - agent preparation
+  - name: "system_shutdown_agent_prepare"
+    source: "system:shutdown"
+    target: "agent:prepare_shutdown"
+    mapping: "{{$}}"
+  
+  # System shutdown cascade - state flush
+  - name: "system_shutdown_state_flush"
+    source: "system:shutdown"
+    target: "state:flush_pending"
+    mapping: 
+      reason: "system_shutdown"
+      timestamp: "{{timestamp_utc()}}"
+  
+  # System shutdown cascade - monitoring
+  - name: "system_shutdown_monitor"
+    source: "system:shutdown"
+    target: "monitor:system_shutdown"
+    mapping:
+      shutdown_reason: "{{reason|clean_shutdown}}"
+      timestamp: "{{timestamp_utc()}}"
+      initiated_by: "{{_ksi_context._agent_id|system}}"
+  
+  # Shutdown acknowledgment propagation
+  - name: "shutdown_ack_monitor"
+    source: "shutdown:acknowledge"
+    target: "monitor:service_shutdown_ack"
+    mapping:
+      service_name: "{{service_name}}"
+      acknowledged_at: "{{timestamp_utc()}}"
+      
+  # System ready event propagation
+  - name: "system_ready_broadcast"
+    source: "system:ready"
+    target: "monitor:services_ready"
+    mapping:
+      services: "{{$}}"
+      ready_timestamp: "{{timestamp_utc()}}"

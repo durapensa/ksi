@@ -220,35 +220,56 @@ class EventDaemonCore:
         
         # Define critical system transformers that must be auto-loaded
         system_transformers = [
-            # DISABLED: Universal broadcast creates infinite loop without proper condition evaluation
-            # {
-            #     "name": "universal_broadcast",
-            #     "config": {
-            #         "source": "*",  # Match ALL events
-            #         "target": "monitor:broadcast_event",
-            #         # TODO: Fix condition evaluation to support complex expressions
-            #         # "condition": "not (source_event.startswith('transport:') or source_event == 'monitor:subscribe' or source_event == 'monitor:broadcast_event')",
-            #         "mapping": {
-            #             "event_name": "{{_ksi_context.event}}",
-            #             "event_data": "{{$}}",
-            #             "broadcast_metadata": {
-            #                 "originator_agent": "{{_ksi_context._agent_id|system}}",
-            #                 "timestamp": "{{timestamp_utc()}}",
-            #                 "subscription_required": True
-            #             }
-            #         },
-            #         "async": True
-            #     }
-            # }
+            {
+                "name": "universal_broadcast",
+                "config": {
+                    "source": "*",  # Match ALL events
+                    "target": "monitor:broadcast_event",
+                    "condition": "not (source_event.startswith('transport:') or source_event == 'monitor:subscribe' or source_event == 'monitor:broadcast_event')",
+                    "mapping": {
+                        "event_name": "{{_ksi_context.event}}",
+                        "event_data": "{{$}}",
+                        "broadcast_metadata": {
+                            "originator_agent": "{{_ksi_context._agent_id|system}}",
+                            "timestamp": "{{timestamp_utc()}}",
+                            "subscription_required": True
+                        }
+                    },
+                    "async": True
+                }
+            }
             # Additional system transformers can be added here
         ]
         
+        # Load inline system transformers
         for transformer in system_transformers:
             try:
                 self.router.register_transformer_from_yaml(transformer["config"])
                 logger.info(f"Auto-loaded system transformer: {transformer['name']}")
             except Exception as e:
                 logger.error(f"Failed to load system transformer {transformer['name']}: {e}")
+        
+        # Load SYSTEM-LEVEL transformer files from var/lib/transformers/system/
+        # Other transformers should be loaded by their respective services
+        system_transformers_dir = Path("var/lib/transformers/system")
+        if system_transformers_dir.exists():
+            logger.info(f"Loading system transformers from {system_transformers_dir}")
+            for yaml_file in system_transformers_dir.glob("*.yaml"):
+                try:
+                    with open(yaml_file, 'r') as f:
+                        config = yaml.safe_load(f)
+                    
+                    if 'transformers' in config:
+                        for transformer_config in config['transformers']:
+                            self.router.register_transformer_from_yaml(transformer_config)
+                            logger.info(f"Loaded system transformer '{transformer_config.get('name', 'unnamed')}' from {yaml_file.name}")
+                    else:
+                        logger.warning(f"No 'transformers' key found in {yaml_file}")
+                        
+                except Exception as e:
+                    logger.error(f"Failed to load system transformer from {yaml_file}: {e}")
+        else:
+            logger.debug(f"System transformers directory {system_transformers_dir} does not exist")
         
         logger.info(f"System transformer auto-loading complete")
     
