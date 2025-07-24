@@ -1,0 +1,124 @@
+---
+# Agent Event Result Routing Transformers
+# Migrated from imperative handlers in agent_service.py
+transformers:
+  # Route agent results to originating agents
+  - name: "agent_result_to_originator"
+    source: "agent:event_result"
+    target: "agent:inject_result"
+    condition: "originator_type == 'agent'"
+    mapping:
+      agent_id: "{{originator_id}}"
+      event_result:
+        source_agent: "{{agent_id}}"
+        event: "{{event_name}}"
+        data: "{{result_data}}"
+        timestamp: "{{timestamp_utc()}}"
+        correlation_id: "{{_ksi_context._correlation_id}}"
+    description: "Inject event results into originating agent's completion stream"
+
+  # Route agent results to external originators
+  - name: "agent_result_to_external"
+    source: "agent:event_result"
+    target: "monitor:event_chain_result"
+    condition: "originator_type == 'external'"
+    mapping:
+      originator_id: "{{originator_id}}"
+      source_agent: "{{agent_id}}"
+      event: "{{event_name}}"
+      data: "{{result_data}}"
+      chain_id: "{{chain_id}}"
+      timestamp: "{{timestamp_utc()}}"
+      context: "{{_ksi_context}}"
+    description: "Route agent results to external originators via monitor"
+
+  # Route agent errors to error handling
+  - name: "agent_error_routing"
+    source: "agent:event_error"
+    target: "completion:error"
+    condition: "has_completion_context"
+    mapping:
+      request_id: "{{completion_request_id}}"
+      agent_id: "{{agent_id}}"
+      error: "{{error}}"
+      error_type: "agent_error"
+      session_id: "{{session_id}}"
+      event_context:
+        source_event: "{{event_name}}"
+        error_time: "{{timestamp_utc()}}"
+    description: "Route agent errors to completion error handling"
+
+  # Broadcast agent activity for monitoring
+  - name: "agent_activity_broadcast"
+    source: "agent:activity"
+    target: "monitor:broadcast_event"
+    mapping:
+      event_name: "agent:activity"
+      event_data:
+        agent_id: "{{agent_id}}"
+        activity_type: "{{activity_type}}"
+        event: "{{event_name}}"
+        timestamp: "{{timestamp_utc()}}"
+        metadata: "{{metadata}}"
+      broadcast_metadata:
+        originator_agent: "{{agent_id}}"
+        timestamp: "{{timestamp_utc()}}"
+        subscription_required: false
+        category: "agent_activity"
+    description: "Broadcast agent activity for monitoring and analytics"
+
+  # Route agent completion to state updates
+  - name: "agent_completion_state_update"
+    source: "agent:completion"
+    target: "state:entity:update"
+    mapping:
+      entity_type: "agent"
+      entity_id: "{{agent_id}}"
+      updates:
+        last_completion: "{{timestamp_utc()}}"
+        completion_count: "{{completion_count + 1}}"
+        last_event: "{{event_name}}"
+        status: "active"
+      context: "{{_ksi_context}}"
+    description: "Update agent state when completions occur"
+
+  # Route agent failures to error recovery
+  - name: "agent_failure_recovery"
+    source: "agent:failure"
+    target: "agent:recovery"
+    condition: "failure_type == 'recoverable' and recovery_enabled"
+    mapping:
+      agent_id: "{{agent_id}}"
+      failure_type: "{{failure_type}}"
+      failure_reason: "{{failure_reason}}"
+      recovery_strategy: "restart"
+      max_recovery_attempts: 3
+      recovery_delay: 10
+      context: "{{_ksi_context}}"
+    description: "Route recoverable agent failures to recovery system"
+
+  # Agent timeout handling
+  - name: "agent_timeout_handling"
+    source: "agent:timeout"
+    target: "agent:terminate"
+    condition: "timeout_type == 'hard_timeout'"
+    mapping:
+      agent_id: "{{agent_id}}"
+      force: true
+      reason: "Hard timeout reached"
+      timeout_duration: "{{timeout_duration}}"
+      terminated_by: "timeout_handler"
+    description: "Force terminate agents that reach hard timeout"
+
+  # Soft timeout warning
+  - name: "agent_soft_timeout_warning"
+    source: "agent:timeout"
+    target: "agent:warning"
+    condition: "timeout_type == 'soft_timeout'"
+    mapping:
+      agent_id: "{{agent_id}}"
+      warning_type: "approaching_timeout"
+      message: "Agent is approaching timeout limit"
+      time_remaining: "{{time_remaining}}"
+      suggested_action: "complete_current_task"
+    description: "Warn agents approaching timeout limits"

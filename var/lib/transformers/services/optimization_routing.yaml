@@ -1,0 +1,142 @@
+---
+# Optimization Service Event Routing Transformers
+# Migrated from imperative handlers in optimization_service.py
+transformers:
+  # Optimization error routing
+  - name: "optimization_processing_error"
+    source: "optimization:process"
+    target: "optimization:error"
+    condition: "status == 'error'"
+    mapping:
+      optimization_id: "{{opt_id}}"
+      error_message: "{{error}}"
+      error_type: "{{error_type|'ProcessingError'}}"
+      error_time: "{{timestamp_utc()}}"
+      context: "{{$}}"
+      stack_trace: "{{stack_trace}}"
+    description: "Route optimization processing errors to error handler"
+
+  # Optimization completion routing
+  - name: "optimization_completion_routing"
+    source: "optimization:process"
+    target: "optimization:completed"
+    condition: "status == 'completed'"
+    mapping:
+      optimization_id: "{{opt_id}}"
+      results: "{{results}}"
+      metrics: "{{metrics}}"
+      completion_time: "{{timestamp_utc()}}"
+      duration: "{{end_time - start_time}}"
+      iterations: "{{iterations}}"
+    description: "Route successful optimization completions"
+
+  # Optimization timeout handling
+  - name: "optimization_timeout_routing"
+    source: "optimization:timeout"
+    target: "optimization:error"
+    mapping:
+      optimization_id: "{{opt_id}}"
+      error_message: "Optimization timed out"
+      error_type: "TimeoutError"
+      timeout_duration: "{{timeout_seconds}}"
+      error_time: "{{timestamp_utc()}}"
+      partial_results: "{{partial_results}}"
+    description: "Handle optimization timeouts as errors"
+
+  # Optimization result validation error
+  - name: "optimization_validation_error"
+    source: "optimization:validate"
+    target: "optimization:error"
+    condition: "validation_status == 'failed'"
+    mapping:
+      optimization_id: "{{opt_id}}"
+      error_message: "Optimization result validation failed"
+      error_type: "ValidationError"
+      validation_errors: "{{validation_errors}}"
+      error_time: "{{timestamp_utc()}}"
+      invalid_fields: "{{invalid_fields}}"
+    description: "Route optimization validation failures to error handler"
+
+  # Optimization cancellation routing
+  - name: "optimization_cancellation_routing"
+    source: "optimization:cancel"
+    target: "optimization:cancelled"
+    mapping:
+      optimization_id: "{{opt_id}}"
+      cancelled_by: "{{cancelled_by}}"
+      cancellation_reason: "{{reason}}"
+      cancelled_at: "{{timestamp_utc()}}"
+      partial_results: "{{partial_results}}"
+      cleanup_required: true
+    description: "Route optimization cancellations to cleanup handler"
+
+  # Optimization progress broadcast
+  - name: "optimization_progress_broadcast"
+    source: "optimization:progress"
+    target: "monitor:broadcast_event"
+    mapping:
+      event_name: "optimization:progress"
+      event_data:
+        optimization_id: "{{opt_id}}"
+        progress_percent: "{{progress_percent}}"
+        current_iteration: "{{current_iteration}}"
+        estimated_completion: "{{estimated_completion}}"
+        current_metrics: "{{current_metrics}}"
+      broadcast_metadata:
+        originator_agent: "optimization_service"
+        timestamp: "{{timestamp_utc()}}"
+        subscription_required: false
+        category: "optimization_progress"
+    description: "Broadcast optimization progress for monitoring"
+
+  # Optimization error broadcast for alerting
+  - name: "optimization_error_broadcast"
+    source: "optimization:error"
+    target: "monitor:broadcast_event"
+    mapping:
+      event_name: "optimization:error"
+      event_data:
+        optimization_id: "{{optimization_id}}"
+        error_message: "{{error_message}}"
+        error_type: "{{error_type}}"
+        error_time: "{{error_time}}"
+      broadcast_metadata:
+        originator_agent: "optimization_service"
+        timestamp: "{{timestamp_utc()}}"
+        subscription_required: true
+        severity: "error"
+        category: "optimization_failure"
+    description: "Broadcast optimization errors for alerting"
+
+  # Resource cleanup after optimization
+  - name: "optimization_cleanup_routing"
+    source: "optimization:completed"
+    target: "system:cleanup"
+    async: true
+    mapping:
+      cleanup_type: "optimization_resources"
+      optimization_id: "{{optimization_id}}"
+      resources_to_clean:
+        - "temp_files"
+        - "memory_cache"
+        - "gpu_allocation"
+      cleanup_delay: 300  # 5 minutes
+      force_cleanup: false
+    description: "Schedule resource cleanup after optimization completion"
+
+  # Failed optimization cleanup
+  - name: "optimization_error_cleanup"
+    source: "optimization:error"
+    target: "system:cleanup"
+    async: true
+    mapping:
+      cleanup_type: "optimization_resources"
+      optimization_id: "{{optimization_id}}"
+      resources_to_clean:
+        - "temp_files"
+        - "memory_cache"
+        - "gpu_allocation"
+        - "partial_results"
+      cleanup_delay: 60   # 1 minute for errors
+      force_cleanup: true
+    description: "Schedule immediate cleanup after optimization failure"

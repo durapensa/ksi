@@ -457,6 +457,7 @@ async def handle_ready(data: Dict[str, Any], context: Optional[Dict[str, Any]] =
     try:
         if event_emitter:
             from ksi_common.transformer_loader import load_service_transformers
+            # Load basic agent routing transformers
             result = await load_service_transformers(
                 service_name="agent_service",
                 transformer_file="agent_routing.yaml",
@@ -466,6 +467,17 @@ async def handle_ready(data: Dict[str, Any], context: Optional[Dict[str, Any]] =
                 logger.info(f"Loaded {result['loaded']} agent service transformers")
             else:
                 logger.warning(f"Issue loading agent service transformers: {result}")
+                
+            # Load agent result routing transformers  
+            result2 = await load_service_transformers(
+                service_name="agent_service",
+                transformer_file="agent_result_routing.yaml",
+                event_emitter=event_emitter
+            )
+            if result2['status'] == 'success':
+                logger.info(f"Loaded {result2['loaded']} agent result routing transformers")
+            else:
+                logger.warning(f"Issue loading agent result routing transformers: {result2}")
     except Exception as e:
         logger.warning(f"Failed to load agent service transformers: {e}")
     

@@ -312,7 +312,16 @@ async def handle_ready(data: SystemReadyData, context: Optional[Dict[str, Any]] 
     """Return the completion service manager task."""
     # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
+    from ksi_common.transformer_loader import load_service_transformers
+    
     logger.info("Completion service requesting service manager task")
+    
+    # Load completion service transformers
+    try:
+        await load_service_transformers("completion_service", "completion_routing.yaml")
+        logger.info("Loaded completion routing transformers")
+    except Exception as e:
+        logger.error(f"Failed to load completion transformers: {e}")
     
     return event_response_builder(
         {

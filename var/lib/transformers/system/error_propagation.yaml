@@ -1,0 +1,108 @@
+---
+# Error Propagation and Event System Error Handling Transformers
+# Migrated from imperative handlers in event_system.py and various services
+transformers:
+  # Handler error propagation to centralized error events
+  - name: "handler_error_propagation"
+    source: "handler:error"
+    target: "event:error"
+    mapping:
+      event: "{{source_event}}"
+      handler: "{{handler_name}}"
+      error: "{{error}}"
+      error_type: "{{error_type|'handler_error'}}"
+      timestamp: "{{timestamp_utc()}}"
+      context: "{{_ksi_context}}"
+      stack_trace: "{{stack_trace}}"
+    description: "Propagate handler errors to centralized error event"
+
+  # Service-level error routing to monitoring
+  - name: "service_error_monitoring"
+    source: "service:error"
+    target: "monitor:broadcast_event"
+    mapping:
+      event_name: "service:error"
+      event_data:
+        service_name: "{{service_name}}"
+        error: "{{error}}"
+        error_type: "{{error_type}}"
+        timestamp: "{{timestamp_utc()}}"
+        context: "{{context}}"
+      broadcast_metadata:
+        originator_agent: "{{service_name}}"
+        timestamp: "{{timestamp_utc()}}"
+        subscription_required: true
+        severity: "error"
+    description: "Broadcast service errors for monitoring and alerting"
+
+  # Critical error escalation
+  - name: "critical_error_escalation"
+    source: "event:error"
+    target: "system:critical_error"
+    condition: "error_type in ['system_failure', 'data_corruption', 'security_breach'] or severity == 'critical'"
+    mapping:
+      original_event: "{{event}}"
+      error: "{{error}}"
+      error_type: "{{error_type}}"
+      handler: "{{handler}}"
+      escalated_at: "{{timestamp_utc()}}"
+      context: "{{context}}"
+      requires_immediate_attention: true
+    description: "Escalate critical errors to system administrators"
+
+  # Error recovery routing
+  - name: "recoverable_error_routing"
+    source: "event:error"
+    target: "error:recovery"
+    condition: "error_type in ['timeout', 'rate_limit', 'temporary_failure'] and retry_count < 3"
+    mapping:
+      source_event: "{{event}}"
+      error: "{{error}}"
+      error_type: "{{error_type}}"
+      retry_count: "{{retry_count|0}}"
+      handler: "{{handler}}"
+      recovery_strategy: "retry"
+      next_retry_at: "{{timestamp_utc() + (retry_count * 5)}}"
+    description: "Route recoverable errors to recovery system"
+
+  # Validation error standardization
+  - name: "validation_error_standardization"
+    source: "validation:error"
+    target: "error:validation"
+    mapping:
+      field: "{{field}}"
+      value: "{{value}}"
+      constraint: "{{constraint}}"
+      message: "{{message}}"
+      source_event: "{{source_event}}"
+      timestamp: "{{timestamp_utc()}}"
+      validation_type: "{{validation_type|'field_validation'}}"
+    description: "Standardize validation errors across services"
+
+  # Permission error routing
+  - name: "permission_error_routing"
+    source: "permission:denied"
+    target: "error:authorization"
+    mapping:
+      agent_id: "{{agent_id}}"
+      requested_action: "{{action}}"
+      required_permission: "{{permission}}"
+      denied_at: "{{timestamp_utc()}}"
+      resource: "{{resource}}"
+      reason: "{{reason}}"
+    description: "Route permission denied events to authorization error handling"
+
+  # Database error routing
+  - name: "database_error_routing"
+    source: "database:error"
+    target: "system:database_issue"
+    condition: "error_type in ['connection_lost', 'transaction_failed', 'corruption_detected']"
+    mapping:
+      operation: "{{operation}}"
+      table: "{{table}}"
+      error: "{{error}}"
+      error_type: "{{error_type}}"
+      connection_id: "{{connection_id}}"
+      timestamp: "{{timestamp_utc()}}"
+      requires_dba_attention: "{{error_type == 'corruption_detected'}}"
+    description: "Route critical database errors to system administrators"

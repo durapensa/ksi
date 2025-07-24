@@ -897,6 +897,24 @@ async def handle_optimization_initialize(data: Dict[str, Any]) -> Dict[str, Any]
         return error_response(str(e))
 
 
+@event_handler("system:ready")
+async def handle_ready(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Load optimization service transformers on system ready."""
+    from ksi_common.transformer_loader import load_service_transformers
+    
+    try:
+        # Load optimization routing transformers
+        result = await load_service_transformers("optimization_service", "optimization_routing.yaml")
+        if result['status'] == 'success':
+            logger.info(f"Loaded {result['loaded']} optimization routing transformers")
+        else:
+            logger.warning(f"Issue loading optimization routing transformers: {result}")
+    except Exception as e:
+        logger.error(f"Failed to load optimization transformers: {e}")
+    
+    return event_response_builder({"service": "optimization_service", "status": "ready"}, context)
+
+
 @event_handler("system:shutdown")
 async def handle_shutdown(data: Dict[str, Any]) -> None:
     """Clean up optimization resources on shutdown."""

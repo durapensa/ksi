@@ -1,0 +1,105 @@
+---
+# Completion Service Event Routing Transformers
+# Migrated from imperative handlers in completion_service.py
+transformers:
+  # Completion result routing based on status
+  - name: "completion_success_routing"
+    source: "completion:internal_result"
+    target: "completion:result"
+    condition: "status == 'success'"
+    mapping: "{{$}}"
+    description: "Route successful completion results to completion:result event"
+
+  - name: "completion_error_routing"
+    source: "completion:internal_result"
+    target: "completion:error"
+    condition: "status == 'error'"
+    mapping:
+      request_id: "{{request_id}}"
+      error: "{{error}}"
+      session_id: "{{session_id}}"
+      error_time: "{{timestamp_utc()}}"
+      agent_id: "{{agent_id}}"
+    description: "Route completion errors to completion:error event"
+
+  - name: "completion_cancelled_routing"
+    source: "completion:internal_result"
+    target: "completion:cancelled"
+    condition: "status == 'cancelled'"
+    mapping:
+      request_id: "{{request_id}}"
+      cancelled_at: "{{timestamp_utc()}}"
+      session_id: "{{session_id}}"
+      agent_id: "{{agent_id}}"
+    description: "Route cancelled completions to completion:cancelled event"
+
+  # Retry logic routing
+  - name: "completion_retry_eligible"
+    source: "completion:failed"
+    target: "completion:retry"
+    condition: "retry_count < 3 and error_type in ['timeout', 'rate_limit', 'connection_error']"
+    mapping:
+      request_id: "{{request_id}}"
+      retry_count: "{{retry_count + 1}}"
+      original_data: "{{completion_data}}"
+      error_type: "{{error_type}}"
+      retry_delay: "{{retry_count * 2}}"
+    description: "Route retryable completion failures to retry system"
+
+  - name: "completion_retry_abandoned"
+    source: "completion:failed"
+    target: "completion:abandoned"
+    condition: "retry_count >= 3 or error_type not in ['timeout', 'rate_limit', 'connection_error']"
+    mapping:
+      request_id: "{{request_id}}"
+      final_error: "{{error}}"
+      max_retries_exceeded: "{{retry_count >= 3}}"
+      non_retryable: "{{error_type not in ['timeout', 'rate_limit', 'connection_error']}}"
+      abandoned_at: "{{timestamp_utc()}}"
+    description: "Route failed completions that cannot be retried to abandoned status"
+
+  # Timeout handling
+  - name: "completion_timeout_routing"
+    source: "completion:timeout"
+    target: "completion:failed"
+    mapping:
+      request_id: "{{request_id}}"
+      error: "Request timed out"
+      error_type: "timeout"
+      timeout_duration: "{{timeout_seconds}}"
+      retry_count: "{{retry_count|0}}"
+      completion_data: "{{original_data}}"
+    description: "Convert completion timeouts to failed status for retry processing"
+
+  # Broadcast completion events for monitoring
+  - name: "completion_result_broadcast"
+    source: "completion:result"
+    target: "monitor:broadcast_event"
+    mapping:
+      event_name: "completion:result"
+      event_data:
+        request_id: "{{request_id}}"
+        agent_id: "{{agent_id}}"
+        status: "completed"
+        completion_time: "{{timestamp_utc()}}"
+      broadcast_metadata:
+        originator_agent: "completion_service"
+        timestamp: "{{timestamp_utc()}}"
+        subscription_required: true
+    description: "Broadcast completion results for monitoring and observation"
+
+  - name: "completion_error_broadcast"
+    source: "completion:error"
+    target: "monitor:broadcast_event"
+    mapping:
+      event_name: "completion:error"
+      event_data:
+        request_id: "{{request_id}}"
+        agent_id: "{{agent_id}}"
+        error: "{{error}}"
+        error_time: "{{error_time}}"
+      broadcast_metadata:
+        originator_agent: "completion_service"
+        timestamp: "{{timestamp_utc()}}"
+        subscription_required: true
+    description: "Broadcast completion errors for monitoring and alerting"
