@@ -306,12 +306,17 @@ var/lib/transformers/
 
 ## Optimization Architecture (2025) ✅
 
-### Philosophy: Components All the Way Down
+### Philosophy: Bootstrap to Production Pattern
 **Key Insights**: 
-- **Everything is a component**: Signatures, metrics, optimization strategies
-- **No embedded prompts**: All prompts live in versioned components
-- **Framework-agnostic service**: Core optimization events, framework-specific adapters
-- **Manual bootstrapping first**: Discover patterns before creating orchestrations
+- **Bootstrap Pattern**: Python scripts acceptable for discovery and pattern development
+- **Production Pattern**: All optimization must use KSI orchestrations with optimization service events
+- **Anti-Pattern**: Standalone scripts bypassing event system (development only)
+- **Architecture Principle**: Everything observable through introspection system
+
+**Optimization Flow**:
+- **Discovery Phase**: `optimize_*.py` scripts for technique validation
+- **Integration Phase**: `ksi send optimization:optimize` using proven techniques  
+- **Production Phase**: Orchestrations using `optimization:*` event patterns
 
 ### Bootstrapping Methodology ✅
 **DSPy-First Approach**: Programmatic → Judge → Hybrid
@@ -319,13 +324,14 @@ var/lib/transformers/
 2. **Pattern Recognition**: Track decisions, identify what works
 3. **Crystallize Patterns**: Create minimal orchestrations only after proving value
 
-### DSPy Integration Events (NEW) ✅
-- `optimization:optimize_component` - Run MIPROv2 on components
-- `optimization:run_dspy_program` - Execute Predict, ChainOfThought, ReAct
-- `optimization:evaluate_with_metric` - Score with DSPy metrics
-- `optimization:bootstrap_examples` - Generate training data
-- `optimization:register_metric` - Add custom metrics (including LLM judges)
-- `optimization:list_metrics` - Discover available metrics
+### DSPy Integration Events (PRODUCTION READY) ✅
+- `optimization:optimize` - Run optimization (MIPRO, DSPy, Judge)
+- `optimization:async` - Background optimization with MLflow tracking
+- `optimization:evaluate` - Score with custom metrics (LLM judges supported)
+- `optimization:status` - Monitor optimization progress
+- `optimization:list` - List active/completed optimizations
+- `optimization:cancel` - Stop running optimization
+- `optimization:bootstrap` - Generate training examples
 
 ### Component Types for Optimization
 - **Signatures**: `components/signatures/` - DSPy input/output specs

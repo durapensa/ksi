@@ -26,11 +26,11 @@ This document serves as your primary instructions for KSI development. For techn
 **COMPLETE**: Event Context Simplification Migration - 70.6% storage reduction achieved ✅
 **COMPLETE**: Introspection System Enhancement - Real-time monitoring & impact analysis ✅
 
-**ACTIVE**: DSPy Validated Component Library - Resume building composition components
-- **Focus**: Personas, behaviors, orchestrations with quality metrics
-- **Validation**: DSPy/MIPROv2 optimization with LLM-as-Judge
-- **No backward compatibility** - Clean implementation only  
-- **Test as we go** - Verify each component before proceeding
+**ACTIVE**: DSPy Component Library - Bootstrap to Production Migration
+- **Current**: Bootstrap phase complete (`optimize_ksi_analyst.py` - 0.90 score)
+- **Next**: Migrate to KSI-native optimization using `optimization:*` events
+- **Target**: Production orchestrations for systematic component optimization
+- **Anti-Pattern**: Avoid standalone scripts bypassing event system
 
 ## Investigation-First Philosophy
 
@@ -81,6 +81,12 @@ ksi send config:set --type daemon --key log_level --value INFO
 **Remember**: Timeouts, connection issues, and serialization errors are symptoms of underlying problems. Always investigate and fix the root cause. **Agent claims must be verified against actual system behavior.**
 
 ## Core Development Principles
+
+### Architecture Consistency (CRITICAL)
+- **Event-Driven Only**: All production functionality must use KSI's event system
+- **Bootstrap vs Production Pattern**: Python scripts acceptable for discovery, orchestrations required for production
+- **Anti-Pattern Warning**: Standalone scripts bypassing event system are acceptable for bootstrapping only
+- **Observable Systems**: All processes must be introspectable through KSI's monitoring
 
 ### Configuration Management
 - **Use ksi_common/config.py** - Always import `from ksi_common.config import config`

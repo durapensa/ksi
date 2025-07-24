@@ -25,10 +25,25 @@
 - **Missing Metadata**: 10 components (13%)
 
 ## Optimization Strategy
+
+### Bootstrap vs Production Pattern
+- **Bootstrap Phase**: `optimize_*.py` scripts for discovery (✅ Current: `optimize_ksi_analyst.py`)
+- **Integration Phase**: Use `ksi send optimization:*` events with proven techniques
+- **Production Phase**: KSI orchestrations for systematic, observable optimization
+
+### Optimization Techniques by Component Type
 1. **LLM-as-Judge** for personas (pairwise comparisons)
 2. **KSI system feedback** for behaviors (JSON emission success)
 3. **Multi-task evaluation** for core components
 4. **Hybrid optimization** combining DSPy + Judge approaches
+
+### KSI-Native Implementation
+```bash
+# Use existing optimization service instead of standalone scripts
+ksi send optimization:optimize --component "personas/analysts/ksi_aware_analyst" --technique MIPRO
+ksi send optimization:evaluate --metric persona_quality_judge
+ksi send optimization:status --opt-id xyz123
+```
 
 ## Quality Issues to Address
 - Inconsistent metadata standards (`type:` vs `component_type:`)
@@ -42,4 +57,25 @@
 - Agent spawning and task completion metrics
 - LLM-as-Judge pairwise win rates
 
-**Next Steps**: Begin with `ksi_aware_analyst.md` optimization using DSPy/MIPRO
+## Production Orchestration Pattern
+
+### Component Optimization Orchestration
+```yaml
+orchestrations/component_optimization.yaml:
+  orchestrator_agent_id: "claude-code"
+  steps:
+    1. optimization:optimize (component, technique, metrics)
+    2. optimization:status (monitor progress)
+    3. optimization:evaluate (quality assessment)
+    4. composition:update_component (if successful)
+    5. git:commit (version optimized component)
+  observability: Full introspection support
+```
+
+### Anti-Pattern Recognition
+- ❌ **Standalone Scripts**: Bypass event-driven architecture
+- ❌ **Manual Execution**: Not observable or reproducible
+- ❌ **Direct Imports**: Skip optimization service infrastructure
+- ✅ **Bootstrap Usage**: Discovery and pattern development only
+
+**Current Status**: Bootstrap phase complete (`optimize_ksi_analyst.py`), ready for KSI-native integration
