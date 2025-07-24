@@ -32,6 +32,7 @@ from ksi_daemon.completion.token_tracker import TokenTracker
 from ksi_daemon.completion.retry_manager import RetryManager, RetryPolicy, extract_error_type
 from ksi_common.json_extraction import extract_and_emit_json_events
 from ksi_daemon.completion.litellm import handle_litellm_completion
+from ksi_common.task_management import create_tracked_task
 
 
 logger = get_bound_logger("completion_service", version="4.0.0")
@@ -487,7 +488,7 @@ async def handle_async_completion(data: CompletionAsyncData, context: Optional[D
         else:
             # Fallback: create task directly if task group not ready
             logger.warning(f"Task group not ready, creating processor task directly for session {queue_session_key}")
-            asyncio.create_task(process_session())
+            create_tracked_task("completion_service", process_session(), task_name="process_session")
     
     return {
         "request_id": request_id,
@@ -754,7 +755,7 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
                                    error=str(e))
                 
                 # Create task but don't await - non-blocking!
-                asyncio.create_task(extract_and_send_feedback())
+                create_tracked_task("completion_service", extract_and_send_feedback(), task_name="extract_json_feedback")
         
         # CRITICAL: Update session tracking with the NEW session_id from claude-cli
         if provider == "claude-cli":
@@ -837,7 +838,7 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
                 await asyncio.sleep(60)  # Keep for 1 minute
                 active_completions.pop(request_id, None)
                 active_tasks.pop(request_id, None)  # Clean up task tracking
-            asyncio.create_task(cleanup())
+            create_tracked_task("completion_service", cleanup(), task_name="completion_cleanup")
         
         # Handle injection if needed
         result_event_data = {

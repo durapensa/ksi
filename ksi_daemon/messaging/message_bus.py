@@ -19,6 +19,8 @@ from ksi_common.timestamps import timestamp_utc
 from ksi_common.logging import log_event, agent_context
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
+from ksi_common.service_lifecycle import service_startup, service_shutdown
+from ksi_common.task_management import create_tracked_task
 
 # Module state
 logger = get_bound_logger("message_bus", version="1.0.0")
@@ -76,16 +78,16 @@ class MessageBus:
         self.connections[agent_id] = writer
         
         # Non-blocking logging using asyncio task
-        asyncio.create_task(self._log_event_async(
+        create_tracked_task("message_bus", self._log_event_async(
             "message_bus.agent_connected",
             agent_id=agent_id,
             total_connections=len(self.connections),
             has_queued_messages=agent_id in self.offline_queue
-        ))
+        ), task_name="log_agent_connected")
         
         # Deliver any queued messages
         if agent_id in self.offline_queue:
-            task = asyncio.create_task(self._deliver_queued_messages(agent_id))
+            task = create_tracked_task("message_bus", self._deliver_queued_messages(agent_id), task_name="deliver_queued_messages")
             self._delivery_tasks.add(task)
             # Remove task from set when done
             task.add_done_callback(self._delivery_tasks.discard)
@@ -98,12 +100,12 @@ class MessageBus:
             del self.connections[agent_id]
             
         # Non-blocking logging using asyncio task
-        asyncio.create_task(self._log_event_async(
+        create_tracked_task("message_bus", self._log_event_async(
             "message_bus.agent_disconnected",
             agent_id=agent_id,
             was_connected=was_connected,
             remaining_connections=len(self.connections)
-        ))
+        ), task_name="log_agent_disconnected")
             
         # Remove from all subscriptions
         for event_type, subscribers in self.subscriptions.items():
@@ -117,24 +119,24 @@ class MessageBus:
         writer = self.connections.get(agent_id)
         if not writer:
             # Non-blocking logging using asyncio task
-            asyncio.create_task(self._log_event_async(
+            create_tracked_task("message_bus", self._log_event_async(
                 "message_bus.subscription_failed",
                 agent_id=agent_id,
                 event_types=event_types,
                 reason="agent_not_connected"
-            ))
+            ), task_name="log_subscription_failed")
             return False
         
         for event_type in event_types:
             self.subscriptions[event_type].add((agent_id, writer))
         
         # Non-blocking logging using asyncio task
-        asyncio.create_task(self._log_event_async(
+        create_tracked_task("message_bus", self._log_event_async(
             "message_bus.subscribed",
             agent_id=agent_id,
             event_types=event_types,
             subscription_count=len(event_types)
-        ))
+        ), task_name="log_subscribed")
         
         return True
     
@@ -144,12 +146,12 @@ class MessageBus:
             self.subscriptions[event_type].discard((agent_id, self.connections.get(agent_id)))
         
         # Non-blocking logging using asyncio task
-        asyncio.create_task(self._log_event_async(
+        create_tracked_task("message_bus", self._log_event_async(
             "message_bus.unsubscribed",
             agent_id=agent_id,
             event_types=event_types,
             unsubscription_count=len(event_types)
-        ))
+        ), task_name="log_unsubscribed")
     
     async def publish(self, from_agent: str, event_type: str, payload: dict) -> dict:
         """Publish an event to all subscribers"""
@@ -166,13 +168,13 @@ class MessageBus:
         self._add_to_history(message)
         
         # Non-blocking logging using asyncio task
-        asyncio.create_task(self._log_event_async(
+        create_tracked_task("message_bus", self._log_event_async(
             "message_bus.message_published",
             agent_id=from_agent,
             event_type=event_type,
             message_id=message['id'],
             subscriber_count=len(self.subscriptions.get(event_type, []))
-        ))
+        ), task_name="log_message_published")
         
         # Handle different event types
         if event_type == 'DIRECT_MESSAGE':
@@ -342,7 +344,7 @@ class MessageBus:
             self.message_history = self.message_history[-self.max_history_size:]
         
         # Non-blocking file I/O using asyncio task
-        asyncio.create_task(self._write_history_to_file_async(message))
+        create_tracked_task("message_bus", self._write_history_to_file_async(message), task_name="write_history")
     
     def get_stats(self) -> dict:
         """Get message bus statistics"""
@@ -480,23 +482,15 @@ async def handle_context(data: SystemContextData, context: Optional[Dict[str, An
     logger.info("Message bus received context, event_emitter configured")
 
 
-class SystemStartupData(TypedDict):
-    """System startup configuration."""
-    # No specific fields required for this handler
-    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
-
-
-@event_handler("system:startup")
-async def handle_startup(data: SystemStartupData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@service_startup("message_bus", load_transformers=False)
+async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize message bus."""
-    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
-    from ksi_common.event_response_builder import event_response_builder
-    logger.info("Message bus module started (consolidated)")
-    return event_response_builder({"module.message_bus": {"loaded": True}}, context)
+    # Message bus doesn't use transformers currently
+    return {"loaded": True}
 
 
-@shutdown_handler("message_bus")
-async def handle_shutdown(data: Dict[str, Any]) -> None:
+@service_shutdown("message_bus", cleanup_async_operations=True)
+async def handle_shutdown(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Clean up on shutdown.
     
     This is a critical shutdown handler that ensures all message

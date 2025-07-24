@@ -681,25 +681,31 @@ echo "personas/deep_analyst.md model=claude-opus performance=reasoning" >> .gita
 - **State-Driven Progress**: Use state system as orchestration memory
 - **Self-Optimizing Pipelines**: Orchestrations that improve their own patterns
 
-## Event Context Simplification (In Progress)
+## Shared Utilities System (ENHANCED ✅)
 
-**Major Architectural Improvement**: Migrating from scattered metadata fields to unified `_ksi_context` field.
+**Major improvements to shared utilities** completed January 2025:
 
-### Problem Being Solved
-- System metadata fields break TypedDict validation
-- Created `event_format_linter` as workaround to strip metadata
-- Added unnecessary complexity throughout system
-- Parent-child event relationships don't propagate naturally
+### State-Based Configuration
+- **ServiceTransformerManager refactored**: Eliminated file-based configuration anti-pattern
+- **Checkpoint/restore integration**: Transformer state persists across restarts
+- **State system storage**: Configuration stored alongside logging levels
 
-### Solution Architecture
-- Package ALL system metadata into single `_ksi_context` field
-- Eliminate `event_format_linter` entirely
-- Direct TypedDict usage in handlers
-- Automatic context propagation for parent-child relationships
+### Comprehensive Task Management
+- **38 asyncio.create_task calls migrated** to `create_tracked_task`
+- **Named tasks**: Better debugging and monitoring
+- **Graceful shutdown**: All tasks properly cleaned up on service stop
 
-**Implementation Plan**: See `/docs/EVENT_CONTEXT_SIMPLIFICATION.md` for detailed migration steps
+### Service Lifecycle Decorators
+- **16 services migrated** to use `@service_startup` and `@service_shutdown`
+- **~300 lines of boilerplate eliminated**
+- **Automatic transformer loading**: Decorators handle all initialization
 
-**Status**: Planning complete, ready for implementation by Claude Sonnet 4
+### Checkpoint Participation Utility
+- **New utility**: `ksi_common/checkpoint_participation.py`
+- **Simple decorator**: `@checkpoint_participant("service_name")`
+- **50+ lines saved per service** implementing checkpoint support
+
+**Documentation**: See `/docs/SHARED_UTILITIES_IMPROVEMENTS.md` for complete details
 
 ## Document Maintenance Patterns
 

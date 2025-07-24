@@ -27,8 +27,13 @@ from dataclasses import dataclass, field
 from ksi_daemon.event_system import event_handler, get_router
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
+from ksi_common.service_lifecycle import service_startup
+from ksi_common.event_response_builder import event_response_builder
 
 logger = get_bound_logger("transformer_service", version="1.0.0")
+
+# Import checkpoint handlers to register them
+from . import checkpoint_handlers
 
 
 @dataclass
@@ -477,26 +482,18 @@ async def handle_get_usage(data: TransformerGetUsageData, context: Optional[Dict
     )
 
 
-@event_handler("system:startup")
-async def handle_startup(data: SystemStartupData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@service_startup("transformer_service", load_transformers=False)
+async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize transformer service on startup."""
-    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
-    from ksi_common.event_response_builder import event_response_builder
-    
-    logger.info("Transformer service started - ready for pattern-based transformer loading")
-    
-    return event_response_builder(
-        {
-            "status": "transformer_service_ready",
-            "features": [
-                "pattern_loading",
-                "reference_counting", 
-                "hot_reload",
-                "usage_tracking"
-            ]
-        },
-        context=context
-    )
+    # Transformer service manages transformers for others, doesn't need its own
+    return {
+        "features": [
+            "pattern_loading",
+            "reference_counting", 
+            "hot_reload",
+            "usage_tracking"
+        ]
+    }
 
 
 @event_handler("system:shutdown")

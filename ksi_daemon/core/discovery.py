@@ -24,6 +24,7 @@ from ksi_common.type_utils import format_type_annotation, extract_literal_values
 from ksi_daemon.event_system import event_handler, get_router
 from .discovery_utils import HandlerAnalyzer, extract_summary
 from .discovery_cache import get_discovery_cache
+from ksi_common.service_lifecycle import service_startup, service_shutdown
 
 logger = get_bound_logger("discovery", version="2.0.0")
 
@@ -1032,17 +1033,10 @@ class SystemShutdownData(TypedDict):
     _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
-@event_handler("system:startup")
-async def handle_startup(data: SystemStartupData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@service_startup("discovery", load_transformers=False)
+async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize discovery service."""
-    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
-    from ksi_common.event_response_builder import event_response_builder
-    
-    logger.info("Discovery service started")
-    return event_response_builder(
-        {"status": "discovery_ready"},
-        context=context
-    )
+    return {"status": "discovery_ready"}
 
 
 @event_handler("system:discover")
@@ -1267,14 +1261,7 @@ async def handle_help(data: SystemHelpData, context: Optional[Dict[str, Any]] = 
 
 
 
-@event_handler("system:shutdown")
-async def handle_shutdown(data: SystemShutdownData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@service_shutdown("discovery")
+async def handle_shutdown(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Clean shutdown."""
-    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
-    from ksi_common.event_response_builder import event_response_builder
-    
-    logger.info("Discovery service stopped")
-    return event_response_builder(
-        {"discovery_service_shutdown": True},
-        context=context
-    )
+    pass  # Discovery service has no cleanup needed

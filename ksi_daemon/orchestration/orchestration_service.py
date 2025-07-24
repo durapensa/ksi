@@ -27,6 +27,7 @@ from ksi_daemon.event_system import event_handler, get_router
 from ksi_common.timestamps import timestamp_utc, format_for_logging
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
+from ksi_common.service_lifecycle import service_startup, service_shutdown
 
 # Orchestration primitives removed - patterns now define their own transformers
 
@@ -926,19 +927,16 @@ class SystemStartupData(TypedDict):
     _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
-@event_handler("system:startup")
-async def handle_startup(data: SystemStartupData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@service_startup("orchestration_service", load_transformers=False)
+async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize orchestration service on startup."""
-    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
-    from ksi_common.event_response_builder import event_response_builder
-    
     # Orchestration service uses composition service for pattern loading
     logger.info("Orchestration service started - patterns loaded via composition service")
     
-    return event_response_builder({
+    return {
         "status": "orchestration_ready",
         "note": "Patterns loaded via composition service"
-    }, context)
+    }
 
 
 class SystemReadyData(TypedDict):
@@ -973,10 +971,9 @@ class SystemShutdownData(TypedDict):
     _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
-@event_handler("system:shutdown")
-async def handle_shutdown(data: SystemShutdownData, context: Optional[Dict[str, Any]] = None) -> None:
+@service_shutdown("orchestration_service")
+async def handle_shutdown(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Clean up on shutdown."""
-    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     # Terminate all active orchestrations
     for instance in list(orchestrations.values()):
         await orchestration_module._terminate_orchestration(instance, "shutdown")

@@ -15,6 +15,7 @@ from ksi_daemon.event_system import event_handler, get_router
 from ksi_common.timestamps import timestamp_utc, format_for_logging, sanitize_for_json
 from ksi_common.logging import get_bound_logger
 from ksi_common.config import config
+from ksi_common.service_lifecycle import service_startup, service_shutdown
 from ksi_common.file_utils import ensure_directory
 from ksi_common.event_utils import extract_single_response
 from ksi_common.git_utils import git_manager
@@ -109,13 +110,9 @@ async def handle_context(data: Dict[str, Any], context: Optional[Dict[str, Any]]
         logger.info("Composition service connected to event emitter")
 
 
-@event_handler("system:startup")
+@service_startup("composition_service", load_transformers=False)
 async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize composition service on startup."""
-    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
-    from ksi_common.event_response_builder import event_response_builder
-    logger.info("Composition service starting up...")
-    
     # Ensure directories exist
     ensure_directory(COMPOSITIONS_BASE)
     ensure_directory(COMPONENTS_BASE)
@@ -125,17 +122,13 @@ async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]]
     indexed_count = await composition_index.rebuild()
     
     logger.info(f"Composition service started - indexed {indexed_count} compositions")
-    return event_response_builder(
-        {"status": "composition_service_ready", "indexed": indexed_count},
-        context=context
-    )
+    return {"status": "composition_service_ready", "indexed": indexed_count}
 
 
-@event_handler("system:shutdown")
+@service_shutdown("composition_service")
 async def handle_shutdown(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Clean up on shutdown."""
-    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
-    logger.info("Composition service shutting down")
+    pass  # Composition service has no cleanup needed
 
 
 class CompositionComposeData(TypedDict):

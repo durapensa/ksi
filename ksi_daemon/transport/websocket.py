@@ -19,6 +19,7 @@ from websockets.server import WebSocketServerProtocol, serve
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 from ksi_common.event_response_builder import event_response_builder
+from ksi_common.task_management import create_tracked_task
 
 # Transport state
 logger = get_bound_logger("websocket_transport", version="1.0.0")
@@ -305,7 +306,7 @@ class WebSocketWriterAdapter:
                     try:
                         event_data = json.loads(line)
                         # Send asynchronously without blocking
-                        asyncio.create_task(self._send_async(event_data))
+                        create_tracked_task("websocket_transport", self._send_async(event_data), task_name="send_async")
                     except json.JSONDecodeError:
                         logger.warning(f"Failed to parse JSON from monitor: {line}")
         except Exception as e:

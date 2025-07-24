@@ -29,6 +29,7 @@ from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc, numeric_to_iso
 from ksi_common.event_response_builder import event_response_builder, success_response, error_response, list_response
 from ksi_common.response_patterns import validate_required_fields, service_ready_response
+from ksi_common.service_lifecycle import service_startup
 
 
 logger = get_bound_logger("graph_state", version="2.0.0")
@@ -582,23 +583,11 @@ async def handle_context(data: Dict[str, Any], context: Optional[Dict[str, Any]]
         logger.info("Graph state manager connected to event system")
 
 
-@event_handler("system:startup")
+@service_startup("state_service")
 async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize state service on startup."""
-    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
-    from ksi_common.event_response_builder import event_response_builder
-    
-    # Load service-specific transformers using shared utility
-    router = get_router()
-    if router and router.emit:
-        from ksi_common.service_transformer_manager import auto_load_service_transformers
-        transformer_result = await auto_load_service_transformers("state_service", router.emit)
-        if transformer_result.get("status") == "success":
-            logger.info(f"Loaded {transformer_result.get('total_loaded', 0)} state service transformers from {transformer_result.get('files_loaded', 0)} files")
-        else:
-            logger.warning(f"Issue loading state service transformers: {transformer_result}")
-    
-    return service_ready_response("state_service", context)
+    # Service startup decorator handles transformer loading automatically
+    return {"ready": True}
 
 
 class EntityCreateData(TypedDict):

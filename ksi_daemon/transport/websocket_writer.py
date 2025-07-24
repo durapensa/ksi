@@ -5,6 +5,8 @@ from typing import Dict, Any
 import json
 import logging
 
+from ksi_common.task_management import create_tracked_task
+
 logger = logging.getLogger(__name__)
 
 
@@ -33,7 +35,7 @@ class WebSocketWriter:
                     if line.strip():
                         event_data = json.loads(line)
                         # Use async task to send without blocking
-                        asyncio.create_task(self._send_async(event_data))
+                        create_tracked_task("websocket_writer", self._send_async(event_data), task_name="send_event")
         except Exception as e:
             logger.error(f"Error in WebSocketWriter.write: {e}")
     

@@ -10,6 +10,7 @@ import importlib
 import logging
 
 from ksi_common.config import config
+from ksi_common.task_management import create_tracked_task
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ async def start_transports() -> None:
             
             # Start the transport
             if hasattr(module, 'start_server'):
-                task = asyncio.create_task(module.start_server())
+                task = create_tracked_task("transport", module.start_server(), task_name=f"{transport_name}_server")
                 transport_tasks.append(task)
                 logger.info(f"Started {transport_name} transport")
             else:

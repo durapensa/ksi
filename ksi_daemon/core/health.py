@@ -12,6 +12,7 @@ from typing_extensions import NotRequired
 
 from ksi_daemon.event_system import event_handler
 from ksi_common.logging import get_bound_logger
+from ksi_common.service_lifecycle import service_startup, service_shutdown
 
 # Logger
 logger = get_bound_logger("health", version="1.0.0")
@@ -27,48 +28,20 @@ MODULE_INFO = {
 startup_time = None
 
 
-# TypedDict definitions for event handlers
-
-class SystemStartupData(TypedDict):
-    """System startup configuration."""
-    # No specific fields required for health module
-    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
-
-
-class SystemShutdownData(TypedDict):
-    """System shutdown notification."""
-    # No specific fields for shutdown
-    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
-
-
-@event_handler("system:startup")
-async def handle_startup(data: SystemStartupData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@service_startup("health", load_transformers=False)
+async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize health check plugin."""
-    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
-    from ksi_common.event_response_builder import event_response_builder
-    
     global startup_time
     startup_time = time.time()
-    logger.info("Health module initialized")
-    return event_response_builder(
-        {"module.health": {"loaded": True}},
-        context=context
-    )
+    return {"loaded": True}
 
 
 # Health handler moved to daemon_core.py to avoid duplicate responses
 
 
-@event_handler("system:shutdown")
-async def handle_shutdown(data: SystemShutdownData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@service_shutdown("health")
+async def handle_shutdown(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Clean up on shutdown."""
-    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
-    from ksi_common.event_response_builder import event_response_builder
-    
-    logger.info("Health module shutting down")
-    return event_response_builder(
-        {"health_module_shutdown": True},
-        context=context
-    )
+    pass  # Health module has no cleanup needed
 
 

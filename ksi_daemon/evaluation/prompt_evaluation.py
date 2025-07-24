@@ -11,6 +11,7 @@ from ksi_daemon.event_system import event_handler, emit_event
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc, filename_timestamp
 from ksi_common.config import config
+from ksi_common.service_lifecycle import service_startup
 from ksi_common.file_utils import load_yaml_file, save_yaml_file, ensure_directory
 from ksi_common.cache_utils import get_memory_cache
 from .evaluation_index import evaluation_index
@@ -148,17 +149,10 @@ def save_evaluation_result(composition_type: str, composition_name: str,
         raise
 
 
-@event_handler("system:startup")
-async def handle_startup(data: SystemStartupData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@service_startup("prompt_evaluation", load_transformers=False)
+async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize prompt evaluation module."""
-    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
-    from ksi_common.event_response_builder import event_response_builder
-    
-    logger.info("Prompt evaluation module started")
-    return event_response_builder(
-        {"status": "prompt_evaluation_ready"},
-        context=context
-    )
+    return {"status": "prompt_evaluation_ready"}
 
 
 @event_handler("evaluation:prompt")

@@ -12,17 +12,13 @@ from typing_extensions import NotRequired, Required
 from ksi_daemon.event_system import event_handler
 from ksi_daemon import correlation
 from ksi_common.logging import get_bound_logger
+from ksi_common.service_lifecycle import service_startup
 
 # Module state
 logger = get_bound_logger("correlation", version="1.0.0")
 
 
 # TypedDict definitions for event handlers
-
-class SystemStartupData(TypedDict):
-    """System startup configuration."""
-    # No specific fields required for correlation module
-    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
 class CorrelationTraceData(TypedDict):
@@ -74,17 +70,11 @@ MODULE_INFO = {
 }
 
 
-@event_handler("system:startup")
-async def handle_startup(data: SystemStartupData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@service_startup("correlation", load_transformers=False)
+async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize correlation plugin."""
-    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
-    from ksi_common.event_response_builder import event_response_builder
-    
-    logger.info("Correlation tracing module started")
-    return event_response_builder(
-        {"module.correlation": {"loaded": True}},
-        context=context
-    )
+    # Correlation module doesn't need transformers
+    return {"loaded": True}
 
 
 @event_handler("correlation:trace")

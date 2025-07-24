@@ -24,6 +24,7 @@ from collections import OrderedDict
 import logging
 
 from ksi_common.config import config
+from ksi_common.task_management import create_tracked_task
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ class InMemoryHotStorage:
         
     async def start(self):
         """Start the aging background task."""
-        self._aging_task = asyncio.create_task(self._aging_loop())
+        self._aging_task = create_tracked_task("context_manager", self._aging_loop(), task_name="context_aging")
         
     async def stop(self):
         """Stop the aging background task."""
@@ -235,7 +236,7 @@ class SQLiteContextDatabase:
         await self._create_tables()
         
         # Start cleanup task
-        asyncio.create_task(self._cleanup_loop())
+        create_tracked_task("context_manager", self._cleanup_loop(), task_name="cold_cleanup")
     
     async def _create_tables(self):
         """Create database schema."""
@@ -479,7 +480,7 @@ class ContextManager:
         self.hot_storage.add_event(event, context)
         
         # Persist to cold storage asynchronously
-        asyncio.create_task(self._persist_to_cold(event, context))
+        create_tracked_task("context_manager", self._persist_to_cold(event, context), task_name="persist_to_cold")
         
         return context["_ref"]
     

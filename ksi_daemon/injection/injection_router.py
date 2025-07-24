@@ -15,6 +15,7 @@ from typing_extensions import NotRequired, Required
 from ksi_common.logging import get_bound_logger
 from ksi_daemon.event_system import event_handler, get_router
 from ksi_common.config import config
+from ksi_common.service_lifecycle import service_startup
 from ksi_common import timestamp_utc
 from ksi_common.completion_format import parse_completion_result_event
 # Removed event_format_linter import - BREAKING CHANGE: Direct TypedDict access
@@ -134,12 +135,10 @@ class SystemStartupData(TypedDict):
     _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
-@event_handler("system:startup")
-async def handle_startup(data: SystemStartupData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@service_startup("injection_router", load_transformers=False)
+async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize injection router."""
-    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
-    logger.info("Injection router started")
-    return event_response_builder({"status": "injection_router_ready"}, context)
+    return {"status": "injection_router_ready"}
 
 
 class SystemReadyData(TypedDict):

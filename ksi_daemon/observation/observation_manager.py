@@ -23,6 +23,8 @@ from ksi_common.timestamps import timestamp_utc
 from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_common.response_patterns import validate_required_fields, entity_not_found_response, service_ready_response
 from ksi_daemon.event_system import event_handler, get_router, RateLimiter
+from ksi_common.task_management import create_tracked_task, cleanup_service_tasks
+from ksi_common.service_lifecycle import service_shutdown, service_startup
 
 
 logger = get_bound_logger("observation_manager")
@@ -112,13 +114,11 @@ async def handle_context(data: SystemContextData, context: Optional[Dict[str, An
     logger.info("Observation manager initialized")
 
 
-@event_handler("system:startup")
+@service_startup("observation_service")
 async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize observation service on startup."""
-    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
-    from ksi_common.event_response_builder import event_response_builder
-    
-    return service_ready_response("observation_service", context)
+    # Service startup decorator handles transformer loading automatically
+    return {"ready": True}
 
 
 @event_handler("system:ready")
@@ -143,7 +143,11 @@ async def observation_system_ready(data: SystemReadyData, context: Optional[Dict
     
     # Start async observation processor
     _observation_queue = asyncio.Queue(maxsize=1000)
-    _observation_task = asyncio.create_task(_process_observations())
+    _observation_task = create_tracked_task(
+        "observation_service",
+        _process_observations(),
+        task_name="observation_processor"
+    )
     
     # Check if subscriptions were restored from checkpoint
     if _subscriptions_restored_from_checkpoint:
@@ -792,6 +796,24 @@ async def restore_observation_state(data: CheckpointRestoreData, context: Option
         })
     
     return event_response_builder({"restored": restored}, context)
+
+
+@service_shutdown("observation_service", cleanup_async_operations=True)
+async def handle_shutdown(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
+    """Clean up observation service on shutdown."""
+    global _observation_task
+    
+    # Cancel the observation processing task
+    if _observation_task and not _observation_task.done():
+        _observation_task.cancel()
+        try:
+            await _observation_task
+        except asyncio.CancelledError:
+            pass
+    
+    # Clean up any tracked tasks
+    stats = await cleanup_service_tasks("observation_service")
+    logger.info(f"Observation service shutdown: cleaned up {stats['total']} tasks")
 
 
 # Export key functions for event router integration

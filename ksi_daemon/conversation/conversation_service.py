@@ -18,6 +18,7 @@ from ksi_common import parse_iso_timestamp, filename_timestamp, display_timestam
 from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_daemon.event_system import event_handler
 from ksi_common.logging import get_bound_logger
+from ksi_common.service_lifecycle import service_startup, service_shutdown
 
 # Module state
 logger = get_bound_logger("conversation_service", version="1.0.0")
@@ -76,16 +77,15 @@ def ensure_directories():
     exports_dir.mkdir(exist_ok=True)
 
 
-@event_handler("system:startup")
-async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
+@service_startup("conversation_service", load_transformers=False)
+async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize conversation service on startup."""
     ensure_directories()
-    logger.info("Conversation service started")
     return {"status": "conversation_service_ready"}
 
 
-@event_handler("system:shutdown")
-async def handle_shutdown(data: Dict[str, Any]) -> None:
+@service_shutdown("conversation_service")
+async def handle_shutdown(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Clean up on shutdown."""
     logger.info(f"Conversation service stopped - {len(conversation_cache)} conversations cached")
 

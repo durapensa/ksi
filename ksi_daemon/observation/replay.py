@@ -20,6 +20,7 @@ from ksi_common.timestamps import timestamp_utc, numeric_to_iso
 # Removed event_format_linter import - BREAKING CHANGE: Direct TypedDict access
 from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_daemon.event_system import event_handler, get_router
+from ksi_common.task_management import create_tracked_task
 
 logger = get_bound_logger("observation_replay")
 
@@ -239,8 +240,10 @@ async def replay_observations(data: ObservationReplayData) -> Dict[str, Any]:
     as_new_events = data.get("as_new_events", False)
     
     # Start replay task
-    asyncio.create_task(
-        replay_events_from_log(session_id, filtered_events, speed, target_agent, as_new_events)
+    create_tracked_task(
+        "observation_replay",
+        replay_events_from_log(session_id, filtered_events, speed, target_agent, as_new_events),
+        task_name="replay_events"
     )
     
     return {

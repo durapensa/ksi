@@ -26,6 +26,7 @@ from ksi_common.logging import get_bound_logger
 from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_common.response_patterns import validate_required_fields, entity_not_found_response, service_ready_response
 from ksi_daemon.event_system import event_handler
+from ksi_common.service_lifecycle import service_startup
 
 logger = get_bound_logger(__name__)
 
@@ -34,19 +35,10 @@ permission_manager: Optional[PermissionManager] = None
 sandbox_manager: Optional[SandboxManager] = None
 
 
-class SystemStartupData(TypedDict):
-    """System startup configuration."""
-    # No specific fields required for this handler
-    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
-
-
-@event_handler("system:startup")
-async def handle_startup(data: SystemStartupData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@service_startup("permission_service", load_transformers=False)
+async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize the permission service."""
-    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     global permission_manager, sandbox_manager
-    
-    logger.info("Initializing permission service")
     
     # Initialize managers
     permission_manager = PermissionManager(
@@ -60,7 +52,7 @@ async def handle_startup(data: SystemStartupData, context: Optional[Dict[str, An
     profiles = list(permission_manager.profiles.keys())
     logger.info(f"Loaded {len(profiles)} permission profiles", profiles=[p.value for p in profiles])
     
-    return event_response_builder({"permission_service": {"loaded": True}}, context)
+    return {"loaded": True, "profiles_loaded": len(profiles)}
 
 
 class PermissionGetProfileData(TypedDict):

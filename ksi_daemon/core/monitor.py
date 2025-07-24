@@ -17,6 +17,7 @@ import time
 from ksi_daemon.event_system import event_handler
 from ksi_common.logging import get_bound_logger
 from ksi_common.event_response_builder import event_response_builder, success_response, error_response, list_response
+from ksi_common.service_lifecycle import service_startup
 
 # Module state
 logger = get_bound_logger("monitor", version="1.0.0")
@@ -210,21 +211,12 @@ async def _load_event_from_file(file_path: str, file_offset: int) -> Optional[Di
     return None
 
 
-class SystemStartupData(TypedDict):
-    """System startup configuration."""
-    # No specific fields required for this handler
-    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
-
-
-@event_handler("system:startup")
-async def handle_startup(config: SystemStartupData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@service_startup("monitor", load_transformers=False)
+async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize monitor module."""
     logger.debug("Monitor startup event received")
-    logger.info("Monitor module started")
-    return success_response(
-        {"monitor_module": {"ready": True}},
-        context=context
-    )
+    # Monitor module doesn't need transformers - it's a core monitoring service
+    return {"ready": True}
 
 
 class SystemContextData(TypedDict):

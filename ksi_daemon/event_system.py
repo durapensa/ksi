@@ -23,6 +23,7 @@ from ksi_common.error_handler import initialize_error_handler, enhance_error, ha
 from ksi_common.config import config
 from ksi_common.template_utils import apply_mapping
 from ksi_common.context_utils import prepare_transformer_context
+from ksi_common.task_management import create_tracked_task
 
 logger = get_bound_logger("event_system", version="2.0.0")
 
@@ -350,7 +351,7 @@ class EventRouter:
                                 logger.error(f"Async transformer failed for {event} -> {target}: {e}")
                         
                         # Collect task instead of just creating it
-                        task = asyncio.create_task(run_async_transform())
+                        task = create_tracked_task("event_system", run_async_transform(), task_name="async_transform")
                         transformer_tasks.append(task)
                         logger.debug(f"Spawned async transformer {event} -> {target} as background task")
                         
@@ -375,7 +376,7 @@ class EventRouter:
                                 logger.error(f"Sync transformer failed for {event} -> {target}: {e}")
                         
                         # Collect sync transformer task
-                        task = asyncio.create_task(run_sync_transform())
+                        task = create_tracked_task("event_system", run_sync_transform(), task_name="sync_transform")
                         transformer_tasks.append(task)
                 except Exception as e:
                     logger.error(f"Dynamic transformer failed for {event}: {e}")
@@ -563,7 +564,7 @@ class EventRouter:
             # Log the event unless it's marked to skip
             # PYTHONIC CONTEXT REFACTOR: Skip logging internal plumbing events
             if not (isinstance(log_data, dict) and log_data.get("_skip_log")):
-                asyncio.create_task(self.reference_event_log.log_event(
+                create_tracked_task("event_system", self.reference_event_log.log_event(
                     event_name=event,
                     data=log_data,
                     originator_id=originator_id,
@@ -573,7 +574,7 @@ class EventRouter:
                     parent_event_id=parent_event_id,
                     root_event_id=root_event_id,
                     event_depth=event_depth
-                ))
+                ), task_name="log_event")
             
         # Collect all matching handlers
         handlers = []
@@ -790,7 +791,7 @@ class EventRouter:
                 logger.error(f"Task {name} failed: {e}")
                 await self.emit("task:error", {"task": name, "error": str(e)})
                 
-        task = asyncio.create_task(task_wrapper())
+        task = create_tracked_task("event_system", task_wrapper(), task_name=name)
         self._tasks[name] = task
         logger.info(f"Started task: {name}")
         

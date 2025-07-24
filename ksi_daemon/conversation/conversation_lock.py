@@ -17,6 +17,7 @@ from ksi_daemon.event_system import event_handler, get_router
 from ksi_common.timestamps import timestamp_utc
 from ksi_common.logging import get_bound_logger
 from ksi_common.event_response_builder import event_response_builder, error_response
+from ksi_common.service_lifecycle import service_startup, service_shutdown
 
 logger = get_bound_logger("conversation_lock", version="1.0.0")
 
@@ -464,19 +465,16 @@ async def handle_context(data: SystemContextData, context: Optional[Dict[str, An
     logger.info("Conversation lock service received context, event_emitter configured")
 
 
-@event_handler("system:startup")
-async def handle_startup(data: SystemStartupData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+@service_startup("conversation_lock", load_transformers=False)
+async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize conversation lock service on startup."""
-    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
-    logger.info("Conversation lock service started")
-    return event_response_builder({"status": "conversation_lock_ready"}, context)
+    return {"status": "conversation_lock_ready"}
 
 
-@event_handler("system:shutdown")
-async def handle_shutdown(data: SystemShutdownData, context: Optional[Dict[str, Any]] = None) -> None:
+@service_shutdown("conversation_lock")
+async def handle_shutdown(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Clean up on shutdown."""
-    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
-    logger.info("Conversation lock service stopped")
+    pass  # Conversation lock service has no cleanup needed
 
 
 # Conversation lock event handlers

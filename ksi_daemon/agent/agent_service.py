@@ -28,6 +28,7 @@ from ksi_common.agent_utils import (
     query_agent_state, query_agent_metadata, query_agent_relationships, 
     unwrap_list_response, emit_agent_event, gather_agent_info
 )
+from ksi_common.task_management import create_tracked_task
 from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_common.response_patterns import validate_required_fields, entity_not_found_response, batch_operation_response, agent_responses
 from ksi_common.json_utils import parse_json_parameter
@@ -524,7 +525,7 @@ async def handle_ready(data: Dict[str, Any], context: Optional[Dict[str, Any]] =
                 agents[agent_id] = agent_info
                 
                 # Start agent thread
-                task = asyncio.create_task(run_agent_thread(agent_id))
+                task = create_tracked_task("agent_service", run_agent_thread(agent_id), task_name=f"agent_thread_{agent_id}")
                 agent_threads[agent_id] = task
                 
                 # Mark agent as active again
@@ -677,7 +678,7 @@ async def handle_checkpoint_restore(data: Dict[str, Any], context: Optional[Dict
             agents[agent_id] = restored_info
             
             # Restart agent thread
-            agent_task = asyncio.create_task(run_agent_thread(agent_id))
+            agent_task = create_tracked_task("agent_service", run_agent_thread(agent_id), task_name=f"agent_thread_{agent_id}")
             agent_threads[agent_id] = agent_task
             
             restored_agents += 1
@@ -999,7 +1000,7 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
     # Relationship creation removed - handle via orchestration patterns
     
     # Start agent thread
-    agent_task = asyncio.create_task(run_agent_thread(agent_id))
+    agent_task = create_tracked_task("agent_service", run_agent_thread(agent_id), task_name=f"agent_thread_{agent_id}")
     agent_threads[agent_id] = agent_task
     
     logger.info(f"Created agent thread {agent_id} with composition {compose_name}")

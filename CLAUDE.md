@@ -213,6 +213,12 @@ ksi send agent:list  # List active agents
 - **Use error_response()** - For handler errors
 - **Log with context** - Include relevant details for debugging
 
+### Service Robustness
+- **Use checkpoint_participant decorator** - For automatic state persistence
+- **Implement collect_checkpoint_data()** - Return service state to checkpoint
+- **Implement restore_from_checkpoint()** - Restore service state on restart
+- **Example**: See `ksi_daemon/example_checkpoint_service.py` for usage pattern
+
 ## Component Development Patterns
 
 ### Modern Component Standards (Unified Architecture 2025)

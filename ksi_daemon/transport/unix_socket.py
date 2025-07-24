@@ -16,6 +16,7 @@ from typing_extensions import NotRequired, Required
 from ksi_daemon.event_system import event_handler, EventPriority, get_router, shutdown_handler
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
+from ksi_common.service_lifecycle import service_startup
 
 # Module state
 logger = get_bound_logger("unix_socket_transport", version="2.0.0")
@@ -277,12 +278,9 @@ class SystemStartupData(TypedDict):
     pass
 
 
-@event_handler("system:startup")
+@service_startup("unix_socket_transport", load_transformers=False)
 async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize transport on startup."""
-    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
-    from ksi_common.event_response_builder import event_response_builder
-    
     global transport_instance
     
     # Create transport instance - use imported config
@@ -296,10 +294,7 @@ async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]]
     # Do NOT try to retrieve it here - fail-fast if not properly initialized
     logger.info("Unix socket transport initialized, awaiting event emitter configuration")
     
-    return event_response_builder(
-        {"module.unix_socket_transport": {"loaded": True}},
-        context=context
-    )
+    return {"loaded": True}
 
 
 class SystemReadyData(TypedDict):

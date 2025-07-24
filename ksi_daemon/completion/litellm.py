@@ -21,6 +21,8 @@ from ksi_daemon.completion import claude_cli_litellm_provider
 from ksi_daemon.completion import gemini_cli_litellm_provider
 from ksi_daemon.event_system import event_handler, get_router
 from ksi_common.config import config
+from ksi_common.service_lifecycle import service_startup, service_shutdown
+from ksi_common.task_management import create_tracked_task
 from ksi_common.sandbox_manager import SandboxManager, SandboxConfig, SandboxMode
 import litellm
 
@@ -126,7 +128,7 @@ async def handle_litellm_completion(data: Dict[str, Any]) -> Tuple[str, Dict[str
                                    request_id=request_id, sandbox_dir=sandbox_dir)
                         # In production: sandbox_manager.remove_sandbox(sandbox_id)
                     
-                    asyncio.create_task(mock_cleanup())
+                    create_tracked_task("litellm_provider", mock_cleanup(), task_name="sandbox_cleanup")
                 
                 # Add sandbox_dir to extra_body
                 if "extra_body" not in data:
@@ -233,8 +235,8 @@ def shutdown_claude_provider():
         logger.error(f"Error shutting down Claude CLI provider: {e}")
 
 
-@event_handler("system:startup")
-async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
+@service_startup("litellm_provider", load_transformers=False)
+async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Initialize litellm provider."""
     # Configure litellm
     litellm.drop_params = True  # Don't error on custom params
@@ -244,8 +246,8 @@ async def handle_startup(config_data: Dict[str, Any]) -> Dict[str, Any]:
     return {"status": "litellm_provider_ready"}
 
 
-@event_handler("system:shutdown")
-async def handle_shutdown(data: Dict[str, Any]) -> None:
+@service_shutdown("litellm_provider")
+async def handle_shutdown(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Clean up litellm resources on shutdown."""
     logger.info("LiteLLM provider shutting down")
     shutdown_claude_provider()

@@ -16,6 +16,7 @@ from ksi_common.timestamps import utc_now, timestamp_utc, filename_timestamp
 from ksi_common.file_utils import save_yaml_file, load_yaml_file, ensure_directory
 # Removed event_format_linter import - BREAKING CHANGE: Direct TypedDict access
 from ksi_common.event_response_builder import event_response_builder, error_response
+from ksi_common.task_management import create_tracked_task
 from ksi_daemon.event_system import event_handler
 from ksi_daemon.agent.agent_service import spawn_agent
 from .prompt_iteration import PromptIterationEngine
@@ -95,8 +96,10 @@ class AutonomousImprovementSystem:
         await self._ensure_judges_running()
         
         # Start improvement loop
-        asyncio.create_task(
-            self._run_improvement_loop(cycle, test_config, composition_name, human_breakpoints)
+        create_tracked_task(
+            "autonomous_improvement",
+            self._run_improvement_loop(cycle, test_config, composition_name, human_breakpoints),
+            task_name="improvement_loop"
         )
         
         return cycle_id

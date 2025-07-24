@@ -17,6 +17,7 @@ import aiofiles
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc
 from ksi_common.config import config
+from ksi_common.task_management import create_tracked_task
 
 
 logger = get_bound_logger("completion.token_tracker")
@@ -224,8 +225,8 @@ class TokenTracker:
     
     def _append_to_log(self, record: TokenUsageRecord) -> None:
         """Append usage record to log file."""
-        # Non-blocking file I/O using asyncio task
-        asyncio.create_task(self._append_to_log_async(record))
+        # Non-blocking file I/O using tracked task
+        create_tracked_task("token_tracker", self._append_to_log_async(record), task_name="append_log")
     
     async def _append_to_log_async(self, record: TokenUsageRecord) -> None:
         """Async helper for non-blocking file write."""

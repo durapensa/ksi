@@ -17,6 +17,7 @@ from fastmcp.exceptions import ToolError
 from ksi_client import EventClient
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
+from ksi_common.task_management import create_tracked_task
 
 logger = get_bound_logger("mcp_dynamic_server")
 
@@ -432,7 +433,7 @@ class KSIDynamicMCPServer(FastMCP):
                 except Exception as e:
                     logger.error(f"Session cleanup error: {e}")
         
-        self._cleanup_task = asyncio.create_task(cleanup_sessions())
+        self._cleanup_task = create_tracked_task("mcp_dynamic_server", cleanup_sessions(), task_name="cleanup_sessions")
     
     async def clear_sessions(self, agent_id: str) -> int:
         """Clear sessions for a specific agent."""
@@ -494,7 +495,7 @@ class KSIDynamicMCPServer(FastMCP):
     def _init_session_persistence(self):
         """Initialize session persistence database."""
         # Create task to load sessions after server starts
-        self._load_sessions_task = asyncio.create_task(self._load_sessions())
+        self._load_sessions_task = create_tracked_task("mcp_dynamic_server", self._load_sessions(), task_name="load_sessions")
     
     async def _load_sessions(self):
         """Initialize MCP sessions database with proper relational schema."""

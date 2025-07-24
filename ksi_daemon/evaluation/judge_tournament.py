@@ -18,6 +18,7 @@ from ksi_common.validation_utils import validate_dict_structure
 from ksi_daemon.event_system import event_handler, emit_event
 # State operations will use events instead of direct state manager
 from ksi_daemon.evaluation.tournament_evaluation import wait_for_evaluation
+from ksi_common.task_management import create_tracked_task
 
 logger = get_bound_logger("judge_tournament")
 
@@ -547,7 +548,7 @@ async def handle_tournament_create(data: Dict[str, Any]) -> Dict[str, Any]:
     
     # Start registration if requested
     if auto_start:
-        asyncio.create_task(tournament.open_registration())
+        create_tracked_task("judge_tournament", tournament.open_registration(), task_name="open_registration")
     
     return {
         "status": "success",
@@ -619,11 +620,11 @@ async def handle_tournament_phase(data: Dict[str, Any]) -> Dict[str, Any]:
             # Don't auto-close registration for manual control
             await tournament.open_registration(auto_close=False)
         elif phase == "round_robin":
-            asyncio.create_task(tournament.run_round_robin())
+            create_tracked_task("judge_tournament", tournament.run_round_robin(), task_name="run_round_robin")
         elif phase == "consensus":
-            asyncio.create_task(tournament.run_consensus_phase())
+            create_tracked_task("judge_tournament", tournament.run_consensus_phase(), task_name="run_consensus")
         elif phase == "finalize":
-            asyncio.create_task(tournament.finalize_tournament())
+            create_tracked_task("judge_tournament", tournament.finalize_tournament(), task_name="finalize_tournament")
         else:
             return {"status": "error", "error": f"Unknown phase: {phase}"}
         

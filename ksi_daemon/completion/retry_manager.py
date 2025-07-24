@@ -15,6 +15,7 @@ import time
 
 from ksi_common.logging import get_bound_logger
 from ksi_common import timestamp_utc
+from ksi_common.task_management import create_tracked_task
 
 logger = get_bound_logger("retry_manager", version="1.0.0")
 
@@ -150,8 +151,10 @@ class RetryManager:
             self.retry_timers[request_id].cancel()
         
         # Schedule new retry
-        self.retry_timers[request_id] = asyncio.create_task(
-            self._schedule_retry(request_id, delay)
+        self.retry_timers[request_id] = create_tracked_task(
+            "retry_manager",
+            self._schedule_retry(request_id, delay),
+            task_name=f"retry_{request_id}"
         )
         
         return True

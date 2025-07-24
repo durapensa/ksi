@@ -4,9 +4,10 @@ Service Transformer Manager - Unified transformer loading and management system.
 
 Eliminates repetitive transformer loading code by providing:
 - Auto-discovery of service transformer files
-- Centralized configuration
+- State-based configuration (no files)
 - Standardized error handling
 - Dependency-aware loading order
+- Checkpoint/restore integration
 - Hot-reload capabilities
 """
 
@@ -19,6 +20,7 @@ from dataclasses import dataclass, field
 from ksi_common.logging import get_bound_logger
 from ksi_common.transformer_loader import load_service_transformers
 from ksi_common.event_response_builder import event_response_builder
+from ksi_common.timestamps import timestamp_utc
 
 logger = get_bound_logger("service_transformer_manager", version="1.0.0")
 
@@ -78,44 +80,93 @@ class ServiceTransformerConfig:
 
 
 class ServiceTransformerManager:
-    """Centralized transformer loading and management."""
+    """Centralized transformer loading and management with state system integration."""
     
     def __init__(self):
         self.service_configs: Dict[str, ServiceTransformerConfig] = {}
         self.loaded_services: Set[str] = set()
         self.loading_in_progress: Set[str] = set()
         self.load_results: Dict[str, Dict[str, Any]] = {}
+        self.loaded_transformers: Dict[str, Dict[str, Any]] = {}  # Track loaded transformers
+        self._event_emitter = None  # Cached event emitter reference
     
-    def register_service(self, config: ServiceTransformerConfig):
-        """Register a service for transformer loading."""
+    def set_event_emitter(self, event_emitter):
+        """Set the event emitter for state system access."""
+        self._event_emitter = event_emitter
+    
+    async def _get_service_config_from_state(self, service_name: str) -> Optional[Dict[str, Any]]:
+        """Retrieve service transformer configuration from state system."""
+        if not self._event_emitter:
+            return None
+            
+        try:
+            # Query state for transformer configuration
+            result = await self._event_emitter("state:entity:get", {
+                "entity_id": f"transformer_config_{service_name}",
+                "entity_type": "transformer_config"
+            })
+            
+            if result and result.get("entity"):
+                return result["entity"].get("properties", {})
+        except Exception as e:
+            logger.debug(f"No state config found for {service_name}: {e}")
+        
+        return None
+    
+    async def _save_service_config_to_state(self, service_name: str, config: ServiceTransformerConfig):
+        """Save service transformer configuration to state system."""
+        if not self._event_emitter:
+            logger.warning("No event emitter available to save state")
+            return
+            
+        try:
+            # Save configuration to state
+            await self._event_emitter("state:entity:create", {
+                "id": f"transformer_config_{service_name}",
+                "type": "transformer_config",
+                "properties": {
+                    "service_name": config.service_name,
+                    "transformer_files": config.transformer_files,
+                    "auto_discover": config.auto_discover,
+                    "dependencies": config.dependencies,
+                    "critical": config.critical,
+                    "created_at": timestamp_utc()
+                }
+            })
+            logger.debug(f"Saved transformer config for {service_name} to state")
+        except Exception as e:
+            logger.error(f"Failed to save transformer config to state: {e}")
+    
+    async def _record_loaded_transformer(self, service_name: str, transformer_info: Dict[str, Any]):
+        """Record that a transformer was loaded to state system."""
+        if not self._event_emitter:
+            return
+            
+        try:
+            # Record loaded transformer
+            await self._event_emitter("state:entity:create", {
+                "id": f"loaded_transformer_{service_name}_{timestamp_utc()}",
+                "type": "loaded_transformer",
+                "properties": {
+                    "service_name": service_name,
+                    "transformer_files": transformer_info.get("files", []),
+                    "transformers_loaded": transformer_info.get("count", 0),
+                    "loaded_at": timestamp_utc(),
+                    "status": "active"
+                }
+            })
+        except Exception as e:
+            logger.debug(f"Failed to record loaded transformer: {e}")
+    
+    async def register_service(self, config: ServiceTransformerConfig):
+        """Register a service for transformer loading and save to state."""
         self.service_configs[config.service_name] = config
         logger.debug(f"Registered service {config.service_name} with {len(config.transformer_files)} transformer files")
+        
+        # Save to state for persistence
+        await self._save_service_config_to_state(config.service_name, config)
     
-    def register_services_from_config(self, config_path: str = "var/lib/transformers/services.json"):
-        """Register services from JSON configuration file."""
-        try:
-            config_file = Path(config_path)
-            if config_file.exists():
-                with open(config_file) as f:
-                    services_config = json.load(f)
-                
-                for service_name, service_data in services_config.items():
-                    config = ServiceTransformerConfig(
-                        service_name=service_name,
-                        transformer_files=service_data.get("transformer_files", []),
-                        auto_discover=service_data.get("auto_discover", True),
-                        dependencies=service_data.get("dependencies", []),
-                        critical=service_data.get("critical", True)
-                    )
-                    self.register_service(config)
-                    
-                logger.info(f"Registered {len(services_config)} services from config file")
-            else:
-                logger.info("No services config file found, using auto-discovery")
-        except Exception as e:
-            logger.warning(f"Failed to load services config: {e}, falling back to auto-discovery")
-    
-    def auto_register_services(self):
+    async def auto_register_services(self):
         """Auto-register services based on known patterns."""
         known_services = [
             "agent_service",
@@ -130,23 +181,52 @@ class ServiceTransformerManager:
         
         for service_name in known_services:
             if service_name not in self.service_configs:
-                config = ServiceTransformerConfig(service_name=service_name)
+                # First check state for existing configuration
+                state_config = await self._get_service_config_from_state(service_name)
+                if state_config:
+                    config = ServiceTransformerConfig(
+                        service_name=service_name,
+                        transformer_files=state_config.get("transformer_files", []),
+                        auto_discover=state_config.get("auto_discover", True),
+                        dependencies=state_config.get("dependencies", []),
+                        critical=state_config.get("critical", True)
+                    )
+                else:
+                    # Auto-discover if not in state
+                    config = ServiceTransformerConfig(service_name=service_name)
+                
                 if config.transformer_files:  # Only register if files found
-                    self.register_service(config)
+                    await self.register_service(config)
     
     async def load_service_transformers(self, service_name: str, event_emitter=None) -> Dict[str, Any]:
         """Load transformers for a specific service."""
+        # Use provided event emitter or cached one
+        if event_emitter:
+            self._event_emitter = event_emitter
+            
         if service_name in self.loading_in_progress:
             logger.warning(f"Service {service_name} transformer loading already in progress")
             return {"status": "in_progress", "service": service_name}
         
         if service_name not in self.service_configs:
-            # Try auto-registration
-            config = ServiceTransformerConfig(service_name=service_name)
-            if config.transformer_files:
-                self.register_service(config)
+            # Check state first
+            state_config = await self._get_service_config_from_state(service_name)
+            if state_config:
+                config = ServiceTransformerConfig(
+                    service_name=service_name,
+                    transformer_files=state_config.get("transformer_files", []),
+                    auto_discover=state_config.get("auto_discover", True),
+                    dependencies=state_config.get("dependencies", []),
+                    critical=state_config.get("critical", True)
+                )
+                await self.register_service(config)
             else:
-                return {"status": "no_transformers", "service": service_name}
+                # Try auto-registration
+                config = ServiceTransformerConfig(service_name=service_name)
+                if config.transformer_files:
+                    await self.register_service(config)
+                else:
+                    return {"status": "no_transformers", "service": service_name}
         
         config = self.service_configs[service_name]
         self.loading_in_progress.add(service_name)
@@ -156,22 +236,24 @@ class ServiceTransformerManager:
             for dep in config.dependencies:
                 if dep not in self.loaded_services:
                     logger.info(f"Loading dependency {dep} for {service_name}")
-                    await self.load_service_transformers(dep, event_emitter)
+                    await self.load_service_transformers(dep, event_emitter or self._event_emitter)
             
             # Load transformer files
             total_loaded = 0
             load_results = []
+            loaded_files = []
             
             for transformer_file in config.transformer_files:
                 try:
                     result = await load_service_transformers(
                         service_name=service_name,
                         transformer_file=transformer_file,
-                        event_emitter=event_emitter
+                        event_emitter=event_emitter or self._event_emitter
                     )
                     load_results.append(result)
                     if result.get("status") == "success":
                         total_loaded += result.get("loaded", 0)
+                        loaded_files.append(transformer_file)
                 except Exception as e:
                     logger.error(f"Failed to load {transformer_file} for {service_name}: {e}")
                     if config.critical:
@@ -179,6 +261,19 @@ class ServiceTransformerManager:
                     load_results.append({"status": "error", "file": transformer_file, "error": str(e)})
             
             self.loaded_services.add(service_name)
+            
+            # Record what was loaded to state
+            if total_loaded > 0:
+                await self._record_loaded_transformer(service_name, {
+                    "files": loaded_files,
+                    "count": total_loaded
+                })
+                self.loaded_transformers[service_name] = {
+                    "files": loaded_files,
+                    "count": total_loaded,
+                    "loaded_at": timestamp_utc()
+                }
+            
             result = {
                 "status": "success",
                 "service": service_name,
@@ -202,13 +297,17 @@ class ServiceTransformerManager:
     
     async def load_all_service_transformers(self, event_emitter=None) -> Dict[str, Any]:
         """Load transformers for all registered services."""
+        # Use provided event emitter or cached one
+        if event_emitter:
+            self._event_emitter = event_emitter
+            
         if not self.service_configs:
-            self.auto_register_services()
+            await self.auto_register_services()
         
         load_tasks = []
         for service_name in self.service_configs:
             if service_name not in self.loaded_services:
-                load_tasks.append(self.load_service_transformers(service_name, event_emitter))
+                load_tasks.append(self.load_service_transformers(service_name, event_emitter or self._event_emitter))
         
         if load_tasks:
             results = await asyncio.gather(*load_tasks, return_exceptions=True)
@@ -234,8 +333,58 @@ class ServiceTransformerManager:
             "loaded_services": list(self.loaded_services),
             "registered_services": list(self.service_configs.keys()),
             "loading_in_progress": list(self.loading_in_progress),
-            "load_results": self.load_results
+            "load_results": self.load_results,
+            "loaded_transformers": self.loaded_transformers
         }
+    
+    async def collect_checkpoint_data(self) -> Dict[str, Any]:
+        """Collect transformer state for checkpoint."""
+        checkpoint_data = {
+            "loaded_transformers": self.loaded_transformers,
+            "service_configs": {},
+            "timestamp": timestamp_utc()
+        }
+        
+        # Include service configurations
+        for service_name, config in self.service_configs.items():
+            checkpoint_data["service_configs"][service_name] = {
+                "transformer_files": config.transformer_files,
+                "auto_discover": config.auto_discover,
+                "dependencies": config.dependencies,
+                "critical": config.critical
+            }
+        
+        logger.info(f"Collected transformer checkpoint data for {len(self.loaded_transformers)} services")
+        return checkpoint_data
+    
+    async def restore_from_checkpoint(self, checkpoint_data: Dict[str, Any]):
+        """Restore transformer state from checkpoint."""
+        if not checkpoint_data:
+            return
+            
+        logger.info("Restoring transformer state from checkpoint")
+        
+        # Restore service configurations
+        service_configs = checkpoint_data.get("service_configs", {})
+        for service_name, config_data in service_configs.items():
+            config = ServiceTransformerConfig(
+                service_name=service_name,
+                transformer_files=config_data.get("transformer_files", []),
+                auto_discover=config_data.get("auto_discover", True),
+                dependencies=config_data.get("dependencies", []),
+                critical=config_data.get("critical", True)
+            )
+            await self.register_service(config)
+        
+        # Restore loaded transformer info
+        self.loaded_transformers = checkpoint_data.get("loaded_transformers", {})
+        
+        # Re-load transformers that were loaded before
+        for service_name, transformer_info in self.loaded_transformers.items():
+            logger.info(f"Re-loading transformers for {service_name} from checkpoint")
+            await self.load_service_transformers(service_name, self._event_emitter)
+        
+        logger.info(f"Restored {len(self.loaded_transformers)} services from checkpoint")
 
 
 # Global instance

@@ -15,6 +15,8 @@ from ksi_common.logging import get_bound_logger
 # Removed event_format_linter import - BREAKING CHANGE: Direct TypedDict access
 from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_daemon.event_system import event_handler, shutdown_handler, get_router
+from ksi_common.service_lifecycle import service_startup
+from ksi_common.task_management import create_tracked_task
 
 from .dynamic_server import KSIDynamicMCPServer
 
@@ -33,8 +35,8 @@ mcp_server: Optional[KSIDynamicMCPServer] = None
 server_task: Optional[asyncio.Task] = None
 
 
-@event_handler("system:startup")
-async def handle_startup(data: Dict[str, Any]) -> Dict[str, Any]:
+@service_startup("mcp_service", load_transformers=False)
+async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Start MCP server on daemon startup."""
     global mcp_server, server_task
     
@@ -47,14 +49,15 @@ async def handle_startup(data: Dict[str, Any]) -> Dict[str, Any]:
         mcp_server = KSIDynamicMCPServer()
         
         # Start server in background
-        server_task = asyncio.create_task(
+        server_task = create_tracked_task(
+            "mcp_service",
             mcp_server.run_http_async(
                 transport="streamable-http",
                 host="127.0.0.1",  # Localhost only for security
                 port=config.mcp_server_port,
                 log_level="INFO"
             ),
-            name="mcp_http_server"
+            task_name="mcp_http_server"
         )
         
         logger.info(

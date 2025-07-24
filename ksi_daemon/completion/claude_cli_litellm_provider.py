@@ -42,6 +42,7 @@ logging.getLogger("litellm").setLevel(logging.CRITICAL)
 # Import KSI components
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
+from ksi_common.task_management import create_tracked_task
 
 # Configuration
 logger = get_bound_logger("claude_cli_provider", version="3.0.0")
@@ -240,7 +241,7 @@ class ClaudeCLIProvider(CustomLLM):
             try:
                 asyncio.get_running_loop()
                 # We're in an event loop, create a task
-                asyncio.create_task(self._cleanup_active_processes())
+                create_tracked_task("claude_cli_provider", self._cleanup_active_processes(), task_name="cleanup_processes")
             except RuntimeError:
                 # No event loop, we can run directly
                 asyncio.run(self._cleanup_active_processes())
@@ -507,11 +508,15 @@ class ClaudeCLIProvider(CustomLLM):
                     # Continue anyway - process might still work
             
             # Start async stream readers
-            stdout_task = asyncio.create_task(
-                read_stream_async(process.stdout, stdout_chunks, "stdout")
+            stdout_task = create_tracked_task(
+                "claude_cli_provider",
+                read_stream_async(process.stdout, stdout_chunks, "stdout"),
+                task_name="read_stdout"
             )
-            stderr_task = asyncio.create_task(
-                read_stream_async(process.stderr, stderr_chunks, "stderr")
+            stderr_task = create_tracked_task(
+                "claude_cli_provider",
+                read_stream_async(process.stderr, stderr_chunks, "stderr"),
+                task_name="read_stderr"
             )
             
             # Monitor progress and timeouts
