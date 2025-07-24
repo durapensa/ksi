@@ -10,6 +10,15 @@ Essential technical reference for developing with KSI (Knowledge System Infrastr
 - See: `/docs/CONTEXT_REFERENCE_ARCHITECTURE.md`
 - See: `/docs/EVENT_CONTEXT_SIMPLIFICATION.md`
 
+### Unified Template Utility Integration (COMPLETE ✅)
+- **Template duplication eliminated** - Unified all template processing across KSI
+- **Enhanced features**: `{{$}}` pass-through, `{{_ksi_context.x}}` access, `{{func()}}` calls
+- **Event system integration** - 60+ lines of duplicate code removed
+- **Migration ready**: 302 handlers identified, 200+ ready for immediate transformer migration
+- See: `/docs/UNIFIED_TEMPLATE_UTILITY_PROPOSAL.md`
+- See: `/docs/TRANSFORMER_MIGRATION_GUIDE.md`
+- See: `/docs/HANDLER_MIGRATION_PLAN.md` - **4-phase migration strategy**
+
 ### DSPy/MIPROv2 Component Optimization (ACTIVE 🚀)
 - Successfully optimized personas and behaviors with 9-10/10 quality scores
 - Created infrastructure for autonomous component optimization
@@ -493,7 +502,15 @@ tail -f var/logs/daemon/daemon.log.jsonl
 4. **Agent claims ≠ reality** - Always verify with system monitoring
 
 ### Event Transformer System
-KSI includes a powerful declarative event transformation system that can replace 30-50% of imperative event handlers with YAML configurations. See [EVENT_TRANSFORMER_VISION.md](../../docs/EVENT_TRANSFORMER_VISION.md) for comprehensive documentation.
+KSI includes a powerful declarative event transformation system that can replace 30-50% of imperative event handlers with YAML configurations. **Unified template utility integration is COMPLETE** enabling enhanced features like `{{$}}` pass-through and context access.
+
+**Current Status**: 302 handlers identified across 43 files, with 200+ ready for immediate migration.
+
+Documentation:
+- [HANDLER_MIGRATION_PLAN.md](../../docs/HANDLER_MIGRATION_PLAN.md) - **4-phase migration strategy (8 weeks)**
+- [EVENT_TRANSFORMER_VISION.md](../../docs/EVENT_TRANSFORMER_VISION.md) - Overall architecture vision
+- [TRANSFORMER_MIGRATION_GUIDE.md](../../docs/TRANSFORMER_MIGRATION_GUIDE.md) - Implementation details
+- [UNIFIED_TEMPLATE_UTILITY_PROPOSAL.md](../../docs/UNIFIED_TEMPLATE_UTILITY_PROPOSAL.md) - Template system
 
 **Key Benefits**:
 - 50-70% code reduction for routing/forwarding logic
