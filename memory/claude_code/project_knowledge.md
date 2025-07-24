@@ -658,28 +658,42 @@ echo "personas/deep_analyst.md model=claude-opus performance=reasoning" >> .gita
 
 ## System Evolution Roadmap
 
-### Immediate Implementation
-- **Long-running orchestrations**: Build optimization orchestrations using component system and MIPRO/DSPy utilities
+### Current Development Priorities (2025-01-24)
 
-### Phase 1: Transformer Architecture (Q2 2025)
-- **Event Transformation Pipeline**: High-level events transform to primitives (e.g., `agent:send_message` → `state:entity:create` + `event:notify`)
+#### Priority 1: Event Context Simplification Migration (COMPLETE ✅)
+- **Status**: Migration complete - Reference-based context system implemented
+- **Achievement**: 70.6% storage reduction achieved (exceeded 66% target)
+- **Implementation**: `ksi_daemon/core/context_manager.py` + `event_system.py`
+- **Result**: Unified `_ksi_context` as references, no scattered metadata
+
+#### Priority 2: Introspection System Enhancement (COMPLETE ✅)
+- **Status**: Enhanced with real-time monitoring, impact analysis, and performance tracking
+- **Foundation**: Reference-based context system provides perfect introspection base
+- **Features**: Event chains, parent-child relationships, impact analysis, real-time streams, performance metrics
+- **Implementation**: `ksi_daemon/introspection/event_genealogy.py` with 5 analysis handlers
+
+#### Priority 3: DSPy Validated Component Library
+- **Objective**: Resume building validated composition components
+- **Focus**: Personas, behaviors, orchestrations with quality metrics
+- **Validation**: DSPy/MIPROv2 optimization with LLM-as-Judge
+- **Target**: Production-ready component library
+
+### Long-Term Roadmap
+
+#### Phase 1: Transformer Architecture (Q2 2025)
+- **Event Transformation Pipeline**: High-level events transform to primitives
 - **Early-loading Transformer Module**: Load before other modules to enable virtual events
 - **Virtual Namespace Registration**: Transformers create namespaces that don't exist in code
 
-### Phase 2: Dynamic Event System (Q3 2025)
-- **Event Registry in State**: Queryable metadata tree of all events, namespaces, and transformations
-- **Namespace Emergence**: Namespaces created dynamically as modules register, not hard-coded
+#### Phase 2: Dynamic Event System (Q3 2025)
+- **Event Registry in State**: Queryable metadata tree of all events
+- **Namespace Emergence**: Namespaces created dynamically as modules register
 - **Event Builder**: Generate event handlers from function type annotations
 
-### Phase 3: Self-Describing Meta-System (Q4 2025)
+#### Phase 3: Self-Describing Meta-System (Q4 2025)
 - **System Introspection**: Components can query entire system structure
 - **Runtime Modification**: Orchestrations can modify system behavior
 - **Graph Database Migration**: Move to Kùzu when graph operations exceed 50% of queries
-
-### Long-Running Orchestration Support
-- **Checkpoint/Resume**: Save orchestration state every N iterations
-- **State-Driven Progress**: Use state system as orchestration memory
-- **Self-Optimizing Pipelines**: Orchestrations that improve their own patterns
 
 ## Shared Utilities System (ENHANCED ✅)
 

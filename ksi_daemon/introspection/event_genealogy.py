@@ -433,8 +433,371 @@ async def _find_direct_children_from_map(parent_id: str, event_map: Dict[str, Di
     return children
 
 
+# ===== REAL-TIME MONITORING ENHANCEMENTS =====
+
+class EventStreamData(TypedDict):
+    """Real-time event stream monitoring."""
+    patterns: NotRequired[List[str]]  # Event patterns to monitor (e.g., ["agent:*", "completion:*"])
+    duration: NotRequired[int]  # How long to monitor in seconds (default: 60)
+    max_events: NotRequired[int]  # Maximum events to capture (default: 100)
+    include_context: NotRequired[bool]  # Include full context resolution (default: False)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
+
+
+@event_handler("introspection:event_stream")
+async def handle_event_stream(data: EventStreamData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Start real-time event monitoring stream."""
+    if not event_router:
+        return error_response("Event router not available", context)
+    
+    try:
+        patterns = data.get("patterns", ["*"])  # Monitor all by default
+        duration = data.get("duration", 60)
+        max_events = data.get("max_events", 100)
+        include_context = data.get("include_context", False)
+        
+        # Create monitoring task
+        captured_events = []
+        start_time = asyncio.get_event_loop().time()
+        
+        # Monitor for specified duration
+        while (asyncio.get_event_loop().time() - start_time) < duration and len(captured_events) < max_events:
+            # Get recent events
+            result = await event_router.emit("monitor:get_events", {
+                "limit": 10,
+                "reverse": True
+            })
+            
+            if result and isinstance(result, list) and result[0]:
+                events = result[0].get("events", [])
+                
+                for event in events:
+                    # Check if event matches patterns
+                    event_name = event.get("event_name", "")
+                    if any(_matches_pattern(event_name, pattern) for pattern in patterns):
+                        # Resolve context if requested
+                        if include_context:
+                            ksi_context_value = event.get("data", {}).get("_ksi_context")
+                            if isinstance(ksi_context_value, str) and ksi_context_value.startswith("ctx_"):
+                                from ksi_daemon.core.context_manager import get_context_manager
+                                cm = get_context_manager()
+                                ksi_context = await cm.get_context(ksi_context_value) or {}
+                                event["_resolved_context"] = ksi_context
+                        
+                        # Check if we already captured this event
+                        event_id = _get_resolved_context(event).get("_event_id")
+                        if not any(e.get("_resolved_context", {}).get("_event_id") == event_id for e in captured_events):
+                            captured_events.append(event)
+            
+            # Short delay between checks
+            await asyncio.sleep(0.5)
+        
+        # Sort by timestamp
+        captured_events.sort(key=lambda e: _get_resolved_context(e).get("_event_timestamp", 0))
+        
+        return event_response_builder({
+            "events": captured_events,
+            "total_captured": len(captured_events),
+            "monitoring_duration": duration,
+            "patterns": patterns,
+            "context_resolved": include_context
+        }, context)
+        
+    except Exception as e:
+        logger.error(f"Failed to stream events: {e}")
+        return error_response(f"Stream failed: {str(e)}", context)
+
+
+# ===== IMPACT ANALYSIS ENHANCEMENTS =====
+
+class ImpactAnalysisData(TypedDict):
+    """Analyze the impact/cascade of events."""
+    event_id: str  # Event to analyze impact from
+    max_depth: NotRequired[int]  # Maximum cascade depth (default: 5)
+    time_window: NotRequired[int]  # Time window in seconds (default: 300)
+    include_indirect: NotRequired[bool]  # Include indirect impacts (default: True)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
+
+
+@event_handler("introspection:impact_analysis")
+async def handle_impact_analysis(data: ImpactAnalysisData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Analyze the cascading impact of an event."""
+    if not event_router:
+        return error_response("Event router not available", context)
+    
+    try:
+        event_id = data.get("event_id")
+        max_depth = data.get("max_depth", 5)
+        time_window = data.get("time_window", 300)
+        include_indirect = data.get("include_indirect", True)
+        
+        if not event_id:
+            return error_response("event_id is required", context)
+        
+        # Build impact tree
+        impact_tree = await _build_impact_tree(event_id, max_depth, time_window, include_indirect)
+        
+        # Calculate impact metrics
+        metrics = await _calculate_impact_metrics(impact_tree)
+        
+        return event_response_builder({
+            "source_event_id": event_id,
+            "impact_tree": impact_tree,
+            "metrics": metrics,
+            "analysis_params": {
+                "max_depth": max_depth,
+                "time_window": time_window,
+                "include_indirect": include_indirect
+            }
+        }, context)
+        
+    except Exception as e:
+        logger.error(f"Failed to analyze impact: {e}")
+        return error_response(f"Impact analysis failed: {str(e)}", context)
+
+
+# ===== PERFORMANCE ANALYSIS ENHANCEMENTS =====
+
+class PerformanceAnalysisData(TypedDict):
+    """Analyze event performance and timing."""
+    correlation_id: NotRequired[str]  # Analyze specific correlation
+    event_patterns: NotRequired[List[str]]  # Event patterns to analyze
+    time_range: NotRequired[int]  # Time range in seconds (default: 3600)
+    group_by: NotRequired[str]  # Group by: "event_type", "agent", "correlation" (default: "event_type")
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
+
+
+@event_handler("introspection:performance_analysis")
+async def handle_performance_analysis(data: PerformanceAnalysisData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Analyze event performance and timing patterns."""
+    if not event_router:
+        return error_response("Event router not available", context)
+    
+    try:
+        correlation_id = data.get("correlation_id")
+        event_patterns = data.get("event_patterns", ["*"])
+        time_range = data.get("time_range", 3600)
+        group_by = data.get("group_by", "event_type")
+        
+        # Collect events for analysis
+        if correlation_id:
+            events = await build_event_chain(correlation_id=correlation_id)
+        else:
+            # Get recent events matching patterns
+            result = await event_router.emit("monitor:get_events", {
+                "limit": 1000,
+                "reverse": True
+            })
+            
+            events = []
+            if result and isinstance(result, list) and result[0]:
+                all_events = result[0].get("events", [])
+                current_time = asyncio.get_event_loop().time()
+                
+                # Resolve contexts and filter
+                from ksi_daemon.core.context_manager import get_context_manager
+                cm = get_context_manager()
+                
+                for event in all_events:
+                    # Check time window
+                    ksi_context_value = event.get("data", {}).get("_ksi_context")
+                    if isinstance(ksi_context_value, str) and ksi_context_value.startswith("ctx_"):
+                        ksi_context = await cm.get_context(ksi_context_value) or {}
+                        event["_resolved_context"] = ksi_context
+                    
+                    event_time = _get_resolved_context(event).get("_event_timestamp", 0)
+                    if current_time - event_time <= time_range:
+                        # Check pattern match
+                        event_name = event.get("event_name", "")
+                        if any(_matches_pattern(event_name, pattern) for pattern in event_patterns):
+                            events.append(event)
+        
+        # Analyze performance
+        performance_data = await _analyze_event_performance(events, group_by)
+        
+        return event_response_builder({
+            "performance_data": performance_data,
+            "analysis_params": {
+                "correlation_id": correlation_id,
+                "event_patterns": event_patterns,
+                "time_range": time_range,
+                "group_by": group_by,
+                "total_events_analyzed": len(events)
+            }
+        }, context)
+        
+    except Exception as e:
+        logger.error(f"Failed to analyze performance: {e}")
+        return error_response(f"Performance analysis failed: {str(e)}", context)
+
+
+# ===== HELPER FUNCTIONS FOR ENHANCEMENTS =====
+
+def _matches_pattern(event_name: str, pattern: str) -> bool:
+    """Check if event name matches pattern (supports * wildcards)."""
+    import fnmatch
+    return fnmatch.fnmatch(event_name, pattern)
+
+
+async def _build_impact_tree(event_id: str, max_depth: int, time_window: int, include_indirect: bool) -> Dict[str, Any]:
+    """Build tree of events impacted by the source event."""
+    # Get the source event first
+    result = await event_router.emit("monitor:get_events", {"limit": 1000, "reverse": True})
+    
+    if not result or not isinstance(result, list) or not result[0]:
+        return {"error": "Could not retrieve events"}
+    
+    all_events = result[0].get("events", [])
+    event_map = {}
+    
+    # Resolve contexts and build event map
+    from ksi_daemon.core.context_manager import get_context_manager
+    cm = get_context_manager()
+    
+    for event in all_events:
+        ksi_context_value = event.get("data", {}).get("_ksi_context")
+        if isinstance(ksi_context_value, str) and ksi_context_value.startswith("ctx_"):
+            ksi_context = await cm.get_context(ksi_context_value) or {}
+            event["_resolved_context"] = ksi_context
+        
+        evt_id = _get_resolved_context(event).get("_event_id")
+        if evt_id:
+            event_map[evt_id] = event
+    
+    # Find source event
+    if event_id not in event_map:
+        return {"error": f"Source event {event_id} not found"}
+    
+    source_event = event_map[event_id]
+    source_time = _get_resolved_context(source_event).get("_event_timestamp", 0)
+    
+    # Build impact tree recursively
+    impact_tree = {
+        "event_id": event_id,
+        "event_name": source_event.get("event_name", "unknown"),
+        "timestamp": source_time,
+        "direct_impacts": [],
+        "indirect_impacts": []
+    }
+    
+    await _collect_impacts(event_id, impact_tree, event_map, source_time, time_window, max_depth, 0)
+    
+    return impact_tree
+
+
+async def _collect_impacts(parent_id: str, parent_node: Dict[str, Any], event_map: Dict[str, Dict[str, Any]], 
+                          source_time: float, time_window: int, max_depth: int, current_depth: int):
+    """Recursively collect impact events."""
+    if current_depth >= max_depth:
+        return
+    
+    direct_children = []
+    
+    # Find direct children
+    for evt_id, event in event_map.items():
+        ksi_context = _get_resolved_context(event)
+        if ksi_context.get("_parent_event_id") == parent_id:
+            event_time = ksi_context.get("_event_timestamp", 0)
+            if event_time - source_time <= time_window:  # Within time window
+                child_node = {
+                    "event_id": evt_id,
+                    "event_name": event.get("event_name", "unknown"),
+                    "timestamp": event_time,
+                    "depth": current_depth + 1,
+                    "direct_impacts": []
+                }
+                direct_children.append(child_node)
+                
+                # Recursively find impacts of this child
+                await _collect_impacts(evt_id, child_node, event_map, source_time, time_window, max_depth, current_depth + 1)
+    
+    parent_node["direct_impacts"] = direct_children
+
+
+async def _calculate_impact_metrics(impact_tree: Dict[str, Any]) -> Dict[str, Any]:
+    """Calculate metrics about the impact tree."""
+    def count_impacts(node):
+        total = len(node.get("direct_impacts", []))
+        for child in node.get("direct_impacts", []):
+            total += count_impacts(child)
+        return total
+    
+    def max_depth(node, current=0):
+        if not node.get("direct_impacts"):
+            return current
+        return max(max_depth(child, current + 1) for child in node["direct_impacts"])
+    
+    total_impacts = count_impacts(impact_tree)
+    cascade_depth = max_depth(impact_tree)
+    
+    return {
+        "total_impacted_events": total_impacts,
+        "cascade_depth": cascade_depth,
+        "direct_impacts": len(impact_tree.get("direct_impacts", [])),
+        "has_cascading_effects": cascade_depth > 1
+    }
+
+
+async def _analyze_event_performance(events: List[Dict[str, Any]], group_by: str) -> Dict[str, Any]:
+    """Analyze performance characteristics of events."""
+    groups = {}
+    
+    for event in events:
+        ksi_context = _get_resolved_context(event)
+        
+        # Determine grouping key
+        if group_by == "event_type":
+            key = event.get("event_name", "unknown")
+        elif group_by == "agent":
+            key = ksi_context.get("_agent_id", "system")
+        elif group_by == "correlation":
+            key = ksi_context.get("_correlation_id", "no-correlation")
+        else:
+            key = "all"
+        
+        if key not in groups:
+            groups[key] = {
+                "count": 0,
+                "timestamps": [],
+                "depths": [],
+                "events": []
+            }
+        
+        groups[key]["count"] += 1
+        groups[key]["timestamps"].append(ksi_context.get("_event_timestamp", 0))
+        groups[key]["depths"].append(ksi_context.get("_event_depth", 0))
+        groups[key]["events"].append(event)
+    
+    # Calculate statistics for each group
+    analysis = {}
+    for group_key, group_data in groups.items():
+        timestamps = sorted(group_data["timestamps"])
+        depths = group_data["depths"]
+        
+        # Calculate intervals between events
+        intervals = []
+        for i in range(1, len(timestamps)):
+            intervals.append(timestamps[i] - timestamps[i-1])
+        
+        analysis[group_key] = {
+            "event_count": group_data["count"],
+            "avg_interval": sum(intervals) / len(intervals) if intervals else 0,
+            "min_interval": min(intervals) if intervals else 0,
+            "max_interval": max(intervals) if intervals else 0,
+            "avg_depth": sum(depths) / len(depths) if depths else 0,
+            "max_depth": max(depths) if depths else 0,
+            "time_span": timestamps[-1] - timestamps[0] if len(timestamps) > 1 else 0,
+            "frequency": group_data["count"] / (timestamps[-1] - timestamps[0]) if len(timestamps) > 1 and timestamps[-1] != timestamps[0] else 0
+        }
+    
+    return analysis
+
+
 # Export for discovery
 __all__ = [
     "handle_event_chain_query",
-    "handle_event_tree"
+    "handle_event_tree",
+    "handle_event_stream", 
+    "handle_impact_analysis",
+    "handle_performance_analysis"
 ]

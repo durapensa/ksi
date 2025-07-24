@@ -21,6 +21,17 @@ Essential development practices and workflow for Claude Code when working with K
 
 This document serves as your primary instructions for KSI development. For technical reference, architecture details, and implementation patterns, see `memory/claude_code/project_knowledge.md`.
 
+## Current Development Priority (2025-01-24)
+
+**COMPLETE**: Event Context Simplification Migration - 70.6% storage reduction achieved ✅
+**COMPLETE**: Introspection System Enhancement - Real-time monitoring & impact analysis ✅
+
+**ACTIVE**: DSPy Validated Component Library - Resume building composition components
+- **Focus**: Personas, behaviors, orchestrations with quality metrics
+- **Validation**: DSPy/MIPROv2 optimization with LLM-as-Judge
+- **No backward compatibility** - Clean implementation only  
+- **Test as we go** - Verify each component before proceeding
+
 ## Investigation-First Philosophy
 
 **MANDATORY**: When encountering errors, timeouts, or unexpected behavior - you MUST investigate immediately. NEVER create workarounds. NEVER bypass issues.
