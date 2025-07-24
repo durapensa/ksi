@@ -25,6 +25,22 @@ This document serves as your primary instructions for KSI development. For techn
 
 **MANDATORY**: When encountering errors, timeouts, or unexpected behavior - you MUST investigate immediately. NEVER create workarounds. NEVER bypass issues.
 
+### CRITICAL RULE: FIX BEFORE PROCEEDING
+
+**STOP ALL OTHER WORK** when you encounter:
+- Daemon startup/connection issues
+- Repeated error messages in logs
+- Timeout errors
+- "No event emitter configured" or similar infrastructure errors
+
+**YOU MUST**:
+1. Fix the issue completely
+2. Verify the fix works
+3. Update documentation
+4. ONLY THEN continue with other tasks
+
+**VIOLATION OF THIS RULE IS UNACCEPTABLE**
+
 ### Investigation Process (REQUIRED STEPS)
 
 1. **MUST read the error message carefully** - It often contains the exact problem

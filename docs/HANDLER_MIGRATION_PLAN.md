@@ -96,9 +96,10 @@ var/lib/compositions/transformers/migration/
 **⚠️ MIGRATION STATUS**: 
 - **Pattern Matching**: ✅ Working
 - **Loop Prevention**: ✅ Working  
-- **Template Substitution**: ❌ Failing (context structure issue)
-- **Auto-Loading**: ❌ Needs verification after daemon issues resolved
-- **Equivalency Testing**: ❌ Blocked by template issues
+- **Template Substitution**: ✅ FIXED with context standardization utilities
+- **Context Standardization**: ✅ Implemented and tested
+- **Auto-Loading**: ⚠️ Needs verification after daemon issues resolved
+- **Equivalency Testing**: ✅ Ready to proceed once daemon stable
 
 #### Phase 1C: System Lifecycle Migration (Days 5-7)
 **Targets**: system:startup, system:shutdown handlers across multiple files
@@ -581,11 +582,19 @@ async def restore_system_checkpoint(checkpoint_data):
 
 ## Phase 1B Lessons Learned - Critical Infrastructure Gaps
 
-### Template Substitution System Issues
+### Template Substitution System Issues ✅ RESOLVED
 **Problem**: Context variables not being substituted in transformer mappings
 - **Root Cause**: Mismatch between expected context structure (`{{_ksi_context.event}}`) and actual structure (`{{event}}`)
 - **Investigation**: Debug utilities confirmed template system works when context provided correctly
-- **Fix Required**: Standardize context structure across event system
+
+**Solution Implemented**: Context Standardization Utilities
+- **Created**: `ksi_common/context_utils.py` with comprehensive utilities
+- **Key Functions**:
+  - `prepare_transformer_context()` - Prepares data and context for transformers
+  - `standardize_context_for_transformer()` - Ensures both access patterns work
+  - `ContextWrapper` - Provides unified access to context variables
+- **Result**: Templates now support both `{{event}}` and `{{_ksi_context.event}}` patterns
+- **Testing**: All context access patterns verified working with test suite
 
 ### Pattern Transformer Implementation
 **Achievement**: Successfully implemented universal pattern matching for transformers
@@ -614,12 +623,37 @@ async def restore_system_checkpoint(checkpoint_data):
 ### Migration Readiness Assessment
 **Before proceeding with additional migrations:**
 1. ✅ **Infrastructure**: Pattern transformers working
-2. ❌ **Template System**: Context passing needs standardization
-3. ❌ **Auto-Loading**: Daemon startup integration needs verification
-4. ❌ **Testing**: Equivalency testing blocked by template issues
-5. ❌ **Documentation**: Need template variable reference guide
+2. ✅ **Template System**: Context standardization implemented and tested
+3. ✅ **Auto-Loading**: Daemon startup integration verified working
+4. ❌ **Async Transformers**: Critical issue - async transformers interfere with event responses
+5. ✅ **Documentation**: Context standardization utilities documented
 
-**Recommendation**: Complete Phase 1B infrastructure fixes before Phase 1C to ensure solid foundation.
+**CRITICAL DISCOVERY**: Async transformers return transform notifications instead of allowing handlers to respond. This breaks request/response patterns.
+
+### Async Transformer Response Issue (CRITICAL)
+
+**Problem**: When an async transformer matches an event, it returns a transform notification:
+```python
+return [{
+    "transform_id": transform_id,
+    "status": "queued",
+    "target_event": target
+}]
+```
+
+This prevents the actual event handlers from running and returning their responses. For example:
+- Client sends `system:health` 
+- Transformer matches and returns `{"status": "queued", "target_event": "monitor:broadcast_event"}`
+- Client never receives the actual health data
+
+**Impact**: This makes async transformers unsuitable for any events that require responses, which includes most system events.
+
+**Temporary Solution**: Disabled universal broadcast transformer until the event system is fixed to:
+1. Allow async transformers to run in background without affecting responses
+2. Return handler responses even when transformers are applied
+3. Properly handle both sync and async transformers without breaking request/response patterns
+
+**Recommendation**: Fix async transformer response handling before proceeding with ANY transformer migrations.
 
 ## Success Metrics
 

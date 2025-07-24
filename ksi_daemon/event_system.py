@@ -22,6 +22,7 @@ from ksi_common.logging import get_bound_logger
 from ksi_common.error_handler import initialize_error_handler, enhance_error, handle_unknown_event
 from ksi_common.config import config
 from ksi_common.template_utils import apply_mapping
+from ksi_common.context_utils import prepare_transformer_context
 
 logger = get_bound_logger("event_system", version="2.0.0")
 
@@ -311,8 +312,11 @@ class EventRouter:
                         # Debug logging
                         logger.debug(f"Async transformer data: {data_with_transform_id}")
                         
-                        # Apply mapping with transform_id available
-                        transformed_data = apply_mapping(transformer.get('mapping', {}), data_with_transform_id, context)
+                        # Prepare context for transformer with standardized structure
+                        prepared_data, ksi_context = prepare_transformer_context(event, data_with_transform_id, context)
+                        
+                        # Apply mapping with standardized context
+                        transformed_data = apply_mapping(transformer.get('mapping', {}), prepared_data, ksi_context)
                         logger.debug(f"Transformed data: {transformed_data}")
                         
                         # Store context for later injection (if available)
@@ -331,7 +335,11 @@ class EventRouter:
                         }]
                     else:
                         # Synchronous transformation
-                        transformed_data = apply_mapping(transformer.get('mapping', {}), data, context)
+                        # Prepare context for transformer with standardized structure
+                        prepared_data, ksi_context = prepare_transformer_context(event, data, context)
+                        
+                        # Apply mapping with standardized context
+                        transformed_data = apply_mapping(transformer.get('mapping', {}), prepared_data, ksi_context)
                         logger.debug(f"Transforming {event} -> {target}")
                         return await self.emit(target, transformed_data, context)
                 except Exception as e:

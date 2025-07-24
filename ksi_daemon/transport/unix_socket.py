@@ -119,6 +119,15 @@ async def handle_client(reader, writer):
                 await send_response(writer, {"error": f"Invalid JSON: {e}"})
                 continue
             
+            # Check if event emitter is configured yet
+            global event_emitter
+            if not event_emitter:
+                # Try to get it from SystemRegistry in case it was set after server started
+                from ksi_daemon.core.system_registry import SystemRegistry
+                event_emitter = SystemRegistry.get("event_emitter")
+                if event_emitter:
+                    logger.info("Retrieved event_emitter from SystemRegistry during client handling")
+            
             # Check for monitor:subscribe to register with monitor module
             if message.get("event") == "monitor:subscribe":
                 data = message.get("data", {})
@@ -289,6 +298,18 @@ async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]]
     transport_instance = UnixSocketTransport(socket_path)
     
     logger.info("Unix socket transport module starting")
+    logger.info(f"Transport instance created: {transport_instance is not None}")
+    
+    # Try to get event_emitter immediately from SystemRegistry if available
+    global event_emitter
+    from ksi_daemon.core.system_registry import SystemRegistry
+    event_emitter = SystemRegistry.get("event_emitter")
+    if event_emitter:
+        transport_instance.set_event_emitter(event_emitter)
+        logger.info("Event emitter retrieved from SystemRegistry during startup")
+    else:
+        logger.warning("Event emitter not yet available in SystemRegistry during startup")
+    
     return event_response_builder(
         {"module.unix_socket_transport": {"loaded": True}},
         context=context
@@ -309,11 +330,14 @@ async def handle_ready(data: Dict[str, Any], context: Optional[Dict[str, Any]] =
     
     global transport_instance
     
+    logger.info(f"Unix socket transport handle_ready called, transport_instance={transport_instance is not None}")
+    
     if transport_instance:
         logger.info("Starting Unix socket server task")
         
         async def start_server():
             """Start and run the Unix socket server."""
+            logger.info("Unix socket server task starting")
             await transport_instance.start()
             
             # Keep server running until cancelled
@@ -337,6 +361,8 @@ async def handle_ready(data: Dict[str, Any], context: Optional[Dict[str, Any]] =
             },
             context=context
         )
+    else:
+        logger.error("No transport instance available in handle_ready")
     
     return None
 
@@ -355,11 +381,15 @@ async def handle_context(data: Dict[str, Any], context: Optional[Dict[str, Any]]
     
     global transport_instance, event_emitter
     
+    logger.debug(f"Unix socket transport received system:context with data keys: {list(data.keys())}")
+    
     if data.get("registry_available"):
         from ksi_daemon.core.system_registry import SystemRegistry
         event_emitter = SystemRegistry.get("event_emitter")
+        logger.debug(f"Retrieved event_emitter from SystemRegistry: {event_emitter is not None}")
     else:
         event_emitter = data.get("emit_event")
+        logger.debug(f"Retrieved event_emitter from data: {event_emitter is not None}")
         
     if transport_instance and event_emitter:
         transport_instance.set_event_emitter(event_emitter)
@@ -371,6 +401,8 @@ async def handle_context(data: Dict[str, Any], context: Optional[Dict[str, Any]]
             },
             context=context
         )
+    
+    logger.warning(f"Transport not fully configured - transport_instance={transport_instance is not None}, event_emitter={event_emitter is not None}")
     return event_response_builder(
         {
             "event_processed": True,
