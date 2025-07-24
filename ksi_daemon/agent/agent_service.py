@@ -436,22 +436,6 @@ async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]]
     loaded_identities = await load_all_identities(identity_storage_path)
     identities.update(loaded_identities)
     
-    # Load service-specific transformers
-    try:
-        if event_emitter:
-            from ksi_common.transformer_loader import load_service_transformers
-            result = await load_service_transformers(
-                service_name="agent_service",
-                transformer_file="agent_routing.yaml",
-                event_emitter=event_emitter
-            )
-            if result['status'] == 'success':
-                logger.info(f"Loaded {result['loaded']} agent service transformers")
-            else:
-                logger.warning(f"Issue loading agent service transformers: {result}")
-    except Exception as e:
-        logger.warning(f"Failed to load agent service transformers: {e}")
-    
     logger.info(f"Agent service started - agents: {len(agents)}, "
                 f"identities: {len(identities)}")
     
@@ -466,6 +450,22 @@ async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]]
 async def handle_ready(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Load agents from graph database after all services are ready."""
     loaded_agents = 0
+    
+    # Load service-specific transformers now that event_emitter is available
+    try:
+        if event_emitter:
+            from ksi_common.transformer_loader import load_service_transformers
+            result = await load_service_transformers(
+                service_name="agent_service",
+                transformer_file="agent_routing.yaml",
+                event_emitter=event_emitter
+            )
+            if result['status'] == 'success':
+                logger.info(f"Loaded {result['loaded']} agent service transformers")
+            else:
+                logger.warning(f"Issue loading agent service transformers: {result}")
+    except Exception as e:
+        logger.warning(f"Failed to load agent service transformers: {e}")
     
     if not event_emitter:
         logger.error("Event emitter not available, cannot load agents from state")
@@ -982,61 +982,24 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
     # Register agent
     agents[agent_id] = agent_info
     
-    # Create agent entity in graph database
-    if event_emitter:
-        # Create agent entity
-        # Store core properties in entity
-        entity_props = {
-            "status": "active",
-            "profile": profile_name or compose_name,
-            "capabilities": expanded_capabilities,
-            "permission_profile": permission_profile,
-            "sandbox_dir": sandbox_dir,
-            "sandbox_uuid": agent_info["sandbox_uuid"],  # Store sandbox UUID
-            "mcp_config_path": str(mcp_config_path) if mcp_config_path else None
-        }
-        
-        # Include orchestration metadata if present
-        if orchestration_id:
-            entity_props.update({
-                "orchestration_id": orchestration_id,
-                "orchestration_depth": orchestration_depth,
-                "parent_agent_id": parent_agent_id,
-                "root_orchestration_id": root_orchestration_id,
-                "event_subscription_level": event_subscription_level
-            })
-        
-        # Create agent state entity directly (no need to route back to self)
-        logger.info(f"Creating agent state entity for {agent_id}")
-        entity_result = await event_emitter("state:entity:create", {
-            "id": agent_id,
-            "type": "agent", 
-            "properties": entity_props
+    # Agent entity creation is now handled by transformer listening to agent:spawned event
+    # This follows the source event pattern - services emit what happened, transformers handle downstream
+    
+    # Store metadata in state system namespace
+    if metadata and event_emitter:
+        metadata_result = await event_emitter("state:set", {
+            "namespace": f"metadata:agent:{agent_id}",
+            "data": metadata
         }, propagate_agent_context(context))
-        logger.info(f"Agent state entity creation result for {agent_id}: {entity_result}")
+        if metadata_result and isinstance(metadata_result, list):
+            metadata_result = metadata_result[0] if metadata_result else {}
         
-        entity_result = unwrap_list_response(entity_result)
-        
-        if entity_result and "error" not in entity_result:
-            logger.debug(f"Created agent entity {agent_id}")
+        if metadata_result.get("error"):
+            logger.warning(f"Failed to store agent metadata: {metadata_result}")
         else:
-            logger.warning(f"Failed to create agent entity: {entity_result}")
-        
-        # Store metadata in state system namespace
-        if metadata:
-            metadata_result = await event_emitter("state:set", {
-                "namespace": f"metadata:agent:{agent_id}",
-                "data": metadata
-            }, propagate_agent_context(context))
-            if metadata_result and isinstance(metadata_result, list):
-                metadata_result = metadata_result[0] if metadata_result else {}
-            
-            if metadata_result.get("error"):
-                logger.warning(f"Failed to store agent metadata: {metadata_result}")
-            else:
-                logger.debug(f"Stored metadata for agent {agent_id}")
-        
-        # Relationship creation removed - handle via orchestration patterns
+            logger.debug(f"Stored metadata for agent {agent_id}")
+    
+    # Relationship creation removed - handle via orchestration patterns
     
     # Start agent thread
     agent_task = asyncio.create_task(run_agent_thread(agent_id))
@@ -1103,6 +1066,32 @@ Please proceed as a basic autonomous agent with full autonomy to execute tasks a
                 initial_result = initial_result[0] if initial_result else {}
             
             logger.warning(f"Used fallback self-configuring message for agent {agent_id}")
+    
+    # Emit agent:spawned event - transformers will handle downstream notifications
+    if event_emitter:
+        spawn_data = {
+            "agent_id": agent_id,
+            "profile": profile_name,
+            "composition": compose_name,
+            "sandbox_uuid": agent_info["sandbox_uuid"],
+            "sandbox_dir": sandbox_dir,
+            "permission_profile": permission_profile,
+            "capabilities": expanded_capabilities,
+            "created_at": timestamp_utc(),
+            "spawned_by": context.get("_agent_id") if context else "system"
+        }
+        
+        # Include orchestration metadata if present
+        if orchestration_id:
+            spawn_data.update({
+                "orchestration_id": orchestration_id,
+                "orchestration_depth": orchestration_depth,
+                "parent_agent_id": parent_agent_id,
+                "root_orchestration_id": root_orchestration_id
+            })
+        
+        await agent_emit_event(agent_id, "agent:spawned", spawn_data, propagate_agent_context(context))
+        logger.info(f"Emitted agent:spawned event for {agent_id}")
     
     return event_response_builder(
         {
@@ -1241,20 +1230,23 @@ async def _terminate_single_agent(agent_id: str, force: bool = False, context: O
     agent_info["status"] = "terminated"
     agent_info["terminated_at"] = format_for_logging()
     
-    # Clean up sandbox and permissions asynchronously
+    # Emit agent:terminated event - transformers will handle downstream cleanup
     if event_emitter:
-        # Remove sandbox
-        await agent_emit_event(agent_id, "sandbox:remove", {
+        # Prepare termination data for the event
+        termination_data = {
             "agent_id": agent_id,
-            "force": force
-        }, propagate_agent_context(context))
+            "force": force,
+            "terminated_at": time.time(),  # numeric for DB storage
+            "terminated_at_iso": timestamp_utc(),  # ISO for display
+            "profile": agent_info.get("profile"),
+            "sandbox_dir": agent_info.get("sandbox_dir")
+        }
         
-        # Remove permissions
-        await agent_emit_event(agent_id, "permission:remove_agent", {
-            "agent_id": agent_id
-        }, propagate_agent_context(context))
+        # Emit the source event that transformers will route
+        await agent_emit_event(agent_id, "agent:terminated", termination_data, propagate_agent_context(context))
+        logger.info(f"Emitted agent:terminated event for {agent_id}")
     
-    # Clean up MCP config if present
+    # Clean up MCP config if present (local operation, not event-driven)
     if config.mcp_enabled:
         try:
             mcp_config_manager.cleanup_agent_config(agent_id)
@@ -1262,34 +1254,9 @@ async def _terminate_single_agent(agent_id: str, force: bool = False, context: O
         except Exception as e:
             logger.error(f"Failed to clean up MCP config for agent {agent_id}: {e}")
     
-    # Update agent entity status in state
-    if event_emitter:
-        update_result = await agent_emit_event(agent_id, "state:entity:update", {
-            "id": agent_id,
-            "properties": {
-                "status": "terminated",
-                "terminated_at": time.time(),  # numeric for DB storage
-                "terminated_at_iso": timestamp_utc()  # ISO for display
-            }
-        }, propagate_agent_context(context))
-        
-        if update_result and isinstance(update_result, list):
-            update_result = update_result[0] if update_result else {}
-    
-    # Remove agent from active agents dictionary
+    # Remove agent from active agents dictionary (local operation)
     del agents[agent_id]
     logger.info(f"Agent {agent_id} terminated and removed from active agents")
-    
-    if update_result and update_result.get("status") == "updated":
-        logger.debug(f"Updated agent entity {agent_id} to terminated")
-    else:
-        logger.warning(f"Failed to update agent entity status: {update_result}")
-    
-    # IMPORTANT: Clean up agent session in ConversationTracker
-    # This ensures new agents with the same ID start fresh
-    await agent_emit_event(agent_id, "completion:clear_agent_session", {
-        "agent_id": agent_id
-    }, propagate_agent_context(context))
     
     logger.debug(f"Terminated agent {agent_id}")
     
