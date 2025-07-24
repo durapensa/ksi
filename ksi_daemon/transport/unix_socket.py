@@ -119,14 +119,6 @@ async def handle_client(reader, writer):
                 await send_response(writer, {"error": f"Invalid JSON: {e}"})
                 continue
             
-            # Check if event emitter is configured yet
-            global event_emitter
-            if not event_emitter:
-                # Try to get it from SystemRegistry in case it was set after server started
-                from ksi_daemon.core.system_registry import SystemRegistry
-                event_emitter = SystemRegistry.get("event_emitter")
-                if event_emitter:
-                    logger.info("Retrieved event_emitter from SystemRegistry during client handling")
             
             # Check for monitor:subscribe to register with monitor module
             if message.get("event") == "monitor:subscribe":
@@ -300,15 +292,9 @@ async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]]
     logger.info("Unix socket transport module starting")
     logger.info(f"Transport instance created: {transport_instance is not None}")
     
-    # Try to get event_emitter immediately from SystemRegistry if available
-    global event_emitter
-    from ksi_daemon.core.system_registry import SystemRegistry
-    event_emitter = SystemRegistry.get("event_emitter")
-    if event_emitter:
-        transport_instance.set_event_emitter(event_emitter)
-        logger.info("Event emitter retrieved from SystemRegistry during startup")
-    else:
-        logger.warning("Event emitter not yet available in SystemRegistry during startup")
+    # Event emitter will be set via system:context event
+    # Do NOT try to retrieve it here - fail-fast if not properly initialized
+    logger.info("Unix socket transport initialized, awaiting event emitter configuration")
     
     return event_response_builder(
         {"module.unix_socket_transport": {"loaded": True}},
@@ -332,39 +318,37 @@ async def handle_ready(data: Dict[str, Any], context: Optional[Dict[str, Any]] =
     
     logger.info(f"Unix socket transport handle_ready called, transport_instance={transport_instance is not None}")
     
-    if transport_instance:
-        logger.info("Starting Unix socket server task")
-        
-        async def start_server():
-            """Start and run the Unix socket server."""
-            logger.info("Unix socket server task starting")
-            await transport_instance.start()
-            
-            # Keep server running until cancelled
-            try:
-                # Use the server's serve_forever() method which is properly cancellable
-                await transport_instance.server.serve_forever()
-            except asyncio.CancelledError:
-                logger.info("Server task cancelled - shutting down")
-                await transport_instance.stop()
-                raise
-        
-        return event_response_builder(
-            {
-                "service": "unix_socket_transport",
-                "tasks": [
-                    {
-                        "name": "socket_server", 
-                        "coroutine": start_server()
-                    }
-                ]
-            },
-            context=context
-        )
-    else:
-        logger.error("No transport instance available in handle_ready")
+    if not transport_instance:
+        raise RuntimeError("Unix socket transport not initialized in handle_ready")
     
-    return None
+    logger.info("Starting Unix socket server task")
+    
+    async def start_server():
+        """Start and run the Unix socket server."""
+        logger.info("Unix socket server task starting")
+        await transport_instance.start()
+        
+        # Keep server running until cancelled
+        try:
+            # Use the server's serve_forever() method which is properly cancellable
+            await transport_instance.server.serve_forever()
+        except asyncio.CancelledError:
+            logger.info("Server task cancelled - shutting down")
+            await transport_instance.stop()
+            raise
+    
+    return event_response_builder(
+        {
+            "service": "unix_socket_transport",
+            "tasks": [
+                {
+                    "name": "socket_server", 
+                    "coroutine": start_server()
+                }
+            ]
+        },
+        context=context
+    )
 
 
 class SystemContextData(TypedDict):
@@ -391,23 +375,18 @@ async def handle_context(data: Dict[str, Any], context: Optional[Dict[str, Any]]
         event_emitter = data.get("emit_event")
         logger.debug(f"Retrieved event_emitter from data: {event_emitter is not None}")
         
-    if transport_instance and event_emitter:
-        transport_instance.set_event_emitter(event_emitter)
-        logger.info("Transport configured with event emitter")
-        return event_response_builder(
-            {
-                "event_processed": True,
-                "module": "unix_socket_transport"
-            },
-            context=context
-        )
+    if not transport_instance:
+        raise RuntimeError("Unix socket transport not initialized - transport_instance is None")
     
-    logger.warning(f"Transport not fully configured - transport_instance={transport_instance is not None}, event_emitter={event_emitter is not None}")
+    if not event_emitter:
+        raise RuntimeError("Event emitter not available in system:context - cannot configure transport")
+    
+    transport_instance.set_event_emitter(event_emitter)
+    logger.info("Transport configured with event emitter")
     return event_response_builder(
         {
             "event_processed": True,
-            "module": "unix_socket_transport",
-            "warning": "no_transport_instance_or_emitter"
+            "module": "unix_socket_transport"
         },
         context=context
     )

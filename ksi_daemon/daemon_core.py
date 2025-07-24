@@ -218,30 +218,27 @@ class EventDaemonCore:
         
         logger.info("Loading system transformers...")
         
-        # TEMPORARILY DISABLED: Universal broadcast transformer interferes with responses
-        # TODO: Fix async transformer response handling before re-enabling
-        logger.warning("SKIPPING universal broadcast transformer - interferes with event responses")
-        
         # Define critical system transformers that must be auto-loaded
         system_transformers = [
-            # {
-            #     "name": "universal_broadcast",
-            #     "config": {
-            #         "source": "*",  # Match ALL events
-            #         "target": "monitor:broadcast_event",
-            #         "condition": "not (source_event.startswith('transport:') or source_event == 'monitor:subscribe' or source_event == 'monitor:broadcast_event')",
-            #         "mapping": {
-            #             "event_name": "{{_ksi_context.event}}",
-            #             "event_data": "{{$}}",
-            #             "broadcast_metadata": {
-            #                 "originator_agent": "{{_ksi_context._agent_id|system}}",
-            #                 "timestamp": "{{timestamp_utc()}}",
-            #                 "subscription_required": True
-            #             }
-            #         },
-            #         "async": True
-            #     }
-            # }
+            {
+                "name": "universal_broadcast",
+                "config": {
+                    "source": "*",  # Match ALL events
+                    "target": "monitor:broadcast_event",
+                    # TODO: Fix condition evaluation to support complex expressions
+                    # "condition": "not (source_event.startswith('transport:') or source_event == 'monitor:subscribe' or source_event == 'monitor:broadcast_event')",
+                    "mapping": {
+                        "event_name": "{{_ksi_context.event}}",
+                        "event_data": "{{$}}",
+                        "broadcast_metadata": {
+                            "originator_agent": "{{_ksi_context._agent_id|system}}",
+                            "timestamp": "{{timestamp_utc()}}",
+                            "subscription_required": True
+                        }
+                    },
+                    "async": True
+                }
+            }
             # Additional system transformers can be added here
         ]
         

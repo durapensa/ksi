@@ -299,7 +299,7 @@ class EventRouter:
             # Transform the data if no condition or condition passed
             if should_transform:
                 try:
-                    # For async transformers, generate transform_id before mapping
+                    # For async transformers, spawn as background task
                     if transformer.get('async', False):
                         # Generate transform_id for async tracking
                         transform_id = str(uuid.uuid4())
@@ -323,16 +323,20 @@ class EventRouter:
                         if context:
                             self._transform_contexts[transform_id] = context
                         
-                        # Emit to target with transform_id
-                        logger.debug(f"Async transforming {event} -> {target} (id: {transform_id})")
-                        result = await self.emit(target, transformed_data, context)
+                        # Create background task for async transformation
+                        async def run_async_transform():
+                            try:
+                                logger.debug(f"Async transforming {event} -> {target} (id: {transform_id})")
+                                await self.emit(target, transformed_data, context)
+                            except Exception as e:
+                                logger.error(f"Async transformer failed for {event} -> {target}: {e}")
                         
-                        # Return token response
-                        return [{
-                            "transform_id": transform_id,
-                            "status": "queued",
-                            "target_event": target
-                        }]
+                        # Spawn as background task - don't await
+                        asyncio.create_task(run_async_transform())
+                        logger.debug(f"Spawned async transformer {event} -> {target} as background task")
+                        
+                        # Continue to normal handler execution
+                        # DO NOT RETURN - let handlers run and return their responses
                     else:
                         # Synchronous transformation
                         # Prepare context for transformer with standardized structure

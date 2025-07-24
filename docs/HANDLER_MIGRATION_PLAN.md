@@ -653,7 +653,20 @@ This prevents the actual event handlers from running and returning their respons
 2. Return handler responses even when transformers are applied
 3. Properly handle both sync and async transformers without breaking request/response patterns
 
-**Recommendation**: Fix async transformer response handling before proceeding with ANY transformer migrations.
+**RESOLUTION**: Fixed async transformer response handling by spawning them as background tasks instead of returning early. Transformers now run in parallel without interfering with handler responses.
+
+### Transformer Condition Evaluation Issue (DISCOVERED)
+
+**Problem**: The _evaluate_condition method only supports simple comparisons like `field == value`, not complex boolean expressions like:
+```
+not (source_event.startswith('transport:') or source_event == 'monitor:subscribe' or source_event == 'monitor:broadcast_event')
+```
+
+**Impact**: Cannot use complex conditions in transformers until this is fixed.
+
+**Temporary Solution**: Disabled condition on universal broadcast transformer to avoid error spam.
+
+**Recommendation**: Implement proper expression evaluation for transformer conditions before migrating handlers that require complex conditions.
 
 ## Success Metrics
 
