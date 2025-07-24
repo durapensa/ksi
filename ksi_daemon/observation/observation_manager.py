@@ -21,6 +21,7 @@ from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc
 # Removed event_format_linter import - BREAKING CHANGE: Direct TypedDict access
 from ksi_common.event_response_builder import event_response_builder, error_response
+from ksi_common.response_patterns import validate_required_fields, entity_not_found_response, service_ready_response
 from ksi_daemon.event_system import event_handler, get_router, RateLimiter
 
 
@@ -117,10 +118,7 @@ async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]]
     # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
     
-    return event_response_builder(
-        {"status": "observation_service_ready"},
-        context=context
-    )
+    return service_ready_response("observation_service", context)
 
 
 @event_handler("system:ready")
@@ -135,20 +133,13 @@ async def observation_system_ready(data: SystemReadyData, context: Optional[Dict
     global _observation_queue, _observation_task
     
     # Load service-specific transformers now that event_emitter is available
-    try:
-        if _event_emitter:
-            from ksi_common.transformer_loader import load_service_transformers
-            result = await load_service_transformers(
-                service_name="observation_service",
-                transformer_file="observation_monitoring.yaml",
-                event_emitter=_event_emitter
-            )
-            if result['status'] == 'success':
-                logger.info(f"Loaded {result['loaded']} observation service transformers")
-            else:
-                logger.warning(f"Issue loading observation service transformers: {result}")
-    except Exception as e:
-        logger.warning(f"Failed to load observation service transformers: {e}")
+    if _event_emitter:
+        from ksi_common.service_transformer_manager import auto_load_service_transformers
+        transformer_result = await auto_load_service_transformers("observation_service", _event_emitter)
+        if transformer_result.get("status") == "success":
+            logger.info(f"Loaded {transformer_result.get('total_loaded', 0)} observation service transformers from {transformer_result.get('files_loaded', 0)} files")
+        else:
+            logger.warning(f"Issue loading observation service transformers: {transformer_result}")
     
     # Start async observation processor
     _observation_queue = asyncio.Queue(maxsize=1000)
@@ -245,8 +236,10 @@ async def handle_subscribe(data: ObservationSubscribeData, context: Optional[Dic
     target_id = data.get("target")
     event_patterns = data.get("events", [])
     
-    if not all([observer_id, target_id, event_patterns]):
-        return error_response("observer, target, and events are required", context)
+    # Validate required fields
+    validation_error = validate_required_fields(data, ["observer", "target", "events"], context)
+    if validation_error:
+        return validation_error
     
     # Validate agents exist
     if _event_emitter:
@@ -261,7 +254,7 @@ async def handle_subscribe(data: ObservationSubscribeData, context: Optional[Dic
             observer_result = observer_result[0] if observer_result else {}
         
         if observer_result.get("error") or not observer_result.get("entity"):
-            return error_response(f"Observer agent {observer_id} not found", context)
+            return entity_not_found_response("observer agent", observer_id, context)
         
         # Check target exists
         target_result = await _event_emitter("state:entity:get", {

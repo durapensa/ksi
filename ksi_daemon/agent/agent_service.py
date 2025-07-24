@@ -29,6 +29,7 @@ from ksi_common.agent_utils import (
     unwrap_list_response, emit_agent_event, gather_agent_info
 )
 from ksi_common.event_response_builder import event_response_builder, error_response
+from ksi_common.response_patterns import validate_required_fields, entity_not_found_response, batch_operation_response, agent_responses
 from ksi_common.json_utils import parse_json_parameter
 from .identity_operations import (
     load_all_identities, save_identity, remove_identity, save_all_identities
@@ -75,6 +76,7 @@ def event_handler(event_name, schema=None, require_agent=True, auto_response=Tru
         async def wrapper(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             # BREAKING CHANGE: Direct typed data access, _ksi_context contains system metadata
             from ksi_common.event_response_builder import event_response_builder, error_response
+            from ksi_common.response_patterns import validate_required_fields, entity_not_found_response, batch_operation_response, agent_responses
             
             try:
                 # Data is already properly typed from event system - no parsing needed
@@ -86,7 +88,7 @@ def event_handler(event_name, schema=None, require_agent=True, auto_response=Tru
                     if not agent_id:
                         return error_response("agent_id required", context)
                     if agent_id not in agents:
-                        return error_response(f"Agent {agent_id} not found", context)
+                        return entity_not_found_response("agent", agent_id, context)
                 
                 # Call the handler
                 result = await func(data, context)
@@ -1145,13 +1147,15 @@ async def handle_terminate_agent(data: Dict[str, Any], context: Optional[Dict[st
     
     logger.info(f"Bulk termination complete: {len(terminated_agents)} terminated, {len(failed_agents)} failed")
     
-    # Always return bulk format (BREAKING CHANGE: No backward compatibility)
-    return event_response_builder({
-        "terminated": terminated_agents,
-        "failed": failed_agents,
-        "count_terminated": len(terminated_agents),
-        "count_failed": len(failed_agents)
-    }, context)
+    # Always return bulk format using batch operation response
+    failed_errors = {item["agent_id"]: item["error"] for item in failed_agents if "error" in item}
+    return batch_operation_response(
+        terminated_agents,
+        [item["agent_id"] for item in failed_agents],
+        "terminate",
+        context,
+        errors=failed_errors if failed_errors else None
+    )
 
 
 async def _resolve_target_agents(data: AgentTerminateData) -> List[str]:
@@ -1464,7 +1468,7 @@ async def handle_unregister_agent(data: Dict[str, Any], context: Optional[Dict[s
         logger.info(f"Unregistered agent {agent_id}")
         return event_response_builder({"status": "unregistered"}, context)
     
-    return error_response(f"Agent {agent_id} not found", context)
+    return entity_not_found_response("agent", agent_id, context)
 
 
 @event_handler("agent:list", schema=AgentListData, require_agent=False)
@@ -2092,7 +2096,7 @@ async def handle_agent_needs_continuation(data: Dict[str, Any], context: Optiona
         return error_response("No agent_id in continuation request", context)
     
     if agent_id not in agents:
-        return error_response(f"Agent {agent_id} not found", context)
+        return entity_not_found_response("agent", agent_id, context)
     
     agent_info = agents[agent_id]
     queue = agent_info.get("message_queue")

@@ -42,7 +42,9 @@
     "critical": true
   },
   "state_service": {
-    "transformer_files": [],
+    "transformer_files": [
+      "state_config_propagation.yaml"
+    ],
     "auto_discover": true,
     "dependencies": [],
     "critical": false

@@ -28,6 +28,7 @@ from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc, numeric_to_iso
 from ksi_common.event_response_builder import event_response_builder, success_response, error_response, list_response
+from ksi_common.response_patterns import validate_required_fields, service_ready_response
 
 
 logger = get_bound_logger("graph_state", version="2.0.0")
@@ -587,27 +588,17 @@ async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]]
     # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder
     
-    # Load service-specific transformers
-    try:
-        router = get_router()
-        if router and router.emit:
-            from ksi_common.transformer_loader import load_service_transformers
-            result = await load_service_transformers(
-                service_name="state_service",
-                transformer_file="state_config_propagation.yaml",
-                event_emitter=router.emit
-            )
-            if result['status'] == 'success':
-                logger.info(f"Loaded {result['loaded']} state service transformers")
-            else:
-                logger.warning(f"Issue loading state service transformers: {result}")
-    except Exception as e:
-        logger.warning(f"Failed to load state service transformers: {e}")
+    # Load service-specific transformers using shared utility
+    router = get_router()
+    if router and router.emit:
+        from ksi_common.service_transformer_manager import auto_load_service_transformers
+        transformer_result = await auto_load_service_transformers("state_service", router.emit)
+        if transformer_result.get("status") == "success":
+            logger.info(f"Loaded {transformer_result.get('total_loaded', 0)} state service transformers from {transformer_result.get('files_loaded', 0)} files")
+        else:
+            logger.warning(f"Issue loading state service transformers: {transformer_result}")
     
-    return event_response_builder(
-        {"status": "state_service_ready"},
-        context=context
-    )
+    return service_ready_response("state_service", context)
 
 
 class EntityCreateData(TypedDict):
@@ -886,11 +877,9 @@ async def handle_relationship_create(data: Dict[str, Any], context: Optional[Dic
     to_id = data.get("to_id")
     relation_type = data.get("relation_type")
     
-    if not all([from_id, to_id, relation_type]):
-        return error_response(
-            "from, to, and type are required",
-            context=context
-        )
+    validation_error = validate_required_fields(data, ["from", "to", "type"], context)
+    if validation_error:
+        return validation_error
     
     metadata = data.get("metadata")
     
@@ -941,11 +930,9 @@ async def handle_relationship_delete(data: Dict[str, Any], context: Optional[Dic
     to_id = data.get("to_id")
     relation_type = data.get("relation_type")
     
-    if not all([from_id, to_id, relation_type]):
-        return error_response(
-            "from, to, and type are required",
-            context=context
-        )
+    validation_error = validate_required_fields(data, ["from", "to", "type"], context)
+    if validation_error:
+        return validation_error
     
     try:
         success = await state_manager.delete_relationship(from_id, to_id, relation_type)

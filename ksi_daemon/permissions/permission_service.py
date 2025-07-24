@@ -24,6 +24,7 @@ from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 # Removed event_format_linter import - BREAKING CHANGE: Direct TypedDict access
 from ksi_common.event_response_builder import event_response_builder, error_response
+from ksi_common.response_patterns import validate_required_fields, entity_not_found_response, service_ready_response
 from ksi_daemon.event_system import event_handler
 
 logger = get_bound_logger(__name__)
@@ -81,12 +82,13 @@ async def handle_get_profile(data: PermissionGetProfileData, context: Optional[D
     # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     
     level = data.get("level")
-    if not level:
-        return error_response("Missing required parameter: level", context)
+    validation_error = validate_required_fields(data, ["level"], context)
+    if validation_error:
+        return validation_error
     
     profile = permission_manager.get_profile(level)
     if not profile:
-        return error_response(f"Profile not found: {level}", context)
+        return entity_not_found_response("profile", level, context)
     
     return event_response_builder({
         "profile": profile.to_dict()
