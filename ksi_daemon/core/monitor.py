@@ -904,36 +904,41 @@ async def handle_get_status(data: MonitorGetStatusData, context: Optional[Dict[s
     )
 
 
-# Universal event handler for broadcasting (moved from unix_socket)
+# Broadcast event handler - receives events from monitor_universal_broadcast transformer
 from typing_extensions import Any as AnyData
 
-@event_handler("*")  # Match ALL events
-async def handle_universal_broadcast(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
-    """Universal event handler that broadcasts all events to subscribed clients.
+class MonitorBroadcastData(TypedDict):
+    """Data structure for monitor:broadcast_event."""
+    event_name: Required[str]  # Original event name to broadcast
+    event_data: Required[Dict[str, Any]]  # Original event data
+    broadcast_metadata: NotRequired[Dict[str, Any]]  # Broadcasting metadata
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
+
+@event_handler("monitor:broadcast_event")
+async def handle_broadcast_event(data: MonitorBroadcastData, context: Optional[Dict[str, Any]] = None) -> None:
+    """Handler for monitor:broadcast_event - broadcasts events to subscribed clients.
     
-    This is the proper place for broadcasting logic - in the monitor module,
-    not in the transport layer.
+    This handler receives events from the monitor_universal_broadcast transformer
+    which processes ALL system events and routes appropriate ones here for broadcasting.
     
-    Returns None to avoid interfering with other handlers' responses.
+    BREAKING CHANGE: Replaces universal @event_handler("*") with specific event handler.
     """
-    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
-    if not context:
-        return
-        
-    # Get the event name from context
-    event_name = context.get("event")
+    event_name = data.get("event_name")
+    event_data = data.get("event_data", {})
+    
     if not event_name:
+        logger.warning("Received monitor:broadcast_event without event_name", data=data)
         return
     
-    # Skip internal transport events to avoid loops
-    if event_name.startswith('transport:') or event_name == 'monitor:subscribe':
+    # Skip internal transport events and self-references to avoid loops
+    if event_name.startswith('transport:') or event_name == 'monitor:subscribe' or event_name == 'monitor:broadcast_event':
+        logger.debug(f"Skipping broadcast for internal event: {event_name}")
         return
     
-    # The event system has already injected originator fields into data
-    # We can pass it directly to broadcast
+    # Broadcast to subscribed clients
     if client_subscriptions:
-        broadcast_count = await broadcast_to_subscribed_clients(event_name, data)
-        logger.debug(f"Broadcasted {event_name} to {broadcast_count} clients with originator info")
+        broadcast_count = await broadcast_to_subscribed_clients(event_name, event_data)
+        logger.debug(f"Broadcasted {event_name} to {broadcast_count} clients via transformer")
     
     # Return None - don't interfere with other handlers' responses
     return None

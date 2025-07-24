@@ -120,6 +120,7 @@ class EventRouter:
         
         # Dynamic transformers loaded from patterns
         self._transformers: Dict[str, Dict[str, Any]] = {}  # source -> transformer config
+        self._pattern_transformers: List[Tuple[str, Dict[str, Any]]] = []  # pattern -> transformer config
         self._async_transformers: Dict[str, str] = {}  # transform_id -> source event
         self._transform_contexts: Dict[str, Dict[str, Any]] = {}  # transform_id -> context
         
@@ -202,7 +203,13 @@ class EventRouter:
         if not source:
             raise ValueError("Transformer missing 'source' field")
             
-        self._transformers[source] = transformer_def
+        if "*" in source:
+            # Pattern transformer
+            self._pattern_transformers.append((source, transformer_def))
+        else:
+            # Direct event transformer
+            self._transformers[source] = transformer_def
+            
         logger.info(f"Registered dynamic transformer: {source} -> {transformer_def.get('target')}")
     
     def unregister_transformer(self, source: str):
@@ -210,6 +217,13 @@ class EventRouter:
         if source in self._transformers:
             del self._transformers[source]
             logger.info(f"Unregistered transformer: {source}")
+        else:
+            # Check pattern transformers
+            for i, (pattern, transformer_def) in enumerate(self._pattern_transformers):
+                if pattern == source:
+                    del self._pattern_transformers[i]
+                    logger.info(f"Unregistered pattern transformer: {source}")
+                    break
     
     def register_shutdown_handler(self, service_name: str, handler: EventHandler):
         """Register a critical shutdown handler that must complete before daemon exits.
@@ -259,8 +273,17 @@ class EventRouter:
                    context: Optional[Dict[str, Any]] = None) -> List[Any]:
         """Emit an event to all matching handlers."""
         # Check for dynamic transformer first
+        transformer = None
         if event in self._transformers:
             transformer = self._transformers[event]
+        else:
+            # Check pattern transformers
+            for pattern, transformer_def in self._pattern_transformers:
+                if self._matches_pattern(event, pattern):
+                    transformer = transformer_def
+                    break
+        
+        if transformer:
             target = transformer.get('target')
             
             # Check condition if present
@@ -289,7 +312,7 @@ class EventRouter:
                         logger.debug(f"Async transformer data: {data_with_transform_id}")
                         
                         # Apply mapping with transform_id available
-                        transformed_data = apply_mapping(transformer.get('mapping', {}), data_with_transform_id)
+                        transformed_data = apply_mapping(transformer.get('mapping', {}), data_with_transform_id, context)
                         logger.debug(f"Transformed data: {transformed_data}")
                         
                         # Store context for later injection (if available)
@@ -308,7 +331,7 @@ class EventRouter:
                         }]
                     else:
                         # Synchronous transformation
-                        transformed_data = apply_mapping(transformer.get('mapping', {}), data)
+                        transformed_data = apply_mapping(transformer.get('mapping', {}), data, context)
                         logger.debug(f"Transforming {event} -> {target}")
                         return await self.emit(target, transformed_data, context)
                 except Exception as e:
@@ -1269,9 +1292,20 @@ async def handle_list_transformers(data: Dict[str, Any], context: Optional[Dict[
     router = get_router()
     transformers = []
     
+    # Direct transformers
     for source, config in router._transformers.items():
         transformers.append({
             "source": source,
+            "target": config.get('target'),
+            "async": config.get('async', False),
+            "has_condition": 'condition' in config,
+            "has_response_route": 'response_route' in config
+        })
+    
+    # Pattern transformers
+    for pattern, config in router._pattern_transformers:
+        transformers.append({
+            "source": pattern,
             "target": config.get('target'),
             "async": config.get('async', False),
             "has_condition": 'condition' in config,

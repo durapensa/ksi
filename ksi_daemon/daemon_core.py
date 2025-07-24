@@ -69,6 +69,9 @@ class EventDaemonCore:
             # Import all modules - handlers auto-register at import time!
             await self._import_all_modules()
             
+            # Load critical system transformers after modules are loaded
+            await self._load_system_transformers()
+            
             # Emit startup event for module initialization
             await self.router.emit("system:startup", config)
             
@@ -207,6 +210,44 @@ class EventDaemonCore:
         import ksi_daemon.introspection
         
         logger.info("All modules imported and auto-registered")
+    
+    async def _load_system_transformers(self):
+        """Load critical system transformers that must be available on startup."""
+        import yaml
+        from pathlib import Path
+        
+        logger.info("Loading system transformers...")
+        
+        # Define critical system transformers that must be auto-loaded
+        system_transformers = [
+            {
+                "name": "universal_broadcast",
+                "config": {
+                    "source": "system:*",  # Start with system events to avoid loops
+                    "target": "monitor:broadcast_event",
+                    "mapping": {
+                        "event_name": "{{event}}",
+                        "event_data": "{{$}}",
+                        "broadcast_metadata": {
+                            "originator_agent": "{{_agent_id|system}}",
+                            "timestamp": "{{timestamp_utc()}}",
+                            "subscription_required": True
+                        }
+                    },
+                    "async": True
+                }
+            }
+            # Additional system transformers can be added here
+        ]
+        
+        for transformer in system_transformers:
+            try:
+                self.router.register_transformer_from_yaml(transformer["config"])
+                logger.info(f"Auto-loaded system transformer: {transformer['name']}")
+            except Exception as e:
+                logger.error(f"Failed to load system transformer {transformer['name']}: {e}")
+        
+        logger.info(f"System transformer auto-loading complete")
     
     async def handle_event(self, event_name: str, data: dict, context: dict) -> Any:
         """Handle an event through the router."""
