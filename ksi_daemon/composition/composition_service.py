@@ -1700,28 +1700,28 @@ async def handle_create_component(data: ComponentCreateData, context: Optional[D
                 subprocess.run(['git', 'commit', '-m', commit_msg], 
                             cwd=repo_path, check=True, capture_output=True)
                 
-                    git_result = type('GitResult', (), {
+                git_result = type('GitResult', (), {
                         'success': True,
                         'message': f'Committed {relative_path}',
                         'hash': None
                     })()
-                except subprocess.CalledProcessError as e:
-                    # If nothing to commit, that's ok
-                    if b"nothing to commit" in e.stderr or b"Your branch is up to date" in e.stderr:
-                        git_result = type('GitResult', (), {
-                            'success': True,
-                            'message': 'No changes to commit',
-                            'hash': None
-                        })()
-                    else:
-                        git_result = type('GitResult', (), {
-                            'success': False,
-                            'message': 'Git operation failed',
+            except subprocess.CalledProcessError as e:
+                # If nothing to commit, that's ok
+                if b"nothing to commit" in e.stderr or b"Your branch is up to date" in e.stderr:
+                    git_result = type('GitResult', (), {
+                        'success': True,
+                        'message': 'No changes to commit',
+                        'hash': None
+                    })()
+                else:
+                    git_result = type('GitResult', (), {
+                        'success': False,
+                        'message': 'Git operation failed',
                             'error': e.stderr.decode() if e.stderr else str(e),
                             'hash': None
                         })()
-                except Exception as e:
-                    git_result = type('GitResult', (), {
+            except Exception as e:
+                git_result = type('GitResult', (), {
                         'success': False,
                         'message': 'Git operation failed',
                         'error': str(e),

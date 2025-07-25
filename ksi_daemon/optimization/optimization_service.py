@@ -1219,9 +1219,14 @@ async def handle_simba_optimization(data: Dict[str, Any], context: Optional[Dict
     await _ensure_mlflow_initialized()
     
     try:
+        # Parse JSON parameters if they're strings
+        from ksi_common.json_utils import parse_json_parameter
+        parse_json_parameter(data, 'mini_batch')
+        
         # Debug data structure
         logger.info(f"SIMBA handler received data type: {type(data)}")
         logger.info(f"SIMBA handler data keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
+        logger.info(f"mini_batch after parse: type={type(data.get('mini_batch'))}, value={data.get('mini_batch') if isinstance(data.get('mini_batch'), list) else 'Not a list'}")
         
         # Extract parameters safely
         if not isinstance(data, dict):

@@ -7,6 +7,29 @@ from ksi_common.logging import get_bound_logger
 logger = get_bound_logger("dspy_progress_parser")
 
 
+class DSPyProgressParser:
+    """Parser for DSPy optimization progress from stderr output."""
+    
+    def __init__(self):
+        self.trial_progress = {}
+        self.score_history = []
+        self.current_step = 0
+        self.total_steps = 0
+    
+    def parse_line(self, line: str) -> Optional[Dict[str, Any]]:
+        """Parse a single line of stderr output."""
+        return parse_dspy_progress(line)
+    
+    def get_summary(self) -> Dict[str, Any]:
+        """Get summary of parsed progress."""
+        return {
+            "trial_progress": self.trial_progress,
+            "score_history": self.score_history,
+            "current_step": self.current_step,
+            "total_steps": self.total_steps
+        }
+
+
 def parse_dspy_progress(stderr_line: str) -> Optional[Dict[str, Any]]:
     """Parse DSPy stderr output for progress information.
     

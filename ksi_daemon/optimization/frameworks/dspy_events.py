@@ -207,6 +207,9 @@ class DSPyFramework:
         optimizer_type = kwargs.get("optimizer", "mipro")
         config_overrides = kwargs.get("config", {})
         
+        # Debug logging
+        logger.info(f"DSPy optimize: optimizer={optimizer_type}, trainset type={type(trainset)}, trainset len={len(trainset) if isinstance(trainset, list) else 'Not a list'}")
+        
         if optimizer_type == "mipro":
             # Use auto mode by default (recommended by DSPy source analysis)
             optimizer_config = {
