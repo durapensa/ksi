@@ -216,9 +216,17 @@ class DSPyMIPROAdapter(BaseOptimizer):
             dspy_valset = self._prepare_training_examples(component_name, valset)
         else:
             # Split trainset if no valset provided
-            split_idx = int(len(dspy_trainset) * 0.8)
-            dspy_valset = dspy_trainset[split_idx:]
-            dspy_trainset = dspy_trainset[:split_idx]
+            # Ensure at least 1 example in valset
+            if len(dspy_trainset) >= 2:
+                split_idx = max(1, int(len(dspy_trainset) * 0.8))
+                # Ensure we don't take all examples for trainset
+                split_idx = min(split_idx, len(dspy_trainset) - 1)
+                dspy_valset = dspy_trainset[split_idx:]
+                dspy_trainset = dspy_trainset[:split_idx]
+            else:
+                # If only 1 example, duplicate it for valset
+                dspy_valset = dspy_trainset.copy()
+                logger.warning(f"Only {len(dspy_trainset)} training examples, duplicating for validation")
         
         # Create DSPy program
         program = self._create_dspy_program(component_name)
@@ -302,19 +310,30 @@ class DSPyMIPROAdapter(BaseOptimizer):
         logger.info("END RAW DSPY OUTPUT")
         logger.info("=" * 80)
         
-        # Extract optimized instruction
-        # Get the optimized prompt from the program
+        # Extract optimized instruction by running the optimized program
         optimized_instruction = None
-        for name, module in optimized_program.named_modules():
-            if hasattr(module, 'extended_signature'):
-                # Extract the instruction from the optimized signature
-                if hasattr(module.extended_signature, 'instructions'):
-                    optimized_instruction = module.extended_signature.instructions
-                    break
         
-        if not optimized_instruction:
-            # Fallback: use the original instruction
-            logger.warning("No optimized instruction found, using original")
+        try:
+            # Create a test example with the component to optimize
+            test_example = dspy.Example(
+                context=f"Component: {component_name}\nType: {frontmatter.get('component_type', 'component')}\nPurpose: {frontmatter.get('description', 'AI component')}",
+                current_instruction=original_body,
+                examples="Good instructions have: Clear role definition, specific expertise areas, structured approach, personality traits"
+            ).with_inputs("context", "current_instruction", "examples")
+            
+            # Run the optimized program to get the actual optimized instruction
+            logger.info("Running optimized program to extract instruction")
+            prediction = optimized_program(test_example)
+            
+            if hasattr(prediction, 'optimized_instruction'):
+                optimized_instruction = prediction.optimized_instruction
+                logger.info(f"Successfully extracted optimized instruction (length: {len(optimized_instruction)})")
+            else:
+                logger.warning("No optimized_instruction field in prediction")
+                optimized_instruction = original_body
+                
+        except Exception as e:
+            logger.error(f"Failed to extract optimized instruction: {e}")
             optimized_instruction = original_body
         
         # Update frontmatter with optimization metadata

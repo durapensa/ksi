@@ -15,7 +15,7 @@ sys.path.insert(0, str(ksi_root))
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc
-from ksi_daemon.optimization.frameworks.dspy_adapter import DSPyMIPROAdapter
+from ksi_daemon.optimization.frameworks.dspy_mipro_adapter import DSPyMIPROAdapter
 from ksi_daemon.optimization.frameworks.litellm_dspy_adapter import configure_dspy_with_litellm
 
 logger = get_bound_logger("optimize_component")

@@ -304,6 +304,10 @@ async def run_optimization_subprocess(opt_id: str, data: Dict[str, Any], context
         
         logger.info(f"Optimization subprocess {opt_id} completed with code {returncode}")
         
+        # Log DSPy stderr output for debugging (it contains progress info)
+        if stderr:
+            logger.debug(f"DSPy optimization output for {opt_id}:\n{stderr[:2000]}")
+        
         if returncode == 0:
             # Success - read specific result file and update component
             try:
@@ -312,26 +316,33 @@ async def run_optimization_subprocess(opt_id: str, data: Dict[str, Any], context
                     result_data = json.load(f)
                 
                 # Update component with optimized content
+                # Note: metadata is already embedded in the YAML frontmatter of optimized_content
                 update_response = await router.emit_first("composition:update_component", {
                     "name": result_data["component_name"],
                     "content": result_data["optimized_content"],
-                    "metadata": result_data["metadata"]
+                    "message": f"Optimize component via {result_data.get('metadata', {}).get('optimization', {}).get('optimizer', 'DSPy')}"
                 })
                 
                 if update_response.get("status") == "success":
-                    logger.info(f"Updated component {result_data['component_name']} with optimized content")
+                    improvement = result_data.get("improvement", 0)
+                    logger.info(f"Updated component {result_data['component_name']} with optimized content (improvement: {improvement:.3f})")
+                    
+                    # Extract optimization details from metadata
+                    opt_metadata = result_data.get("metadata", {}).get("optimization", {})
+                    logger.info(f"Optimization completed: {opt_metadata.get('optimizer', 'DSPy')} - {opt_metadata.get('status', 'unknown')}")
                     
                     result = {
                         "status": "completed", 
                         "subprocess_completed": True,
                         "component_updated": True,
                         "component_name": result_data["component_name"],
-                        "improvement": result_data.get("improvement", 0)
+                        "improvement": improvement,
+                        "optimization_metadata": opt_metadata
                     }
                     complete_operation(opt_id, result)
                     
                     # Capture optimization completion state for introspection
-                    await _capture_optimization_state(opt_id, "completed", data, context, {"result": result, "improvement": result_data.get("improvement", 0)})
+                    await _capture_optimization_state(opt_id, "completed", data, context, {"result": result, "improvement": improvement})
                     
                     await router.emit("optimization:result", build_result_event(
                         opt_id, result, "optimization"
@@ -352,18 +363,8 @@ async def run_optimization_subprocess(opt_id: str, data: Dict[str, Any], context
                     error_type="ResultProcessingError"
                 ))
         
-        # Clean up temporary files
-        try:
-            Path(component_file).unlink()
-        except Exception as e:
-            logger.warning(f"Could not clean up component file {component_file}: {e}")
-        
-        try:
-            Path(result_file).unlink()
-        except Exception as e:
-            logger.warning(f"Could not clean up result file {result_file}: {e}")
         else:
-            # Subprocess failed
+            # Subprocess failed (non-zero return code)
             error_msg = f"Optimization subprocess failed with code {returncode}"
             if stderr:
                 error_msg += f": {stderr[:500]}"
@@ -379,6 +380,17 @@ async def run_optimization_subprocess(opt_id: str, data: Dict[str, Any], context
                 returncode=returncode,
                 stderr=stderr[:1000] if stderr else None
             ))
+        
+        # Clean up temporary files
+        try:
+            Path(component_file).unlink()
+        except Exception as e:
+            logger.warning(f"Could not clean up component file {component_file}: {e}")
+        
+        try:
+            Path(result_file).unlink()
+        except Exception as e:
+            logger.warning(f"Could not clean up result file {result_file}: {e}")
         
     except ProcessExecutionError as e:
         logger.error(f"Optimization {opt_id} subprocess failed: {e}")
@@ -1086,3 +1098,92 @@ async def handle_optimization_analysis(data: Dict[str, Any], context: Optional[D
     except Exception as e:
         logger.error(f"Error during optimization analysis: {e}")
         return error_response(f"Analysis failed: {str(e)}", context=context)
+
+
+@event_handler("optimization:simba")
+async def handle_simba_optimization(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Run SIMBA runtime optimization on a component using recent interactions."""
+    # Ensure MLflow is initialized
+    await _ensure_mlflow_initialized()
+    
+    target = data.get("component")  # Component to optimize
+    recent_interactions = data.get("mini_batch", [])  # Recent interaction data
+    metric = data.get("metric", "exact_match")  # Metric to use
+    
+    if not target:
+        return error_response("component parameter required for SIMBA optimization", context=context)
+    
+    # SIMBA-specific configuration
+    simba_config = {
+        "max_steps": data.get("max_steps", 4),
+        "num_candidates": data.get("num_candidates", 4),
+        "max_demos": data.get("max_demos", 2),
+        "mini_batch_size": data.get("mini_batch_size", len(recent_interactions) if recent_interactions else 8),
+        "exploration_temperature": data.get("exploration_temperature", 0.7),
+        "verbose": data.get("verbose", True),
+        "track_stats": data.get("track_stats", True),
+    }
+    
+    try:
+        # Use DSPy framework with SIMBA optimizer
+        result = await handle_optimize({
+            "framework": "dspy",
+            "target": target,
+            "metric": metric,
+            "optimizer": "simba",
+            "trainset": recent_interactions,  # SIMBA uses recent interactions as trainset
+            "config": simba_config,
+            **{k: v for k, v in data.items() if k not in ['component', 'mini_batch', 'metric', 'max_steps', 'num_candidates', 'max_demos', 'mini_batch_size', 'exploration_temperature', 'verbose', 'track_stats']}
+        }, context)
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"SIMBA optimization failed: {e}")
+        return error_response(f"SIMBA optimization failed: {str(e)}", context=context)
+
+
+@event_handler("optimization:mipro")
+async def handle_mipro_optimization(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Run MIPRO compile-time optimization with full Bayesian optimization."""
+    # Ensure MLflow is initialized
+    await _ensure_mlflow_initialized()
+    
+    target = data.get("component")  # Component to optimize
+    mode = data.get("mode", "medium")  # "light", "medium", or "heavy"
+    metric = data.get("metric", "exact_match")  # Metric to use
+    trainset = data.get("trainset", [])  # Training examples
+    valset = data.get("valset", [])  # Validation examples
+    
+    if not target:
+        return error_response("component parameter required for MIPRO optimization", context=context)
+    
+    # MIPRO-specific configuration
+    mipro_config = {
+        "auto": mode,  # Use auto mode for ease of use
+        "max_bootstrapped_demos": data.get("max_bootstrapped_demos", 4),
+        "max_labeled_demos": data.get("max_labeled_demos", 4),
+        "init_temperature": data.get("init_temperature", 0.7),
+        "verbose": data.get("verbose", True),
+        "track_stats": data.get("track_stats", True),
+        "num_trials": data.get("num_trials", 40 if mode == "heavy" else 20 if mode == "medium" else 12),
+    }
+    
+    try:
+        # Use DSPy framework with MIPRO optimizer
+        result = await handle_optimize({
+            "framework": "dspy",
+            "target": target,
+            "metric": metric,
+            "optimizer": "mipro",
+            "trainset": trainset,
+            "valset": valset,
+            "config": mipro_config,
+            **{k: v for k, v in data.items() if k not in ['component', 'mode', 'metric', 'trainset', 'valset', 'max_bootstrapped_demos', 'max_labeled_demos', 'init_temperature', 'verbose', 'track_stats', 'num_trials']}
+        }, context)
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"MIPRO optimization failed: {e}")
+        return error_response(f"MIPRO optimization failed: {str(e)}", context=context)

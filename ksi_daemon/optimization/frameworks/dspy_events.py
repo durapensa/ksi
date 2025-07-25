@@ -9,7 +9,8 @@ from ksi_common.event_response_builder import event_response_builder, error_resp
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 
-from .dspy_adapter import DSPyMIPROAdapter
+from .dspy_mipro_adapter import DSPyMIPROAdapter
+from .dspy_simba_adapter import DSPySIMBAAdapter
 from .litellm_dspy_adapter import KSILiteLLMDSPyAdapter, configure_dspy_with_litellm
 from ..mlflow_manager import configure_dspy_autologging
 
@@ -42,7 +43,7 @@ class DSPyFramework:
             "capabilities": {
                 "signatures": ["InputField", "OutputField", "typed fields"],
                 "predictors": ["Predict", "ChainOfThought", "ReAct", "ProgramOfThought", "Refine"],
-                "optimizers": ["MIPROv2", "BootstrapFewShot", "COPRO", "BetterTogether"],
+                "optimizers": ["MIPROv2", "SIMBA", "BootstrapFewShot", "COPRO", "BetterTogether"],
                 "retrieval": ["25+ vector stores", "hybrid search", "metadata filtering"],
                 "evaluation": ["metrics", "parallel eval", "HTML reports"]
             }
@@ -231,6 +232,42 @@ class DSPyFramework:
                 component_content=component_content,
                 trainset=trainset,
                 valset=valset,
+                opt_id=opt_id
+            )
+            
+            return {
+                "status": "success",
+                "optimization_result": result
+            }
+        
+        elif optimizer_type == "simba":
+            # SIMBA configuration for runtime optimization
+            optimizer_config = {
+                "max_steps": config_overrides.get("max_steps", 4),  # Default: 4 optimization steps
+                "num_candidates": config_overrides.get("num_candidates", 4),  # Candidates per step
+                "max_demos": config_overrides.get("max_demos", 2),  # Max few-shot demos
+                "mini_batch_size": config_overrides.get("mini_batch_size", 8),  # Mini-batch size
+                "exploration_temperature": config_overrides.get("exploration_temperature", 0.7),
+                "verbose": config_overrides.get("verbose", True),
+                "track_stats": config_overrides.get("track_stats", True),
+            }
+            
+            adapter = DSPySIMBAAdapter(
+                metric=metric_fn,
+                prompt_model=self.dspy_models.get("prompt_model"),
+                task_model=self.dspy_models.get("task_model"),
+                config=optimizer_config,
+                framework=self  # Pass framework reference for optimizer tracking
+            )
+            
+            # For SIMBA, trainset contains recent interactions rather than static examples
+            recent_interactions = trainset  # Assume trainset contains interaction history
+            
+            # Run SIMBA optimization
+            result = await adapter.optimize(
+                component_name=target,
+                component_content=component_content,
+                recent_interactions=recent_interactions,
                 opt_id=opt_id
             )
             
