@@ -548,6 +548,12 @@ git commit -m "Update composition submodule"
 - **sandbox_uuid missing error**: Agent state entity not created by transformer
   - **Workaround**: Manually create state entity: `ksi send state:entity:create --type agent --id "agent_id" --properties '{"sandbox_uuid": "uuid_from_agent_info"}'`
   - **Root cause**: `agent_spawned_state_create` transformer not firing
+- **Agents not emitting events**: Check capability restrictions! (CRITICAL)
+  - **Problem**: Agents spawned with only "base" capability can ONLY emit: `system:health`, `system:help`, `system:discover`
+  - **Impact**: DSL interpreters and most agents cannot emit `agent:status`, `completion:async`, etc.
+  - **Check**: Look at spawn response for `allowed_events` field
+  - **Missing events**: `state:entity:update` is NOT in any capability mapping!
+  - **Location**: `/var/lib/capabilities/capability_mappings.yaml`
 
 **Component System Issues**:
 - **Components not found**: Run `ksi send composition:rebuild_index`

@@ -79,24 +79,65 @@ TRACK {phase: "init"}
 LOOP ...
 ```
 
+## DSL Bootstrap Architecture (2025 Update)
+
+### The Bootstrap Strategy
+We're implementing a systematic approach to teach agents to interpret and improve the DSL:
+
+1. **Modular Instruction Components**: Instead of monolithic interpreters, create focused behavioral components
+2. **Incremental Learning**: Start with basic EVENT blocks, progressively add complexity
+3. **Dual Purpose Design**: DSL instructions teach both syntax AND the KSI system itself
+4. **Self-Improvement Loop**: Agents use DSL to optimize DSL instructions
+
+### Component Organization
+```yaml
+# Level 1: Basic Building Blocks
+components/behaviors/dsl/event_emission_basics.md     # EVENT blocks
+components/behaviors/dsl/state_management.md         # STATE tracking
+components/behaviors/dsl/control_flow.md            # WHILE/IF logic
+
+# Level 2: Integration Patterns  
+components/behaviors/dsl/orchestration_patterns.md   # Complete workflows
+components/behaviors/dsl/optimization_workflows.md   # Using optimization events
+
+# Level 3: Meta-Optimization
+components/behaviors/dsl/dsl_improvement_protocol.md # Improving DSL itself
+```
+
+### Critical Insight: DSL as KSI Teaching Tool
+When agents learn to interpret DSL, they simultaneously learn:
+- What events exist in KSI (composition:*, optimization:*, etc.)
+- How to use those events effectively
+- Patterns for coordinating complex workflows
+- The system's capabilities and constraints
+
 ## Optimization Opportunities
 
 ### 1. MIPRO for DSL Construct Optimization
 Using MIPRO to discover optimal DSL formulations:
 
 - **Syntax Variants**: Test different ways to express the same concept
-- **Clarity Metrics**: Measure LLM interpretation accuracy
+- **Clarity Metrics**: Measure LLM interpretation accuracy  
 - **Ambiguity Reduction**: Find formulations that minimize misinterpretation
 - **Cognitive Load**: Balance expressiveness with comprehension ease
 
-### 2. Hybrid Prompt-DSL Optimization
-Exploring how DSL elements enhance natural language prompts:
+### 2. Bootstrap-Driven Optimization
+The DSL bootstrap creates unique optimization opportunities:
 
-- **Progressive Structure**: Gradually add DSL elements to find sweet spots
-- **Domain Adaptation**: Different tasks benefit from different DSL integration levels
-- **Reusable Patterns**: Discover DSL snippets that consistently improve performance
+- **Instruction Component Optimization**: Use MIPRO to improve each DSL teaching component
+- **Test-Driven Improvement**: Measure agent success at interpreting specific constructs
+- **Behavioral Metrics**: Track whether agents emit correct events from DSL patterns
+- **Iterative Refinement**: Each improved component makes agents better at improving others
 
-### 3. Co-Evolution with LLMs
+### 3. Meta-DSL Evolution
+The bootstrap pattern enables meta-linguistic evolution:
+
+- **Domain Transfer**: KSI DSL patterns become templates for other domains
+- **Syntax Discovery**: Agents may discover clearer ways to express concepts
+- **Pattern Mining**: Successful orchestrations reveal effective DSL usage
+- **Co-Evolution**: As agents improve, they can handle more sophisticated DSL
+
+### 4. Co-Evolution with LLMs
 As LLMs evolve, the optimal DSL may change:
 
 - **Model-Specific Optimization**: Different models may prefer different DSL styles

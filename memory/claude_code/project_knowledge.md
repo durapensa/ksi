@@ -226,6 +226,95 @@ optimization_task_model: claude-3-5-haiku-20241022
 - **Rankings**: Bradley-Terry, Elo systems
 - **Pattern**: Tournament-based optimization
 
+## DSL Bootstrap Architecture (Critical for Agent Autonomy) ✅
+
+### The Bootstrap Recursion
+We're creating a virtuous cycle where:
+1. **DSL teaches agents about KSI** → Agents learn the system
+2. **Agents use DSL to improve components** → Including DSL instructions themselves  
+3. **Improved DSL teaches better** → Creating continuous improvement
+
+### Incremental DSL Manual Pattern
+Instead of monolithic interpreters, build **modular instruction components**:
+
+```yaml
+# Level 1: Basic concepts in isolation
+components/behaviors/dsl/event_emission_basics.md     # EVENT blocks only
+components/behaviors/dsl/state_management.md         # STATE tracking  
+components/behaviors/dsl/control_flow.md            # WHILE loops
+
+# Level 2: Combining concepts
+components/behaviors/dsl/orchestration_patterns.md   # Full patterns
+components/behaviors/dsl/optimization_workflows.md   # Optimization DSL
+
+# Level 3: Meta-DSL
+components/behaviors/dsl/dsl_improvement_protocol.md # Improving DSL itself
+```
+
+### DSL as Teaching Tool
+The DSL instructions serve dual purposes:
+- **Teach DSL syntax**: How to interpret orchestration patterns
+- **Teach KSI system**: What events exist and how to use them
+
+Example instruction component:
+```yaml
+---
+component_type: behavior
+name: event_emission_basics  
+---
+# DSL Basics: EVENT Blocks
+
+When you see:
+EVENT optimization:async {
+  component: "personas/data_analyst",
+  method: "mipro"
+}
+
+Emit this KSI event:
+{"event": "optimization:async", "data": {...}}
+```
+
+### Bootstrap Requirements
+- **Must work incrementally**: Start with 5 core events, expand gradually
+- **Must be testable**: Each component tested before adding complexity
+- **Must be improvable**: Agents can optimize DSL instructions via MIPRO
+- **Must enable autonomy**: Goal is agents improving without Python scripts
+
+### Critical DSL Constructs for KSI
+```yaml
+# Essential constructs agents must understand:
+EVENT <name> {<data>} [AS <var>]     # Emit KSI events
+STATE <var> = <value>                 # Track variables
+WHILE <condition>: <actions>          # Conditional loops
+WAIT <seconds>                        # Pause execution
+TRACK {<progress>}                    # Progress reporting
+FOREACH <item> IN <collection>        # Iteration
+PARALLEL: <branches>                  # Concurrent execution
+```
+
+### Python Bootstrap Strategy (Temporary)
+While agents learn DSL interpretation:
+```python
+# Bootstrap DSL instruction improvements
+def improve_dsl_instruction(component_path):
+    current = load_component(component_path)
+    optimized = run_mipro_optimization(
+        current,
+        metric="agent_comprehension_and_execution",
+        test_cases=["Can agent emit EVENT?", "Can agent track STATE?"]
+    )
+    save_component(f"{component_path}_v2", optimized)
+```
+
+### Meta-DSL Vision
+The pattern we create for KSI DSL becomes a template for other domains:
+- Git workflow DSL
+- Testing DSL  
+- Deployment DSL
+- Any domain where agents need structured instructions
+
+**Key Insight**: We're not just teaching agents to optimize - we're teaching them to teach themselves.
+
 ## Component Architecture (Everything is a Component)
 
 ### New Unified Model (2025)
@@ -513,6 +602,26 @@ echo "personas/deep_analyst.md model=claude-opus performance=reasoning" >> .gita
 - **Logs**: `var/logs/daemon/daemon.log.jsonl`, `var/logs/responses/{session_id}.jsonl`
 
 ## Current Development Focus
+
+### DSL Bootstrap Capability Limitations (2025-01-25) 🚨
+**CRITICAL ISSUE DISCOVERED**: Agents cannot emit most KSI events due to capability restrictions!
+
+**Problem**:
+- Agents spawned from components only get "base" capability by default
+- Base capability only allows: `system:health`, `system:help`, `system:discover`
+- DSL interpreter needs but CANNOT emit:
+  - `agent:status` (requires spawn_agents capability) 
+  - `state:entity:update` (NOT IN ANY CAPABILITY MAPPING!)
+  - `completion:async` (requires completion_management capability)
+
+**Impact**: DSL interpreters cannot execute EVENT blocks even with perfect instructions because the permission system blocks event emission.
+
+**Root Cause**: `/var/lib/capabilities/capability_mappings.yaml` defines allowed events per capability, but critical events are missing or require capabilities not granted to basic agents.
+
+**Required Fix**: Either:
+1. Add missing events to capability mappings
+2. Grant additional capabilities to DSL interpreter agents
+3. Create a new "dsl_execution" capability with needed events
 
 ### Building Longer-Running Orchestrations (2025-01-24)
 - **Goal**: Orchestrator agents with spawned subagents working through phases
