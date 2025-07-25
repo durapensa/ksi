@@ -55,14 +55,15 @@ transformers:
   - name: "agent_spawned_state_create"
     source: "agent:spawned" 
     target: "state:entity:create"
+    async: true
     mapping:
-      type: "agent"
+      type: '"agent"'
       id: "{{agent_id}}"
       properties:
         agent_id: "{{agent_id}}"
         profile: "{{profile}}"
         composition: "{{composition}}"
-        status: "active"
+        status: '"active"'
         created_at: "{{_ksi_context._timestamp|now}}"
         created_at_iso: "{{timestamp_utc()}}"
         sandbox_uuid: "{{sandbox_uuid}}"

@@ -300,7 +300,12 @@ class ComponentRenderer:
         content = context.content
         
         # Apply variable substitution
-        content = self._substitute_variables(content, context.variables)
+        # CRITICAL FIX: Use passed variables (which include runtime vars like agent_id)
+        # not context.variables (which only has component-defined vars)
+        # This ensures {{agent_id}} and other runtime variables are properly substituted
+        final_variables = context.variables.copy()
+        final_variables.update(variables)  # Runtime variables override component defaults
+        content = self._substitute_variables(content, final_variables)
         
         # Handle special placeholders
         content = self._handle_special_placeholders(content, context)

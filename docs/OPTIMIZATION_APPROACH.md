@@ -611,70 +611,30 @@ Follow this optimization cycle:
 - **Use system feedback** - For JSON emission, use KSI's validation
 - **Agent-in-the-loop** - Spawn agents to test optimized instructions
 
-## Event Tracing & Introspection (✅ SOLVED with Context System)
+## Event Context & Tracing ✅ IMPLEMENTED
 
-### Previous Challenges (Now Resolved)
-1. ~~**Manual Correlation**~~ → Automatic with `_ksi_context` propagation
-2. ~~**No Behavioral Tracking**~~ → Full lineage via context references
-3. ~~**Limited Metadata**~~ → Context flows through entire event chains
+**Key Achievement**: Unified context system with 70% storage reduction and automatic correlation tracking.
 
-### Implemented Context System Features
-1. **Automatic Correlation**: Every event has `_correlation_id` in context
-2. **Parent-Child Tracking**: `_parent_event_id` and `_event_depth` automatic
-3. **Event Lineage**: Full ancestry/descendant queries via context DB
-4. **Reference Architecture**: 70% storage reduction with context refs
+### Context-Enhanced Optimization Features
+1. **Automatic Correlation**: Every optimization event inherits context
+2. **Behavioral Test Tracking**: All spawned agents linked to optimization runs
+3. **Cross-Framework Integration**: Context flows through DSPy, judges, and evaluators
+4. **Full Lineage Queries**: Complete optimization chains queryable via context DB
 
-### Example Event with Context
-```json
-{
-  "event": "optimization:behavioral_test",
-  "data": {
-    "optimization_id": "opt_123",
-    "test_id": "test_456", 
-    "variant": "optimized",
-    "_ksi_context": "ctx_evt_abc123"  // Just a reference!
-  }
-}
+## Current Status ✅ WORKING PIPELINE
 
-// Context DB contains full metadata:
-{
-  "_ref": "ctx_evt_abc123",
-  "_event_id": "evt_abc123",
-  "_correlation_id": "corr_optimization_flow_789",
-  "_parent_event_id": "evt_optimization_started",
-  "_event_depth": 3,
-  "_agent_id": "agent_789",
-  "_optimization_run_id": "opt_123"
-}
-```
+**Implemented Features**:
+- DSPy MIPROv2 optimization with realistic baseline metrics (0.30-0.90)
+- LLM-as-Judge static instruction analysis
+- MLflow artifact tracking and git integration
+- Automatic context propagation through optimization flows
+- Event lineage tracking from optimization → agents → evaluation
+- 70% storage reduction with context reference architecture
 
-### Context-Enhanced Optimization Tracking
-
-The new context system provides automatic tracking for optimization workflows:
-
-1. **Optimization Lineage**: Track from initial request → DSPy → agents → evaluation
-2. **Behavioral Test Correlation**: All agent spawns inherit optimization context
-3. **Cross-Framework Tracking**: Context flows through DSPy, judges, and evaluators
-4. **Retrospective Analysis**: Query optimization chains after completion
-
-## Current Status
-
-**Working Pipeline**:
-- ✅ DSPy MIPROv2 zero-shot optimization running
-- ✅ Baseline metrics providing realistic scores (40-90)
-- ✅ LLM-as-Judge performing static instruction analysis
-- ✅ Git operations controllable via skip_git parameter
-- ✅ MLflow tracking all optimization artifacts
-- ✅ **NEW: Automatic context propagation through optimization flows**
-- ✅ **NEW: Event lineage tracking from optimization → agents → evaluation**
-- ✅ **NEW: 70% storage reduction with context references**
-
-**Key Insight**: Current evaluation is static (textual analysis) not behavioral (actual agent testing)
-
-**Next Phase**: Leverage context system for behavioral tracking:
-- Context flows from optimization request to all spawned agents
-- Each test variant tracked with full lineage
-- Can reconstruct entire optimization experiment from context DB
+**Next Phase: Behavioral Evaluation**
+- Migrate from standalone bootstrap scripts to KSI-native orchestrations
+- Implement agent-in-the-loop testing (evaluate outputs, not instructions)
+- Tournament-based pairwise comparison system
 
 ## Future Context-Enabled Enhancements
 

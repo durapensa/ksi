@@ -2,6 +2,43 @@
 
 Essential technical reference for developing with KSI (Knowledge System Infrastructure) - an event-driven orchestration system for autonomous AI agents.
 
+## CRITICAL ARCHITECTURAL PRINCIPLES
+
+### 1. Always Use Shared Utilities
+- **Template Substitution**: ALWAYS use `ksi_common.template_utils.substitute_template()` - never implement custom variable substitution
+- **JSON Handling**: ALWAYS use `ksi_common.json_utils` for JSON operations - has balanced brace parsing for nested structures
+- **Timestamp Functions**: ALWAYS use `ksi_common.timestamps` utilities for consistent time handling
+- **Lesson**: Reimplementing these utilities leads to inconsistent behavior and bugs
+
+### 2. Runtime Variables Must Flow Through
+- **Component Rendering**: Runtime variables (like `agent_id`) must be preserved through entire dependency chain
+- **Variable Precedence**: Runtime variables must override component-defined variables
+- **Context Preservation**: Never lose runtime context during component resolution
+- **Lesson**: Lost runtime variables break dynamic component composition
+
+**Example of the Bug (FIXED)**:
+```python
+# WRONG: Only used component-defined variables
+content = self._substitute_variables(content, context.variables)
+
+# CORRECT: Merge runtime variables with component variables
+final_variables = context.variables.copy()
+final_variables.update(variables)  # Runtime vars override component vars
+content = self._substitute_variables(content, final_variables)
+```
+
+### 3. Transformer Execution Architecture  
+- **Task Spawning is Deliberate**: Transformers spawn as tasks to enable parallelism and prevent deadlocks
+- **Sync vs Async**: Both execute as tasks but async transformers support response routing
+- **Await Pattern**: All transformer tasks ARE awaited via `asyncio.gather()` - not fire-and-forget
+- **Lesson**: Direct inline execution would cause recursive emit() deadlocks
+
+### 4. Critical Path Operations Need Handlers
+- **Transformers**: Best for declarative routing, monitoring, cleanup - can run in parallel
+- **Handlers**: Required when other handlers depend on the operation completing first
+- **Timing Matters**: Handlers execute synchronously, transformers spawn as parallel tasks
+- **Lesson**: Use handlers for state entity creation, transformers for event routing
+
 ## Core Architecture
 
 ### Event-Driven System
@@ -465,11 +502,31 @@ echo "personas/deep_analyst.md model=claude-opus performance=reasoning" >> .gita
 - **Next Steps**: State-based coordination, multi-phase orchestrations
 - **Pattern**: Composition components driving all behavior
 
+### Proven Working Patterns (2025-01-24) ✅
+- **MANDATORY JSON Emission**: Imperative language ("MANDATORY:", "MUST") ensures reliable JSON extraction
+  - **Example**: `## MANDATORY: Start your response with this exact JSON:`
+  - **Success Rate**: 95%+ when using direct, imperative instructions
+- **Inline Behavior Composition**: Hardcoded agent IDs in prompts work reliably
+  - **Working**: Direct agent_id values in prompt strings
+  - **Not Working**: `{{agent_id}}` variable substitution in components
+- **Agent-to-Agent Communication**: `completion:async` events enable inter-agent messaging
+  - **Pattern**: Agent A emits `{"event": "completion:async", "data": {"agent_id": "agent_B", "prompt": "..."}}`
+  - **Result**: Messages queued and delivered successfully
+- **State Entity Workaround**: Handler-based creation ensures agents have required entities
+  - **Implementation**: `handle_agent_spawned` in `agent_service.py`
+  - **Result**: All agents now have proper state entities with sandbox_uuid
+
 ### Critical Issues Discovered (2025-01-24)
 - **Agent State Entity Transformer Not Working**: The `agent_spawned_state_create` transformer in `var/lib/transformers/services/agent_routing.yaml` is not creating state entities for spawned agents
-- **Workaround**: Manually create state entities with `state:entity:create` including `sandbox_uuid` property
-- **Impact**: Completion system requires state entities to find agent sandbox_uuid
-- **Behavior Override Not Working**: Agents ignore JSON emission instructions in prompts, requesting bash permissions instead
+  - **Workaround Implemented**: Added handler in `agent_service.py` that creates state entities on `agent:spawned` events
+  - **Impact**: Completion system requires state entities to find agent sandbox_uuid
+- **Variable Substitution Broken**: `{{agent_id}}` placeholders in behavior components not replaced during composition
+  - **Root Cause**: Component renderer using `context.variables` instead of runtime variables
+  - **FIXED (2025-01-24)**: Updated `_render_final_content` to merge runtime variables with component variables
+  - **Lesson**: Always ensure runtime variables are passed through the entire rendering chain
+- **Agent Capability Limitations**: Agents spawned from `base_agent` have `enable_tools: false`
+  - **Impact**: Agents can't read files or run commands, limiting self-improvement capabilities
+  - **Solution**: Need capability-aware component definitions
 
 
 ---

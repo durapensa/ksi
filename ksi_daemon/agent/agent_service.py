@@ -2375,3 +2375,50 @@ async def handle_agent_conversation_reset(data: AgentConversationResetData, cont
     return event_response_builder(reset_result, context)
 
 
+# Agent State Entity Creation Handler (workaround for transformer issue)
+class AgentSpawnedData(TypedDict):
+    """Agent spawned event data."""
+    agent_id: Required[str]
+    profile: Required[str]
+    sandbox_uuid: Required[str]
+    composition: NotRequired[str]
+    capabilities: NotRequired[List[str]]
+    _ksi_context: NotRequired[Dict[str, Any]]
+
+
+@event_handler("agent:spawned", schema=AgentSpawnedData)
+async def handle_agent_spawned(data: AgentSpawnedData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Create state entity when agent is spawned.
+    
+    This is a workaround for the transformer not working properly.
+    It ensures agents have state entities which are required for the completion system.
+    """
+    agent_id = data["agent_id"]
+    
+    # Create state entity for the agent
+    entity_result = await event_emitter("state:entity:create", {
+        "type": "agent",
+        "id": agent_id,
+        "properties": {
+            "agent_id": agent_id,
+            "profile": data["profile"],
+            "composition": data.get("composition", data["profile"]),
+            "status": "active",
+            "sandbox_uuid": data["sandbox_uuid"],
+            "capabilities": data.get("capabilities", []),
+            "created_at": timestamp_utc()
+        }
+    }, context)
+    
+    if isinstance(entity_result, list) and entity_result:
+        entity_result = entity_result[0]
+    
+    logger.info(f"Created state entity for agent {agent_id}")
+    
+    return event_response_builder({
+        "status": "handled",
+        "agent_id": agent_id,
+        "entity_created": entity_result.get("status") == "success" if entity_result else False
+    }, context)
+
+

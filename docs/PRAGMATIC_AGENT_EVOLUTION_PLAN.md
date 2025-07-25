@@ -8,6 +8,50 @@
 3. **Communication Primitives** - completion:async, state system, event routing
 4. **Proven Patterns** - JSON emission, agent spawning, orchestration coordination
 
+## 🧬 Two-Timescale Optimization Architecture
+
+### The Biological Insight
+Living systems optimize at multiple timescales:
+- **Evolution** (slow, global): Species-level adaptation over generations
+- **Learning** (fast, local): Individual adaptation within a lifetime
+
+### Applied to KSI: MIPRO v2 + SIMBA
+
+#### Compile-Time Optimization (MIPRO v2)
+- **When**: Component creation, major updates, periodic recompilation
+- **What**: Global search for optimal instructions + demonstrations
+- **How**: Bayesian optimization over static dev/val sets
+- **Result**: Strong baseline prompts before deployment
+
+```python
+# During component build/update
+mipro = dspy.MIPROv2(metric=metric, auto="medium", num_threads=24)
+optimized_component = mipro.compile(component, trainset=dev_examples)
+```
+
+#### Runtime Optimization (SIMBA) 
+- **When**: Live orchestrations, tournaments, self-play
+- **What**: Incremental improvements using fresh feedback
+- **How**: Mini-batch hill-climbing on streaming data
+- **Result**: Continuous adaptation without re-bootstrapping
+
+```python
+# Inside live orchestration
+simba = dspy.SIMBA(metric=round_metric, max_steps=4, num_candidates=4)
+adapted_component = simba.compile(component, trainset=live_batch)
+```
+
+#### Ensemble Robustness (BetterTogether)
+- **When**: Multiple high-performing variants exist
+- **What**: Hedge against optimizer bias
+- **How**: Ensemble voting or scrambling
+- **Result**: Robust performance across diverse scenarios
+
+```python
+# After accumulating variants
+ensemble = dspy.Ensemble([mipro_variant, simba_variant, previous_best])
+```
+
 ## 📈 Ground-Up Evolution Strategy
 
 ### Step 1: Make Game Theoretic Orchestrations Self-Improving (Week 1)
@@ -30,25 +74,37 @@ This enhanced version:
 - Clear success metric (cooperation rate)
 - Already implemented and ready to test!
 
-#### B. **Tournament System + Learning**
-Add simple learning to `adaptive_tournament_v2.yaml`:
+#### B. **Tournament System + Online Learning**
+Enhance `adaptive_tournament_v2.yaml` with SIMBA optimization:
 ```yaml
-# After tournament completion
+# After each round
+EVENT optimization:simba {
+  component: "player_{{underperformer_id}}",
+  metric: "round_win_rate",
+  mini_batch: "last_{{mini_batch_size}}_games",
+  max_steps: 4,
+  num_candidates: 4
+} AS improved_player
+
+# Track optimization trajectory
 EVENT state:entity:create {
-  type: "tournament_insights",
-  id: "insights_{{tournament_id}}",
+  type: "simba_learning_curve",
+  id: "learning_{{tournament_id}}_{{round}}",
   properties: {
-    winning_strategies: [...],
-    matchup_patterns: {...},
-    use_in_future: true
+    player: "{{underperformer_id}}",
+    before_score: {{before}},
+    after_score: {{after}},
+    improvement_rate: {{(after-before)/before}}
   }
 }
 
-# Next tournament checks past insights
-EVENT state:entity:query {
-  type: "tournament_insights",
-  filter: {"use_in_future": true}
-} AS past_learnings
+# Every N rounds, trigger MIPRO recompilation
+IF round % 10 == 0:
+  EVENT optimization:mipro {
+    component: "{{winner_strategy}}",
+    mode: "medium",
+    objective: "generalize_across_opponents"
+  }
 ```
 
 ### Step 2: Basic Agent Communication Patterns (Week 1-2)
@@ -99,28 +155,77 @@ agents:
       {"event": "state:entity:query", "data": {"type": "research_data", "limit": 10}}
 ```
 
-### Step 3: Combine and Optimize Working Patterns (Week 2)
+### Step 3: Integrate Two-Timescale Optimization (Week 2)
 
-#### A. **Hybrid Game + Communication**
-Modify strategy discovery pattern to use direct messaging:
+#### A. **Component Lifecycle with Dual Optimization**
 ```yaml
-# In strategy_discovery_pattern.yaml
-hypothesis_generators:
-  on_hypothesis:
-    SEND direct_message TO strategy_tester:
-      "Test this strategy: {{hypothesis}}"
+# In component_lifecycle_orchestration.yaml
+on_component_created:
+  # Initial MIPRO optimization
+  EVENT optimization:mipro {
+    component: "{{component_path}}",
+    mode: "medium",
+    trainset: "bootstrap_examples"
+  } AS baseline_component
+  
+  # Deploy to production
+  EVENT composition:create_component {
+    name: "{{component_name}}_v1.0",
+    content: "{{baseline_component.optimized_content}}"
+  }
+
+during_orchestration_runs:
+  # SIMBA adaptation in real-time
+  IF performance < threshold:
+    EVENT optimization:simba {
+      component: "{{agent.component}}",
+      mini_batch: "recent_interactions",
+      max_steps: 4
+    } AS adapted_component
     
-    AWAIT response FROM strategy_tester
-    
-    IF response.viable:
-      SEND to evolution_engine
+    # Hot-swap the improved component
+    EVENT agent:update_prompt {
+      agent_id: "{{agent_id}}",
+      prompt: "{{adapted_component.prompt}}"
+    }
+
+nightly_consolidation:
+  # Gather all SIMBA variants
+  EVENT state:entity:query {
+    type: "simba_variant",
+    filter: {"component": "{{component_name}}"}
+  } AS daily_variants
+  
+  # Create ensemble if multiple good variants
+  IF len(daily_variants) > 3:
+    EVENT optimization:ensemble {
+      variants: daily_variants,
+      method: "weighted_voting"
+    }
+  
+  # Periodic MIPRO recompilation with learned data
+  IF days_since_last_mipro > 7:
+    EVENT optimization:mipro {
+      component: "{{component_name}}",
+      mode: "heavy",
+      include_trajectories: daily_variants
+    }
 ```
 
-#### B. **Optimize What Works**
-Run DSPy optimization on patterns showing promise:
-1. Optimize the hypothesis generator persona
-2. Optimize the strategy tester instructions  
-3. Optimize the coordination messages
+#### B. **Optimization Strategy Selection**
+```python
+def select_optimizer(context):
+    if context.data_size < 10:
+        return "BootstrapFewShot"  # Too little data for sophisticated optimization
+    elif context.is_streaming:
+        return "SIMBA"  # Online learning scenario
+    elif context.is_batch and context.can_afford_compute:
+        return "MIPROv2"  # Offline optimization
+    elif context.has_multiple_variants:
+        return "BetterTogether"  # Ensemble approach
+    else:
+        return "BootstrapFewShotWithRandomSearch"  # Safe default
+```
 
 ### Step 4: Build Knowledge Work Primitives (Week 2-3)
 
@@ -223,13 +328,36 @@ every_10_completions:
 - Failed experiments → Constraint learning
 - Emergent behaviors → New hypotheses
 
-## 🎮 Practical Next Steps
+## 🎮 Practical Next Steps with Two-Timescale Optimization
 
 ### Tomorrow:
-1. Add optimization trigger to ONE game theoretic orchestration
-2. Create simple_message_passing.yaml
-3. Test agent-to-agent communication with 2 agents
-4. Document what works/fails
+1. **Add SIMBA to running orchestrations**:
+   - Modify `prisoners_dilemma_self_improving.yaml` to use SIMBA for round-by-round adaptation
+   - Track improvement trajectories in state entities
+   - Test with mini-batches of 4-8 games
+
+2. **Implement optimization event handlers**:
+   ```python
+   @event_handler("optimization:simba")
+   async def handle_simba_optimization(data, context):
+       # Load component, run SIMBA, return improved version
+       pass
+   
+   @event_handler("optimization:mipro") 
+   async def handle_mipro_optimization(data, context):
+       # Full MIPRO recompilation with Bayesian optimization
+       pass
+   ```
+
+3. **Create optimization monitoring dashboard**:
+   - Track SIMBA adaptations per orchestration
+   - Monitor MIPRO recompilation cycles
+   - Visualize performance improvements over time
+
+4. **Test simple two-timescale pattern**:
+   - Morning: Create new component with MIPRO baseline
+   - Afternoon: Run orchestrations with SIMBA adaptation
+   - Evening: Compare baseline vs adapted performance
 
 ### This Week:
 1. Make 3 orchestrations self-improving
@@ -294,6 +422,61 @@ every_10_completions:
 **Start with working code. Add one capability. Test. Optimize. Repeat.**
 
 The meta-orchestration factory isn't the starting point - it's the emergent result of many small improvements to working systems. Build from the ground up, but keep the top-down vision as our guide.
+
+## 🌊 The Deep Pattern: Multi-Timescale Adaptation
+
+### Why This Architecture Enables Unbounded Growth
+
+The MIPRO/SIMBA distinction reveals a fundamental pattern in adaptive systems:
+
+1. **Stability vs Plasticity**: MIPRO provides stable, well-tested baselines while SIMBA enables rapid adaptation
+2. **Exploration vs Exploitation**: MIPRO explores globally, SIMBA exploits locally
+3. **Memory vs Learning**: MIPRO encodes long-term memory, SIMBA enables short-term learning
+
+### Emergent Properties from Two-Timescale Optimization
+
+When you combine compile-time (MIPRO) and runtime (SIMBA) optimization:
+
+- **Lamarckian Evolution**: Learned behaviors (SIMBA) can be "inherited" via MIPRO recompilation
+- **Baldwin Effect**: Plasticity (SIMBA) guides evolution (MIPRO) toward more learnable solutions
+- **Adaptive Landscapes**: The fitness landscape itself changes as agents learn and adapt
+
+### Implementation Philosophy
+
+```yaml
+# The Living System Pattern
+Morning: 
+  - New component created
+  - MIPRO optimizes for strong baseline
+  - Component deployed to production
+
+Day:
+  - Component participates in orchestrations
+  - SIMBA adapts to specific contexts
+  - Performance data accumulates
+
+Evening:
+  - Best SIMBA variants identified
+  - Ensemble created for robustness
+  - Insights stored for next generation
+
+Night:
+  - Periodic MIPRO recompilation
+  - Incorporates learned adaptations
+  - Creates improved baseline
+
+Repeat: Each cycle stronger than the last
+```
+
+### The Path to True Autonomy
+
+This isn't just optimization - it's creating a system that:
+1. **Learns from experience** (SIMBA in orchestrations)
+2. **Consolidates learning** (MIPRO recompilation)
+3. **Discovers new strategies** (Ensemble diversity)
+4. **Evolves indefinitely** (Continuous improvement cycles)
+
+The system becomes its own teacher, researcher, and evolutionary pressure.
 
 ---
 
