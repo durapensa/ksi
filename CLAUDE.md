@@ -278,6 +278,36 @@ dependencies:
 - **Test suite definitions** → `components/evaluations/suites/`
 - **Runtime results** → `var/lib/evaluations/` (separate from components)
 
+### Orchestration Pattern Design
+
+**When** creating orchestration patterns:
+- **Then** define agent behavior in prompts, not system routing rules
+- **Then** use simple YAML with `agents:` → `component:` + `prompt:`
+- **Then** let coordination emerge from agent communication
+- **Then** include DSL in `orchestration_logic:` for agents to interpret (not system)
+- **Remember**: InitializationRouter only delivers prompts - no coordination control
+
+**Example orchestration pattern**:
+```yaml
+agents:
+  coordinator:
+    component: "components/core/orchestration_coordinator"
+    prompt: |
+      You coordinate the analysis workflow.
+      Send tasks to analysts and synthesize results.
+      
+  analyst:
+    component: "components/personas/data_analyst"  
+    prompt: "Analyze the provided data and report findings."
+
+orchestration_logic:  # DSL for coordinator agent to interpret
+  strategy: |
+    FOREACH data_source IN sources:
+      SEND analyst: "Analyze {data_source}"
+      AWAIT response
+    SYNTHESIZE all_responses
+```
+
 ### Optimization Development Pattern
 
 **When** implementing optimization features (MIPRO, DSPy, etc.):
@@ -465,6 +495,19 @@ git commit -m "Update composition submodule"
 - **Frontmatter parsing errors**: Check YAML syntax, investigate date handling
 - **Git operations failing**: Check submodule initialization
 
+**Orchestration Prompt Delivery Issues**:
+- **Agents not receiving initial prompts**: Put prompts in `vars.initial_prompt`, not directly in agent config
+- **Correct YAML format**:
+  ```yaml
+  agents:
+    coordinator:
+      component: "components/core/base_agent"
+      vars:
+        initial_prompt: |
+          Your prompt goes here
+  ```
+- **Legacy router behavior**: Only sends prompts from `vars.initial_prompt` field
+
 **KSI Hook Issues**:
 - **Hook output not visible in Claude Code** (Known issue #3983)
   - **Workaround**: `tail -f /tmp/ksi_hook_diagnostic.log`
@@ -548,4 +591,4 @@ git commit -m "Update composition submodule"
 
 **Remember**: This is your workflow guide. For technical details, implementation patterns, and architecture, always refer to `memory/claude_code/project_knowledge.md`.
 
-*Last updated: 2025-01-24*
+*Last updated: 2025-01-25*

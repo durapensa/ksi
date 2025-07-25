@@ -80,6 +80,24 @@ result = await event_emitter("optimization:list", {})
 - **Client tagging**: Events routed to Claude Code get `_client_id: "claude-code"` for log filtering
 - **Hierarchical propagation**: Subscription levels control how far events bubble up orchestration trees
 
+**Agent Initialization Architecture (2025)** ✅:
+- **Agents are autonomous entities**: They receive their full composition and optional initial prompt
+- **No initialization "strategies"**: InitializationRouter cleaned up - removed 7 hard-coded strategies (role_based, peer_to_peer, distributed, etc.)
+- **Simple prompt delivery**: System only extracts and delivers prompts from agent definitions
+- **Direct prompt field**: Agents can have `prompt:` at top level in YAML (preferred over `vars.initial_prompt`)
+- **DSL for agents, not system**: Orchestration DSL patterns passed to agents for interpretation, not system execution
+- **Coordination emerges**: Complex patterns emerge from agent behavior, not system control
+- **Future: proper messaging**: Will replace `completion:async` with pub/sub, unicast, multicast, broadcast
+
+**CRITICAL**: The system is an **enabler**, not an orchestrator. Give agents their identity (composition) and initial context (prompt), then let them coordinate through natural communication.
+
+**InitializationRouter Cleanup (2025)** ✅:
+- **Before**: 478 lines with 7 hard-coded coordination strategies that violated agent autonomy
+- **After**: 123 lines of simple prompt extraction and delivery
+- **DSL preservation**: Orchestration DSL still passed to orchestrator agents for interpretation
+- **Backward compatibility**: Still supports `vars.initial_prompt` and `vars.prompt` for legacy patterns
+- **Philosophy**: System delivers messages, agents decide coordination - not vice versa
+
 **Behavioral Override Pattern (FIXED 2025)** ✅:
 - **Dependencies system**: Component renderer processes both `dependencies:` and `mixins:` arrays 
 - **Field mapping fix**: `generated_content.system_prompt` extracted to `prompt` field for agent spawning

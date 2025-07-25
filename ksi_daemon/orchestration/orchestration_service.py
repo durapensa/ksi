@@ -531,11 +531,40 @@ class OrchestrationModule:
                 await self._send_broadcast_message(message_spec, instance)
             elif message_type == 'targeted':
                 await self._send_targeted_message(message_spec, instance)
+            elif message_type == 'initial_prompt':
+                await self._send_initial_prompt_message(message_spec, instance)
             else:
                 logger.warning(f"Unknown message type: {message_type}")
                 
         except Exception as e:
             logger.error(f"Failed to execute initialization message: {e}")
+    
+    async def _send_initial_prompt_message(self, message_spec: Dict[str, Any], instance: OrchestrationInstance):
+        """Send initial prompt message to a specific agent."""
+        agent_id = message_spec.get('agent_id')
+        content = message_spec.get('message', '')
+        variables = message_spec.get('variables', {})
+        
+        # Combine orchestration vars with message-specific vars
+        all_vars = {**instance.vars, **variables}
+        
+        # Apply variable substitution
+        from ksi_common.template_utils import substitute_variables
+        content = substitute_variables(content, all_vars)
+        
+        # Also do simple {{var}} substitution for backward compatibility
+        for var_name, var_value in all_vars.items():
+            content = content.replace(f"{{{{{var_name}}}}}", str(var_value))
+        
+        # Send the initial prompt
+        await event_emitter("agent:send_message", {
+            "agent_id": agent_id,
+            "message": {
+                "role": "user",
+                "content": content
+            }
+        })
+        logger.info(f"Sent initial prompt to {agent_id}")
     
     async def _send_broadcast_message(self, message_spec: Dict[str, Any], instance: OrchestrationInstance):
         """Send broadcast message to all agents."""
@@ -679,8 +708,10 @@ START the orchestration NOW by following the DSL strategy."""
             # Also check for initial_prompt in vars
             else:
                 agent_vars = agent_config.get('vars', {})
+                logger.info(f"Checking for initial_prompt in agent {agent_id} vars: {list(agent_vars.keys())}")
                 initial_prompt = agent_vars.get('initial_prompt')
                 if initial_prompt:
+                    logger.info(f"Found initial_prompt for {agent_id}, preparing to send")
                     try:
                         # Substitute variables in the prompt
                         # Combine instance vars with agent-specific vars

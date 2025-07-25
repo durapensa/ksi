@@ -310,7 +310,7 @@ if errors:
 
 ## Related Documentation
 
-- [Intelligent Orchestration Patterns](INTELLIGENT_ORCHESTRATION_PATTERNS.md)
+- [Orchestration Architecture](ORCHESTRATION_ARCHITECTURE_2025.md)
 - [Transformer Service Architecture](../ksi_daemon/transformer/README.md) *(to be created)*
 - [Composition System](../ksi_daemon/composition/README.md)
 - [Pattern Development Guide](PATTERN_DEVELOPMENT_GUIDE.md) *(to be created)*
