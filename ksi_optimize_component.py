@@ -16,6 +16,7 @@ from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc
 from ksi_daemon.optimization.frameworks.dspy_mipro_adapter import DSPyMIPROAdapter
+from ksi_daemon.optimization.frameworks.dspy_simba_adapter import DSPySIMBAAdapter
 from ksi_daemon.optimization.frameworks.litellm_dspy_adapter import configure_dspy_with_litellm
 
 logger = get_bound_logger("optimize_component")
@@ -72,7 +73,8 @@ def configure_mlflow(opt_id: str, component_name: str):
         mlflow.start_run()
         mlflow.set_tag("ksi_optimization_id", opt_id)
         mlflow.set_tag("ksi_component", component_name)
-        mlflow.set_tag("ksi_optimizer", "DSPy-MIPROv2")
+        optimizer_name = "DSPy-SIMBA" if config_data.get("optimizer") == "simba" else "DSPy-MIPROv2"
+        mlflow.set_tag("ksi_optimizer", optimizer_name)
         mlflow.set_tag("ksi_subprocess", "true")
         
         # Enable DSPy autologging
@@ -228,19 +230,37 @@ async def run_optimization(args):
         # Create metric
         metric = create_minimal_metric()
         
-        # Create adapter
+        # Create adapter based on optimizer type
         log_progress(opt_id, "initializing_optimizer")
         
-        adapter = DSPyMIPROAdapter(
-            metric=metric,
-            prompt_model=models.get("prompt_model"),
-            task_model=models.get("task_model"),
-            config=config_data
-        )
+        optimizer_type = config_data.get("optimizer", "mipro")
+        logger.info(f"Using optimizer: {optimizer_type}")
         
-        # Prepare minimal training data (DSPy needs some examples)
-        trainset = []  # Empty for zero-shot
-        valset = []    # Empty for zero-shot
+        if optimizer_type == "simba":
+            adapter = DSPySIMBAAdapter(
+                metric=metric,
+                prompt_model=models.get("prompt_model"),
+                task_model=models.get("task_model"),
+                config=config_data
+            )
+        else:
+            adapter = DSPyMIPROAdapter(
+                metric=metric,
+                prompt_model=models.get("prompt_model"),
+                task_model=models.get("task_model"),
+                config=config_data
+            )
+        
+        # Prepare training data - SIMBA uses recent interactions
+        if optimizer_type == "simba":
+            # For SIMBA, we need to get trainset from args or use mock data
+            trainset = config_data.get("trainset", [])
+            valset = []  # SIMBA doesn't use valset
+            logger.info(f"SIMBA using {len(trainset)} recent interactions")
+        else:
+            # MIPRO uses traditional training/validation sets
+            trainset = []  # Empty for zero-shot
+            valset = []    # Empty for zero-shot
         
         # Run optimization
         log_progress(opt_id, "optimizing")
@@ -273,7 +293,7 @@ async def run_optimization(args):
             
             optimization_metadata = {
                 "optimization": {
-                    "optimizer": "DSPy-MIPROv2",
+                    "optimizer": "DSPy-SIMBA" if config_data.get("optimizer") == "simba" else "DSPy-MIPROv2",
                     "timestamp": timestamp_utc(),
                     "opt_id": opt_id,
                     "config": config_data,

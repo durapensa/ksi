@@ -220,6 +220,14 @@ class GitSubmoduleManager:
     async def save_component(self, component_type: str, name: str, content: Dict[str, Any], 
                            message: Optional[str] = None) -> GitOperationResult:
         """Save component with git commit."""
+        if not config.git_operations_enabled:
+            logger.info(f"Git operations disabled, skipping commit for {component_type}: {name}")
+            return GitOperationResult(
+                success=True,
+                message=f"Saved {component_type}: {name} (git operations disabled)",
+                files_changed=[name]
+            )
+        
         try:
             repo_path = self.get_component_repo_path(component_type)
             
@@ -407,6 +415,64 @@ class GitSubmoduleManager:
     
     async def fork_component(self, component_type: str, source_name: str, target_name: str) -> GitOperationResult:
         """Fork component to new name with git branch."""
+        if not config.git_operations_enabled:
+            logger.info(f"Git operations disabled, skipping fork for {component_type}: {source_name} -> {target_name}")
+            # Still perform the file copy operation
+            try:
+                repo_path = self.get_component_repo_path(component_type)
+                
+                # Determine source file path
+                if component_type == "compositions":
+                    source_path = await self._find_composition_file(repo_path, source_name)
+                    if not source_path:
+                        return GitOperationResult(
+                            success=False,
+                            message=f"Source component not found: {source_name}",
+                            error="Source not found"
+                        )
+                    target_path = source_path.parent / f"{target_name}.yaml"
+                else:
+                    source_path = repo_path / f"{source_name}.yaml"
+                    target_path = repo_path / f"{target_name}.yaml"
+                
+                # Check if source exists
+                if not source_path.exists():
+                    return GitOperationResult(
+                        success=False,
+                        message=f"Source component not found: {source_name}",
+                        error="Source not found"
+                    )
+                
+                # Copy file
+                shutil.copy2(source_path, target_path)
+                
+                # Update the content to reflect the new name
+                import yaml
+                with open(target_path, 'r') as f:
+                    content = yaml.safe_load(f)
+                
+                if content and isinstance(content, dict):
+                    content["name"] = target_name
+                    content.setdefault("metadata", {})
+                    content["metadata"]["forked_from"] = source_name
+                    content["metadata"]["forked_at"] = timestamp_utc()
+                    
+                    with open(target_path, 'w') as f:
+                        yaml.dump(content, f, default_flow_style=False, sort_keys=False)
+                
+                return GitOperationResult(
+                    success=True,
+                    message=f"Forked {component_type}: {source_name} -> {target_name} (git operations disabled)",
+                    files_changed=[str(target_path.relative_to(repo_path))]
+                )
+            except Exception as e:
+                logger.error(f"Failed to fork component {source_name}: {e}")
+                return GitOperationResult(
+                    success=False,
+                    message=f"Failed to fork component: {e}",
+                    error=str(e)
+                )
+        
         try:
             repo_path = self.get_component_repo_path(component_type)
             

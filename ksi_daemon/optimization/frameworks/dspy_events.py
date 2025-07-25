@@ -263,13 +263,20 @@ class DSPyFramework:
             # For SIMBA, trainset contains recent interactions rather than static examples
             recent_interactions = trainset  # Assume trainset contains interaction history
             
+            logger.info(f"SIMBA optimization starting with {len(recent_interactions) if isinstance(recent_interactions, list) else 0} interactions")
+            logger.info(f"Recent interactions type: {type(recent_interactions)}")
+            
             # Run SIMBA optimization
-            result = await adapter.optimize(
-                component_name=target,
-                component_content=component_content,
-                recent_interactions=recent_interactions,
-                opt_id=opt_id
-            )
+            try:
+                result = await adapter.optimize(
+                    component_name=target,
+                    component_content=component_content,
+                    recent_interactions=recent_interactions,
+                    opt_id=opt_id
+                )
+            except Exception as e:
+                logger.error(f"SIMBA adapter.optimize failed: {e}", exc_info=True)
+                raise
             
             return {
                 "status": "success",

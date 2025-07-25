@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import time
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from ksi_common.event_response_builder import event_response_builder, error_resp
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc
+from .progress_parser import DSPyProgressParser
 from ksi_common.async_operations import (
     start_operation, update_operation_status, complete_operation,
     fail_operation, create_background_task, build_progress_event,
@@ -246,10 +248,18 @@ async def run_optimization_subprocess(opt_id: str, data: Dict[str, Any], context
         
         # Prepare subprocess configuration
         framework_name = data.get("framework", "dspy")
+        optimizer_type = data.get("optimizer", "mipro")
         config_data = data.get("config", {})
         
         if isinstance(config_data, str):
             config_data = json.loads(config_data)
+        
+        # Add optimizer type to config
+        config_data["optimizer"] = optimizer_type
+        
+        # Add trainset for SIMBA
+        if optimizer_type == "simba":
+            config_data["trainset"] = data.get("trainset", [])
         
         # Create temporary files for component content and result
         import tempfile
@@ -293,20 +303,122 @@ async def run_optimization_subprocess(opt_id: str, data: Dict[str, Any], context
         
         logger.info(f"Starting optimization subprocess for {opt_id}")
         
-        # Run optimization in subprocess
-        returncode, stdout, stderr = await process_manager.run_subprocess(
-            cmd=cmd,
-            process_id=opt_id,
-            working_dir=Path(__file__).parent.parent.parent,  # KSI root
-            timeout=1800,  # 30 minutes max
-            progress_timeout=600  # 10 minutes without output
+        # Run optimization in subprocess with progress monitoring
+        import subprocess
+        import queue
+        import threading
+        
+        # Create queues for output
+        stdout_queue = queue.Queue()
+        stderr_queue = queue.Queue()
+        
+        # Output reader threads
+        def read_output(pipe, output_queue):
+            try:
+                for line in iter(pipe.readline, b''):
+                    output_queue.put(line.decode('utf-8', errors='replace'))
+                pipe.close()
+            except Exception as e:
+                logger.error(f"Error reading subprocess output: {e}")
+        
+        # Start subprocess
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=Path(__file__).parent.parent.parent
         )
+        
+        # Start output readers
+        stdout_thread = threading.Thread(target=read_output, args=(process.stdout, stdout_queue))
+        stderr_thread = threading.Thread(target=read_output, args=(process.stderr, stderr_queue))
+        stdout_thread.start()
+        stderr_thread.start()
+        
+        # Initialize progress parser
+        progress_parser = DSPyProgressParser()
+        last_progress_emit = 0.0
+        emit_interval = 10.0  # Emit progress every 10 seconds
+        stdout_lines = []
+        stderr_lines = []
+        
+        # Monitor process
+        while process.poll() is None:
+            # Read available stderr
+            try:
+                while True:
+                    stderr_line = stderr_queue.get_nowait()
+                    if stderr_line:
+                        stderr_lines.append(stderr_line)
+                        # Parse progress from stderr
+                        progress_data = progress_parser.parse_line(stderr_line)
+                        if progress_data:
+                            # Emit progress event if enough time has passed
+                            current_time = time.time()
+                            if current_time - last_progress_emit >= emit_interval:
+                                await router.emit("optimization:progress", {
+                                    "optimization_id": opt_id,
+                                    "progress": progress_data,
+                                    "component_name": target,
+                                    "optimizer": data.get("optimizer", "mipro")
+                                })
+                                last_progress_emit = current_time
+                                logger.info(f"Optimization {opt_id} progress: {progress_data}")
+            except queue.Empty:
+                pass
+            
+            # Read available stdout
+            try:
+                while True:
+                    stdout_line = stdout_queue.get_nowait()
+                    if stdout_line:
+                        stdout_lines.append(stdout_line)
+            except queue.Empty:
+                pass
+            
+            # Brief sleep to avoid busy waiting
+            await asyncio.sleep(0.1)
+        
+        # Process completed - wait for threads
+        stdout_thread.join(timeout=5)
+        stderr_thread.join(timeout=5)
+        
+        # Get any remaining output
+        while not stdout_queue.empty():
+            stdout_lines.append(stdout_queue.get_nowait())
+        while not stderr_queue.empty():
+            stderr_lines.append(stderr_queue.get_nowait())
+        
+        # Join output
+        stdout = ''.join(stdout_lines)
+        stderr = ''.join(stderr_lines)
+        returncode = process.returncode
+        
+        # Get final progress summary
+        final_progress = progress_parser.get_summary()
+        if final_progress:
+            await router.emit("optimization:progress", {
+                "optimization_id": opt_id,
+                "progress": final_progress,
+                "component_name": target,
+                "optimizer": data.get("optimizer", "mipro"),
+                "final": True
+            })
         
         logger.info(f"Optimization subprocess {opt_id} completed with code {returncode}")
         
-        # Log DSPy stderr output for debugging (it contains progress info)
-        if stderr:
-            logger.debug(f"DSPy optimization output for {opt_id}:\n{stderr[:2000]}")
+        # Save DSPy raw output if enabled
+        if stderr and config.dspy_raw_output_log_path:
+            try:
+                with open(config.dspy_raw_output_log_path, 'a') as f:
+                    f.write(f"\n\n=== Optimization {opt_id} - {timestamp_utc()} ===\n")
+                    f.write(f"Component: {target}\n")
+                    f.write(f"Optimizer: {data.get('optimizer', 'mipro')}\n")
+                    f.write(f"Return Code: {returncode}\n")
+                    f.write(f"\n--- STDERR ---\n{stderr}\n")
+                    f.write(f"\n--- STDOUT ---\n{stdout}\n")
+            except Exception as e:
+                logger.warning(f"Could not save DSPy raw output: {e}")
         
         if returncode == 0:
             # Success - read specific result file and update component
@@ -1106,12 +1218,24 @@ async def handle_simba_optimization(data: Dict[str, Any], context: Optional[Dict
     # Ensure MLflow is initialized
     await _ensure_mlflow_initialized()
     
-    target = data.get("component")  # Component to optimize
-    recent_interactions = data.get("mini_batch", [])  # Recent interaction data
-    metric = data.get("metric", "exact_match")  # Metric to use
-    
-    if not target:
-        return error_response("component parameter required for SIMBA optimization", context=context)
+    try:
+        # Debug data structure
+        logger.info(f"SIMBA handler received data type: {type(data)}")
+        logger.info(f"SIMBA handler data keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
+        
+        # Extract parameters safely
+        if not isinstance(data, dict):
+            return error_response(f"Invalid data type for SIMBA: {type(data)}", context=context)
+        
+        target = data.get("component")  # Component to optimize
+        recent_interactions = data.get("mini_batch", [])  # Recent interaction data
+        metric = data.get("metric", "exact_match")  # Metric to use
+        
+        if not target:
+            return error_response("component parameter required for SIMBA optimization", context=context)
+    except Exception as e:
+        logger.error(f"Error extracting SIMBA parameters: {e}", exc_info=True)
+        return error_response(f"Failed to extract SIMBA parameters: {e}", context=context)
     
     # SIMBA-specific configuration
     simba_config = {
@@ -1125,6 +1249,11 @@ async def handle_simba_optimization(data: Dict[str, Any], context: Optional[Dict
     }
     
     try:
+        # Debug logging
+        logger.info(f"SIMBA optimization starting for component: {target}")
+        logger.info(f"Recent interactions type: {type(recent_interactions)}")
+        logger.info(f"Recent interactions count: {len(recent_interactions) if isinstance(recent_interactions, list) else 'Not a list'}")
+        
         # Use DSPy framework with SIMBA optimizer
         result = await handle_optimize({
             "framework": "dspy",

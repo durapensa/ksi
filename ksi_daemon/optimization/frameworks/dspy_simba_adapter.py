@@ -121,7 +121,25 @@ class DSPySIMBAAdapter(BaseOptimizer):
         """Create mini-batch dataset from recent interactions."""
         dspy_examples = []
         
-        for interaction in recent_interactions[-self.simba_config["mini_batch_size"]:]:
+        # Debug logging
+        logger.info(f"Creating mini-batch dataset for {component_name}")
+        logger.info(f"Recent interactions type: {type(recent_interactions)}")
+        logger.info(f"Recent interactions count: {len(recent_interactions) if isinstance(recent_interactions, list) else 'Not a list'}")
+        
+        # Ensure we have a list
+        if not isinstance(recent_interactions, list):
+            logger.error(f"recent_interactions is not a list: {type(recent_interactions)}")
+            return []
+        
+        for i, interaction in enumerate(recent_interactions[-self.simba_config["mini_batch_size"]:]):
+            # Debug individual interaction
+            logger.debug(f"Processing interaction {i}: type={type(interaction)}")
+            
+            # Ensure interaction is a dict
+            if not isinstance(interaction, dict):
+                logger.error(f"Interaction {i} is not a dict: {type(interaction)}, value: {interaction}")
+                continue
+            
             # Extract performance feedback
             performance = interaction.get("performance", {})
             feedback = f"Score: {performance.get('score', 0.0)}, "
@@ -356,17 +374,23 @@ class DSPySIMBAAdapter(BaseOptimizer):
     ) -> OptimizationResult:
         """Async wrapper for SIMBA optimization (legacy interface)."""
         logger.info(f"Running SIMBA optimization for {component_name} in thread pool")
+        logger.info(f"Recent interactions type in optimize: {type(recent_interactions)}")
+        logger.info(f"Recent interactions count: {len(recent_interactions) if isinstance(recent_interactions, list) else 'Not a list'}")
         
-        # Run sync optimization in thread pool
-        result = await run_in_thread_pool(
-            self.optimize_sync,
-            component_name,
-            component_content,
-            recent_interactions,
-            **kwargs
-        )
-        
-        return result
+        try:
+            # Run sync optimization in thread pool
+            result = await run_in_thread_pool(
+                self.optimize_sync,
+                component_name,
+                component_content,
+                recent_interactions,
+                **kwargs
+            )
+            
+            return result
+        except Exception as e:
+            logger.error(f"SIMBA optimize failed: {e}", exc_info=True)
+            raise
     
     def optimize_pipeline(
         self,

@@ -333,6 +333,10 @@ class KSIBaseConfig(BaseSettings):
     hook_timestamp_file: Path = Path("/tmp/ksi_hook_last_timestamp.txt")  # Last event timestamp
     hook_mode_file: Path = Path("/tmp/ksi_hook_mode.txt")  # Hook verbosity mode
     
+    # Git Operations Configuration
+    git_operations_enabled: bool = True  # Enable git operations (commits, branches, etc.)
+    git_bypass_errors: bool = True       # Continue operation even if git fails
+    
     # Optimization Configuration
     dspy_raw_output_log_path: Path = Path(DEFAULT_DB_DIR) / "dspy_raw_output.log"  # DSPy raw output log
     

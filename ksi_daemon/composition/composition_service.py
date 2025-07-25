@@ -333,10 +333,13 @@ async def _save_composition_to_disk(composition: Composition, overwrite: bool = 
         )
         
         if not git_result.success:
-            return {
-                'status': 'error',
-                'error': f'Failed to save composition: {git_result.error}'
-            }
+            if not config.git_bypass_errors:
+                return {
+                    'status': 'error',
+                    'error': f'Failed to save composition: {git_result.error}'
+                }
+            else:
+                logger.warning(f"Git operation failed but continuing (bypass enabled): {git_result.error}")
         
         # Update index
         comp_path = git_manager.get_component_repo_path("compositions")
@@ -1676,44 +1679,61 @@ async def handle_create_component(data: ComponentCreateData, context: Optional[D
             save_yaml_file(metadata_path, data['metadata'])
         
         # Git commit - use direct git operations for markdown files
-        import subprocess
-        repo_path = COMPOSITIONS_BASE
-        relative_path = file_path.relative_to(repo_path)
+        git_result = type('GitResult', (), {
+            'success': False,
+            'message': 'Git operations disabled or failed',
+            'hash': None
+        })()
         
-        try:
-            # Add file to git
-            subprocess.run(['git', 'add', str(relative_path)], 
-                         cwd=repo_path, check=True, capture_output=True)
+        if config.git_operations_enabled:
+            import subprocess
+            repo_path = COMPOSITIONS_BASE
+            relative_path = file_path.relative_to(repo_path)
             
-            # Commit
-            commit_msg = f"Create {comp_type} component: {name}"
-            subprocess.run(['git', 'commit', '-m', commit_msg], 
-                         cwd=repo_path, check=True, capture_output=True)
-            
-            git_result = type('GitResult', (), {
-                'success': True,
-                'message': f'Committed {relative_path}'
-            })()
-        except subprocess.CalledProcessError as e:
-            # If nothing to commit, that's ok
-            if b"nothing to commit" in e.stderr:
-                git_result = type('GitResult', (), {
-                    'success': True,
-                    'message': 'No changes to commit'
-                })()
-            else:
-                git_result = type('GitResult', (), {
-                    'success': False,
-                    'error': e.stderr.decode()
-                })()
-        except Exception as e:
-            git_result = type('GitResult', (), {
-                'success': False,
-                'error': str(e)
-            })()
+            try:
+                # Add file to git
+                subprocess.run(['git', 'add', str(relative_path)], 
+                            cwd=repo_path, check=True, capture_output=True)
+                
+                # Commit
+                commit_msg = data.get('message') or f"Create {comp_type} component: {name}"
+                subprocess.run(['git', 'commit', '-m', commit_msg], 
+                            cwd=repo_path, check=True, capture_output=True)
+                
+                    git_result = type('GitResult', (), {
+                        'success': True,
+                        'message': f'Committed {relative_path}',
+                        'hash': None
+                    })()
+                except subprocess.CalledProcessError as e:
+                    # If nothing to commit, that's ok
+                    if b"nothing to commit" in e.stderr or b"Your branch is up to date" in e.stderr:
+                        git_result = type('GitResult', (), {
+                            'success': True,
+                            'message': 'No changes to commit',
+                            'hash': None
+                        })()
+                    else:
+                        git_result = type('GitResult', (), {
+                            'success': False,
+                            'message': 'Git operation failed',
+                            'error': e.stderr.decode() if e.stderr else str(e),
+                            'hash': None
+                        })()
+                except Exception as e:
+                    git_result = type('GitResult', (), {
+                        'success': False,
+                        'message': 'Git operation failed',
+                        'error': str(e),
+                        'hash': None
+                    })()
         
+        # Check if git failed and we should bypass
         if not git_result.success:
-            return error_response(f"Git operation failed: {git_result.error}", context)
+            if not config.git_bypass_errors:
+                return error_response(f"Git operation failed: {git_result.error}", context)
+            else:
+                logger.warning(f"Git operation failed but continuing (bypass enabled): {git_result.error}")
         
         # Update index - all compositions should be indexed (unified architecture)
         await composition_index.index_file(file_path.relative_to(config.compositions_dir))
@@ -2095,7 +2115,10 @@ async def handle_fork_composition(data: CompositionForkData, context: Optional[D
         )
         
         if not git_result.success:
-            return error_response(f'Fork failed: {git_result.error}', context)
+            if not config.git_bypass_errors:
+                return error_response(f'Fork failed: {git_result.error}', context)
+            else:
+                logger.warning(f"Git fork failed but continuing (bypass enabled): {git_result.error}")
         
         # Load the forked composition to apply modifications
         if modifications:
