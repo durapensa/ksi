@@ -1,27 +1,43 @@
 # KSI Ξ Agent Improving Ecosystem
 
-> A graph-based orchestration system for evolving AI agents through collaborative improvement and meta-optimization
+> Where AI agents evolve through collaborative self-improvement and emergent coordination
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
 ## Overview
 
-KSI (not an acronym) is an experimental ecosystem where AI agents improve themselves and each other through orchestrated interactions. It provides a graph-based architecture where agents and orchestrations form nodes in a directed graph, with events flowing through edges based on hierarchical routing rules. The system enables meta-optimization - agents can optimize their own prompts, behaviors, and even the orchestration language itself.
+KSI is an open-source ecosystem where AI agents autonomously improve themselves and each other. Unlike traditional orchestration systems that control agent behavior, KSI provides infrastructure for agents to coordinate naturally through communication. Agents can optimize their own instructions, evaluate different strategies through tournaments, and even evolve the orchestration patterns they use to collaborate.
+
+### What Makes KSI Different
+
+Traditional systems tell agents what to do. KSI gives agents the tools to improve themselves:
+
+```yaml
+# Agents aren't controlled by complex routing rules
+# They receive instructions and coordinate naturally
+agents:
+  optimizer:
+    component: "components/personas/optimization_specialist"
+    prompt: |
+      Analyze the data_analyst component and create an improved version.
+      Use MIPRO optimization to enhance its cost efficiency.
+      Coordinate with the evaluator to test your improvements.
+```
 
 ### Key Features
 
-- 🧬 **Self-Improving Agents** - Agents optimize their own prompts and behaviors through MIPRO/DSPy
-- 🕸️ **Graph-Based Architecture** - Agents and orchestrations as nodes with hierarchical event routing
-- 🔄 **Meta-Optimization** - The orchestration DSL itself can be optimized by agents
-- ⚡ **Event-Driven Core** - Pure async event system with discoverable APIs
-- 🎭 **Persona-First Design** - Agents are Claude adopting personas, not artificial constructs
-- 📊 **Live Visualization** - Real-time web UI showing agent ecosystem and event flow
-- 🛡️ **Production Ready** - Resilient daemon with checkpoint/restore and graceful shutdown
-- 🔧 **Native Transports** - Built-in WebSocket and Unix socket transports
-- 🧩 **Component System** - Unified architecture where everything is a versioned component
-- 🌐 **Federated Development** - Git submodules enable collaborative component evolution
+- 🧬 **Autonomous Self-Improvement** - Agents use optimization tools to enhance their own and others' instructions
+- 🤝 **Emergent Coordination** - No hard-coded strategies; agents coordinate through natural communication
+- 🔄 **Meta-Optimization** - Even the orchestration patterns can be improved by agents
+- ⚡ **Event-Driven Core** - Everything happens through discoverable async events
+- 🎭 **Persona-First Design** - Agents are Claude adopting domain expertise, not programmed bots
+- 📊 **Live Ecosystem Visualization** - Watch agents collaborate and evolve in real-time
+- 🛡️ **Production Resilience** - Checkpoint/restore, graceful shutdown, session continuity
+- 🧩 **Component Evolution** - Fork, modify, and improve any component including orchestrations
+- 🌐 **Collaborative Development** - Git-based component sharing and versioning
 
 ## Installation
 
@@ -86,20 +102,26 @@ async with AsyncClient() as client:
     print(response.text)
 ```
 
-### Agent Orchestration & Improvement
+### Agent Self-Improvement Examples
 
 ```bash
-# Spawn an agent from a component
-./ksi send agent:spawn_from_component --component "components/personas/analysts/data_analyst"
+# 1. Agent optimizes another agent's instructions
+./ksi send orchestration:start --pattern "orchestrations/optimization/component_improvement" \
+  --vars '{"target_component": "personas/data_analyst", "optimization_goal": "reduce token usage by 30%"}'
 
-# Start an optimization orchestration
-./ksi send orchestration:start --pattern "orchestrations/optimization/mipro_prompt_optimization" \
-  --vars '{"target_component": "personas/analysts/data_analyst"}'
+# 2. Tournament-based strategy evolution
+./ksi send orchestration:start --pattern "orchestrations/tournaments/strategy_evolution" \
+  --vars '{"contestants": ["personas/analyst_v1", "personas/analyst_v2", "personas/analyst_v3"]}'
 
-# Run a tournament between different agent strategies
-./ksi send orchestration:start --pattern "orchestrations/tournaments/strategy_evaluation"
+# 3. Agent creates improved version of itself
+./ksi send agent:spawn_from_component --component "components/personas/self_improving_agent" \
+  --vars '{"instruction": "Create an improved version of yourself that better handles edge cases"}'
 
-# Monitor the ecosystem in real-time
+# 4. Orchestration pattern optimization (meta-optimization!)
+./ksi send orchestration:start --pattern "orchestrations/meta/pattern_evolution" \
+  --vars '{"target_pattern": "orchestrations/tournaments/basic_tournament"}'
+
+# Monitor agents improving each other in real-time
 python interfaces/monitor_tui.py
 ```
 
@@ -134,32 +156,31 @@ async with EventClient() as client:
 
 ## Architecture
 
-KSI implements a graph-based architecture where agents and orchestrations form nodes in a directed graph:
+KSI treats agents as autonomous entities in a graph structure, where coordination emerges from communication:
 
 ```
 ┌─────────────────────────────────────────────────┐
-│            Orchestration (Root)                  │
-│         orchestrator_agent_id: "claude-code"     │
+│         Orchestration (Enabler, not Controller)  │
+│         Simply spawns agents with instructions   │
 └───────────────┬─────────────┬───────────────────┘
                 │             │
        ┌────────▼────┐   ┌────▼────────┐
-       │   Agent A   │   │   Agent B    │  ← Agents as nodes
-       │  (Analyst)  │   │ (Optimizer)  │
+       │   Agent A   │◄──┤   Agent B   │  ← Agents communicate directly
+       │ (Optimizer) │   │ (Evaluator) │    Not through system routing
        └─────┬───────┘   └──────┬──────┘
              │                  │
-       ┌─────▼───────────────────▼─────┐
-       │    Sub-Orchestration          │  ← Nested orchestrations
-       │  (Strategy Tournament)        │
-       └───────────────────────────────┘
+             └──────┬───────────┘
+                    ▼
+            [Improved Component]     ← Agents create and modify components
 ```
 
 ### Core Principles
 
-1. **Graph-Based Entities** - Agents and orchestrations are nodes with edges representing relationships
-2. **Hierarchical Routing** - Events bubble up through subscription levels (graph traversal depth)
-3. **Everything is a Component** - Unified system with personas, behaviors, orchestrations as components
-4. **Persona-First Agents** - Agents are Claude adopting domain expertise, not artificial constructs
-5. **Meta-Optimization** - The system can optimize its own components and orchestration language
+1. **Agent Autonomy** - The system is an enabler, not a controller. Agents decide how to coordinate.
+2. **Emergent Behavior** - Complex patterns emerge from simple agent interactions, not system rules.
+3. **Self-Improvement** - Agents have access to optimization tools and can improve any component.
+4. **Persona-First** - Agents are Claude adopting domain expertise to solve real problems.
+5. **Everything Evolves** - Components, orchestrations, even the DSL itself can be optimized.
 
 ### Resilience Features
 
@@ -179,13 +200,50 @@ Components are the building blocks of KSI, organized by type:
 - **Evaluations** (`components/evaluations/`) - Quality metrics and judge components
 - **Tools** (`components/tools/`) - External integrations (MCP, Git, APIs)
 
-### Agent Improvement Patterns
+## Getting Started with Agent Self-Improvement
 
-- **MIPRO Optimization** - Agents optimize their own prompts using DSPy/MIPRO
-- **Behavioral Overrides** - Components can modify agent behavior through dependencies
-- **Tournament Selection** - Strategies compete and evolve through orchestrated tournaments
-- **Judge-Based Evaluation** - LLM judges provide nuanced feedback for improvement
-- **Meta-Linguistic Evolution** - The orchestration DSL itself evolves through optimization
+The power of KSI lies in agents improving themselves and each other. Here's how it works:
+
+### 1. Agents Can Optimize Components
+
+```yaml
+# An agent that improves other agents
+name: component_optimizer
+prompt: |
+  You have access to optimization tools. Your task:
+  1. Load the target component using composition:get_component
+  2. Analyze its current performance and identify improvements
+  3. Use optimization:async to create an improved version
+  4. Save the improved component using composition:create_component
+```
+
+### 2. Agents Can Fork and Modify
+
+```python
+# Agents can programmatically improve components
+await emit("composition:get_component", {"name": "personas/data_analyst"})
+# Analyze the component...
+await emit("optimization:async", {
+    "component": "personas/data_analyst",
+    "method": "mipro",
+    "goal": "improve accuracy while reducing tokens"
+})
+```
+
+### 3. Orchestration Patterns Evolve
+
+Even the patterns agents use to coordinate can be optimized:
+
+```yaml
+# Meta-optimization: improving orchestration patterns
+orchestration_logic:
+  strategy: |
+    LOAD pattern: "tournaments/basic_tournament"
+    ANALYZE efficiency AND coordination_quality
+    GENERATE improved_pattern WITH better_parallelism
+    TEST improved_pattern WITH sample_agents
+    SAVE AS: "tournaments/evolved_tournament_v2"
+```
 
 ## Module Development & API Discovery
 
@@ -234,27 +292,44 @@ The discovery system automatically extracts parameter types, descriptions, and v
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+We welcome contributions from everyone! KSI is a community project and we value:
+
+- 🌟 **New Ideas** - Novel approaches to agent coordination and optimization
+- 🛠️ **Components** - New personas, behaviors, and orchestration patterns
+- 📚 **Documentation** - Tutorials, examples, and clarifications
+- 🐛 **Bug Reports** - Help us improve stability and reliability
+- 🎨 **UI/UX** - Better visualization and interaction tools
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ### Development Setup
 
 ```bash
-# For development, use the wrapper script (no installation needed)
-./ksi discover    # Works immediately after setup.sh
+# Quick start for contributors
+git clone --recursive https://github.com/yourusername/ksi.git
+cd ksi
+./setup.sh
 
-# For production deployment, install the package
-pip install -e ".[dev]"
+# Run without installation (recommended for development)
+./ksi discover    # Works immediately!
 
-# After installation, 'ksi' is available system-wide
-ksi discover      # Available anywhere after pip install
+# Create your first component
+./ksi send composition:create_component --name "personas/my_analyst" \
+  --content "You are an analyst specializing in..."
 
 # Run tests
 pytest
 
-# Run linting
-black .
-ruff .
+# Check code style
+black . && ruff .
 ```
+
+### Community
+
+- 💬 [Discussions](https://github.com/yourusername/ksi/discussions) - Ask questions and share ideas
+- 🐛 [Issues](https://github.com/yourusername/ksi/issues) - Report bugs or request features
+- 📖 [Wiki](https://github.com/yourusername/ksi/wiki) - Community-maintained guides
+- 🤝 [Code of Conduct](CODE_OF_CONDUCT.md) - Be kind and respectful
 
 ## License
 
@@ -269,7 +344,19 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## Status
 
-KSI is under active development. Core functionality is stable and used in production environments. See [Issues](https://github.com/yourusername/ksi/issues) for current work.
+KSI is under active development. Core functionality is stable and used in production environments. We're actively working on:
+
+- 🔧 Enhanced self-improvement patterns
+- 🌐 Distributed agent networks
+- 📊 Advanced visualization tools
+- 🤖 More sophisticated meta-optimization
+
+See [Issues](https://github.com/yourusername/ksi/issues) and [Roadmap](https://github.com/yourusername/ksi/wiki/Roadmap) for details.
 
 ---
-*KSI Ξ Where agents evolve through orchestrated collaboration*
+
+<div align="center">
+  <b>KSI Ξ Where agents evolve through autonomous collaboration</b>
+  <br>
+  <i>The future of AI is not in controlling agents, but in enabling them to improve themselves.</i>
+</div>
