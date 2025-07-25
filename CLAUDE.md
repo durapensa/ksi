@@ -278,6 +278,65 @@ dependencies:
 - **Test suite definitions** → `components/evaluations/suites/`
 - **Runtime results** → `var/lib/evaluations/` (separate from components)
 
+### Self-Improving Agent Components (BOOTSTRAP COMPLETE) ✅
+
+**Foundation for Autonomous Improvement**:
+Agents can now optimize their own and other agents' instructions using KSI's optimization tools.
+
+**Bootstrap Components Created**:
+```bash
+# Core self-improvement personas
+personas/optimizers/self_improving_agent      # Optimizes any component
+personas/optimizers/orchestration_optimizer   # Evolves orchestration patterns
+personas/optimizers/tournament_coordinator    # Manages competitive evolution
+
+# Evaluation components  
+evaluations/judges/improvement_judge          # Validates optimizations
+
+# Full ecosystem orchestration
+orchestrations/ecosystem/self_improvement_ecosystem
+```
+
+**Self-Improvement Workflow**:
+```yaml
+# Agent analyzes a component
+{"event": "composition:get_component", "data": {"name": "personas/data_analyst"}}
+
+# Agent runs optimization (MIPRO for comprehensive, SIMBA for incremental)
+{"event": "optimization:async", "data": {
+  "component": "personas/data_analyst",
+  "method": "mipro",
+  "goal": "Reduce token usage by 30% while maintaining quality"
+}}
+
+# Agent saves improved version
+{"event": "composition:create_component", "data": {
+  "name": "personas/data_analyst_v2_optimized",
+  "content": "{{improved_instructions}}"
+}}
+```
+
+**CRITICAL - Capability Requirements**:
+```yaml
+# Self-improving agents need expanded capabilities
+# Standard agents only have "base"
+agent:
+  capabilities:
+    - composition     # Access component system
+    - optimization    # Run MIPRO/SIMBA
+    - state          # Track improvements
+    - agent          # Spawn test agents
+
+# Grant via permission profile or orchestration config
+```
+
+**Meta-Optimization Capability**:
+Agents can optimize the very orchestration patterns they use:
+- Analyze coordination efficiency
+- Evolve DSL for better clarity
+- Create new coordination constructs
+- Test improvements through tournaments
+
 ### Orchestration Pattern Design
 
 **When** creating orchestration patterns:
