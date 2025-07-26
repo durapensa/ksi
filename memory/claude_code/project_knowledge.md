@@ -891,6 +891,29 @@ security_profile: dsl_interpreter  # Grants necessary event permissions
 ```
 
 
+## Capability Mapping Fix (2025-01-26)
+
+### Missing state:entity:* Events
+
+**Issue Discovered**: The capability mappings were missing critical state entity events that the system uses internally:
+- `state:entity:create`
+- `state:entity:update`
+- `state:entity:delete`
+- `state:entity:get`
+- `state:entity:query`
+- `state:entity:bulk_create`
+
+**Impact**: Agents with `state_write` capability couldn't update entity properties, causing failures in:
+- Agent state tracking (sandbox_uuid)
+- Orchestration state management
+- Custom entity operations
+
+**Fix Applied**: Added missing events to both capability mapping files:
+1. `/var/lib/capabilities/capability_mappings.yaml` - Added to `state_read` and `state_write` capabilities
+2. `/var/lib/capabilities/capability_system_v3.yaml` - Already had most events in atomic capabilities, added `state:entity:bulk_create`
+
+**Testing Note**: Direct testing blocked by `composition:compose` error ("argument should be a str or an os.PathLike object"), but the fix is straightforward and aligns with existing event patterns.
+
 ---
 
 *Essential development knowledge - for workflows see CLAUDE.md*
