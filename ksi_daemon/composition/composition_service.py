@@ -2556,9 +2556,8 @@ async def handle_component_to_profile(data: ComponentToProfileData, context: Opt
         if get_result['status'] != 'success':
             return error_response(f"Failed to get component {component_name}: {get_result.get('error')}", context)
         
-        # Extract component metadata from frontmatter
+        # Extract ALL frontmatter fields for preservation
         frontmatter = get_result.get('frontmatter', {})
-        security_profile = frontmatter.get('security_profile') if frontmatter else None
         
         # Render the component with variables
         render_result = await handle_render_component({
@@ -2573,6 +2572,23 @@ async def handle_component_to_profile(data: ComponentToProfileData, context: Opt
         rendered_content = render_result['rendered_content']
         component_metadata = render_result.get('cache_stats', {})
         
+        # Extract fields from frontmatter that should go to agent_config
+        # Use frontmatter values to override defaults
+        agent_config_fields = {
+            'model': frontmatter.get('model', 'sonnet'),
+            'role': frontmatter.get('role', 'assistant'),
+            'enable_tools': frontmatter.get('enable_tools', False),
+            'capabilities': frontmatter.get('capabilities', ['conversation', 'analysis', 'task_execution']),
+            'message_queue_size': frontmatter.get('message_queue_size', 100),
+            'priority': frontmatter.get('priority', 'normal'),
+            'allowed_claude_tools': frontmatter.get('allowed_claude_tools', [])
+        }
+        
+        # Add any additional fields from frontmatter that start with 'agent_'
+        for key, value in frontmatter.items():
+            if key.startswith('agent_') and key not in agent_config_fields:
+                agent_config_fields[key] = value
+        
         # Create profile structure in proper composition format
         profile_data = {
             'name': profile_name,
@@ -2583,12 +2599,7 @@ async def handle_component_to_profile(data: ComponentToProfileData, context: Opt
             'components': [
                 {
                     'name': 'agent_config',
-                    'inline': {
-                        'model': 'sonnet',
-                        'capabilities': ['conversation', 'analysis', 'task_execution'],
-                        'message_queue_size': 100,
-                        'priority': 'normal'
-                    }
+                    'inline': agent_config_fields
                 },
                 {
                     'name': 'generated_content',
@@ -2606,10 +2617,35 @@ async def handle_component_to_profile(data: ComponentToProfileData, context: Opt
             }
         }
         
-        # Add security_profile if present in component
-        if security_profile:
-            profile_data['security_profile'] = security_profile
-            logger.info(f"Added security_profile {security_profile} to profile_data")
+        # Known top-level fields to preserve
+        top_level_preserve = [
+            'security_profile',
+            'permission_profile', 
+            'sandbox',
+            'dependencies',
+            'extends',
+            'loading_strategy'
+        ]
+        
+        # Add known top-level fields if present
+        for field in top_level_preserve:
+            if field in frontmatter:
+                profile_data[field] = frontmatter[field]
+                logger.info(f"Preserved {field} from component frontmatter: {frontmatter[field]}")
+        
+        # Also add agent config fields to top level for backward compatibility
+        # The agent spawn handler expects these at the top level
+        profile_data.update(agent_config_fields)
+        
+        # Pass through any other unknown fields from frontmatter
+        # This ensures forward compatibility
+        for key, value in frontmatter.items():
+            if (key not in profile_data and 
+                key not in agent_config_fields and
+                key not in ['name', 'type', 'version', 'description', 'author', 'component_type'] and
+                not key.startswith('_')):  # Skip internal fields
+                profile_data[key] = value
+                logger.debug(f"Preserved unknown field {key} from frontmatter")
         
         # Save to disk if requested
         if save_to_disk:

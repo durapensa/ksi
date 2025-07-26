@@ -793,7 +793,72 @@ The issue is NOT that behavioral overrides don't work, but that:
 - Behavioral overrides alone are insufficient when `enable_tools: false`
 - JSON code blocks pattern helps but doesn't solve the fundamental issue
 - The successful examples (standalone_demo, etc.) likely had different context
-- Need to implement actual tool support or fix component_to_profile to preserve enable_tools
+- Fixed component_to_profile to preserve enable_tools and all frontmatter fields ✅
+
+### Component_to_Profile Fix (2025-01-26) ✅
+
+**Problem**: component_to_profile handler only preserved `security_profile`, ignoring other frontmatter fields like `enable_tools`.
+
+**Solution Implemented**:
+1. Extract ALL frontmatter fields, not just security_profile
+2. Use frontmatter values to override default agent_config
+3. Add agent config fields to top level for backward compatibility
+4. Pass through unknown fields for forward compatibility
+
+**Key Changes**:
+```python
+# Extract all agent config fields from frontmatter
+agent_config_fields = {
+    'model': frontmatter.get('model', 'sonnet'),
+    'role': frontmatter.get('role', 'assistant'),
+    'enable_tools': frontmatter.get('enable_tools', False),
+    'capabilities': frontmatter.get('capabilities', ['conversation', 'analysis', 'task_execution']),
+    # ... other fields
+}
+
+# Also add to top level for agent spawn handler
+profile_data.update(agent_config_fields)
+```
+
+### Understanding enable_tools vs Capabilities (2025-01-26)
+
+**Key Distinction**:
+- **capabilities** → KSI events the agent can emit (agent:status, state:entity:update, etc.)
+- **enable_tools** → Whether Claude tools (Bash, Read, Write) are enabled
+- **allowed_claude_tools** → Specific Claude tools allowed (usually empty `[]`)
+
+**Why Both Exist**:
+1. Capabilities control event permissions within KSI
+2. Tools control external system access (filesystem, commands)
+3. Agents can emit JSON events without tools
+4. But agents perceive they need tools for "any action"
+
+**Current Blocker**: Even with `enable_tools: true`, `allowed_claude_tools` is determined by the capability system, not component frontmatter. The behavioral override approach is fundamentally limited by the agent's perception that it needs tools to interact with the system.
+
+### Final Findings on DSL Bootstrap (2025-01-26)
+
+**Systematic Analysis Results**:
+
+1. **Behavioral Overrides Work** - We found successful examples of JSON emission
+2. **Component_to_Profile Fixed** - Now preserves all frontmatter fields
+3. **Three-Layer Permission System**:
+   - `enable_tools` → Whether tools are enabled (boolean)
+   - `allowed_claude_tools` → Which tools (determined by capability system)
+   - `capabilities` → Which KSI events can be emitted
+
+**Why DSL Bootstrap Remains Blocked**:
+1. Agents perceive they need tools to "do anything" (emit JSON events)
+2. The capability system doesn't grant claude tools to any standard profiles
+3. Even with `allowed_claude_tools: ["bash"]` in frontmatter, capability system overrides it
+4. No existing mechanism to grant tools through components
+
+**Alternative Approaches Identified**:
+1. **Create Custom Tools** - Build KSI-specific tools that emit events directly
+2. **Use System-Level DSL** - Move DSL interpretation to transformers/handlers
+3. **Hybrid Approach** - Orchestrations that spawn pre-configured agents per command
+4. **Modify Capability System** - Add tool grants to security profiles
+
+**Recommendation**: The DSL bootstrap vision remains valid but requires architectural changes. The cleanest approach would be custom KSI tools that agents can use to emit events, bypassing the perception that they need system access.
 
 ### Critical Composition Patterns (2025-01-26)
 
