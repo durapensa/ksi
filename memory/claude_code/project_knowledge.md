@@ -91,6 +91,28 @@ result = await event_emitter("optimization:list", {})
 
 **CRITICAL**: The system is an **enabler**, not an orchestrator. Give agents their identity (composition) and initial context (prompt), then let them coordinate through natural communication.
 
+### KSI Philosophy: Elegant Fixes Over Workarounds (2025-01-26)
+
+**Core Principle**: Always implement solutions that flow naturally through the system architecture, never add workarounds or special cases.
+
+**Example Violations (What NOT to do)**:
+- Loading security_profile from file as fallback in agent spawn
+- Re-parsing frontmatter when already parsed by load_composition
+- Adding special handling for specific field names
+
+**Correct Approach**:
+1. **Trace data flow end-to-end** - Understand where data originates and where it's lost
+2. **Fix at the source** - If composition:compose loses fields, fix it to preserve them
+3. **Use existing patterns** - If components have frontmatter, use the existing parsing
+4. **Preserve all data** - Systems should pass through all fields, not just known ones
+
+**Applied to Capability System**:
+- ❌ Wrong: Add fallback to read security_profile from profile file
+- ✅ Right: Fix composition:compose to preserve all top-level fields from profiles
+- ✅ Right: Ensure Composition dataclass can handle arbitrary fields via metadata
+
+**The Test**: If you need to explain a special case or exception, it's probably a workaround.
+
 **InitializationRouter Cleanup (2025)** ✅:
 - **Before**: 478 lines with 7 hard-coded coordination strategies that violated agent autonomy
 - **After**: 123 lines of simple prompt extraction and delivery
@@ -603,25 +625,70 @@ echo "personas/deep_analyst.md model=claude-opus performance=reasoning" >> .gita
 
 ## Current Development Focus
 
-### DSL Bootstrap Capability Limitations (2025-01-25) 🚨
-**CRITICAL ISSUE DISCOVERED**: Agents cannot emit most KSI events due to capability restrictions!
+### DSL Bootstrap Capability Resolution (FIXED 2025-07-26) ✅
 
-**Problem**:
-- Agents spawned from components only get "base" capability by default
-- Base capability only allows: `system:health`, `system:help`, `system:discover`
-- DSL interpreter needs but CANNOT emit:
-  - `agent:status` (requires spawn_agents capability) 
-  - `state:entity:update` (NOT IN ANY CAPABILITY MAPPING!)
-  - `completion:async` (requires completion_management capability)
+**Solution Implemented**: Compositional capability system with security profiles
 
-**Impact**: DSL interpreters cannot execute EVENT blocks even with perfect instructions because the permission system blocks event emission.
+**What was fixed**:
+- Created `/var/lib/capabilities/capability_system_v3.yaml` with atomic capabilities, mixins, and profiles
+- Added `dsl_interpreter` profile with all required events for DSL execution
+- Fixed component frontmatter parsing to preserve `security_profile` field
+- Enhanced agent spawn to load security_profile from profile files
+- DSL interpreters now have these capabilities:
+  - `completion:async` - Agent-to-agent communication
+  - `agent:status`, `agent:progress`, `agent:result` - Status reporting
+  - `state:entity:*` - Full state management
+  - `orchestration:*` - Control orchestrations
+  - `task:assign`, `workflow:complete` - Task coordination
 
-**Root Cause**: `/var/lib/capabilities/capability_mappings.yaml` defines allowed events per capability, but critical events are missing or require capabilities not granted to basic agents.
+**Implementation Details**:
+1. Components specify `security_profile: dsl_interpreter` in frontmatter
+2. component_to_profile preserves security_profile in generated profiles
+3. Agent spawn loads security_profile and resolves capabilities via compositional system
+4. Capability mixins compose like components for flexibility
 
-**Required Fix**: Either:
-1. Add missing events to capability mappings
-2. Grant additional capabilities to DSL interpreter agents
-3. Create a new "dsl_execution" capability with needed events
+**Result**: DSL interpreters can now execute all EVENT blocks as designed
+
+### Compositional Capability System (v3 Architecture)
+
+**Philosophy**: Capabilities compose like components - atomic units, mixins, and profiles.
+
+**Structure** (`/var/lib/capabilities/capability_system_v3.yaml`):
+```yaml
+atomic_capabilities:
+  agent_status:
+    events: ["agent:status", "agent:progress", "agent:result"]
+    description: "Report agent status and progress"
+
+capability_mixins:
+  dsl_execution:
+    description: "Execute DSL patterns"
+    dependencies: [agent_status, completion_submit, state_management]
+
+capability_profiles:
+  dsl_interpreter:
+    description: "DSL execution with all required events"
+    mixins: [dsl_execution, basic_communication]
+    atoms: [event_monitoring]
+```
+
+**Key Design Principles**:
+1. **Atomic capabilities** - Smallest units mapping events to permissions
+2. **Capability mixins** - Reusable combinations with dependencies
+3. **Capability profiles** - Complete configurations for agent types
+4. **Dependency resolution** - Automatic inclusion of required capabilities
+5. **MCP ready** - Designed for dynamic tool integration
+
+**Usage Pattern**:
+```yaml
+# In component frontmatter
+---
+component_type: agent
+security_profile: dsl_interpreter  # Resolves to full capability set
+---
+```
+
+**Future Vision**: MCP servers expose tools → KSI agents classify → Dynamic capability integration → Existing agents gain new abilities
 
 ### Building Longer-Running Orchestrations (2025-01-24)
 - **Goal**: Orchestrator agents with spawned subagents working through phases

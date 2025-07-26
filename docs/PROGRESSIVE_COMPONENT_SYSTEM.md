@@ -796,3 +796,74 @@ completion:async --session-id 943a3864-d5bb-43d8-a2bc-fa6fdbdcdd4e --prompt "...
 
 **Strategic Conclusion**: The event routing system is technically proven and ready. The challenge is ensuring consistent agent behavior, which is inherent to working with LLM systems and requires prompt engineering solutions rather than technical fixes.
 
+## Compositional Capability System (2025-01-26)
+
+### Mirroring Component Architecture
+
+The capability system now follows the same compositional patterns as the component system:
+
+```yaml
+# /var/lib/capabilities/capability_system_v3.yaml
+
+# Atomic capabilities - like simple markdown components
+atomic_capabilities:
+  agent_status:
+    events: ["agent:status", "agent:progress", "agent:result"]
+    description: "Report agent status"
+
+# Capability mixins - like component mixins
+capability_mixins:
+  dsl_execution:
+    description: "Execute DSL patterns"
+    dependencies:
+      - agent_status
+      - completion_submit
+      - state_management
+
+# Capability profiles - like composed profiles
+capability_profiles:
+  dsl_interpreter:
+    description: "Full DSL execution capabilities"
+    mixins: [dsl_execution, basic_communication]
+    atoms: [event_monitoring]
+```
+
+### Progressive Enhancement for Capabilities
+
+Just as components progress from simple markdown to complex compositions, capabilities progress from:
+
+1. **Atomic Capabilities** - Single-purpose event mappings
+2. **Capability Mixins** - Composed capabilities with dependencies
+3. **Capability Profiles** - Complete configurations for agent types
+
+### Integration with Component System
+
+Components declare their required capabilities through `security_profile`:
+
+```yaml
+---
+component_type: agent
+name: dsl_interpreter_v2
+security_profile: dsl_interpreter  # Links to capability profile
+dependencies:
+  - behaviors/dsl/event_emission_basics
+---
+```
+
+### Key Benefits
+
+1. **Composability** - Mix and match capabilities like components
+2. **Reusability** - Share capability mixins across agent types
+3. **Evolution** - Add new capabilities without breaking existing profiles
+4. **MCP Ready** - Designed for dynamic tool integration
+
+### Future: Dynamic Capability Evolution
+
+Just as components can be optimized and evolved:
+- Capability profiles can be tuned for specific models
+- New atomic capabilities added as MCP tools are integrated
+- Agents can request capability upgrades based on needs
+- Overseer agents can modify capability mappings themselves
+
+The compositional pattern creates a unified mental model: **Everything composes** - components, profiles, capabilities, and eventually MCP tools.
+

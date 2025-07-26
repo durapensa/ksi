@@ -237,3 +237,57 @@ The meta-optimization of the DSL itself opens fascinating possibilities:
 - New paradigms for expressing complex logic to AI systems
 
 As we continue to optimize both the DSL and its integration with natural language, we're essentially discovering a new form of programming - one that leverages the unique capabilities of large language models while maintaining the precision needed for complex system orchestration.
+
+## DSL Bootstrap Capability Resolution (2025-01-26)
+
+### The Challenge
+DSL interpreters need to emit KSI events to execute patterns, but the capability system was blocking most events. The "base" capability only allowed system:health, system:help, and system:discover - making DSL execution impossible.
+
+### The Solution: Compositional Capabilities
+Created a v3 capability system that mirrors the component architecture:
+
+```yaml
+# Atomic capabilities - smallest units
+atomic_capabilities:
+  completion_submit:
+    events: ["completion:async"]
+    description: "Submit prompts to other agents"
+
+# Capability mixins - composed from atoms
+capability_mixins:
+  dsl_execution:
+    description: "Execute DSL patterns and emit events"
+    dependencies:
+      - agent_status
+      - completion_submit
+      - state_management
+      - orchestration_control
+
+# Capability profiles - complete configurations
+capability_profiles:
+  dsl_interpreter:
+    description: "DSL execution with all required events"
+    mixins: [dsl_execution, basic_communication]
+    atoms: [event_monitoring]
+```
+
+### Integration with Components
+Components declare their security profile in frontmatter:
+
+```yaml
+---
+component_type: agent
+name: dsl_interpreter_v2
+security_profile: dsl_interpreter  # Gets full DSL execution capabilities
+---
+```
+
+### Key Events Enabled
+- `completion:async` - Agent-to-agent communication
+- `agent:status`, `agent:progress`, `agent:result` - Status reporting
+- `state:entity:create`, `state:entity:update` - State management
+- `orchestration:request_termination` - Workflow control
+- `task:assign`, `workflow:complete` - Task coordination
+
+### Result
+DSL interpreters can now execute all EVENT blocks as designed, enabling the bootstrap approach where agents use DSL to improve components, including DSL instructions themselves.

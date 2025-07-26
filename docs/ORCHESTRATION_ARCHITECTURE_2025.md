@@ -42,6 +42,30 @@ The system does NOT:
 
 These emerge from agent compositions and behaviors.
 
+## InitializationRouter Evolution (2025)
+
+### The Cleanup
+- **Before**: 478 lines with 7 hard-coded "strategies" (legacy, role_based, peer_to_peer, distributed, hierarchical, state_machine, dynamic)
+- **After**: 123 lines of simple prompt extraction and delivery
+- **Removed**: All coordination control logic - agents handle this themselves
+- **Preserved**: DSL patterns for agent interpretation (not system execution)
+
+### Key Change
+```python
+# OLD: System tried to control coordination
+if strategy == "role_based":
+    self._apply_role_based_routing(messages, roles)
+elif strategy == "peer_to_peer":
+    self._setup_peer_connections(agents)
+# ... etc
+
+# NEW: System just delivers prompts
+def route_messages(self, orchestration_config, agent_list):
+    """Extract and prepare initial prompts for agents."""
+    # Only extracts prompts from agent definitions
+    # No coordination control
+```
+
 ## Future: Proper Messaging
 
 Current: Agents use `completion:async` for communication (expedient but limited)

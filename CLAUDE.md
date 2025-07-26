@@ -594,21 +594,31 @@ git commit -m "Update composition submodule"
 
 ## Meta-Principles
 
+### Elegant Architecture Philosophy (CRITICAL)
+- **System as enabler, not controller** - Provide infrastructure, don't orchestrate behavior
+- **No workarounds** - Fix issues at their source, never add special cases
+- **Data flow integrity** - Preserve all fields through system boundaries
+- **Compositional patterns** - Everything composes: components, capabilities, profiles
+- **See** `/docs/KSI_PHILOSOPHY_ELEGANT_ARCHITECTURE.md` for detailed principles
+
 ### Knowledge Capture (MANDATORY)
 **MANDATORY**: When discovering new patterns or fixing issues, you MUST:
 1. **Update this CLAUDE.md** IMMEDIATELY for workflow patterns - NO DELAYS
 2. **Update project_knowledge.md** IMMEDIATELY for technical details - NO EXCEPTIONS
 3. **Document the meta-pattern** IMMEDIATELY to ensure future knowledge capture
+4. **Update docs/** for architectural patterns and philosophy
 
 ### Testing Philosophy
 - **Test within KSI** - Use orchestrations and evaluations
 - **Start simple** - Single agent tests before complex orchestrations
 - **Validate assumptions** - Don't assume something works without testing
+- **Verify actual behavior** - Check logs, don't trust agent claims
 
 ### Code Quality
 - **Clean as you go** - Remove dead code immediately
 - **Complete migrations** - When moving features, remove old code
 - **Proper error handling** - No silent failures
+- **Trace data flow** - Understand where data is lost before fixing
 
 ## System Status (Current)
 
@@ -656,4 +666,4 @@ git commit -m "Update composition submodule"
 
 **Remember**: This is your workflow guide. For technical details, implementation patterns, and architecture, always refer to `memory/claude_code/project_knowledge.md`.
 
-*Last updated: 2025-01-25*
+*Last updated: 2025-01-26*
