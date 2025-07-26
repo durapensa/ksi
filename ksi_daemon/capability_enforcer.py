@@ -52,8 +52,8 @@ class CapabilityEnforcer:
                 resolved = self.resolver.resolve_profile(security_profile)
             else:
                 # Try to infer profile from capabilities
-                # Default to standard profile for now
-                resolved = self.resolver.resolve_profile("standard")
+                # Default to communicator profile (standard agent)
+                resolved = self.resolver.resolve_profile("communicator")
         else:
             # Use legacy resolver
             resolved = self.resolver.resolve_capabilities_for_profile(profile_capabilities)

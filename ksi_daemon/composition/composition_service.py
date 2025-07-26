@@ -2551,6 +2551,18 @@ async def handle_component_to_profile(data: ComponentToProfileData, context: Opt
             var_hash = hashlib.sha256(json_dumps(variables).encode()).hexdigest()[:8]
             profile_name = f"temp_profile_{component_name.replace('/', '_')}_{var_hash}"
         
+        # First, get the component to access its metadata
+        get_result = await handle_get_component({
+            'name': component_name
+        }, context)
+        
+        if get_result['status'] != 'success':
+            return error_response(f"Failed to get component {component_name}: {get_result.get('error')}", context)
+        
+        # Extract component metadata
+        component_data = get_result.get('component', {})
+        security_profile = component_data.get('security_profile')
+        
         # Render the component with variables
         render_result = await handle_render_component({
             'name': component_name,
@@ -2596,6 +2608,10 @@ async def handle_component_to_profile(data: ComponentToProfileData, context: Opt
                 'generated_by': 'composition:component_to_profile'
             }
         }
+        
+        # Add security_profile if present in component
+        if security_profile:
+            profile_data['security_profile'] = security_profile
         
         # Save to disk if requested
         if save_to_disk:
