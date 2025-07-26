@@ -16,14 +16,28 @@ class CapabilityEnforcer:
     """Enforces capability-based security boundaries at runtime."""
     
     def __init__(self):
-        self.resolver = get_capability_resolver()
+        # Check if we should use compositional resolver
+        from pathlib import Path
+        from ksi_common.config import config
         
-    def validate_agent_spawn(self, profile_capabilities: Dict[str, bool]) -> Dict[str, Any]:
+        v3_path = config.lib_dir / "capabilities" / "capability_system_v3.yaml"
+        if v3_path.exists():
+            from ksi_common.compositional_capability_resolver import get_compositional_capability_resolver
+            self.resolver = get_compositional_capability_resolver()
+            self.compositional = True
+            logger.info("Using compositional capability resolver")
+        else:
+            self.resolver = get_capability_resolver()
+            self.compositional = False
+        
+    def validate_agent_spawn(self, profile_capabilities: Dict[str, bool], 
+                           security_profile: Optional[str] = None) -> Dict[str, Any]:
         """
         Validate and resolve capabilities for agent spawning.
         
         Args:
-            profile_capabilities: Dict of capability_name → enabled
+            profile_capabilities: Dict of capability_name → enabled (legacy)
+            security_profile: Name of security profile to use (compositional)
             
         Returns:
             Dict with allowed_events, allowed_claude_tools, expanded_capabilities
@@ -31,8 +45,18 @@ class CapabilityEnforcer:
         Raises:
             SecurityError: If capabilities are invalid or dangerous
         """
-        # Use resolver to get concrete permissions
-        resolved = self.resolver.resolve_capabilities_for_profile(profile_capabilities)
+        # Handle compositional system
+        if self.compositional:
+            # Prefer explicit security profile
+            if security_profile:
+                resolved = self.resolver.resolve_profile(security_profile)
+            else:
+                # Try to infer profile from capabilities
+                # Default to standard profile for now
+                resolved = self.resolver.resolve_profile("standard")
+        else:
+            # Use legacy resolver
+            resolved = self.resolver.resolve_capabilities_for_profile(profile_capabilities)
         
         # Log security decision
         logger.info(

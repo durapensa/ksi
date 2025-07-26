@@ -822,11 +822,14 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
             enforcer = get_capability_enforcer()
             
             # Extract capabilities from composed profile
-            # Only look for the top-level "capabilities" component (dict of boolean flags)
+            # Check for explicit security profile first (v3 compositional system)
+            security_profile = profile.get("security_profile")
+            
+            # Fall back to capability dict (legacy system)
             profile_capabilities = profile.get("capabilities", {})
             
             # Validate and resolve capabilities for agent spawn
-            resolved = enforcer.validate_agent_spawn(profile_capabilities)
+            resolved = enforcer.validate_agent_spawn(profile_capabilities, security_profile)
             allowed_events = resolved["allowed_events"]
             allowed_claude_tools = resolved["allowed_claude_tools"]
             expanded_capabilities = resolved["expanded_capabilities"]

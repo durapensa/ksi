@@ -20,7 +20,19 @@ class CapabilityResolver:
     
     def __init__(self, mapping_file: Optional[Path] = None):
         """Initialize with capability mapping file."""
-        self.mapping_file = mapping_file or config.lib_dir / "capabilities" / "capability_mappings.yaml"
+        if mapping_file:
+            self.mapping_file = mapping_file
+        else:
+            # Check for v2 first, fall back to v1
+            v2_path = config.lib_dir / "capabilities" / "capability_mappings_v2.yaml"
+            v1_path = config.lib_dir / "capabilities" / "capability_mappings.yaml"
+            
+            if v2_path.exists():
+                self.mapping_file = v2_path
+                logger.info("Using capability mappings v2")
+            else:
+                self.mapping_file = v1_path
+                
         self.mappings = self._load_mappings()
         self._build_reverse_index()
         
