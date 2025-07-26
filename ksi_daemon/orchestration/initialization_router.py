@@ -2,6 +2,9 @@
 
 """
 Orchestration Initialization Router - Simple prompt delivery for autonomous agents
+
+Simplified to only support direct 'prompt' field on agents.
+No longer supports legacy vars.initial_prompt or vars.prompt patterns.
 """
 
 from typing import Dict, List, Any, Optional
@@ -46,18 +49,8 @@ class InitializationRouter:
                 logger.debug(f"No config found for agent {agent_id}")
                 continue
             
-            # Check for prompt in three places (in order of precedence):
-            # 1. Direct prompt field (preferred)
+            # Get prompt from direct field only (simplified approach)
             prompt = agent_config.get('prompt')
-            
-            # 2. Legacy vars.initial_prompt (for backward compatibility)
-            if not prompt:
-                agent_vars = agent_config.get('vars', {})
-                prompt = agent_vars.get('initial_prompt')
-            
-            # 3. Legacy vars.prompt (also for backward compatibility)  
-            if not prompt and 'vars' in agent_config:
-                prompt = agent_config['vars'].get('prompt')
             
             if prompt:
                 logger.info(f"Found initial prompt for agent {agent_id}")
