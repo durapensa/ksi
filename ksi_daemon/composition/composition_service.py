@@ -1334,18 +1334,20 @@ async def resolve_composition(
         except Exception as e:
             logger.warning(f"Failed to load component content for {name}: {e}")
     
+    # Start with metadata to preserve all fields (including security_profile)
+    result = composition.metadata.copy() if hasattr(composition, 'metadata') else {}
+    
     # Process inheritance
     if composition.extends:
         parent = await resolve_composition(composition.extends, 'profile', variables)
         # Merge parent configuration
         # (simplified - in production would do deep merge)
         if isinstance(parent, dict):
-            result = parent.copy()
+            # Parent fields take precedence over metadata
+            for key, value in parent.items():
+                result[key] = value
         else:
             logger.warning(f"Parent composition {composition.extends} returned non-dict: {type(parent)}")
-            result = {}
-    else:
-        result = {}
     
     # Process mixins
     for mixin_name in composition.mixins:

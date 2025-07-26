@@ -78,6 +78,19 @@ class Composition:
                     # Direct value
                     variables[var_name] = {'default': var_spec}
         
+        # Preserve all fields that aren't explicitly handled
+        known_fields = {
+            'name', 'type', 'version', 'description', 'author',
+            'extends', 'mixins', 'components', 'variables', 
+            'metadata', 'required_context'
+        }
+        
+        # Create metadata dict that includes existing metadata plus any unknown fields
+        combined_metadata = data.get('metadata', {}).copy()
+        for key, value in data.items():
+            if key not in known_fields:
+                combined_metadata[key] = value
+        
         return cls(
             name=data['name'],
             type=data['type'],
@@ -88,7 +101,7 @@ class Composition:
             mixins=data.get('mixins', []),
             components=components,
             variables=variables,
-            metadata=data.get('metadata', {})
+            metadata=combined_metadata
         )
 
 
