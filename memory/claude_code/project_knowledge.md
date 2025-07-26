@@ -914,6 +914,49 @@ security_profile: dsl_interpreter  # Grants necessary event permissions
 
 **Testing Note**: Direct testing blocked by `composition:compose` error ("argument should be a str or an os.PathLike object"), but the fix is straightforward and aligns with existing event patterns.
 
+## Behavioral Evaluation Components (2025-01-26)
+
+### Optimization Quality Assessment
+
+**Created comprehensive evaluation framework** for assessing optimization quality:
+
+**Evaluation Components**:
+- `token_efficiency_evaluator.md` - Measures token reduction while preserving functionality
+- `behavior_consistency_evaluator.md` - Ensures behavioral equivalence after optimization
+- `response_quality_judge.md` - Pairwise comparison of agent output quality
+- `optimization_quality_suite.md` - Combines all evaluators for holistic assessment
+
+**Key Features**:
+- Structured evaluation criteria with weighted scoring
+- JSON-based result reporting for system integration
+- Support for iterative optimization workflows
+- Risk assessment and improvement recommendations
+
+### Multi-Phase Orchestration Patterns
+
+**Created example orchestrations** demonstrating longer-running workflows:
+
+1. **Simple Multi-Phase Analysis** (`simple_multi_phase_analysis.yaml`)
+   - 3 phases: Data Collection → Analysis → Synthesis
+   - Phase coordinator manages transitions
+   - State tracking throughout execution
+
+2. **Iterative Optimization Cycle** (`iterative_optimization_cycle.yaml`)
+   - Quality-driven optimization iterations
+   - Continue/stop decisions based on improvement
+   - Integrated evaluation at each iteration
+
+3. **Self-Improving Research Pattern** (`self_improving_research_pattern.yaml`)
+   - Monitors own performance during execution
+   - Triggers self-optimization when performance degrades
+   - Demonstrates autonomous adaptation
+
+**Pattern Insights**:
+- Phase-based coordination enables complex workflows
+- State entities track progress across phases
+- Performance monitoring enables self-improvement
+- Orchestrator agents coordinate multi-agent activities
+
 ---
 
 *Essential development knowledge - for workflows see CLAUDE.md*
