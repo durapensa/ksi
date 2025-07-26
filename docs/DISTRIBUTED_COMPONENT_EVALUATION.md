@@ -395,58 +395,42 @@ ksi send evaluation:history --component "dsl_optimization_executor"
 ksi send evaluation:verify --certificate "eval_2025_07_26_3b4c5d6e"
 ```
 
-## Benefits
+## Current Implementation Status (Phase 1 Complete)
 
-### For Individual Developers
-- Never lose track of what's been tested
-- Quickly find validated components
-- See performance characteristics before using
-- Know which model versions work
+### What's Working Now
+- **Certificate Generation**: `python ksi_evaluation/generate_certificate.py`
+- **Registry Management**: `python ksi_evaluation/registry_manager.py scan`
+- **Discovery Integration**: `ksi send composition:discover --tested_on_model "claude-sonnet-4"`
+- **SQLite Indexing**: Automatic during `composition:rebuild_index`
+- **Agent Events**: `evaluation:run`, `evaluation:query`, `evaluation:get_certificate`
 
-### For Teams
-- Share test results through git
-- Build on validated components
-- Avoid duplicate testing effort
-- Maintain quality standards
+### Quick Start
+```bash
+# Test a component and generate certificate
+python test_dsl_executor_incremental.py
+python ksi_evaluation/generate_certificate.py
 
-### For Community
-- Discover trusted components
-- Contribute evaluations
-- Build reputation as thorough tester
-- Accelerate ecosystem growth
+# Update registry and discover validated components
+python ksi_evaluation/registry_manager.py scan
+python ksi_evaluation/discover_validated.py dsl
 
-## Security Considerations
+# Use in KSI discovery
+ksi send composition:discover --type agent --evaluation_status passing
+```
 
-### Phase 1 (Git-based)
-- Trust based on git repository access
-- Manual verification of certificates
-- No cryptographic signatures (rely on git)
+## Future Phases
 
-### Phase 2+ (Cryptographic)
+### Phase 2: Cryptographic Trust (3-6 months)
 - Ed25519 signatures on certificates
-- Public key infrastructure
-- Reputation tracking
-- Certificate expiration
+- Instance identity and reputation
+- Event-based certificate sharing
+- Trust network establishment
 
-## Migration Path
-
-### From Current State
-1. Run discovery script to hash existing components
-2. Create initial certificates for known-good components
-3. Commit certificates to git
-4. Update development workflow to include testing
-
-### To Phase 2
-1. Add public key generation to instances
-2. Implement certificate signing
-3. Create peer discovery mechanism
-4. Build trust network incrementally
-
-### To Phase 3
-1. Implement DHT for certificate storage
-2. Create gossip protocol for updates
-3. Add consensus mechanisms
-4. Enable economic incentives
+### Phase 3: P2P Mesh (6-12 months)
+- DHT for certificate discovery
+- Gossip protocol propagation
+- Consensus for disputed evaluations
+- Economic incentives for testing
 
 ## Conclusion
 

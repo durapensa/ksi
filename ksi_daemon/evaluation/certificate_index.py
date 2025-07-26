@@ -22,7 +22,7 @@ class CertificateIndex:
     
     def __init__(self, db_path: Optional[Path] = None):
         if db_path is None:
-            db_path = config.base_dir / "var/db/evaluation_index.db"
+            db_path = config.db_dir / "evaluation_index.db"
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
@@ -78,11 +78,19 @@ class CertificateIndex:
             component_hash = cert['component']['hash']
             component_path = cert['component']['path']
             
-            # Extract summary data
-            eval_date = cert['metadata']['created_at'][:10]
-            status = cert['results']['status']
-            perf_class = cert['results'].get('performance_profile', {}).get('performance_class', 'standard')
-            model = cert['environment']['model']
+            # Extract summary data - support both old and new formats
+            if 'metadata' in cert:
+                # Old format
+                eval_date = cert['metadata']['created_at'][:10]
+                status = cert['results']['status']
+                perf_class = cert['results'].get('performance_profile', {}).get('performance_class', 'standard')
+                model = cert['environment']['model']
+            else:
+                # New format from evaluation:run
+                eval_date = cert['certificate']['timestamp'][:10]
+                status = cert['evaluation']['results'].get('status', 'unknown')
+                perf_class = 'standard'  # Default for now
+                model = cert['evaluation']['model']
             
             # Get or create component entry
             with self._get_connection() as conn:
@@ -103,7 +111,7 @@ class CertificateIndex:
                         'date': eval_date,
                         'status': status,
                         'model': model,
-                        'path': str(cert_path.relative_to(config.base_dir))
+                        'path': str(cert_path)
                     }
                     certs.append(cert_meta)
                     
@@ -138,7 +146,7 @@ class CertificateIndex:
                         'date': eval_date,
                         'status': status,
                         'model': model,
-                        'path': str(cert_path.relative_to(config.base_dir))
+                        'path': str(cert_path)
                     }
                     
                     summary = {
@@ -179,7 +187,7 @@ class CertificateIndex:
     def scan_certificates(self, cert_dir: Optional[Path] = None) -> Tuple[int, int]:
         """Scan and index all certificates in directory."""
         if cert_dir is None:
-            cert_dir = config.base_dir / "var/lib/evaluations/certificates"
+            cert_dir = config.evaluations_dir / "certificates"
         
         if not cert_dir.exists():
             logger.warning(f"Certificate directory not found: {cert_dir}")

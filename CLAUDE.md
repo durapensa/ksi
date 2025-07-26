@@ -194,33 +194,24 @@ components/agents/ksi_aware_analyst.md
 
 **MANDATORY**: You MUST use discovery BEFORE attempting any task. NO EXCEPTIONS.
 
-**Progressive Discovery Methodology** (saves tokens/context):
+**Progressive Discovery Methodology**:
 1. **Start broad**: `ksi discover` - Get namespace overview
 2. **Narrow focus**: `ksi discover --namespace <name>` - Explore specific area
 3. **Get details**: `ksi help <event:name>` - Understand specific events
-4. **NEVER use --level full without redirect**: Output can be massive
 
-**Understanding Discovery Layers**:
-- **System Discovery** (`ksi discover`): MUST run this first to understand capabilities
-- **Domain Discovery** (`composition:discover`, `agent:discover`): MUST use for actual data queries
-
+**Domain Discovery with Evaluation** ✅:
 ```bash
-# MANDATORY: Progressive Discovery Pattern (saves tokens/context)
-ksi discover                    # Start with summary view
-ksi discover --namespace composition  # Explore specific namespace
-ksi help composition:get_component  # Get event details
+# Query components with evaluation filters
+ksi send composition:discover --type agent \
+  --tested_on_model "claude-sonnet-4" \
+  --evaluation_status "passing"
 
-# --level full REQUIRES namespace or event filter
-ksi discover --level full --namespace agent  # ✅ Fast with cache (0.1-1.5s)
-ksi discover --level full --event agent:spawn  # ✅ Single event detail
+# Discover validated behavioral components
+ksi send composition:discover --type behavior \
+  --min_performance_class "fast"
 
-# First run builds cache, subsequent runs 78-90% faster
-# Cache invalidates automatically when code changes
-
-# MANDATORY: Use domain discovery for data
-ksi send composition:discover --type component  # Query components from SQLite
-ksi send composition:list --filter '{"author": "ksi"}'  # List with filters
-ksi send agent:list  # List active agents
+# Check specific component evaluations
+python ksi_evaluation/discover_validated.py dsl
 ```
 
 **CRITICAL RULE**: System discovery guides you to domain discovery events, it NEVER returns domain data itself.

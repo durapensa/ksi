@@ -14,7 +14,8 @@ from ksi_common.config import config
 from ksi_common.service_lifecycle import service_startup
 from ksi_common.file_utils import load_yaml_file, save_yaml_file, ensure_directory
 from ksi_common.cache_utils import get_memory_cache
-from .evaluation_index import evaluation_index
+# from .certificate_index import evaluation_index  # TODO: Fix evaluation index import
+evaluation_index = None  # Temporary workaround
 
 logger = get_bound_logger("prompt_evaluation", version="2.0.0")
 
@@ -267,7 +268,8 @@ async def handle_prompt_evaluate(data: PromptEvaluationData, context: Optional[D
             evaluation_saved = True
             
             # Refresh index after saving new evaluation
-            evaluation_index.refresh()
+            if evaluation_index:
+                evaluation_index.refresh()
         except Exception as e:
             logger.error(f"Failed to save evaluation: {e}")
         
@@ -722,6 +724,8 @@ async def handle_list_evaluations(data: EvaluationListData, context: Optional[Di
         return error_response("composition_name is required", context)
     
     try:
+        if not evaluation_index:
+            return error_response("Evaluation index not available", context)
         eval_info = evaluation_index.get_evaluation_info(
             composition_type, 
             composition_name,
@@ -747,7 +751,8 @@ async def handle_refresh_index(data: EvaluationRefreshIndexData, context: Option
     # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
     try:
-        evaluation_index.refresh()
+        if evaluation_index:
+            evaluation_index.refresh()
         return event_response_builder({
             "status": "success",
             "message": "Evaluation index refreshed"

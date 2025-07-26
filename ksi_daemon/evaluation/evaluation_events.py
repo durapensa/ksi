@@ -11,6 +11,7 @@ from datetime import datetime
 
 from ksi_common.logging import get_bound_logger
 from ksi_common.event_response_builder import event_response_builder, error_response
+from ksi_common.config import config
 from ksi_daemon.event_system import event_handler
 from .certificate_index import CertificateIndex
 
@@ -31,21 +32,52 @@ class EvaluationRunData(TypedDict):
 async def handle_evaluation_run(data: EvaluationRunData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Run evaluation and generate certificate."""
     try:
-        # Import certificate generation utilities
-        import sys
-        sys.path.append(str(Path(__file__).parent.parent.parent))
-        from ksi_evaluation.generate_certificate import generate_certificate, save_certificate
+        # Generate certificate locally
+        from hashlib import sha256
+        import uuid
+        
+        # Load component to hash
+        component_path = Path(config.compositions_dir) / data['component_path']
+        if component_path.suffix != '.md':
+            component_path = component_path.with_suffix('.md')
+            
+        if not component_path.exists():
+            raise ValueError(f"Component not found: {component_path}")
+            
+        with open(component_path, 'r') as f:
+            content = f.read()
+        
+        # Hash component content
+        component_hash = sha256(content.encode()).hexdigest()
         
         # Generate certificate
-        cert = generate_certificate(
-            data['component_path'],
-            data['test_results'],
-            data['model'],
-            notes=data.get('notes')
-        )
+        cert = {
+            'certificate': {
+                'version': '1.0.0',
+                'id': str(uuid.uuid4()),
+                'timestamp': datetime.utcnow().isoformat() + 'Z'
+            },
+            'component': {
+                'path': data['component_path'],
+                'hash': component_hash
+            },
+            'evaluation': {
+                'test_suite': data['test_suite'],
+                'model': data['model'],
+                'results': data['test_results'],
+                'notes': data.get('notes', [])
+            }
+        }
         
         # Save certificate
-        cert_path = save_certificate(cert)
+        cert_dir = Path(config.evaluations_dir) / "certificates"
+        cert_dir.mkdir(parents=True, exist_ok=True)
+        
+        cert_filename = f"{Path(data['component_path']).stem}_{data['model']}_{cert['certificate']['id'][:8]}.yaml"
+        cert_path = cert_dir / cert_filename
+        
+        with open(cert_path, 'w') as f:
+            yaml.dump(cert, f, default_flow_style=False)
         
         # Index in SQLite
         cert_index = CertificateIndex()

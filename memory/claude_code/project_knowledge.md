@@ -471,53 +471,39 @@ ksi send agent:info --agent-id "agent_id" | jq '.expanded_capabilities'
 ksi send composition:list --filter '{"name": "component_name"}'
 ```
 
-## Component Evaluation System ✅ (Phase 1 Implemented)
+## Component Evaluation System ✅ (Phase 1 Complete)
 
 ### Architecture
-- **YAML Certificates**: Single source of truth in `var/lib/evaluations/certificates/`
-- **Local Registry**: Fast lookup index in `var/lib/evaluations/registry.yaml`
-- **SQLite Integration**: (In progress) Index/cache for composition discovery
-- **Git Sharing**: Certificates committed to `var/lib/compositions/.evaluations/`
+- **YAML Certificates**: Source of truth with SHA-256 component hashing
+- **SQLite Index**: Fast queries integrated with `composition:discover`
+- **Git Sharing**: Certificates in `var/lib/evaluations/certificates/`
+- **Event System**: `evaluation:run`, `evaluation:query` for agent access
 
-### Evaluation Workflow
+### Discovery Integration
 ```bash
-# 1. Test component and generate certificate
-python ksi_evaluation/generate_certificate.py
+# Filter by evaluation criteria
+ksi send composition:discover --type agent \
+  --tested_on_model "claude-sonnet-4" \
+  --evaluation_status "passing" \
+  --min_performance_class "fast"
 
-# 2. Update local registry index
-python ksi_evaluation/registry_manager.py scan
-
-# 3. Discover validated components
-python ksi_evaluation/discover_validated.py dsl
-
-# 4. Share via git
-cd var/lib/compositions && git add .evaluations/certificates/
+# Basic evaluation data included by default
+{
+  "name": "components/agents/dsl_optimization_executor",
+  "evaluation": {
+    "tested": true,
+    "latest_status": "passing",
+    "models": ["claude-sonnet-4-20250514"],
+    "performance_class": "standard"
+  }
+}
 ```
 
-### Integration with Composition Discovery (In Progress)
-- **Default Behavior**: Basic evaluation data included in `composition:discover`
-- **SQLite Index**: Fast queries on evaluation status, models, performance
-- **Evaluation Filters**: `--tested_on_model`, `--evaluation_status`, `--min_performance_class`
-- **Backward Compatible**: Existing discovery unchanged, evaluation data added
-
-### Certificate Format
-```yaml
-certificate:
-  id: "eval_2025_07_26_5f915561"
-  version: "1.0"
-component:
-  hash: "sha256:..."
-  path: "components/agents/dsl_optimization_executor.md"
-environment:
-  model: "claude-sonnet-4-20250514"
-  ksi_version: "2.0.0"
-results:
-  status: "passing"
-  tests: {...}
-  performance_profile: {...}
-  dependencies_verified: [...]
-  capabilities_required: [...]
-```
+### Key Implementation
+- **certificate_index.py**: SQLite indexing with evaluation_index table
+- **evaluation_integration.py**: Enhances discovery queries and results
+- **evaluation_events.py**: Agent-accessible evaluation operations
+- **Rebuild Integration**: `composition:rebuild_index` updates both indices
 
 ## Universal Graph-Based Architecture (2025) ✅
 

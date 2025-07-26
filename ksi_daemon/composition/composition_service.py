@@ -663,13 +663,25 @@ async def load_composition_raw(name: str, comp_type: Optional[str] = None) -> Di
             # Parse the content as YAML
             content_data = safe_load(content) if content.strip() else {}
             # Merge metadata and content, with metadata taking precedence
-            return {**content_data, **metadata}
+            result = {**content_data, **metadata}
+            
+            # Normalize component_type to type if needed
+            if 'component_type' in result and 'type' not in result:
+                result['type'] = result['component_type']
+                
+            return result
         except Exception as e:
             logger.error(f"Failed to parse YAML content in {name}: {e}")
             raise ValueError(f"Invalid YAML content in file: {e}")
     
     # For YAML files or other types, just return metadata
-    return metadata or {}
+    result = metadata or {}
+    
+    # Normalize component_type to type if needed
+    if 'component_type' in result and 'type' not in result:
+        result['type'] = result['component_type']
+    
+    return result
 
 
 def validate_core_composition(data: Dict[str, Any]) -> List[str]:
@@ -680,8 +692,9 @@ def validate_core_composition(data: Dict[str, Any]) -> List[str]:
     if not isinstance(data.get('name'), str):
         errors.append("'name' must be a string")
     
-    if not isinstance(data.get('type'), str):
-        errors.append("'type' must be a string")
+    # Support both 'type' and 'component_type' fields
+    if not isinstance(data.get('type'), str) and not isinstance(data.get('component_type'), str):
+        errors.append("'type' or 'component_type' must be a string")
     
     # Optional fields with type checking
     if 'version' in data and not isinstance(data['version'], str):
@@ -845,7 +858,7 @@ async def handle_git_info(data: CompositionGitInfoData, context: Optional[Dict[s
 
 class CompositionReloadData(TypedDict):
     """Rebuild the composition index by scanning all composition files."""
-    # No specific fields - rebuilds entire index
+    include_certificates: NotRequired[bool]  # Also index evaluation certificates
     _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
@@ -876,6 +889,13 @@ async def handle_rebuild_index(data: CompositionReloadData, context: Optional[Di
     try:
         indexed_count = await composition_index.rebuild()
         
+        # Also rebuild evaluation certificate index if requested
+        cert_indexed = 0
+        if data.get('include_certificates', False):
+            from ..evaluation.certificate_index import CertificateIndex
+            cert_index = CertificateIndex()
+            cert_indexed, _ = cert_index.scan_certificates()
+        
         # Clear component renderer cache to ensure fresh components are loaded
         renderer = get_renderer()
         renderer.clear_cache()
@@ -890,8 +910,8 @@ async def handle_rebuild_index(data: CompositionReloadData, context: Optional[Di
             {
                 'status': 'success',
                 'indexed_count': indexed_count,
-                'evaluations_indexed': eval_result.get('certificates_indexed', 0),
-                'message': f'Indexed {indexed_count} compositions and {eval_result.get("certificates_indexed", 0)} evaluations'
+                'evaluations_indexed': eval_result.get('certificates_indexed', 0) + cert_indexed,
+                'message': f'Indexed {indexed_count} compositions and {eval_result.get("certificates_indexed", 0) + cert_indexed} evaluations'
             },
             context=context
         )

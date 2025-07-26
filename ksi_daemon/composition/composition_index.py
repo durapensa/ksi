@@ -179,16 +179,21 @@ async def index_file(file_path: Path) -> bool:
             return False
             
         # Validate required fields based on unified architecture
-        if 'name' not in comp_data or 'type' not in comp_data:
-            logger.debug(f"Missing required fields (name/type) in {file_path}")
+        # Support both 'type' and 'component_type' fields
+        if 'name' not in comp_data:
+            logger.debug(f"Missing required field 'name' in {file_path}")
+            return False
+            
+        if 'type' not in comp_data and 'component_type' not in comp_data:
+            logger.debug(f"Missing required field 'type' or 'component_type' in {file_path}")
             return False
             
         # Calculate relative path from compositions directory
         relative_path = file_path.relative_to(config.compositions_dir)
         
-        # Extract metadata - we already validated name and type exist
+        # Extract metadata - handle both 'type' and 'component_type'
         simple_name = comp_data['name']
-        comp_type = comp_data['type']
+        comp_type = comp_data.get('type') or comp_data.get('component_type')
         
         # Use the relative path (without extension) as the unique identifier
         # This is consistent across all composition types
