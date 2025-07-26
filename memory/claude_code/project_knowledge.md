@@ -760,36 +760,40 @@ security_profile: dsl_interpreter  # Resolves to full capability set
   - **Impact**: Agents can't read files or run commands, limiting self-improvement capabilities
   - **Solution**: Need capability-aware component definitions
 
-### Critical DSL Bootstrap Blocker (2025-01-26)
+### JSON Emission Solutions (2025-01-26)
 
-**CRITICAL FINDING**: Behavioral overrides cannot make agents emit JSON events directly when they believe they need tool access.
+**FINDING**: JSON emission DOES work with the right behavioral components and patterns.
 
-#### The Problem
-Despite multiple approaches, agents consistently ask for tool permissions instead of executing DSL:
-1. Added explicit `dsl_execution_override` behavior component
-2. Used strong imperative language ("MANDATORY", "MUST EXECUTE")
-3. Explicitly stated "You are NOT Claude assistant"
-4. Combined multiple behavioral overrides
+#### Working Examples Found
+1. **standalone_demo** (2025-07-26) - Successfully emitted raw JSON directly
+2. **inline_behavior_test** - Used mandatory_json behavior successfully
+3. **agent_9130c2e6** - Used JSON code blocks (```json```) format
+4. **agent_d49e82bd** - KSI-aware analyst emitting many events
 
-**Result**: Agents ALWAYS respond with "I need Bash permissions to execute..."
+#### Why Agents Ask for Permissions
+The issue is NOT that behavioral overrides don't work, but that:
+- `enable_tools: false` is the default for component-spawned agents
+- Without tools, agents perceive they need permission for ANY system action
+- The frontmatter `enable_tools: true` is ignored by component_to_profile
 
-#### Root Cause
-Claude's fundamental behavior of requesting tool permissions appears to be:
-- Deeply embedded in the base model
-- Not overridable through prompt engineering alone
-- Triggered whenever the agent perceives it needs system access
+#### Working Patterns for JSON Emission
+1. **Use JSON code blocks**: Wrap JSON in ```json``` blocks (proven to work)
+2. **Combine correct behaviors**: 
+   - `behaviors/communication/mandatory_json`
+   - `behaviors/orchestration/claude_code_aware_json`
+3. **Clear initialization pattern**: "MANDATORY: Start your response with this exact JSON:"
 
-#### Implications for DSL Bootstrap
-The current DSL bootstrap approach is **fundamentally blocked** because:
-- DSL interpreters need to emit events directly
-- Agents interpret event emission as requiring tool access
-- No behavioral override can bypass this limitation
+#### Solutions to Implement
+1. **Fix component_to_profile**: Preserve enable_tools from component frontmatter
+2. **Use JSON code blocks**: Update DSL interpreters to use ```json``` format
+3. **Create KSI event tools**: Custom tools that emit events directly
+4. **Fix capability mappings**: Ensure all needed events are included
 
-#### Potential Solutions to Investigate
-1. **Different base model**: Use a model without tool-asking behavior
-2. **Pre-configured tools**: Give agents actual tools that emit events
-3. **Different architecture**: Move DSL interpretation to system level
-4. **Hybrid approach**: Use orchestrations that spawn pre-configured agents
+#### Current Status (2025-01-26)
+- Behavioral overrides alone are insufficient when `enable_tools: false`
+- JSON code blocks pattern helps but doesn't solve the fundamental issue
+- The successful examples (standalone_demo, etc.) likely had different context
+- Need to implement actual tool support or fix component_to_profile to preserve enable_tools
 
 ### Critical Composition Patterns (2025-01-26)
 
