@@ -49,10 +49,12 @@ class CapabilityEnforcer:
         if self.compositional:
             # Prefer explicit security profile
             if security_profile:
+                logger.info(f"Using explicit security profile: {security_profile}")
                 resolved = self.resolver.resolve_profile(security_profile)
             else:
                 # Try to infer profile from capabilities
                 # Default to communicator profile (standard agent)
+                logger.info("No security profile provided, defaulting to communicator")
                 resolved = self.resolver.resolve_profile("communicator")
         else:
             # Use legacy resolver

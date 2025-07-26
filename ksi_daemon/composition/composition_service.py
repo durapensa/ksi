@@ -1772,19 +1772,14 @@ async def handle_get_component(data: ComponentGetData, context: Optional[Dict[st
         # Use shared utility to load composition with proper path resolution
         try:
             metadata, content, file_path = load_composition_with_metadata(name, comp_type)
+            logger.info(f"Loaded composition {name}: metadata={metadata}, content_length={len(content)}")
         except FileNotFoundError:
             return error_response(f"Composition '{name}' not found", context)
         
-        # Parse frontmatter using modern frontmatter utilities
-        try:
-            post = parse_frontmatter(content, sanitize_dates=True)
-            frontmatter = post.metadata if post.has_frontmatter() else None
-            body_content = post.content
-        except Exception as e:
-            logger.warning(f"Failed to parse frontmatter in {name}: {e}")
-            # Fallback to simple component
-            frontmatter = None
-            body_content = content
+        # The metadata is already parsed by load_composition_with_metadata
+        # Just use what we got from it
+        frontmatter = metadata if metadata else None
+        body_content = content
         
         # Get external metadata if stored (legacy support)
         external_metadata = {}
@@ -2559,9 +2554,9 @@ async def handle_component_to_profile(data: ComponentToProfileData, context: Opt
         if get_result['status'] != 'success':
             return error_response(f"Failed to get component {component_name}: {get_result.get('error')}", context)
         
-        # Extract component metadata
-        component_data = get_result.get('component', {})
-        security_profile = component_data.get('security_profile')
+        # Extract component metadata from frontmatter
+        frontmatter = get_result.get('frontmatter', {})
+        security_profile = frontmatter.get('security_profile') if frontmatter else None
         
         # Render the component with variables
         render_result = await handle_render_component({
@@ -2612,6 +2607,7 @@ async def handle_component_to_profile(data: ComponentToProfileData, context: Opt
         # Add security_profile if present in component
         if security_profile:
             profile_data['security_profile'] = security_profile
+            logger.info(f"Added security_profile {security_profile} to profile_data")
         
         # Save to disk if requested
         if save_to_disk:

@@ -818,12 +818,27 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
         if compose_result and compose_result.get("status") == "success":
             profile = compose_result["composition"]
             
+            # If compose_name looks like a profile, try to load security_profile from it
+            security_profile = None
+            if compose_name.startswith("temp_profile_") or compose_name.endswith(".yaml"):
+                profile_path = config.compositions_dir / "profiles" / f"{compose_name}.yaml"
+                if profile_path.exists():
+                    try:
+                        with open(profile_path, 'r') as f:
+                            import yaml
+                            profile_data = yaml.safe_load(f)
+                            security_profile = profile_data.get("security_profile")
+                            if security_profile:
+                                logger.info(f"Loaded security_profile {security_profile} from profile file")
+                    except Exception as e:
+                        logger.warning(f"Failed to load security_profile from {profile_path}: {e}")
+            
+            # If not found in file, check composed profile
+            if not security_profile:
+                security_profile = profile.get("security_profile")
+            
             # Validate and resolve capabilities for agent spawn
             enforcer = get_capability_enforcer()
-            
-            # Extract capabilities from composed profile
-            # Check for explicit security profile first (v3 compositional system)
-            security_profile = profile.get("security_profile")
             
             # Fall back to capability dict (legacy system)
             profile_capabilities = profile.get("capabilities", {})
@@ -877,9 +892,15 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
     
     # Get permissions from composed profile if available
     if compose_result and "profile" in compose_result:
-        profile_perms = compose_result["profile"].get("permissions", {})
-        if "profile" in profile_perms:
-            permission_profile = profile_perms["profile"]
+        # Check for security_profile first (v3 compositional capability system)
+        if "security_profile" in compose_result["profile"]:
+            permission_profile = compose_result["profile"]["security_profile"]
+            logger.info(f"Using security_profile {permission_profile} from composed profile")
+        # Fall back to legacy permissions dict
+        elif "permissions" in compose_result["profile"]:
+            profile_perms = compose_result["profile"].get("permissions", {})
+            if "profile" in profile_perms:
+                permission_profile = profile_perms["profile"]
         if "sandbox" in compose_result["profile"]:
             sandbox_config.update(compose_result["profile"]["sandbox"])
     
