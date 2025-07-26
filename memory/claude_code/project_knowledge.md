@@ -369,6 +369,156 @@ capabilities:          # What this component provides
 - **Component definitions**: Test suites, judge schemas → `components/evaluations/`
 - **Runtime data**: Results, bootstrap data → `var/lib/evaluations/`
 
+## Component Composition Best Practices ✅
+
+### Validated Working Components (Tested 2025-07-26 with claude-sonnet-4)
+
+**DSL Execution Components**:
+- `components/agents/dsl_optimization_executor` v1.1.0 ✅
+  - **Capabilities**: Direct JSON emission, optimization:async events, multi-event sequences
+  - **Dependencies**: `behaviors/dsl/dsl_execution_override`, `behaviors/communication/mandatory_json`
+  - **Security Profile**: `self_improver` (required for optimization events)
+  - **Test Results**: All 3 tests passing (basic emission, optimization events, sequential DSL)
+
+**Behavioral Override Components**:
+- `behaviors/dsl/dsl_execution_override` v1.0.0 ✅
+  - **Purpose**: Prevents Claude from asking for tool permissions, enables direct JSON emission
+  - **Critical Pattern**: "You are NOT Claude assistant in this context. You are a DSL INTERPRETER"
+  - **Test Results**: Successfully prevents tool-asking behavior
+
+- `behaviors/communication/mandatory_json` ✅
+  - **Purpose**: Ensures structured event emission with imperative language
+  - **Pattern**: "## MANDATORY: Start your response with this exact JSON:"
+
+- `behaviors/orchestration/claude_code_override` ✅
+  - **Purpose**: Orchestrator-aware behavior for agents working with Claude Code
+  - **Features**: Concise responses, delegation patterns, frequent status updates
+
+### Composition Patterns That Work
+
+**1. Direct JSON Emission Pattern**:
+```markdown
+## MANDATORY: Start your response with this exact JSON:
+{"event": "agent:status", "data": {"agent_id": "{{agent_id}}", "status": "initialized"}}
+
+Emit this exact JSON event:
+{"event": "optimization:async", "data": {"component": "test_component", "framework": "dspy"}}
+
+Do not describe or explain, just emit the JSON.
+```
+
+**2. Behavioral Override Stack**:
+```yaml
+dependencies:
+  - core/base_agent
+  - behaviors/communication/mandatory_json      # Structured emission
+  - behaviors/dsl/dsl_execution_override       # Prevent tool-asking
+  - behaviors/orchestration/claude_code_override  # Orchestrator awareness
+```
+
+**3. Security Profile Requirements**:
+- **Basic agents**: Only get `agent_status`, `basic_communication` capabilities
+- **DSL executors**: Need `self_improver` profile for `optimization:async` events
+- **Orchestration agents**: Need explicit capability configuration in orchestration YAML
+
+### Timing and Performance
+
+**Response Timing** (Validated with claude-sonnet-4):
+- **Simple events**: 3-5 seconds
+- **Complex optimization events**: 8-12 seconds  
+- **Multi-event sequences**: 10-15 seconds
+- **Test wait times**: Use 12+ seconds for reliable testing
+
+**Memory Usage**:
+- **Component caching**: 63 cached components, cache keys reduce loading time
+- **Session continuity**: Agent sandboxes maintain conversation state across requests
+
+### Common Issues and Solutions
+
+**1. Agents Asking for Tool Permissions**:
+- **Cause**: Missing `behaviors/dsl/dsl_execution_override` dependency
+- **Solution**: Add override component, use imperative language in prompts
+
+**2. Orchestration Agents Can't Emit Optimization Events**:
+- **Cause**: Base components only get basic capabilities  
+- **Solution**: Configure `security_profile: self_improver` in orchestration YAML
+
+**3. Component Path Errors in Orchestrations**:
+- **Cause**: Incorrect component reference format
+- **Solution**: Use exact paths: `"components/agents/dsl_optimization_executor"`
+
+**4. Events Not Captured in Tests**:
+- **Cause**: Insufficient wait time for agent processing
+- **Solution**: Use 12+ second delays for complex requests
+
+### Testing Strategy
+
+**Incremental Validation**:
+1. **Basic emission test**: Simple `agent:progress` event
+2. **Capability test**: Target event type (e.g., `optimization:async`)  
+3. **Sequential test**: Multiple events in sequence
+4. **Orchestration test**: Full workflow with proper security profiles
+
+**Test Event Patterns**:
+```bash
+# Monitor specific events during testing
+ksi send monitor:get_events --event-patterns "agent:status,optimization:async" --data-contains "test_agent_id" --limit 10
+
+# Check agent capabilities 
+ksi send agent:info --agent-id "agent_id" | jq '.expanded_capabilities'
+
+# Verify component exists
+ksi send composition:list --filter '{"name": "component_name"}'
+```
+
+## Component Evaluation System ✅ (Phase 1 Implemented)
+
+### Architecture
+- **YAML Certificates**: Single source of truth in `var/lib/evaluations/certificates/`
+- **Local Registry**: Fast lookup index in `var/lib/evaluations/registry.yaml`
+- **SQLite Integration**: (In progress) Index/cache for composition discovery
+- **Git Sharing**: Certificates committed to `var/lib/compositions/.evaluations/`
+
+### Evaluation Workflow
+```bash
+# 1. Test component and generate certificate
+python ksi_evaluation/generate_certificate.py
+
+# 2. Update local registry index
+python ksi_evaluation/registry_manager.py scan
+
+# 3. Discover validated components
+python ksi_evaluation/discover_validated.py dsl
+
+# 4. Share via git
+cd var/lib/compositions && git add .evaluations/certificates/
+```
+
+### Integration with Composition Discovery (In Progress)
+- **Default Behavior**: Basic evaluation data included in `composition:discover`
+- **SQLite Index**: Fast queries on evaluation status, models, performance
+- **Evaluation Filters**: `--tested_on_model`, `--evaluation_status`, `--min_performance_class`
+- **Backward Compatible**: Existing discovery unchanged, evaluation data added
+
+### Certificate Format
+```yaml
+certificate:
+  id: "eval_2025_07_26_5f915561"
+  version: "1.0"
+component:
+  hash: "sha256:..."
+  path: "components/agents/dsl_optimization_executor.md"
+environment:
+  model: "claude-sonnet-4-20250514"
+  ksi_version: "2.0.0"
+results:
+  status: "passing"
+  tests: {...}
+  performance_profile: {...}
+  dependencies_verified: [...]
+  capabilities_required: [...]
+```
+
 ## Universal Graph-Based Architecture (2025) ✅
 
 ### Entities as Graph Nodes

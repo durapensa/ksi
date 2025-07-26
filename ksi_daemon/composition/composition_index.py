@@ -304,6 +304,12 @@ async def discover(query: Dict[str, Any]) -> List[Dict[str, Any]]:
                 conditions.append(f"json_extract(metadata, '$.{key}') = ?")
                 params.append(value)
     
+    # Add evaluation filters if present
+    from .evaluation_integration import evaluation_integration
+    eval_conditions, eval_params = evaluation_integration.enhance_discovery_query(query)
+    conditions.extend(eval_conditions)
+    params.extend(eval_params)
+    
     where_clause = ' AND '.join(conditions) if conditions else '1=1'
     
     # Add LIMIT clause if specified
@@ -313,7 +319,7 @@ async def discover(query: Dict[str, Any]) -> List[Dict[str, Any]]:
     
     sql = f"""
         SELECT name, type, description, version, author, 
-               tags, capabilities, loading_strategy, file_path, metadata
+               tags, capabilities, loading_strategy, file_path, metadata, file_hash
         FROM composition_index 
         WHERE {where_clause}
         ORDER BY name{limit_clause}
@@ -343,6 +349,9 @@ async def discover(query: Dict[str, Any]) -> List[Dict[str, Any]]:
                     # Include full metadata if requested
                     if query.get('include_metadata', False) and row[9]:
                         result['metadata'] = json.loads(row[9])
+                    
+                    # Always include file_hash for evaluation matching
+                    result['file_hash'] = row[10]
                     
                     results.append(result)
     except Exception as e:

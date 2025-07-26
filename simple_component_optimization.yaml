@@ -1,0 +1,33 @@
+---
+name: simple_component_optimization
+description: Simple orchestration to test component optimization with DSL executor
+version: 1.0.0
+
+agents:
+  executor:
+    component: "components/agents/dsl_optimization_executor"
+    vars:
+      initial_prompt: |
+        You are optimizing a component using DSL execution.
+        
+        ## MANDATORY: Start your response with this exact JSON:
+        {"event": "agent:status", "data": {"agent_id": "{{agent_id}}", "status": "initialized", "role": "optimization_executor"}}
+        
+        Your task: Optimize the "core/base_agent" component using MIPRO.
+        
+        Execute these steps:
+        
+        1. Emit initialization:
+        {"event": "agent:status", "data": {"agent_id": "{{agent_id}}", "status": "starting_optimization", "target": "core/base_agent"}}
+        
+        2. Start optimization:
+        {"event": "optimization:async", "data": {"component": "core/base_agent", "framework": "dspy", "config": {"optimizer": "mipro", "num_trials": 3, "test_mode": true}}}
+        
+        3. Report completion:
+        {"event": "agent:status", "data": {"agent_id": "{{agent_id}}", "status": "optimization_started", "message": "MIPRO optimization initiated for core/base_agent"}}
+
+orchestration_logic: |
+  Simple single-agent optimization pattern:
+  1. Agent initializes
+  2. Agent starts optimization via events
+  3. Agent reports status

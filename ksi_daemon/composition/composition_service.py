@@ -37,11 +37,7 @@ from .composition_core import (
     load_composition as load_composition_file,
     COMPONENTS_BASE, COMPOSITIONS_BASE, SCHEMAS_BASE, CAPABILITIES_BASE
 )
-from .evaluation_utils import (
-    create_evaluation_record, calculate_overall_score, 
-    find_best_evaluation, summarize_evaluation_status,
-    merge_evaluation_record
-)
+# Old evaluation utils removed - using certificate-based evaluation system
 # TypedDict imports are now defined locally in this file
 
 # Module state
@@ -533,6 +529,12 @@ class CompositionDiscoverData(TypedDict):
     metadata_filter: NotRequired[Dict[str, Any]]  # Filter by metadata
     include_metadata: NotRequired[bool]  # Include full metadata in response
     limit: NotRequired[int]  # Limit number of results (default: no limit)
+    # Evaluation filters
+    tested_on_model: NotRequired[str]  # Filter by model tested
+    evaluation_status: NotRequired[str]  # Filter by evaluation status (passing|failing|partial)
+    min_performance_class: NotRequired[str]  # Filter by minimum performance (fast|standard|slow)
+    include_evaluation: NotRequired[bool]  # Include evaluation data (default: True)
+    evaluation_detail: NotRequired[str]  # Level of evaluation detail (minimal|summary|detailed)
     _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
@@ -558,18 +560,21 @@ async def handle_discover(data: CompositionDiscoverData, context: Optional[Dict[
         logger.debug(f"composition:discover sending to index: {query}")
         discovered = await composition_index.discover(query)
         
-        # TODO: Re-enable evaluation detail when performance is optimized
-        # Currently disabled to prevent timeouts
-        
-        # Metadata filtering is now handled in the SQL query
-        # The index already filtered by metadata if requested
+        # Enhance results with evaluation data if requested
+        from .evaluation_integration import evaluation_integration
+        enhanced_compositions = evaluation_integration.enhance_results(
+            discovered, 
+            query
+        )
         
         return event_response_builder(
             {
                 'status': 'success',
-                'compositions': discovered,
-                'count': len(discovered),
-                'filtered': data.get('metadata_filter') is not None
+                'compositions': enhanced_compositions,
+                'count': len(enhanced_compositions),
+                'filtered': data.get('metadata_filter') is not None or 
+                          data.get('tested_on_model') is not None or
+                          data.get('evaluation_status') is not None
             },
             context=context
         )
@@ -876,11 +881,17 @@ async def handle_rebuild_index(data: CompositionReloadData, context: Optional[Di
         renderer.clear_cache()
         logger.debug("Cleared component renderer cache after index rebuild")
         
+        # Also rebuild evaluation index
+        from .evaluation_integration import evaluation_integration
+        eval_result = await evaluation_integration.rebuild_evaluation_index()
+        logger.info(f"Evaluation index: {eval_result}")
+        
         return event_response_builder(
             {
                 'status': 'success',
                 'indexed_count': indexed_count,
-                'message': f'Indexed {indexed_count} compositions'
+                'evaluations_indexed': eval_result.get('certificates_indexed', 0),
+                'message': f'Indexed {indexed_count} compositions and {eval_result.get("certificates_indexed", 0)} evaluations'
             },
             context=context
         )
