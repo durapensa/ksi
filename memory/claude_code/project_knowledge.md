@@ -625,7 +625,45 @@ echo "personas/deep_analyst.md model=claude-opus performance=reasoning" >> .gita
 
 ## Current Development Focus
 
-### DSL Bootstrap Capability Resolution (FIXED 2025-07-26) ✅
+### Development Priorities (2025-01-26)
+
+**Priority Order** (updated after discovering critical DSL bootstrap blocker):
+
+#### 1. ~~Complete the DSL Bootstrap System~~ (BLOCKED - see Critical DSL Bootstrap Blocker)
+The DSL bootstrap approach is fundamentally blocked because agents cannot emit JSON events directly when they perceive tool access is needed. Created all behavior components but agents consistently ask for tool permissions instead of executing DSL.
+
+**Alternative Approaches to Investigate**:
+- Give agents actual tools that emit events (enable_tools: true)
+- Move DSL interpretation to system/transformer level
+- Use orchestrations that spawn pre-configured agents for each DSL command
+- Explore different base models without tool-asking behavior
+
+#### 2. Behavioral Evaluation for Optimization (NEXT PHASE)
+The optimization system has static evaluation working but needs behavioral testing:
+- **Implement agent-in-the-loop evaluation** - Spawn agents, test actual outputs
+- **Create behavioral test suites as components** - Version control test scenarios
+- **Move from bootstrap scripts to KSI-native orchestrations**
+- **Add tournament-based pairwise comparison** - Bradley-Terry rankings
+
+#### 3. Build Multi-Phase Orchestrations (FOUNDATION EXISTS)
+Agent communication proven, ready for complex patterns:
+- **Create orchestrator agents** that spawn and coordinate subagents
+- **Implement state-based coordination patterns**
+- **Build longer-running orchestrations** - Use `multi_phase_orchestrator.yaml` as template
+- **Test hierarchical event propagation** with subscription levels
+
+#### 4. Fix Critical Issues
+- **`state:entity:update` missing from capability mappings** - Blocks DSL state management
+- **Agent state entity transformer not creating entities** - Workaround exists in code
+- **Variable substitution in components** - Test after recent fix (commit 6b4cafd)
+
+#### 5. Expand Self-Improvement Ecosystem
+Bootstrap exists but needs expansion:
+- **More behavioral override patterns** beyond `claude_code_override.md`
+- **Test orchestrations demonstrating self-improvement**
+- **Integration with optimization pipeline**
+
+### DSL Bootstrap Capability Resolution (FIXED 2025-01-26) ✅
 
 **Solution Implemented**: Compositional capability system with security profiles
 
@@ -721,6 +759,67 @@ security_profile: dsl_interpreter  # Resolves to full capability set
 - **Agent Capability Limitations**: Agents spawned from `base_agent` have `enable_tools: false`
   - **Impact**: Agents can't read files or run commands, limiting self-improvement capabilities
   - **Solution**: Need capability-aware component definitions
+
+### Critical DSL Bootstrap Blocker (2025-01-26)
+
+**CRITICAL FINDING**: Behavioral overrides cannot make agents emit JSON events directly when they believe they need tool access.
+
+#### The Problem
+Despite multiple approaches, agents consistently ask for tool permissions instead of executing DSL:
+1. Added explicit `dsl_execution_override` behavior component
+2. Used strong imperative language ("MANDATORY", "MUST EXECUTE")
+3. Explicitly stated "You are NOT Claude assistant"
+4. Combined multiple behavioral overrides
+
+**Result**: Agents ALWAYS respond with "I need Bash permissions to execute..."
+
+#### Root Cause
+Claude's fundamental behavior of requesting tool permissions appears to be:
+- Deeply embedded in the base model
+- Not overridable through prompt engineering alone
+- Triggered whenever the agent perceives it needs system access
+
+#### Implications for DSL Bootstrap
+The current DSL bootstrap approach is **fundamentally blocked** because:
+- DSL interpreters need to emit events directly
+- Agents interpret event emission as requiring tool access
+- No behavioral override can bypass this limitation
+
+#### Potential Solutions to Investigate
+1. **Different base model**: Use a model without tool-asking behavior
+2. **Pre-configured tools**: Give agents actual tools that emit events
+3. **Different architecture**: Move DSL interpretation to system level
+4. **Hybrid approach**: Use orchestrations that spawn pre-configured agents
+
+### Critical Composition Patterns (2025-01-26)
+
+#### ALWAYS Investigate Before Creating
+- **MANDATORY**: Always check `var/lib/compositions/components/` for existing components before creating new ones
+- **Problem**: Too many duplicate/redundant/overlapping components already exist
+- **Solution**: Use `ksi send composition:discover` and `grep` to find similar components first
+- **Pattern**: Reuse and compose existing components rather than creating new ones
+
+#### Agent Permission Requests = Composition Failure
+When agents ask for permissions (like Claude asking for file access), it indicates:
+1. **Missing Behavioral Overrides**: Components like `claude_code_override.md` must be mixed into agent profiles
+2. **Missing Event Mappings**: Events the agent needs are not in their capability mappings
+3. **Wrong Security Profile**: Agent may need a different security_profile (e.g., `dsl_interpreter`)
+
+#### Fixing Composition Issues
+Two approaches when agents lack capabilities:
+1. **Update Component Dependencies**: Add required behavior mixins (e.g., `claude_code_override`)
+2. **Update Capability Mappings**: Add missing events to capability profiles in `capability_system_v3.yaml`
+
+#### Successful Composition Pattern
+```yaml
+# Component with proper dependencies and security profile
+component_type: agent
+dependencies:
+  - core/base_agent
+  - behaviors/orchestration/claude_code_override  # Critical for Claude Code context
+  - behaviors/dsl/event_emission_basics
+security_profile: dsl_interpreter  # Grants necessary event permissions
+```
 
 
 ---
