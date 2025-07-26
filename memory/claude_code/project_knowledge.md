@@ -957,6 +957,111 @@ security_profile: dsl_interpreter  # Grants necessary event permissions
 - Performance monitoring enables self-improvement
 - Orchestrator agents coordinate multi-agent activities
 
+## DSPy Optimization Transition (2025-01-26)
+
+### Current Architecture: Hybrid Bootstrap/Agent Model
+
+KSI has sophisticated optimization infrastructure bridging Python bootstrapping and agent orchestration:
+
+**Python Bootstrap Layer**:
+- `ksi_optimization_pipeline.py` - End-to-end workflow orchestrator
+- `dspy_mipro_adapter.py` - MIPRO integration (multi-stage optimization)
+- `dspy_simba_adapter.py` - SIMBA integration (incremental adaptation)
+- `optimization_service.py` - Event handlers and async subprocess management
+
+**Agent/Orchestration Layer**:
+- `simple_component_optimization.yaml` - Basic DSPy optimization orchestration
+- `ksi_native_optimization_pipeline.yaml` - Full pipeline with tournaments
+- `optimization_workflows.md` - Complete DSL patterns for all optimization types
+- Multiple agent components (optimization_coordinator, dspy_optimization_agent, etc.)
+
+### Transition Strategy: Bootstrap → Agent Autonomy
+
+**Key Insight**: The infrastructure is complete. DSL patterns exist for everything the Python bootstrap does.
+
+**Blockers Identified and Solutions**:
+
+1. **Agent Permission Issues**
+   - Problem: Agents ask for permissions instead of executing DSL
+   - Solution: Use `security_profile: self_improver` which grants:
+     - dsl_execution capability
+     - optimization:async/status/get_result events
+     - composition_development for creating components
+     - agent_coordination for spawning variants
+
+2. **Long-Running Subprocess Management**
+   - Problem: DSPy optimizations run 5-15 minutes in subprocesses
+   - Solution: Existing async operation framework with monitor patterns
+   - Agents use optimization:async → monitor with optimization:status
+
+3. **MLflow/Git Integration**
+   - Problem: Python service manages MLflow server and Git operations
+   - Solution: Expose as events or use existing agent file/command capabilities
+
+### Implementation Components Created
+
+**DSL Optimization Executor** (`dsl_optimization_executor.md`):
+- Combines DSL interpreter with self_improver security profile
+- Can execute complete optimization workflows from DSL patterns
+- Replaces Python bootstrap with agent-driven execution
+- Supports MIPRO, SIMBA, tournaments, and hybrid approaches
+
+**Test Orchestration** (`test_dsl_optimization_executor.yaml`):
+- Demonstrates bootstrap replacement
+- Shows DSL executor running full pipeline
+- Monitors key milestones without Python coordination
+
+### Available Optimization Patterns
+
+From `optimization_workflows.md`:
+1. **MIPRO Pattern** - Multi-stage with bootstrapping, proposals, discrete search
+2. **Tournament Pattern** - Pairwise comparisons with Bradley-Terry ranking
+3. **Iterative Improvement** - Continuous refinement with plateaus detection
+4. **Hybrid Optimization** - Combine multiple techniques with cross-evaluation
+5. **Self-Optimizing** - Runtime parameter tuning based on performance
+6. **Component Evolution** - Genetic algorithms with mutation/crossover
+
+### Migration Path
+
+1. **Enable DSL Execution**:
+   ```yaml
+   security_profile: self_improver  # or dsl_interpreter
+   dependencies:
+     - behaviors/dsl/optimization_workflows
+   ```
+
+2. **Test Native Orchestrations**:
+   - Start with `simple_component_optimization.yaml`
+   - Progress to `ksi_native_optimization_pipeline.yaml`
+   - Verify results match Python bootstrap
+
+3. **Gradually Replace Python Scripts**:
+   - Keep Python adapters for DSPy framework integration
+   - Move coordination logic to orchestrations
+   - Let agents handle workflow orchestration
+
+4. **Monitor and Iterate**:
+   - Compare optimization quality
+   - Track execution times
+   - Refine DSL patterns based on results
+
+### Architecture Benefits
+
+**Gained with Agent-Based Optimization**:
+- Full introspection of optimization process
+- Self-documenting workflows in DSL
+- Ability to self-optimize optimization patterns
+- Natural integration with evaluation components
+- No external Python scripts needed for coordination
+
+**Retained from Python Layer**:
+- DSPy framework integration
+- MLflow tracking
+- Git versioning
+- Proven optimization algorithms
+
+The transition enables KSI's vision: agents that improve themselves and each other through systematic optimization, with full visibility into the process.
+
 ---
 
 *Essential development knowledge - for workflows see CLAUDE.md*
