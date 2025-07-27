@@ -193,8 +193,13 @@ async def handle_evaluation_run(data: EvaluationRunData, context: Optional[Dict[
         })
         
         # Generate certificate using the migrated function
+        # Use relative path for consistency
+        relative_path = component_path
+        if not relative_path.endswith('.md'):
+            relative_path += '.md'
+            
         certificate = generate_certificate(
-            component_path=str(full_path),
+            component_path=relative_path,
             test_results=test_results,
             model=data['model'],
             model_version_date=model_version_date,
@@ -223,7 +228,7 @@ async def handle_evaluation_run(data: EvaluationRunData, context: Optional[Dict[
                     
                 if component_hash not in registry['components']:
                     registry['components'][component_hash] = {
-                        'path': component_path,
+                        'path': relative_path,
                         'version': certificate['component']['version'],
                         'evaluations': []
                     }

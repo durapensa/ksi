@@ -44,6 +44,10 @@ class EvaluationIntegration:
         if 'name' in query:
             conditions.append('ci.name LIKE ?')
             params.append(f"%{query['name']}%")
+            
+        if 'component_path' in query:
+            conditions.append('ci.file_path = ?')
+            params.append(query['component_path'])
         
         # Evaluation filters
         if 'evaluation_status' in query:
@@ -65,13 +69,13 @@ class EvaluationIntegration:
         if 'limit' in query and isinstance(query['limit'], int) and query['limit'] > 0:
             limit_clause = f" LIMIT {query['limit']}"
         
-        # Build SQL with proper JOIN
+        # Build SQL with path-based JOIN (simpler and more reliable)
         sql = f"""
             SELECT DISTINCT ci.name, ci.component_type, ci.description, ci.version, ci.author, 
                    ci.tags, ci.capabilities, ci.loading_strategy, ci.file_path, ci.file_hash,
                    e.status as eval_status, e.model as eval_model, e.performance_class
             FROM composition_index ci
-            LEFT JOIN evaluations e ON ci.file_hash = REPLACE(e.component_hash, 'sha256:', '')
+            LEFT JOIN evaluations e ON ci.file_path = e.component_path
             WHERE {where_clause}
             ORDER BY ci.name{limit_clause}
         """
