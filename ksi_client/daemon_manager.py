@@ -29,9 +29,16 @@ class DaemonManager:
     """Manages KSI daemon lifecycle."""
     
     def __init__(self):
-        """Initialize with paths from current working directory."""
-        # Paths relative to project root
-        self.project_root = Path.cwd()
+        """Initialize with paths, finding KSI root directory."""
+        # Find KSI root directory - look for ksi_common directory
+        current = Path(__file__).resolve().parent
+        while current != current.parent:
+            if (current / 'ksi_common').exists():
+                self.project_root = current
+                break
+            current = current.parent
+        else:
+            raise KSIDaemonError("Cannot find KSI root directory (looking for ksi_common)")
         self.venv_path = self.project_root / ".venv"
         self.daemon_script = "ksi-daemon.py"
         self.pid_file = self.project_root / "var/run/ksi_daemon.pid"

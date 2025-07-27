@@ -90,8 +90,8 @@ class KSIBaseConfig(BaseSettings):
     All paths are relative by default and resolved at runtime.
     """
     
-    # Core paths - matching ksi_daemon patterns
-    socket_path: Path = Path(DEFAULT_SOCKET_PATH)
+    # Core paths - matching ksi_daemon patterns  
+    # socket_path is now a property that resolves relative to KSI root
     
     # Logging configuration
     log_dir: Path = Path(DEFAULT_LOG_DIR)
@@ -252,8 +252,8 @@ class KSIBaseConfig(BaseSettings):
     # Debug mode
     debug: bool = False
     
-    # Daemon-specific settings
-    daemon_pid_file: Path = Path(DEFAULT_RUN_DIR) / DEFAULT_PID_FILE
+    # Daemon-specific settings  
+    # daemon_pid_file is now a property that resolves relative to KSI root
     daemon_log_dir: Path = Path(DEFAULT_DAEMON_LOG_DIR)
     
     # Error handling configuration
@@ -384,6 +384,21 @@ class KSIBaseConfig(BaseSettings):
         """Get log level string for structlog."""
         return self.log_level.upper()
     
+    @property  
+    def socket_path(self) -> Path:
+        """Get socket path resolved relative to KSI root."""
+        ksi_root = find_ksi_root()
+        if Path(DEFAULT_SOCKET_PATH).is_absolute():
+            return Path(DEFAULT_SOCKET_PATH)
+        else:
+            return ksi_root / DEFAULT_SOCKET_PATH
+    
+    @property
+    def daemon_pid_file(self) -> Path:
+        """Get daemon PID file path resolved relative to KSI root."""
+        ksi_root = find_ksi_root()
+        return ksi_root / DEFAULT_RUN_DIR / DEFAULT_PID_FILE
+    
     @property
     def paths(self) -> KSIPaths:
         """Get KSIPaths instance for additional path resolution.
@@ -391,16 +406,9 @@ class KSIBaseConfig(BaseSettings):
         This provides backward compatibility and additional paths
         not directly configured.
         """
-        # Infer base_dir from our paths
-        base_dir = Path.cwd()
-        if self.socket_path.parts[0] == "var":
-            # We're using relative paths from cwd
-            base_dir = Path.cwd()
-        elif self.socket_path.is_absolute():
-            # Find common base from absolute paths
-            base_dir = self.socket_path.parent.parent
-        
-        return KSIPaths(base_dir=base_dir)
+        # Use KSI root directory instead of current working directory
+        ksi_root = find_ksi_root()
+        return KSIPaths(base_dir=ksi_root)
     
     
     @property

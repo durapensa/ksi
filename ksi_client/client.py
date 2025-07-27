@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List, Callable, Set, Union, TypeVar, Literal
 import structlog
 
+from ksi_common.config import config
 from .daemon_manager import DaemonManager
 from .exceptions import (
     KSIConnectionError, KSITimeoutError, KSIEventError,
@@ -120,7 +121,7 @@ class EventClient:
             discovery_cache_ttl: Cache discovered events for this many seconds
         """
         self.client_id = client_id or f"ksi_client_{uuid.uuid4().hex[:8]}"
-        self.socket_path = socket_path or Path.cwd() / "var/run/daemon.sock"
+        self.socket_path = socket_path or config.socket_path
         self.auto_start_daemon = auto_start_daemon
         self.discovery_cache_ttl = discovery_cache_ttl
         

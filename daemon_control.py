@@ -12,8 +12,18 @@ import os
 import sys
 from pathlib import Path
 
+def find_ksi_root():
+    """Find KSI root directory by looking for ksi_common directory."""
+    current = Path(__file__).resolve().parent
+    while current != current.parent:
+        if (current / 'ksi_common').exists():
+            return current
+        current = current.parent
+    raise RuntimeError("Cannot find KSI root directory (looking for ksi_common)")
+
 # Ensure we're running in the virtual environment
-venv_dir = Path(__file__).parent / ".venv"
+ksi_root = find_ksi_root()
+venv_dir = ksi_root / ".venv"
 if venv_dir.exists() and hasattr(sys, 'real_prefix') is False and hasattr(sys, 'base_prefix') and sys.base_prefix == sys.prefix:
     # We're not in a venv, re-execute with venv python
     venv_python = venv_dir / "bin" / "python3"
@@ -21,7 +31,7 @@ if venv_dir.exists() and hasattr(sys, 'real_prefix') is False and hasattr(sys, '
         os.execv(str(venv_python), [str(venv_python)] + sys.argv)
     else:
         print(f"Error: Virtual environment python not found at {venv_python}")
-        print("Please run: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt")
+        print(f"Please run from {ksi_root}: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt")
         sys.exit(1)
 
 # Now we can safely import everything
@@ -60,11 +70,12 @@ class DaemonController:
     def __init__(self):
         """Initialize controller with config-based paths."""
         # All paths from config - no hardcoding
-        self.daemon_script = "ksi-daemon.py"
+        ksi_root = find_ksi_root()
+        self.daemon_script = str(ksi_root / "ksi-daemon.py")
         self.pid_file = config.daemon_pid_file
         self.socket_path = config.socket_path
         self.log_dir = config.log_dir
-        self.venv_dir = Path(".venv")
+        self.venv_dir = ksi_root / ".venv"
         
         # Ensure directories exist using config
         config.ensure_directories()
