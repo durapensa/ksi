@@ -83,11 +83,27 @@ class ExitStrategy:
         # This is counterintuitive since we're not actually blocking,
         # but it's currently required for visibility.
         # See: https://docs.anthropic.com/en/docs/claude-code/hooks#posttooluse-decision-control
+        # 
+        # UPDATE 2025-01-27: Hook feedback has stopped appearing in Claude Code.
+        # This is a regression - the exact same code was working last week.
+        # Reported in: https://github.com/anthropics/claude-code/issues/3983#issuecomment-3124420434
+        # Hook still runs correctly (check /tmp/ksi_hook_diagnostic.log) but
+        # Claude cannot see the KSI status updates.
         output = {
             "decision": "block",  # Required for "reason" to be shown
             "reason": message
         }
-        print(json.dumps(output), flush=True)
+        json_output = json.dumps(output)
+        
+        # Log the exact JSON being sent for debugging
+        try:
+            with open("/tmp/ksi_hook_diagnostic.log", "a") as f:
+                f.write(f"{datetime.now().isoformat()} - Sending JSON to stdout: {json_output}\n")
+        except:
+            pass
+            
+        # Must be stdout according to Claude Code docs
+        print(json_output, flush=True)
         sys.exit(ExitStrategy.SUCCESS)
     
     @staticmethod
@@ -737,22 +753,22 @@ class KSIHookMonitor:
             # Build compact status with emojis
             parts = []
             
-            # Events with lightning bolt
+            # Events with E:
             if new_events:
-                parts.append(f"⚡{len(new_events)}")
+                parts.append(f"E:{len(new_events)}")
             
-            # Agents with robot
+            # Agents with A:
             if agent_count > 0:
-                parts.append(f"🤖{agent_count}")
+                parts.append(f"A:{agent_count}")
             
-            # Optimization with wrench
+            # Optimization with O:
             if optimization_status:
-                parts.append(f"🔧{optimization_status.split('(')[0].strip()}")  # Just the component name
+                parts.append(f"O:{optimization_status.split('(')[0].strip()}")  # Just the component name
                 
-            # Errors with X
+            # Errors with ERR:
             if has_errors:
                 error_count = len([e for e in new_events if "error" in e.get("event_name", "").lower()])
-                parts.insert(0, f"✗{error_count}")
+                parts.insert(0, f"ERR:{error_count}")
             
             # Format message
             if parts:

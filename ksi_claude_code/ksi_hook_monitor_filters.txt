@@ -30,6 +30,11 @@ ksi_
 KSI
 ksi
 
+# KSI CLI commands
+ksi send
+ksi help
+ksi discover
+
 # KSI paths and tools
 /ksi/
 ksi-

@@ -21,13 +21,13 @@ Essential development practices and workflow for Claude Code when working with K
 
 This document serves as your primary instructions for KSI development. For technical reference, architecture details, and implementation patterns, see `memory/claude_code/project_knowledge.md`.
 
-## Current Development Priority (2025-01-24)
+## Current Development Priority (2025-01-27)
 
-**ACTIVE**: Building Longer-Running Orchestrations
-- **Foundation**: Agent communication patterns proven ✅
-- **Next**: State-based coordination patterns
-- **Target**: Multi-phase orchestrations with orchestrator agents
-- **Goal**: Self-improving patterns from composition components
+**ACTIVE**: Agent-Driven Optimization via Orchestration Patterns
+- **Foundation**: Direct JSON emission by agents proven impossible ❌
+- **Solution**: Three-layer orchestration pattern discovered ✅
+- **Next**: Building optimization orchestrations with analysis/translation layers
+- **Goal**: Self-improving patterns through natural language analysis
 
 ## Investigation-First Philosophy
 
@@ -151,9 +151,9 @@ components/capabilities/claude_code_1.0.x/ksi_json_reporter.md
 components/agents/ksi_aware_analyst.md
 ```
 
-### Agent Communication Pattern ✅ NEW BREAKTHROUGH
+### Agent Communication Pattern ✅ PROVEN WITH LIMITATIONS
 
-**Direct Agent-to-Agent Messaging**:
+**Direct Agent-to-Agent Messaging Works**:
 ```json
 // Researcher agent sends findings to analyzer
 {"event": "completion:async", "data": {"agent_id": "analyzer", "prompt": "FINDINGS: [research results]. Please analyze."}}
@@ -162,31 +162,45 @@ components/agents/ksi_aware_analyst.md
 {"event": "completion:async", "data": {"agent_id": "researcher", "prompt": "ANALYSIS: [analysis results]. Communication complete."}}
 ```
 
-**Proven Working Pattern**:
-1. Use clear MANDATORY instructions for JSON emission
-2. Agents communicate via `completion:async` events targeting `agent_id`
-3. Rich content exchange works reliably
-4. Foundation for complex multi-agent orchestrations
+**Critical Limitation Discovered (2025-01-27)**:
+- **Agents cannot reliably emit JSON directly** - Claude's default behavior overrides all prompt engineering attempts
+- **Solution**: Use orchestration patterns where agents analyze and orchestrators emit JSON
 
-### JSON Emission Standards (MANDATORY PATTERNS)
+**Working Pattern for Agent-Driven Optimization**:
+1. **Analysis Layer**: Agents provide natural language recommendations
+2. **Translation Layer**: JSON orchestrator converts to events
+3. **Execution Layer**: System processes the JSON events
+4. See `components/orchestrations/agent_optimization_flow` for implementation
 
-**Proven Reliable Pattern**: Strong imperative language ensures consistent behavior:
-```markdown
-## MANDATORY: Start your response with this exact JSON:
-{"event": "agent:status", "data": {"agent_id": "{{agent_id}}", "status": "initialized"}}
+### JSON Emission Patterns (UPDATED 2025-01-27)
+
+**CRITICAL FINDING**: Direct JSON emission by agents is unreliable due to Claude's inherent assistant behavior.
+
+**Failed Approaches** (Extensive testing showed these don't work):
+- ❌ Behavioral override components
+- ❌ MANDATORY/imperative language 
+- ❌ Direct instructions in prompts
+- ❌ System role configuration
+- ❌ Even putting JSON as literal first line
+
+**Working Solution - Orchestration Pattern**:
+```yaml
+# Agents provide analysis in natural language
+analyzer:
+  component: "components/personas/optimizers/component_analyzer"
+  prompt: "Analyze and recommend optimizations"
+
+# Orchestrator translates to JSON
+executor:
+  component: "components/core/json_orchestrator" 
+  prompt: "Convert recommendations to JSON events"
 ```
 
-**Success Factors Discovered**:
-- ✅ **Imperative Language**: "MANDATORY:", "MUST" work better than conditional "when"
-- ✅ **Direct Instructions**: "Start your response with" not "emit when starting"
-- ✅ **Complete JSON Examples**: Provide exact JSON structures
-- ✅ **Processing Time**: Allow 30-60 seconds for complex tasks
-
-**When** creating agent components:
-- **Then** use MANDATORY/imperative language for JSON instructions
-- **Then** provide exact JSON structures agents should emit
-- **Then** allow sufficient processing time for complex tasks
-- **Then** test with monitor to verify actual event emission
+**When** creating agent systems:
+- **Then** accept that agents communicate in natural language
+- **Then** use orchestration patterns for JSON emission
+- **Then** leverage translation layers between agents and system
+- **Then** focus agents on analysis, not direct execution
 
 ## Development Workflow
 
@@ -574,19 +588,29 @@ git commit -m "Update composition submodule"
   - **Workaround**: `tail -f /tmp/ksi_hook_diagnostic.log`
   - **Hook control**: `echo ksi_verbose` / `ksi_summary` / `ksi_silent`
 
-## Building Longer-Running Orchestrations
+## Building Agent-Driven Systems
 
-**When** creating multi-phase orchestrations:
-- **Then** use orchestrator agents to coordinate phases
-- **Then** spawn subagents for specific tasks within phases
-- **Then** use state-based coordination for shared context
-- **Then** leverage proven agent communication patterns
+**When** creating agent-driven optimization or automation:
+- **Then** use the three-layer orchestration pattern
+- **Then** let agents focus on their expertise (analysis, recommendations)
+- **Then** use orchestrators for system integration (JSON events)
+- **Then** test each layer independently before integration
 
-**Pattern Evolution**:
-1. Simple message passing (2 agents) → ✅ Working
-2. State-based coordination → Next priority
-3. Multi-phase orchestrations with orchestrator
-4. Self-improving patterns from proven components
+**Proven Orchestration Pattern** (2025-01-27):
+1. **Analysis Layer**: Domain expert agents that understand the problem
+2. **Translation Layer**: JSON orchestrators that convert intent to events
+3. **Execution Layer**: System handlers that process the events
+
+**Example - Agent-Driven Optimization**:
+```bash
+# See components/orchestrations/agent_optimization_flow
+ksi send orchestration:start \
+  --pattern "orchestrations/agent_optimization_flow" \
+  --vars '{"component_name": "personas/data_analyst", 
+           "optimization_goal": "reduce tokens by 30%"}'
+```
+
+This pattern enables agents to effectively "optimize" components without fighting Claude's nature.
 
 ## Meta-Principles
 
@@ -662,4 +686,4 @@ git commit -m "Update composition submodule"
 
 **Remember**: This is your workflow guide. For technical details, implementation patterns, and architecture, always refer to `memory/claude_code/project_knowledge.md`.
 
-*Last updated: 2025-01-26*
+*Last updated: 2025-01-27*

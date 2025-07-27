@@ -166,14 +166,12 @@ class AgentSpawnData(TypedDict):
     """Spawn a new agent."""
     component: Required[str]  # Component name - matches relative path without extension (e.g., "components/agents/hello_agent" for components/agents/hello_agent.md)
     agent_id: NotRequired[str]  # Agent ID (auto-generated if not provided)
+    variables: NotRequired[Dict[str, Any]]  # Variables for component template substitution
     # NOTE: session_id removed - managed entirely by completion system
-    prompt: NotRequired[str]  # Initial prompt
+    prompt: NotRequired[str]  # Initial prompt to send after spawn
     context: NotRequired[Dict[str, Any]]  # Additional context
-    # Domain-specific fields removed - use metadata instead
-    composition: NotRequired[str]  # Alternative to component - composition name
-    model: NotRequired[str]  # Model to use
-    enable_tools: NotRequired[bool]  # Enable tool usage
-    # Agent types removed - handle via orchestration patterns
+    model: NotRequired[str]  # Model to use (overrides component default)
+    enable_tools: NotRequired[bool]  # Enable tool usage (overrides component default)
     permission_profile: NotRequired[str]  # Permission profile name
     sandbox_dir: NotRequired[str]  # Sandbox directory
     mcp_config_path: NotRequired[str]  # MCP configuration path
@@ -722,15 +720,14 @@ async def handle_checkpoint_restore(data: Dict[str, Any], context: Optional[Dict
 # Agent lifecycle handlers
 @event_handler("agent:spawn", schema=AgentSpawnData, require_agent=False)
 async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Spawn a new agent thread with a composition/component.
+    """Spawn a new agent with a component.
     
-    The 'component' parameter expects a component name from the composition system,
-    not raw prompt text. The name matches the relative path without extension:
-    - "base_single_agent" → base_single_agent.yaml
+    The 'component' parameter is REQUIRED and expects a component name from the composition system.
+    The name matches the relative path without extension:
     - "components/core/base_agent" → components/core/base_agent.md
     - "components/agents/hello_agent" → components/agents/hello_agent.md
     
-    Valid components are any composition containing a 'prompt' field.
+    Variables can be passed for template substitution in the component.
     To discover available components: ksi send composition:discover --type component
     """
     
@@ -738,18 +735,23 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
     # not CLI parameters, so they don't need JSON string parsing
     
     agent_id = data.get("agent_id") or f"agent_{uuid.uuid4().hex[:8]}"
-    component_name = data.get("component") or data.get("profile")  # Support legacy 'profile' param
-    composition_name = data.get("composition")  # Direct composition reference
+    component_name = data.get("component")  # Required field
     # NOTE: session_id is intentionally NOT extracted from spawn data
     # Session management is handled entirely by the completion system
+    
+    if not component_name:
+        return error_response(
+            "component is required for agent spawn",
+            context=context
+        )
     
     # Check for dynamic spawn mode
     spawn_mode = data.get("spawn_mode", "fixed")
     selection_context = data.get("selection_context", {})
     
-    # Determine what to compose
+    # Determine what component to use
     if spawn_mode == "dynamic" and event_emitter:
-        # Use composition selection service
+        # Use composition selection service to dynamically choose component
         logger.debug("Using dynamic composition selection")
         
         select_result = await event_emitter("composition:select", {
@@ -779,38 +781,25 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
                 f"Dynamic composition selection failed: {select_result.get('error', 'Unknown error')}",
                 context=context
             )
-            
-    elif composition_name:
-        # Direct composition reference (hint mode)
-        compose_name = composition_name
-    elif component_name:
+    else:
         # Use specified component
         compose_name = component_name
-    else:
-        # No component specified - fail fast
-        return error_response(
-            "No component or composition specified",
-            context=context
-        )
     
-    # Compose component using composition service or in-memory data
+    # Always render component to manifest
     agent_config = {}
+    system_prompt = None
     
-    # Check if in-memory manifest data is provided
-    if "_in_memory_manifest_data" in data:
-        logger.debug(f"Using in-memory manifest data for agent {agent_id}")
-        component_data = data["_in_memory_manifest_data"]
-        
-        # Extract security profile from in-memory data
-        security_profile = component_data.get("security_profile")
-        
-    elif compose_name:
+    if compose_name:
         logger.debug(f"Using render_component_to_agent_manifest for: {compose_name}")
         # Prepare variables for composition
         comp_vars = {
             "agent_id": agent_id,
             "enable_tools": data.get("enable_tools", False)
         }
+        
+        # Add variables from spawn data (new unified approach)
+        if "variables" in data:
+            comp_vars.update(data["variables"])
         
         # Add any additional context from data
         if "context" in data:
@@ -828,6 +817,17 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
             component_data = manifest_data
             security_profile = manifest_data.get("security_profile")
             
+            # Extract system_prompt from manifest if present
+            system_prompt = None
+            if manifest_data and 'components' in manifest_data:
+                for component in manifest_data.get('components', []):
+                    if component.get('name') == 'generated_content':
+                        inline_data = component.get('inline', {})
+                        system_prompt = inline_data.get('system_prompt')
+                        if system_prompt:
+                            logger.debug(f"Extracted system_prompt from manifest for agent {agent_id}")
+                            break
+            
         except Exception as e:
             logger.error(f"Failed to render component to manifest: {e}")
             return error_response(
@@ -835,8 +835,15 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
                 context=context
             )
         
-    # Process component data (either from composition service or in-memory)
-    if "component_data" in locals():
+    # Process component data from manifest
+    else:
+        return error_response(
+            "No component specified for agent spawn",
+            context=context
+        )
+    
+    # We always have component_data from manifest rendering
+    if component_data:
         # Validate and resolve capabilities for agent spawn
         enforcer = get_capability_enforcer()
         
@@ -871,24 +878,7 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
             "allowed_claude_tools": allowed_claude_tools
         }
         
-        if "_in_memory_manifest_data" in data:
-            logger.debug("Successfully processed in-memory manifest data")
-        elif "manifest_data" in locals() and manifest_data:
-            logger.debug("Successfully processed component manifest")
-        else:
-            error_msg = f"Failed to process component data for {compose_name}"
-            logger.error(error_msg)
-            return error_response(
-                error_msg,
-                context=context
-            )
-    else:
-        # Neither in-memory data nor composition service available
-        logger.error("No manifest data available - neither in-memory nor composition service")
-        return error_response(
-            "No manifest data available for agent spawn",
-            context=context
-        )
+        logger.debug("Successfully processed component manifest")
     
     # Override with provided config
     if "config" in data:
@@ -1014,7 +1004,7 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
         "mcp_config_path": str(mcp_config_path) if mcp_config_path else None,
         "conversation_id": conversation_id if 'conversation_id' in locals() else None,
         # Metadata will be stored in state system, not in memory
-        "metadata_namespace": f"metadata:agent:{agent_id}\"",
+        "metadata_namespace": f"metadata:agent:{agent_id}",
         # Originator context for event streaming
         "originator_context": originator_context,
         # Orchestration tracking
@@ -1024,6 +1014,10 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
         "root_orchestration_id": root_orchestration_id,
         "event_subscription_level": event_subscription_level
     }
+    
+    # Store system_prompt if extracted from manifest
+    if 'system_prompt' in locals() and system_prompt:
+        agent_info['system_prompt'] = system_prompt
     
     # Register agent
     agents[agent_id] = agent_info
@@ -1055,63 +1049,44 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
     
     # Observation patterns removed - handle via orchestration
     
-    # Send initial prompt if provided - use composition system for proper message construction
+    # Send initial context - system_prompt and/or interaction_prompt
+    initial_content = None
     interaction_prompt = data.get("prompt")
-    if interaction_prompt and event_emitter:
-        logger.info(f"Sending initial prompt to agent {agent_id}")
+    system_prompt = agent_info.get('system_prompt')
+    
+    # Determine what to send as initial context
+    if system_prompt and interaction_prompt:
+        # Combine system prompt with interaction
+        initial_content = f"{system_prompt}\n\n{interaction_prompt}"
+        initial_role = "user"  # Combined content uses user role
+    elif system_prompt:
+        # Just system prompt from component
+        initial_content = system_prompt
+        initial_role = "system"  # Pure system prompt uses system role
+    elif interaction_prompt:
+        # Just interaction prompt from spawn request
+        initial_content = interaction_prompt
+        initial_role = "user"
+    
+    if initial_content and event_emitter:
+        logger.info(f"Sending initial context to agent {agent_id} (role: {initial_role})")
         
-        # Use composition service to create self-configuring agent context
-        compose_result = await event_emitter("composition:agent_context", {
-            "component": compose_name,
+        # Send as direct message - simpler and more reliable than composition:agent_context
+        initial_result = await event_emitter("agent:send_message", {
             "agent_id": agent_id,
-            "interaction_prompt": interaction_prompt,
-            "orchestration": data.get("orchestration"),  # Include orchestration context if available
-            "variables": data.get("variables", {})
+            "message": {
+                "role": initial_role,
+                "content": initial_content
+            }
         }, propagate_agent_context(context))
         
-        if compose_result and isinstance(compose_result, list):
-            compose_result = compose_result[0] if compose_result else {}
+        if initial_result and isinstance(initial_result, list):
+            initial_result = initial_result[0] if initial_result else {}
         
-        if compose_result and compose_result.get("status") == "success":
-            agent_context_message = compose_result["agent_context_message"]
-            
-            # Send self-configuring context message through agent:send_message channel
-            initial_result = await event_emitter("agent:send_message", {
-                "agent_id": agent_id,
-                "message": {
-                    "role": "user", 
-                    "content": agent_context_message
-                }
-            }, propagate_agent_context(context))
-            
-            if initial_result and isinstance(initial_result, list):
-                initial_result = initial_result[0] if initial_result else {}
-            
-            logger.info(f"Self-configuring context sent to agent {agent_id}: {initial_result.get('status', 'unknown')}")
-            logger.debug(f"Redactions applied: {compose_result.get('redaction_applied', [])}")
-        else:
-            logger.error(f"Failed to compose agent context for agent {agent_id}: {compose_result.get('error', 'Unknown error')}")
-            # Fallback to simple message with basic instructions
-            fallback_message = f"""You are agent {agent_id} in the KSI system.
-
-I encountered an error loading your composition configuration. 
-
-{f"Your initial task: {interaction_prompt}" if interaction_prompt else "Please await further instructions."}
-
-Please proceed as a basic autonomous agent with full autonomy to execute tasks and emit JSON events."""
-            
-            initial_result = await event_emitter("agent:send_message", {
-                "agent_id": agent_id,
-                "message": {
-                    "role": "user", 
-                    "content": fallback_message
-                }
-            }, propagate_agent_context(context))
-            
-            if initial_result and isinstance(initial_result, list):
-                initial_result = initial_result[0] if initial_result else {}
-            
-            logger.warning(f"Used fallback self-configuring message for agent {agent_id}")
+        logger.info(f"Initial context sent to agent {agent_id}: {initial_result.get('status', 'unknown')}")
+        
+        if system_prompt:
+            logger.debug(f"System prompt from component applied to agent {agent_id}")
     
     # Emit agent:spawned event - transformers will handle downstream notifications
     if event_emitter:
@@ -2213,7 +2188,30 @@ class AgentSpawnFromComponentData(TypedDict):
 
 @event_handler("agent:spawn_from_component", schema=AgentSpawnFromComponentData, require_agent=False)
 async def handle_spawn_from_component(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Spawn an agent using a component as an in-memory agent manifest (no temp files)."""
+    """DEPRECATED: Use agent:spawn instead.
+    
+    This event is deprecated as of 2025-01-27. The agent:spawn event now supports
+    variables directly, making this separate event unnecessary.
+    
+    Migration:
+    - Change event name from 'agent:spawn_from_component' to 'agent:spawn'
+    - All parameters remain the same
+    """
+    logger.warning(
+        "agent:spawn_from_component is DEPRECATED. Use agent:spawn instead. "
+        "This event will be removed in a future version."
+    )
+    
+    # Forward to the unified spawn handler
+    # Remove the track_component_usage field as it's no longer needed
+    spawn_data = data.copy()
+    spawn_data.pop('track_component_usage', None)
+    spawn_data.pop('originator', None)  # Handle differently in new path
+    
+    return await handle_spawn_agent(spawn_data, context)
+    
+    # DEPRECATED CODE BELOW - Remove in future version
+    return  # Never reached
     try:
         component_name = data['component']
         agent_id = data.get('agent_id', f"agent_{uuid.uuid4().hex[:8]}")
