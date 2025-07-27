@@ -23,11 +23,25 @@ This document serves as your primary instructions for KSI development. For techn
 
 ## Current Development Priority (2025-01-27)
 
-**ACTIVE**: Agent-Driven Optimization via Orchestration Patterns
-- **Foundation**: Direct JSON emission by agents proven impossible ❌
-- **Solution**: Three-layer orchestration pattern discovered ✅
-- **Next**: Building optimization orchestrations with analysis/translation layers
-- **Goal**: Self-improving patterns through natural language analysis
+**ACTIVE**: Building Foundation for Agent-Driven Component Optimization
+
+**Phase 1 Complete ✅**:
+- Unified evaluation system (single composition_index.db)
+- Basic behavioral components (claude_code_override, json_emission)
+- Compositional pattern proven and documented
+
+**Phase 2 In Progress 🚧**: Single Agent, Single Component
+1. Build evaluation test suites for behavioral effectiveness
+2. Create simple "component improver" agent
+3. Test on one atomic component (e.g., improving a greeting)
+4. Validate improvements with evaluation:run
+
+**Phase 3 Future 📅**: Scale to Orchestrations
+- Implement three-layer pattern (analysis → translation → execution)
+- Connect optimization tools (MIPRO/DSPy)
+- Enable multi-agent coordination
+
+**Key Learning**: Agents cannot emit JSON directly. Must use behavioral overrides or translation layers.
 
 ## Investigation-First Philosophy
 

@@ -61,6 +61,7 @@ class ComponentRenderer:
         self.components_base = Path(components_base_path)
         self.cache: Dict[str, ComponentContext] = {}
         self.render_stack: List[str] = []
+        self._loaded_components: Set[str] = set()  # Track loaded components to prevent duplicates
         
     def _hash_variables(self, variables: Dict[str, Any]) -> str:
         """Create a stable hash for complex variable structures."""
@@ -87,8 +88,9 @@ class ComponentRenderer:
             variables = {}
             
         try:
-            # Clear render stack for new rendering session
+            # Clear render stack and loaded components for new rendering session
             self.render_stack = []
+            self._loaded_components = set()
             
             # Load and resolve component
             context = self._load_component_with_resolution(component_name, variables)
@@ -119,8 +121,9 @@ class ComponentRenderer:
             variables = {}
             
         try:
-            # Clear render stack for new rendering session
+            # Clear render stack and loaded components for new rendering session
             self.render_stack = []
+            self._loaded_components = set()
             
             # Load and resolve component
             context = self._load_component_with_resolution(component_name, variables)
@@ -148,6 +151,9 @@ class ComponentRenderer:
         # Add to render stack
         self.render_stack.append(component_name)
         
+        # Mark as loaded to prevent duplicates
+        self._loaded_components.add(component_name)
+        
         try:
             # Load base component
             context = self._load_component(component_name)
@@ -171,9 +177,15 @@ class ComponentRenderer:
                 merged_variables
             )
             
-            # Merge all mixin and dependency content
+            # Merge all mixin and dependency content with deduplication
             all_mixins = resolved_mixins + resolved_dependencies + conditional_mixins
             for mixin_name in all_mixins:
+                # Skip if already loaded in this rendering session
+                if mixin_name in self._loaded_components:
+                    logger.debug(f"Skipping already loaded component: {mixin_name}")
+                    continue
+                
+                self._loaded_components.add(mixin_name)
                 mixin_context = self._load_component_with_resolution(mixin_name, merged_variables)
                 context = self._merge_contexts(context, mixin_context)
             

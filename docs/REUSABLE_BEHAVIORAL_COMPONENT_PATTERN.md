@@ -142,19 +142,36 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 - Maintain clear examples of working combinations
 - Keep evaluation results as evidence
 
-## Future Directions
+## Development Roadmap
 
-### **Advanced Behavioral Components**
-- Communication protocols (agent-to-agent messaging)
-- State management patterns (persistent agent memory)
-- Workflow coordination (multi-agent orchestration)
-- Domain-specific vocabularies (DSL interpreters)
+### **Current Phase: Foundation Building** (2025-01-27)
+We've established the compositional pattern and unified evaluation system. Next steps:
 
-### **Optimization Integration**
-- Components that self-improve via MIPRO/DSPy
-- Tournament-based behavioral evolution
-- Performance-aware component selection
-- Automated composition optimization
+1. **Build evaluation test suites** for behavioral effectiveness
+2. **Create simple component improver agent** that can:
+   - Read a component
+   - Analyze its structure and purpose
+   - Suggest specific improvements
+   - Create improved version
+   - Test improvement with evaluation:run
+3. **Prove single agent can improve single component** before scaling
+
+### **Future Phases**
+
+**Phase 2: Tool Integration**
+- Connect MIPRO/DSPy for systematic optimization
+- Still single agent, single component focus
+- Quantitative improvement metrics
+
+**Phase 3: Orchestration Patterns**
+- Implement three-layer pattern from investigation
+- Multiple agents working together
+- Natural language analysis → JSON translation → execution
+
+**Phase 4: Ecosystem Effects**
+- Tournament-based selection
+- Components optimizing other components
+- Self-improving behavioral libraries
 
 ## Conclusion
 
