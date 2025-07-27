@@ -11,7 +11,7 @@ from typing import Dict, Any, Optional, List, Set, TypedDict, Tuple, Union, Lite
 from typing_extensions import NotRequired, Required
 from dataclasses import dataclass
 
-from ksi_daemon.event_system import event_handler, get_router
+from ksi_daemon.event_system import event_handler, get_router, emit_event
 from ksi_common.timestamps import timestamp_utc, format_for_logging, sanitize_for_json
 from ksi_common.logging import get_bound_logger
 from ksi_common.config import config
@@ -115,10 +115,32 @@ async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]]
     
     # Initialize and rebuild composition index with dedicated database
     await composition_index.initialize(config.composition_index_db_path)
-    indexed_count = await composition_index.rebuild()
+    rebuild_result = await composition_index.rebuild()
     
-    logger.info(f"Composition service started - indexed {indexed_count} compositions")
-    return {"status": "composition_service_ready", "indexed": indexed_count}
+    indexed_count = rebuild_result['compositions_indexed']
+    eval_count = rebuild_result['evaluations_indexed']
+    skipped_files = rebuild_result.get('skipped_files', [])
+    stale_entries = rebuild_result.get('stale_registry_entries', [])
+    
+    logger.info(f"Composition service started - indexed {indexed_count} compositions and {eval_count} evaluations")
+    
+    # Emit event for index rebuild completion with details
+    await emit_event('composition:index_rebuilt', {
+        'compositions_indexed': indexed_count,
+        'evaluations_indexed': eval_count,
+        'total_scanned': rebuild_result.get('total_scanned', indexed_count),
+        'skipped_files': skipped_files,
+        'stale_registry_entries': stale_entries,
+        'timestamp': format_for_logging()
+    })
+    
+    return {
+        "status": "composition_service_ready", 
+        "indexed": indexed_count, 
+        "evaluations_indexed": eval_count,
+        "skipped_files_count": len(skipped_files),
+        "stale_entries_count": len(stale_entries)
+    }
 
 
 @service_shutdown("composition_service")
@@ -787,14 +809,18 @@ async def handle_sync_compositions(data: CompositionSyncData, context: Optional[
             return error_response(f'Sync failed: {sync_result.error}', context)
         
         # Rebuild index after sync
-        indexed_count = await composition_index.rebuild()
+        rebuild_result = await composition_index.rebuild()
+        indexed_count = rebuild_result['compositions_indexed']
+        eval_count = rebuild_result['evaluations_indexed']
         
-        logger.info(f"Synchronized compositions and rebuilt index ({indexed_count} compositions)")
+        logger.info(f"Synchronized compositions and rebuilt index ({indexed_count} compositions, {eval_count} evaluations)")
         
         return event_response_builder({
             'status': 'success',
             'sync_message': sync_result.message,
             'indexed_count': indexed_count,
+            'evaluations_indexed': eval_count,
+            'skipped_files': rebuild_result.get('skipped_files', []),
             'message': f'Synchronized compositions and indexed {indexed_count} compositions'
         }, context)
         
@@ -883,31 +909,36 @@ async def handle_rebuild_index(data: CompositionReloadData, context: Optional[Di
     # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
     try:
-        indexed_count = await composition_index.rebuild()
-        
-        # Also rebuild evaluation certificate index if requested
-        cert_indexed = 0
-        if data.get('include_certificates', False):
-            from ..evaluation.certificate_index import CertificateIndex
-            cert_index = CertificateIndex()
-            cert_indexed, _ = cert_index.scan_certificates()
+        rebuild_result = await composition_index.rebuild()
+        indexed_count = rebuild_result['compositions_indexed']
+        eval_count = rebuild_result['evaluations_indexed']
+        skipped_files = rebuild_result.get('skipped_files', [])
+        stale_entries = rebuild_result.get('stale_registry_entries', [])
         
         # Clear component renderer cache to ensure fresh components are loaded
         renderer = get_renderer()
         renderer.clear_cache()
         logger.debug("Cleared component renderer cache after index rebuild")
         
-        # Also rebuild evaluation index
-        from .evaluation_integration import evaluation_integration
-        eval_result = await evaluation_integration.rebuild_evaluation_index()
-        logger.info(f"Evaluation index: {eval_result}")
+        # Emit event for index rebuild completion
+        await emit_event('composition:index_rebuilt', {
+            'compositions_indexed': indexed_count,
+            'evaluations_indexed': eval_count,
+            'total_scanned': rebuild_result.get('total_scanned', indexed_count),
+            'skipped_files': skipped_files,
+            'stale_registry_entries': stale_entries,
+            'timestamp': format_for_logging()
+        })
         
         return event_response_builder(
             {
                 'status': 'success',
                 'indexed_count': indexed_count,
-                'evaluations_indexed': eval_result.get('certificates_indexed', 0) + cert_indexed,
-                'message': f'Indexed {indexed_count} compositions and {eval_result.get("certificates_indexed", 0) + cert_indexed} evaluations'
+                'evaluations_indexed': eval_count,
+                'total_scanned': rebuild_result.get('total_scanned', indexed_count),
+                'skipped_files': skipped_files,
+                'stale_registry_entries': stale_entries,
+                'message': f'Indexed {indexed_count} compositions and {eval_count} evaluations'
             },
             context=context
         )

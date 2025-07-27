@@ -355,3 +355,61 @@ async def handle_rebuild_evaluation_index(data: EvaluationIndexRebuildData, cont
     except Exception as e:
         logger.error(f"Evaluation index rebuild failed: {e}")
         return error_response(str(e), context)
+
+
+class RegistryRemoveData(TypedDict):
+    """Remove component from evaluation registry."""
+    component_hash: str  # Component hash to remove (e.g., "sha256:...")
+    _ksi_context: NotRequired[Dict[str, Any]]
+
+
+@event_handler("evaluation:registry_remove")
+async def handle_registry_remove(data: RegistryRemoveData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Remove a component entry from the evaluation registry."""
+    try:
+        component_hash = data['component_hash']
+        registry_path = config.evaluations_dir / "registry.yaml"
+        
+        if not registry_path.exists():
+            return error_response("Registry file not found", context)
+        
+        # Load registry using shared utilities
+        from ksi_common.yaml_utils import load_yaml_file, save_yaml_file
+        registry = load_yaml_file(registry_path)
+        
+        # Check if component exists
+        if 'components' not in registry or component_hash not in registry['components']:
+            return event_response_builder({
+                'status': 'not_found',
+                'message': f'Component {component_hash} not found in registry'
+            }, context)
+        
+        # Get component info before removal
+        removed_component = registry['components'][component_hash]
+        removed_path = removed_component.get('path', 'unknown')
+        eval_count = len(removed_component.get('evaluations', []))
+        
+        # Remove the component
+        del registry['components'][component_hash]
+        
+        # Update last_updated timestamp
+        registry['last_updated'] = datetime.now(timezone.utc).isoformat()
+        
+        # Save updated registry
+        save_yaml_file(registry_path, registry)
+        
+        logger.info(f"Removed component {component_hash} ({removed_path}) with {eval_count} evaluations from registry")
+        
+        return event_response_builder({
+            'status': 'success',
+            'removed': {
+                'component_hash': component_hash,
+                'path': removed_path,
+                'evaluations_count': eval_count
+            },
+            'message': f'Successfully removed {component_hash} from registry'
+        }, context)
+        
+    except Exception as e:
+        logger.error(f"Registry remove failed: {e}")
+        return error_response(str(e), context)

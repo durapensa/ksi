@@ -6,6 +6,7 @@ Composition Index - Database indexing and discovery for compositions
 import json
 import aiosqlite
 import asyncio
+import yaml
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from contextlib import asynccontextmanager
@@ -107,11 +108,34 @@ async def initialize(db_path: Optional[Path] = None):
         except:
             pass  # Column already exists
         
+        # Evaluations table for unified index
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS evaluations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                component_hash TEXT NOT NULL,
+                component_path TEXT NOT NULL,
+                certificate_id TEXT NOT NULL,
+                status TEXT,
+                model TEXT,
+                model_version_date TEXT,
+                test_suite TEXT,
+                tests_passed INTEGER,
+                tests_total INTEGER,
+                performance_class TEXT,
+                evaluation_date TEXT,
+                indexed_at TEXT NOT NULL,
+                FOREIGN KEY (component_hash) REFERENCES composition_index(file_hash)
+            )
+        ''')
+        
         # Indexes for efficient queries
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_comp_type ON composition_index(component_type)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_comp_repo ON composition_index(repository_id)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_comp_name ON composition_index(name)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_comp_author ON composition_index(author)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_eval_hash ON evaluations(component_hash)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_eval_status ON evaluations(status)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_eval_model ON evaluations(model)')
         
         # Ensure local repository exists
         await conn.execute('''
@@ -245,57 +269,172 @@ async def index_file(file_path: Path) -> bool:
         return False
 
 
-async def rebuild(repository_id: str = 'local') -> int:
-    """Rebuild composition index for a repository."""
+async def rebuild(repository_id: str = 'local') -> Dict[str, Any]:
+    """Rebuild unified composition and evaluation index.
+    
+    Returns:
+        Dict with indexed counts and skipped files
+    """
     if repository_id != 'local':
-        return 0
+        return {'compositions_indexed': 0, 'evaluations_indexed': 0, 'skipped_files': []}
         
-    # Clear existing index
+    # Clear existing indexes
     async with _get_db() as conn:
         await conn.execute('DELETE FROM composition_index WHERE repository_id = ?', (repository_id,))
+        await conn.execute('DELETE FROM evaluations')  # Clear all evaluations
         await conn.commit()
     
     # Scan composition directory
     if not config.compositions_dir.exists():
         logger.warning(f"Compositions directory does not exist: {config.compositions_dir}")
-        return 0
+        return {'compositions_indexed': 0, 'evaluations_indexed': 0, 'skipped_files': []}
     
     indexed_count = 0
+    skipped_files = []
+    total_scanned = 0
+    
     # Scan for both YAML and Markdown files
     for pattern in ['*.yaml', '*.yml', '*.md']:
         for comp_file in config.compositions_dir.rglob(pattern):
-            if await index_file(comp_file):
+            total_scanned += 1
+            result = await index_file(comp_file)
+            if result is True:
                 indexed_count += 1
+            elif result is False:
+                skipped_files.append({
+                    'path': str(comp_file.relative_to(config.compositions_dir)),
+                    'reason': 'Failed to parse or validate'
+                })
+    
+    # Index evaluations from registry.yaml
+    eval_result = await index_evaluations()
+    eval_count = eval_result['indexed'] if isinstance(eval_result, dict) else eval_result
+    
+    # Check for stale registry entries (files in registry but not on disk)
+    stale_entries = []
+    if isinstance(eval_result, dict) and 'stale_entries' in eval_result:
+        stale_entries = eval_result['stale_entries']
             
-    logger.info(f"Indexed {indexed_count} compositions")
-    return indexed_count
+    logger.info(f"Indexed {indexed_count}/{total_scanned} compositions and {eval_count} evaluations")
+    if skipped_files:
+        logger.warning(f"Skipped {len(skipped_files)} files during indexing")
+    if stale_entries:
+        logger.warning(f"Found {len(stale_entries)} stale evaluation registry entries")
+    
+    return {
+        'compositions_indexed': indexed_count,
+        'evaluations_indexed': eval_count,
+        'total_scanned': total_scanned,
+        'skipped_files': skipped_files,
+        'stale_registry_entries': stale_entries
+    }
+
+
+async def index_evaluations() -> Dict[str, Any]:
+    """Index evaluations from registry.yaml and check for stale entries."""
+    registry_path = Path("var/lib/evaluations/registry.yaml")
+    if not registry_path.exists():
+        logger.warning(f"Evaluation registry not found: {registry_path}")
+        return {'indexed': 0, 'stale_entries': []}
+    
+    try:
+        with open(registry_path, 'r') as f:
+            registry = yaml.safe_load(f)
+        
+        components = registry.get('components', {})
+        indexed_count = 0
+        stale_entries = []
+        
+        async with _get_db() as conn:
+            for component_hash, component_data in components.items():
+                # Skip if component_hash is not a proper sha256
+                if not component_hash.startswith('sha256:'):
+                    continue
+                    
+                component_path = component_data.get('path', '')
+                
+                # Check if component file exists
+                if component_path:
+                    full_path = Path(component_path)
+                    if not full_path.exists():
+                        stale_entries.append({
+                            'hash': component_hash,
+                            'path': component_path,
+                            'reason': 'Component file not found'
+                        })
+                        logger.debug(f"Stale registry entry: {component_path} not found")
+                        # Still index the evaluations - they're historical records
+                
+                evaluations = component_data.get('evaluations', [])
+                
+                for eval_data in evaluations:
+                    await conn.execute('''
+                        INSERT INTO evaluations
+                        (component_hash, component_path, certificate_id, status, model,
+                         model_version_date, test_suite, tests_passed, tests_total,
+                         performance_class, evaluation_date, indexed_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        component_hash,
+                        component_path,
+                        eval_data.get('certificate_id', ''),
+                        eval_data.get('status', 'unknown'),
+                        eval_data.get('model', ''),
+                        eval_data.get('model_version_date', ''),
+                        eval_data.get('test_suite', ''),
+                        eval_data.get('tests_passed', 0),
+                        eval_data.get('tests_total', 0),
+                        eval_data.get('performance_class', ''),
+                        eval_data.get('date', ''),
+                        format_for_logging()
+                    ))
+                    indexed_count += 1
+            
+            await conn.commit()
+        
+        logger.info(f"Indexed {indexed_count} evaluations from registry")
+        if stale_entries:
+            logger.warning(f"Found {len(stale_entries)} stale registry entries")
+            
+        return {'indexed': indexed_count, 'stale_entries': stale_entries}
+        
+    except Exception as e:
+        logger.error(f"Failed to index evaluations: {e}")
+        return {'indexed': 0, 'stale_entries': []}
 
 
 async def discover(query: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Query composition index with SQL-based filtering."""
+    """Query unified composition index with SQL-based filtering."""
     conditions = []
     params = []
+    join_evaluations = False
+    
+    # Check if we need to join with evaluations table
+    eval_filters = ['evaluation_status', 'model', 'test_suite', 'has_evaluations', 
+                    'performance_class', 'min_tests_passed']
+    if any(filter in query for filter in eval_filters):
+        join_evaluations = True
     
     if 'component_type' in query:
-        conditions.append('component_type = ?')
+        conditions.append('ci.component_type = ?')
         params.append(query['component_type'])
         
     if 'name' in query:
-        conditions.append('name LIKE ?')
+        conditions.append('ci.name LIKE ?')
         params.append(f"%{query['name']}%")
         
     if 'capabilities' in query:
         for cap in query['capabilities']:
-            conditions.append('capabilities LIKE ?')
+            conditions.append('ci.capabilities LIKE ?')
             params.append(f'%"{cap}"%')
             
     if 'tags' in query:
         for tag in query['tags']:
-            conditions.append('tags LIKE ?')
+            conditions.append('ci.tags LIKE ?')
             params.append(f'%"{tag}"%')
             
     if 'loading_strategy' in query:
-        conditions.append('loading_strategy = ?')
+        conditions.append('ci.loading_strategy = ?')
         params.append(query['loading_strategy'])
     
     # Metadata filtering using JSON functions
@@ -305,19 +444,40 @@ async def discover(query: Dict[str, Any]) -> List[Dict[str, Any]]:
                 # For array values, check if any match
                 sub_conditions = []
                 for v in value:
-                    sub_conditions.append(f"json_extract(metadata, '$.{key}') LIKE ?")
+                    sub_conditions.append(f"json_extract(ci.metadata, '$.{key}') LIKE ?")
                     params.append(f'%{v}%')
                 conditions.append(f"({' OR '.join(sub_conditions)})")
             else:
                 # For scalar values, exact match
-                conditions.append(f"json_extract(metadata, '$.{key}') = ?")
+                conditions.append(f"json_extract(ci.metadata, '$.{key}') = ?")
                 params.append(value)
     
-    # Add evaluation filters if present
-    from .evaluation_integration import evaluation_integration
-    eval_conditions, eval_params = evaluation_integration.enhance_discovery_query(query)
-    conditions.extend(eval_conditions)
-    params.extend(eval_params)
+    # Evaluation filters
+    if 'evaluation_status' in query:
+        conditions.append('e.status = ?')
+        params.append(query['evaluation_status'])
+        
+    if 'model' in query:
+        conditions.append('e.model = ?')
+        params.append(query['model'])
+        
+    if 'test_suite' in query:
+        conditions.append('e.test_suite = ?')
+        params.append(query['test_suite'])
+        
+    if 'has_evaluations' in query:
+        if query['has_evaluations']:
+            conditions.append('e.id IS NOT NULL')
+        else:
+            conditions.append('e.id IS NULL')
+            
+    if 'performance_class' in query:
+        conditions.append('e.performance_class = ?')
+        params.append(query['performance_class'])
+        
+    if 'min_tests_passed' in query:
+        conditions.append('e.tests_passed >= ?')
+        params.append(query['min_tests_passed'])
     
     where_clause = ' AND '.join(conditions) if conditions else '1=1'
     
@@ -326,13 +486,25 @@ async def discover(query: Dict[str, Any]) -> List[Dict[str, Any]]:
     if 'limit' in query and isinstance(query['limit'], int) and query['limit'] > 0:
         limit_clause = f" LIMIT {query['limit']}"
     
-    sql = f"""
-        SELECT name, component_type, description, version, author, 
-               tags, capabilities, loading_strategy, file_path, metadata, file_hash
-        FROM composition_index 
-        WHERE {where_clause}
-        ORDER BY name{limit_clause}
-    """
+    # Build SQL query based on whether we need evaluation data
+    if join_evaluations:
+        sql = f"""
+            SELECT DISTINCT ci.name, ci.component_type, ci.description, ci.version, ci.author, 
+                   ci.tags, ci.capabilities, ci.loading_strategy, ci.file_path, ci.metadata, ci.file_hash,
+                   e.status as eval_status, e.model as eval_model, e.performance_class
+            FROM composition_index ci
+            LEFT JOIN evaluations e ON ci.file_hash = e.component_hash
+            WHERE {where_clause}
+            ORDER BY ci.name{limit_clause}
+        """
+    else:
+        sql = f"""
+            SELECT ci.name, ci.component_type, ci.description, ci.version, ci.author, 
+                   ci.tags, ci.capabilities, ci.loading_strategy, ci.file_path, ci.metadata, ci.file_hash
+            FROM composition_index ci
+            WHERE {where_clause}
+            ORDER BY ci.name{limit_clause}
+        """
     
     # Debug logging
     logger.debug(f"SQL query: {sql}")
@@ -361,6 +533,15 @@ async def discover(query: Dict[str, Any]) -> List[Dict[str, Any]]:
                     
                     # Always include file_hash for evaluation matching
                     result['file_hash'] = row[10]
+                    
+                    # Include evaluation data if present
+                    if join_evaluations and len(row) > 11:
+                        if row[11]:  # eval_status
+                            result['evaluation'] = {
+                                'status': row[11],
+                                'model': row[12],
+                                'performance_class': row[13]
+                            }
                     
                     results.append(result)
     except Exception as e:
