@@ -196,9 +196,8 @@ class EventDaemonCore:
         # MCP modules
         import ksi_daemon.mcp.mcp_service
         
-        # Evaluation modules
-        import ksi_daemon.evaluation.prompt_evaluation
-        import ksi_daemon.evaluation.tournament_bootstrap_integration
+        # Evaluation modules (cleaned up - now just thin certification infrastructure)
+        import ksi_daemon.evaluation
         
         # Optimization modules
         import ksi_daemon.optimization.optimization_service

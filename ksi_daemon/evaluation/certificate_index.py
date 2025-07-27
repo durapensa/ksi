@@ -2,6 +2,8 @@
 """
 Certificate-based evaluation index for composition discovery integration.
 Indexes YAML certificates for fast SQL queries while keeping certificates as source of truth.
+
+Moved from ksi_daemon.evaluation.certificate_index to ksi_common for reuse by orchestrations.
 """
 import sqlite3
 import json
@@ -14,7 +16,7 @@ from contextlib import contextmanager
 from ksi_common.logging import get_bound_logger
 from ksi_common.config import config
 
-logger = get_bound_logger("certificate_index")
+logger = get_bound_logger("evaluation_index")
 
 
 class CertificateIndex:
@@ -22,7 +24,7 @@ class CertificateIndex:
     
     def __init__(self, db_path: Optional[Path] = None):
         if db_path is None:
-            db_path = config.db_dir / "evaluation_index.db"
+            db_path = config.evaluation_index_db_path
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()

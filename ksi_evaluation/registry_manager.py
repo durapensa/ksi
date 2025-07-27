@@ -15,7 +15,8 @@ from hash_component import hash_component_at_path
 class EvaluationRegistry:
     def __init__(self, registry_path: Path = None):
         if registry_path is None:
-            registry_path = Path("var/lib/evaluations/registry.yaml")
+            from ksi_common.config import config
+            registry_path = config.evaluations_dir / "registry.yaml"
         self.registry_path = registry_path
         self.registry = self._load_registry()
     
@@ -157,7 +158,8 @@ class EvaluationRegistry:
 def scan_certificates(cert_dir: Path = None):
     """Scan certificate directory and update registry."""
     if cert_dir is None:
-        cert_dir = Path("var/lib/evaluations/certificates")
+        from ksi_common.config import config
+        cert_dir = config.evaluations_dir / "certificates"
     
     registry = EvaluationRegistry()
     

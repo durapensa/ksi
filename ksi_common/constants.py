@@ -59,6 +59,7 @@ DEFAULT_STATE_DB_NAME = "ksi_state.db"
 DEFAULT_CHECKPOINT_DB_NAME = "checkpoint.db"
 DEFAULT_EVENTS_DB_NAME = "events.db"
 DEFAULT_COMPOSITION_INDEX_DB_NAME = "composition_index.db"
+DEFAULT_EVALUATION_INDEX_DB_NAME = "evaluation_index.db"
 
 # File patterns
 RESPONSE_LOG_PATTERN = "*.jsonl"

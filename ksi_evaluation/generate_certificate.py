@@ -93,7 +93,8 @@ def generate_certificate(
 def save_certificate(certificate: Dict, output_dir: Path = None):
     """Save certificate to appropriate location."""
     if output_dir is None:
-        output_dir = Path("var/lib/evaluations/certificates")
+        from ksi_common.config import config
+        output_dir = config.evaluations_dir / "certificates"
     
     # Create date directory
     date_str = datetime.now().strftime("%Y-%m-%d")
@@ -163,8 +164,9 @@ def create_dsl_executor_certificate():
         ]
     }
     
+    from ksi_common.config import config
     cert = generate_certificate(
-        "var/lib/compositions/components/agents/dsl_optimization_executor.md",
+        str(config.compositions_dir / "components/agents/dsl_optimization_executor.md"),
         test_results,
         "claude-sonnet-4-20250514"
     )

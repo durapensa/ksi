@@ -19,18 +19,35 @@ logger = get_bound_logger("evaluation_events")
 
 
 class EvaluationRunData(TypedDict):
-    """Run evaluation tests and generate certificate."""
+    """Evaluate component and generate certificate."""
     component_path: str  # Path to component to evaluate
     test_suite: str  # Name of test suite to run
     model: str  # Model being tested (e.g., "claude-sonnet-4")
-    test_results: Dict[str, Any]  # Test results to record
+    test_results: NotRequired[Dict[str, Any]]  # Pre-computed test results (optional)
+    orchestration_pattern: NotRequired[str]  # Evaluation orchestration to use (optional)
     notes: NotRequired[List[str]]  # Additional notes
     _ksi_context: NotRequired[Dict[str, Any]]
 
 
 @event_handler("evaluation:run")
 async def handle_evaluation_run(data: EvaluationRunData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Run evaluation and generate certificate."""
+    """
+    Certification wrapper for component evaluation - evaluates any component and produces certificate.
+    
+    This evaluates any component type (persona, behavior, orchestration, tool, etc.) using the
+    specified test suite and generates a certificate as evidence of the evaluation results.
+    Orchestration agents can experiment/test/refine components, then emit evaluation:run 
+    to acquire certification of the component's performance.
+    
+    Flow:
+    1. Loads the component to be evaluated
+    2. Executes appropriate evaluation based on component type and test suite
+    3. Generates certificate with evaluation results and component evidence
+    4. Updates certificate index automatically
+    
+    This makes evaluation:run a "evaluate component + certify results" operation that works
+    for any component type in the composition system.
+    """
     try:
         # Generate certificate locally
         from hashlib import sha256
@@ -147,7 +164,7 @@ async def handle_get_certificate(data: EvaluationCertificateData, context: Optio
         cert_id = data['certificate_id']
         
         # Search for certificate file
-        cert_dir = Path("var/lib/evaluations/certificates")
+        cert_dir = config.evaluations_dir / "certificates"
         for cert_file in cert_dir.rglob("*.yaml"):
             with open(cert_file, 'r') as f:
                 cert = yaml.safe_load(f)

@@ -28,6 +28,7 @@ from ksi_common.agent_utils import (
     query_agent_state, query_agent_metadata, query_agent_relationships, 
     unwrap_list_response, emit_agent_event, gather_agent_info
 )
+from ksi_common.composition_utils import render_component_to_agent_manifest
 from ksi_common.task_management import create_tracked_task
 from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_common.response_patterns import validate_required_fields, entity_not_found_response, batch_operation_response, agent_responses
@@ -499,21 +500,21 @@ async def handle_ready(data: Dict[str, Any], context: Optional[Dict[str, Any]] =
                 agent_info = {
                     "agent_id": agent_id,
                     "profile": props.get("profile"),
-                    "composition": props.get("profile"),  # Often same as profile
+                    "composition": props.get("composition", props.get("profile")),  # Fallback to profile
                     "config": {
-                        "model": "sonnet",  # Default, may need to store this
+                        "model": props.get("model", "sonnet"),  # Use stored model
                         "role": "assistant",
-                        "enable_tools": False,
+                        "enable_tools": props.get("enable_tools", False),
                         "expanded_capabilities": props.get("capabilities", []),
-                        "allowed_events": [],  # Would need to reconstruct from capabilities
-                        "allowed_claude_tools": []
+                        "allowed_events": props.get("allowed_events", []),  # Use stored allowed_events
+                        "allowed_claude_tools": props.get("allowed_claude_tools", [])  # Use stored allowed_claude_tools
                     },
                     "status": props.get("status", "ready"),
                     "created_at": entity.get("created_at_iso"),
                     # NOTE: session_id removed - agents have no awareness of sessions
                     "permission_profile": props.get("permission_profile", "standard"),
                     "sandbox_dir": props.get("sandbox_dir"),
-                    "sandbox_uuid": props.get("sandbox_uuid", str(uuid.uuid4())),  # Restore or generate
+                    "sandbox_uuid": props.get("sandbox_uuid"),  # Must use stored value
                     "mcp_config_path": props.get("mcp_config_path"),
                     "conversation_id": None,
                     "message_queue": asyncio.Queue(),
@@ -792,10 +793,18 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
             context=context
         )
     
-    # Compose profile using composition service
+    # Compose profile using composition service or in-memory data
     agent_config = {}
     
-    if event_emitter:
+    # Check if in-memory manifest data is provided
+    if "_in_memory_manifest_data" in data:
+        logger.debug(f"Using in-memory manifest data for agent {agent_id}")
+        profile = data["_in_memory_manifest_data"]
+        
+        # Extract security profile from in-memory data
+        security_profile = profile.get("security_profile")
+        
+    elif event_emitter:
         logger.debug(f"Using composition service to compose profile: {compose_name}")
         # Prepare variables for composition
         comp_vars = {
@@ -815,53 +824,57 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
         
         compose_result = unwrap_list_response(compose_result)
         
-        if compose_result and compose_result.get("status") == "success":
-            profile = compose_result["composition"]
-            
-            # Extract security profile from composed result
-            security_profile = profile.get("security_profile")
-            
-            # Validate and resolve capabilities for agent spawn
-            enforcer = get_capability_enforcer()
-            
-            # Fall back to capability dict (legacy system)
-            profile_capabilities = profile.get("capabilities", {})
-            
-            # Validate and resolve capabilities for agent spawn
-            resolved = enforcer.validate_agent_spawn(profile_capabilities, security_profile)
-            allowed_events = resolved["allowed_events"]
-            allowed_claude_tools = resolved["allowed_claude_tools"]
-            expanded_capabilities = resolved["expanded_capabilities"]
-            
-            logger.info(
-                f"Resolved capabilities for agent {agent_id}",
-                capabilities=expanded_capabilities,
-                event_count=len(allowed_events),
-                claude_tool_count=len(allowed_claude_tools)
-            )
-            
-            # Extract config from composed profile
-            agent_config = {
-                "model": profile.get("model", "sonnet"),
-                "role": profile.get("role", "assistant"),
-                "enable_tools": profile.get("enable_tools", False),
-                "expanded_capabilities": expanded_capabilities,
-                "allowed_events": allowed_events,
-                "allowed_claude_tools": allowed_claude_tools
-            }
+    # Process profile data (either from composition service or in-memory)
+    if "profile" in locals():
+        # Validate and resolve capabilities for agent spawn
+        enforcer = get_capability_enforcer()
+        
+        # Fall back to capability dict (legacy system)
+        profile_capabilities = profile.get("capabilities", {})
+        
+        # Validate and resolve capabilities for agent spawn
+        resolved = enforcer.validate_agent_spawn(profile_capabilities, security_profile)
+        allowed_events = resolved["allowed_events"]
+        allowed_claude_tools = resolved["allowed_claude_tools"]
+        expanded_capabilities = resolved["expanded_capabilities"]
+        
+        logger.info(
+            f"Resolved capabilities for agent {agent_id}",
+            capabilities=expanded_capabilities,
+            event_count=len(allowed_events),
+            claude_tool_count=len(allowed_claude_tools)
+        )
+        
+        # Extract config from profile
+        agent_config = {
+            "model": profile.get("model", "sonnet"),
+            "role": profile.get("role", "assistant"),
+            "enable_tools": profile.get("enable_tools", False),
+            "expanded_capabilities": expanded_capabilities,
+            "allowed_events": allowed_events,
+            "allowed_claude_tools": allowed_claude_tools
+        }
+        
+        if "_in_memory_manifest_data" in data:
+            logger.debug("Successfully processed in-memory manifest data")
+        elif "compose_result" in locals() and compose_result and compose_result.get("status") == "success":
+            logger.debug("Successfully processed composition service profile")
         else:
-            # Fail fast - no fallbacks
-            error_msg = compose_result.get("error", f"Failed to compose profile: {compose_name}")
+            # Only try to get error from compose_result if it exists
+            if "compose_result" in locals():
+                error_msg = compose_result.get("error", f"Failed to compose profile: {compose_name}")
+            else:
+                error_msg = f"Failed to process profile data"
             logger.error(error_msg)
             return error_response(
                 error_msg,
                 context=context
             )
     else:
-        # No composition service available
-        logger.error("Composition service not available - event_emitter is None")
+        # Neither in-memory data nor composition service available
+        logger.error("No manifest data available - neither in-memory nor composition service")
         return error_response(
-            "Composition service not available - event system not initialized",
+            "No manifest data available for agent spawn",
             context=context
         )
     
@@ -874,8 +887,8 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
     sandbox_config = data.get("sandbox_config", {})
     sandbox_dir = None
     
-    # Get permissions from composed profile if available
-    if compose_result and "profile" in compose_result:
+    # Get permissions from profile if available (either from compose_result or in-memory data)
+    if "compose_result" in locals() and compose_result and "profile" in compose_result:
         # Check for security_profile first (v3 compositional capability system)
         if "security_profile" in compose_result["profile"]:
             permission_profile = compose_result["profile"]["security_profile"]
@@ -887,6 +900,18 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
                 permission_profile = profile_perms["profile"]
         if "sandbox" in compose_result["profile"]:
             sandbox_config.update(compose_result["profile"]["sandbox"])
+    elif "profile" in locals() and profile:
+        # Use permission data from in-memory profile if available
+        if "security_profile" in profile:
+            permission_profile = profile["security_profile"]
+            logger.info(f"Using security_profile {permission_profile} from in-memory profile")
+        # Fall back to legacy permissions dict
+        elif "permissions" in profile:
+            profile_perms = profile.get("permissions", {})
+            if "profile" in profile_perms:
+                permission_profile = profile_perms["profile"]
+        if "sandbox" in profile:
+            sandbox_config.update(profile["sandbox"])
     
     # Set agent permissions
     if event_emitter:
@@ -1084,7 +1109,13 @@ Please proceed as a basic autonomous agent with full autonomy to execute tasks a
             "permission_profile": permission_profile,
             "capabilities": expanded_capabilities,
             "created_at": timestamp_utc(),
-            "spawned_by": context.get("_agent_id") if context else "system"
+            "spawned_by": context.get("_agent_id") if context else "system",
+            # Include config values needed for restoration
+            "model": agent_config.get("model", "sonnet"),
+            "enable_tools": agent_config.get("enable_tools", False),
+            "allowed_events": agent_config.get("allowed_events", []),
+            "allowed_claude_tools": agent_config.get("allowed_claude_tools", []),
+            "mcp_config_path": agent_info.get("mcp_config_path")
         }
         
         # Include orchestration metadata if present
@@ -1819,6 +1850,19 @@ async def handle_send_message(data: AgentSendMessageData, context: Optional[Dict
     agent_id = data["agent_id"]  # Validated by enhanced event_handler
     message = data.get("message", {})
     
+    # Handle case where message comes as a JSON string from CLI
+    if isinstance(message, str):
+        try:
+            # Create a temporary dict to use parse_json_parameter
+            temp_data = {"message": message}
+            parsed = parse_json_parameter(temp_data, "message", merge_into_data=False)
+            if parsed is not None:
+                message = parsed
+            else:
+                return error_response("Invalid message format. Expected JSON object, got string that couldn't be parsed as JSON", context)
+        except Exception as e:
+            return error_response(f"Invalid message format. Expected JSON object, got string: {e}", context)
+    
     # Check if this is a completion message (either format)
     is_completion = False
     prompt = None
@@ -2153,9 +2197,8 @@ class AgentSpawnFromComponentData(TypedDict):
 
 @event_handler("agent:spawn_from_component", schema=AgentSpawnFromComponentData, require_agent=False)
 async def handle_spawn_from_component(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Spawn an agent using a component as the profile."""
+    """Spawn an agent using a component as an in-memory agent manifest (no temp files)."""
     try:
-        
         component_name = data['component']
         agent_id = data.get('agent_id', f"agent_{uuid.uuid4().hex[:8]}")
         variables = data.get('variables', {})
@@ -2163,33 +2206,46 @@ async def handle_spawn_from_component(data: Dict[str, Any], context: Optional[Di
         variables['agent_id'] = agent_id
         track_usage = data.get('track_component_usage', True)
         
-        # Convert component to profile
+        # Compose component directly for in-memory agent manifest
         if not event_emitter:
             return error_response("Event emitter not available", context)
         
-        profile_result = await event_emitter("composition:component_to_profile", {
-            "component": component_name,
-            "variables": variables,
-            "save_to_disk": True,  # Save to disk for agent spawning
-            "overwrite": True  # Allow overwriting temporary profiles
-        }, context)
+        # Prepare variables for composition
+        comp_vars = {
+            "agent_id": agent_id,
+            "enable_tools": data.get("enable_tools", False)
+        }
+        comp_vars.update(variables)
         
-        # Handle both single dict and list of dicts responses
-        if isinstance(profile_result, list) and profile_result:
-            profile_result = profile_result[0]
+        # Add any additional context from data
+        if "context" in data:
+            comp_vars.update(data["context"])
         
-        if not profile_result or profile_result.get('status') != 'success':
-            return error_response(f"Failed to convert component {component_name} to profile: {profile_result.get('error', 'Unknown error')}", context)
+        # Create in-memory agent manifest using shared composition utilities
+        try:
+            manifest_data = render_component_to_agent_manifest(
+                component_name=component_name,
+                variables=comp_vars,
+                agent_id=agent_id
+            )
+            logger.info(f"Successfully created in-memory agent manifest for {agent_id} from component {component_name}")
+        except Exception as e:
+            return error_response(f"Failed to create agent manifest from component {component_name}: {e}", context)
         
-        profile_name = profile_result['profile_name']
+        # Override with provided config
+        if "config" in data:
+            manifest_data.update(data["config"])
         
         # Extract originator context for event streaming
         originator = data.get('originator')
         
-        # Prepare agent spawn data
+        # Prepare agent spawn data with in-memory manifest data
+        # Create a temporary virtual profile name for internal use
+        virtual_manifest_name = f"virtual_manifest_{agent_id}"
+        
         spawn_data = {
             "agent_id": agent_id,
-            "profile": profile_name,
+            "profile": virtual_manifest_name,  # Use virtual manifest name
             "prompt": data.get('prompt', ''),
             "context": data.get('context', {}),
             "model": data.get('model'),
@@ -2197,7 +2253,8 @@ async def handle_spawn_from_component(data: Dict[str, Any], context: Optional[Di
             "permission_profile": data.get('permission_profile'),
             "sandbox_dir": data.get('sandbox_dir'),
             "mcp_config_path": data.get('mcp_config_path'),
-            "conversation_id": data.get('conversation_id')
+            "conversation_id": data.get('conversation_id'),
+            "_in_memory_manifest_data": manifest_data  # Pass manifest data directly
         }
         
         # Add originator to spawn data context for event streaming
@@ -2214,7 +2271,7 @@ async def handle_spawn_from_component(data: Dict[str, Any], context: Optional[Di
         if originator:
             propagated_context['_originator'] = originator
         
-        # Spawn agent using the converted profile
+        # Spawn agent using the in-memory config
         spawn_result = await handle_spawn_agent(spawn_data, propagated_context)
         
         # Debug: Log the spawn result type and content
@@ -2244,8 +2301,8 @@ async def handle_spawn_from_component(data: Dict[str, Any], context: Optional[Di
                     "usage_context": "agent_spawn",
                     "metadata": {
                         "agent_id": agent_id,
-                        "profile_name": profile_name,
-                        "variables": variables,
+                        "manifest_type": "in_memory_component_composition",
+                        "variables": comp_vars,
                         "spawn_timestamp": timestamp_utc()
                     }
                 }, context)
@@ -2257,9 +2314,10 @@ async def handle_spawn_from_component(data: Dict[str, Any], context: Optional[Di
             response = spawn_result.copy()
             response.update({
                 "source_component": component_name,
-                "profile_name": profile_name,
-                "variables_used": variables,
-                "component_metadata": profile_result.get('render_metadata', {})
+                "agent_manifest": "in_memory",  # No temp files created
+                "variables_used": comp_vars,
+                "manifest_type": "in_memory_component_composition",
+                "component_metadata": {"created_from_shared_utility": True}
             })
             # Ensure status is set to success if we got here
             if response.get('status') in ['created', 'spawned']:
@@ -2271,12 +2329,13 @@ async def handle_spawn_from_component(data: Dict[str, Any], context: Optional[Di
                 "agent_id": agent_id,
                 "spawn_result": spawn_result,
                 "source_component": component_name,
-                "profile_name": profile_name,
-                "variables_used": variables,
-                "component_metadata": profile_result.get('render_metadata', {})
+                "agent_manifest": "in_memory",
+                "variables_used": comp_vars,
+                "manifest_type": "in_memory_component_composition",
+                "component_metadata": {"created_from_shared_utility": True}
             }
         
-        logger.info(f"Spawned agent {agent_id} from component {component_name}")
+        logger.info(f"Spawned agent {agent_id} from component {component_name} using in-memory manifest")
         
         return event_response_builder(response, context)
         

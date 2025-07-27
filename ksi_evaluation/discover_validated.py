@@ -25,7 +25,8 @@ def discover_validated_components(
     Returns:
         List of matching components with evaluation details
     """
-    registry_path = Path("var/lib/evaluations/registry.yaml")
+    from ksi_common.config import config
+    registry_path = config.evaluations_dir / "registry.yaml"
     if not registry_path.exists():
         print("No evaluation registry found. Run 'python ksi_evaluation/registry_manager.py scan' first.")
         return []
@@ -62,9 +63,14 @@ def discover_validated_components(
             
             # Load certificate to check capabilities
             cert_id = eval_data["certificate_id"]
-            cert_path = Path(f"var/lib/evaluations/certificates/2025-07-26/{Path(component_data['path']).stem}_{cert_id[-8:]}.yaml")
+            # Search for certificate by ID suffix (last 8 chars)
+            cert_path = None
+            cert_dir = config.evaluations_dir / "certificates"
+            for cert_file in cert_dir.rglob(f"*_{cert_id[-8:]}.yaml"):
+                cert_path = cert_file
+                break
             
-            if cert_path.exists():
+            if cert_path and cert_path.exists():
                 with open(cert_path, 'r') as f:
                     cert = yaml.safe_load(f)
                 

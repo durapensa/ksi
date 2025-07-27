@@ -67,6 +67,15 @@ transformers:
         created_at: "{{_ksi_context._timestamp|now}}"
         created_at_iso: "{{timestamp_utc()}}"
         sandbox_uuid: "{{sandbox_uuid}}"
+        sandbox_dir: "{{sandbox_dir}}"
+        permission_profile: "{{permission_profile}}"
+        capabilities: "{{capabilities}}"
+        spawned_by: "{{spawned_by}}"
+        model: "{{model}}"
+        enable_tools: "{{enable_tools}}"
+        allowed_events: "{{allowed_events}}"
+        allowed_claude_tools: "{{allowed_claude_tools}}"
+        mcp_config_path: "{{mcp_config_path}}"
   
   # Agent status updates
   - name: "agent_status_to_monitor"

@@ -141,7 +141,7 @@ async def handle_compose(data: CompositionComposeData, context: Optional[Dict[st
     
     The component's type field is used as a hint for composition behavior,
     but intelligent agents can determine appropriate usage from context
-    (e.g., components/agents/* are agent profiles, prompts/* are prompts).
+    (e.g., components/agents/* are agent profiles, components/evaluations/* are evaluation components).
     
     This replaces the deprecated type-specific endpoints:
     - composition:profile (removed)
@@ -551,6 +551,10 @@ async def handle_discover(data: CompositionDiscoverData, context: Optional[Dict[
         # Include metadata filter in the query
         query = dict(data)  # Copy to avoid modifying original
         
+        # Map legacy 'type' parameter to 'component_type' for index compatibility
+        if 'type' in query and 'component_type' not in query:
+            query['component_type'] = query.pop('type')
+        
         # Apply default limit if none specified to prevent timeouts
         if 'limit' not in query:
             query['limit'] = 50  # Sensible default to prevent timeouts
@@ -665,10 +669,6 @@ async def load_composition_raw(name: str, comp_type: Optional[str] = None) -> Di
             # Merge metadata and content, with metadata taking precedence
             result = {**content_data, **metadata}
             
-            # Normalize component_type to type if needed
-            if 'component_type' in result and 'type' not in result:
-                result['type'] = result['component_type']
-                
             return result
         except Exception as e:
             logger.error(f"Failed to parse YAML content in {name}: {e}")
@@ -676,10 +676,6 @@ async def load_composition_raw(name: str, comp_type: Optional[str] = None) -> Di
     
     # For YAML files or other types, just return metadata
     result = metadata or {}
-    
-    # Normalize component_type to type if needed
-    if 'component_type' in result and 'type' not in result:
-        result['type'] = result['component_type']
     
     return result
 
@@ -692,9 +688,9 @@ def validate_core_composition(data: Dict[str, Any]) -> List[str]:
     if not isinstance(data.get('name'), str):
         errors.append("'name' must be a string")
     
-    # Support both 'type' and 'component_type' fields
-    if not isinstance(data.get('type'), str) and not isinstance(data.get('component_type'), str):
-        errors.append("'type' or 'component_type' must be a string")
+    # Only support 'component_type' field
+    if not isinstance(data.get('component_type'), str):
+        errors.append("'component_type' must be a string")
     
     # Optional fields with type checking
     if 'version' in data and not isinstance(data['version'], str):
@@ -1945,7 +1941,7 @@ async def handle_inspect(data: CompositionInspectData, context: Optional[Dict[st
                 'component': component_name,
                 'tree': tree_output,
                 'summary': {
-                    'type': inspection_result['type'],
+                    'component_type': inspection_result['component_type'],
                     'version': inspection_result['version'],
                     'description': inspection_result['description'],
                     'direct_dependencies': len(inspection_result['dependencies']),
@@ -1958,7 +1954,7 @@ async def handle_inspect(data: CompositionInspectData, context: Optional[Dict[st
             response_data = {
                 'status': 'success',
                 'component': component_name,
-                'type': inspection_result['type'],
+                'component_type': inspection_result['component_type'],
                 'version': inspection_result['version'],
                 'description': inspection_result['description'],
                 'dependencies': inspection_result['dependencies'],

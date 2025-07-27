@@ -471,39 +471,34 @@ ksi send agent:info --agent-id "agent_id" | jq '.expanded_capabilities'
 ksi send composition:list --filter '{"name": "component_name"}'
 ```
 
-## Component Evaluation System ✅ (Phase 1 Complete)
+## Native Evaluation Capabilities ✅
 
-### Architecture
-- **YAML Certificates**: Source of truth with SHA-256 component hashing
-- **SQLite Index**: Fast queries integrated with `composition:discover`
-- **Git Sharing**: Certificates in `var/lib/evaluations/certificates/`
-- **Event System**: `evaluation:run`, `evaluation:query` for agent access
+**Key Discovery**: KSI has comprehensive evaluation capabilities through normal orchestration operations. No special evaluation infrastructure needed.
 
-### Discovery Integration
-```bash
-# Filter by evaluation criteria
-ksi send composition:discover --type agent \
-  --tested_on_model "claude-sonnet-4" \
-  --evaluation_status "passing" \
-  --min_performance_class "fast"
+### What Already Exists
 
-# Basic evaluation data included by default
-{
-  "name": "components/agents/dsl_optimization_executor",
-  "evaluation": {
-    "tested": true,
-    "latest_status": "passing",
-    "models": ["claude-sonnet-4-20250514"],
-    "performance_class": "standard"
-  }
-}
-```
+**Tournament Orchestrations**:
+- `component_tournament_evaluation.yaml` - Complete tournament with coordinator agents, pairwise judges, Bradley-Terry rankings
+- `multi_agent_optimization_tournament.yaml` - Multiple optimizers → Judge evaluation → Winner selection
+- `dsl_optimizer_with_evaluation.yaml` - Full pipeline: Optimization → Testing → Evaluation → Certificate
 
-### Key Implementation
-- **certificate_index.py**: SQLite indexing with evaluation_index table
-- **evaluation_integration.py**: Enhances discovery queries and results
-- **evaluation_events.py**: Agent-accessible evaluation operations
-- **Rebuild Integration**: `composition:rebuild_index` updates both indices
+**Rich Judge Ecosystem** (15+ components):
+- `response_quality_judge.md`, `improvement_judge.md`, `optimization_judge.md`
+- Domain-specific judges using natural language reasoning
+- LLM-as-Judge methodology with pairwise comparisons
+
+**Native Infrastructure**:
+- Agent communication via `completion:async` for judge coordination
+- State management via `state:entity:*` for result tracking
+- 14 evaluation events (evaluation:run, evaluation:query, etc.)
+- Discovery integration for evaluation status filtering
+
+### Architecture Benefits
+
+1. **No Special Systems**: Uses same event-driven architecture as everything else
+2. **Emergent Complexity**: Complex evaluations emerge from simple agent communication
+3. **Self-Improving**: Judges can read and improve other judge components
+4. **Natural Integration**: Evaluation orchestrations integrate seamlessly with optimization
 
 ## Universal Graph-Based Architecture (2025) ✅
 
@@ -761,43 +756,14 @@ echo "personas/deep_analyst.md model=claude-opus performance=reasoning" >> .gita
 
 ## Current Development Focus
 
-### Development Priorities (2025-01-26)
+### Current Development Focus (2025-01-26)
 
-**Priority Order** (updated after discovering critical DSL bootstrap blocker):
+**Top Priorities**:
 
-#### 1. ~~Complete the DSL Bootstrap System~~ (BLOCKED - see Critical DSL Bootstrap Blocker)
-The DSL bootstrap approach is fundamentally blocked because agents cannot emit JSON events directly when they perceive tool access is needed. Created all behavior components but agents consistently ask for tool permissions instead of executing DSL.
-
-**Alternative Approaches to Investigate**:
-- Give agents actual tools that emit events (enable_tools: true)
-- Move DSL interpretation to system/transformer level
-- Use orchestrations that spawn pre-configured agents for each DSL command
-- Explore different base models without tool-asking behavior
-
-#### 2. Behavioral Evaluation for Optimization (NEXT PHASE)
-The optimization system has static evaluation working but needs behavioral testing:
-- **Implement agent-in-the-loop evaluation** - Spawn agents, test actual outputs
-- **Create behavioral test suites as components** - Version control test scenarios
-- **Move from bootstrap scripts to KSI-native orchestrations**
-- **Add tournament-based pairwise comparison** - Bradley-Terry rankings
-
-#### 3. Build Multi-Phase Orchestrations (FOUNDATION EXISTS)
-Agent communication proven, ready for complex patterns:
-- **Create orchestrator agents** that spawn and coordinate subagents
-- **Implement state-based coordination patterns**
-- **Build longer-running orchestrations** - Use `multi_phase_orchestrator.yaml` as template
-- **Test hierarchical event propagation** with subscription levels
-
-#### 4. Fix Critical Issues
-- **`state:entity:update` missing from capability mappings** - Blocks DSL state management
-- **Agent state entity transformer not creating entities** - Workaround exists in code
-- **Variable substitution in components** - Test after recent fix (commit 6b4cafd)
-
-#### 5. Expand Self-Improvement Ecosystem
-Bootstrap exists but needs expansion:
-- **More behavioral override patterns** beyond `claude_code_override.md`
-- **Test orchestrations demonstrating self-improvement**
-- **Integration with optimization pipeline**
+1. **Multi-Phase Orchestrations** - Agent communication proven, ready for complex coordinator patterns
+2. **Native Evaluation Integration** - Move from bootstrap scripts to orchestration-based evaluation
+3. **Self-Improvement Ecosystem** - Expand beyond basic behavioral overrides
+4. **DSL Bootstrap Alternative** - Custom KSI tools or system-level DSL interpretation
 
 ### DSL Bootstrap Capability Resolution (FIXED 2025-01-26) ✅
 
@@ -884,117 +850,8 @@ security_profile: dsl_interpreter  # Resolves to full capability set
   - **Implementation**: `handle_agent_spawned` in `agent_service.py`
   - **Result**: All agents now have proper state entities with sandbox_uuid
 
-### Critical Issues Discovered (2025-01-24)
-- **Agent State Entity Transformer Not Working**: The `agent_spawned_state_create` transformer in `var/lib/transformers/services/agent_routing.yaml` is not creating state entities for spawned agents
-  - **Workaround Implemented**: Added handler in `agent_service.py` that creates state entities on `agent:spawned` events
-  - **Impact**: Completion system requires state entities to find agent sandbox_uuid
-- **Variable Substitution Broken**: `{{agent_id}}` placeholders in behavior components not replaced during composition
-  - **Root Cause**: Component renderer using `context.variables` instead of runtime variables
-  - **FIXED (2025-01-24)**: Updated `_render_final_content` to merge runtime variables with component variables
-  - **Lesson**: Always ensure runtime variables are passed through the entire rendering chain
-- **Agent Capability Limitations**: Agents spawned from `base_agent` have `enable_tools: false`
-  - **Impact**: Agents can't read files or run commands, limiting self-improvement capabilities
-  - **Solution**: Need capability-aware component definitions
 
-### JSON Emission Solutions (2025-01-26)
 
-**FINDING**: JSON emission DOES work with the right behavioral components and patterns.
-
-#### Working Examples Found
-1. **standalone_demo** (2025-07-26) - Successfully emitted raw JSON directly
-2. **inline_behavior_test** - Used mandatory_json behavior successfully
-3. **agent_9130c2e6** - Used JSON code blocks (```json```) format
-4. **agent_d49e82bd** - KSI-aware analyst emitting many events
-
-#### Why Agents Ask for Permissions
-The issue is NOT that behavioral overrides don't work, but that:
-- `enable_tools: false` is the default for component-spawned agents
-- Without tools, agents perceive they need permission for ANY system action
-- The frontmatter `enable_tools: true` is ignored by component_to_profile
-
-#### Working Patterns for JSON Emission
-1. **Use JSON code blocks**: Wrap JSON in ```json``` blocks (proven to work)
-2. **Combine correct behaviors**: 
-   - `behaviors/communication/mandatory_json`
-   - `behaviors/orchestration/claude_code_aware_json`
-3. **Clear initialization pattern**: "MANDATORY: Start your response with this exact JSON:"
-
-#### Solutions to Implement
-1. **Fix component_to_profile**: Preserve enable_tools from component frontmatter
-2. **Use JSON code blocks**: Update DSL interpreters to use ```json``` format
-3. **Create KSI event tools**: Custom tools that emit events directly
-4. **Fix capability mappings**: Ensure all needed events are included
-
-#### Current Status (2025-01-26)
-- Behavioral overrides alone are insufficient when `enable_tools: false`
-- JSON code blocks pattern helps but doesn't solve the fundamental issue
-- The successful examples (standalone_demo, etc.) likely had different context
-- Fixed component_to_profile to preserve enable_tools and all frontmatter fields ✅
-
-### Component_to_Profile Fix (2025-01-26) ✅
-
-**Problem**: component_to_profile handler only preserved `security_profile`, ignoring other frontmatter fields like `enable_tools`.
-
-**Solution Implemented**:
-1. Extract ALL frontmatter fields, not just security_profile
-2. Use frontmatter values to override default agent_config
-3. Add agent config fields to top level for backward compatibility
-4. Pass through unknown fields for forward compatibility
-
-**Key Changes**:
-```python
-# Extract all agent config fields from frontmatter
-agent_config_fields = {
-    'model': frontmatter.get('model', 'sonnet'),
-    'role': frontmatter.get('role', 'assistant'),
-    'enable_tools': frontmatter.get('enable_tools', False),
-    'capabilities': frontmatter.get('capabilities', ['conversation', 'analysis', 'task_execution']),
-    # ... other fields
-}
-
-# Also add to top level for agent spawn handler
-profile_data.update(agent_config_fields)
-```
-
-### Understanding enable_tools vs Capabilities (2025-01-26)
-
-**Key Distinction**:
-- **capabilities** → KSI events the agent can emit (agent:status, state:entity:update, etc.)
-- **enable_tools** → Whether Claude tools (Bash, Read, Write) are enabled
-- **allowed_claude_tools** → Specific Claude tools allowed (usually empty `[]`)
-
-**Why Both Exist**:
-1. Capabilities control event permissions within KSI
-2. Tools control external system access (filesystem, commands)
-3. Agents can emit JSON events without tools
-4. But agents perceive they need tools for "any action"
-
-**Current Blocker**: Even with `enable_tools: true`, `allowed_claude_tools` is determined by the capability system, not component frontmatter. The behavioral override approach is fundamentally limited by the agent's perception that it needs tools to interact with the system.
-
-### Final Findings on DSL Bootstrap (2025-01-26)
-
-**Systematic Analysis Results**:
-
-1. **Behavioral Overrides Work** - We found successful examples of JSON emission
-2. **Component_to_Profile Fixed** - Now preserves all frontmatter fields
-3. **Three-Layer Permission System**:
-   - `enable_tools` → Whether tools are enabled (boolean)
-   - `allowed_claude_tools` → Which tools (determined by capability system)
-   - `capabilities` → Which KSI events can be emitted
-
-**Why DSL Bootstrap Remains Blocked**:
-1. Agents perceive they need tools to "do anything" (emit JSON events)
-2. The capability system doesn't grant claude tools to any standard profiles
-3. Even with `allowed_claude_tools: ["bash"]` in frontmatter, capability system overrides it
-4. No existing mechanism to grant tools through components
-
-**Alternative Approaches Identified**:
-1. **Create Custom Tools** - Build KSI-specific tools that emit events directly
-2. **Use System-Level DSL** - Move DSL interpretation to transformers/handlers
-3. **Hybrid Approach** - Orchestrations that spawn pre-configured agents per command
-4. **Modify Capability System** - Add tool grants to security profiles
-
-**Recommendation**: The DSL bootstrap vision remains valid but requires architectural changes. The cleanest approach would be custom KSI tools that agents can use to emit events, bypassing the perception that they need system access.
 
 ### Critical Composition Patterns (2025-01-26)
 
@@ -1027,176 +884,37 @@ security_profile: dsl_interpreter  # Grants necessary event permissions
 ```
 
 
-## Capability Mapping Fix (2025-01-26)
 
-### Missing state:entity:* Events
 
-**Issue Discovered**: The capability mappings were missing critical state entity events that the system uses internally:
-- `state:entity:create`
-- `state:entity:update`
-- `state:entity:delete`
-- `state:entity:get`
-- `state:entity:query`
-- `state:entity:bulk_create`
+## Optimization Architecture
 
-**Impact**: Agents with `state_write` capability couldn't update entity properties, causing failures in:
-- Agent state tracking (sandbox_uuid)
-- Orchestration state management
-- Custom entity operations
+### Hybrid Bootstrap/Agent Model
+**Python Layer**: DSPy integration, MLflow tracking, subprocess management
+**Agent Layer**: Orchestration patterns, DSL interpretation, agent coordination
 
-**Fix Applied**: Added missing events to both capability mapping files:
-1. `/var/lib/capabilities/capability_mappings.yaml` - Added to `state_read` and `state_write` capabilities
-2. `/var/lib/capabilities/capability_system_v3.yaml` - Already had most events in atomic capabilities, added `state:entity:bulk_create`
+**Migration Strategy**: Move coordination from Python scripts to orchestration patterns while keeping proven DSPy framework integration.
 
-**Testing Note**: Direct testing blocked by `composition:compose` error ("argument should be a str or an os.PathLike object"), but the fix is straightforward and aligns with existing event patterns.
+**Key Patterns**:
+- `simple_component_optimization.yaml` - Basic DSPy orchestration
+- `multi_agent_optimization_tournament.yaml` - Tournament evaluation
+- `dsl_optimization_executor.md` - Agent-driven workflow execution
 
-## Behavioral Evaluation Components (2025-01-26)
+### Evaluation Integration Examples
 
-### Optimization Quality Assessment
+**Simple Evaluation**:
+```bash
+# Spawn evaluator agent that coordinates the evaluation
+ksi send agent:spawn_from_component --component "evaluations/coordinators/tournament_coordinator"
 
-**Created comprehensive evaluation framework** for assessing optimization quality:
+# Or start evaluation orchestration directly
+ksi send orchestration:start --pattern "component_tournament_evaluation" \
+  --vars '{"candidates": ["v1", "v2", "v3"], "judge_component": "optimization_judge"}'
+```
 
-**Evaluation Components**:
-- `token_efficiency_evaluator.md` - Measures token reduction while preserving functionality
-- `behavior_consistency_evaluator.md` - Ensures behavioral equivalence after optimization
-- `response_quality_judge.md` - Pairwise comparison of agent output quality
-- `optimization_quality_suite.md` - Combines all evaluators for holistic assessment
+**Integration Flow**:
+1. Optimization emits `optimization:completed` → 2. Transformer routes to evaluation orchestration → 3. Orchestration spawns judges → 4. Judges evaluate via agent communication → 5. Results aggregate through state system
 
-**Key Features**:
-- Structured evaluation criteria with weighted scoring
-- JSON-based result reporting for system integration
-- Support for iterative optimization workflows
-- Risk assessment and improvement recommendations
-
-### Multi-Phase Orchestration Patterns
-
-**Created example orchestrations** demonstrating longer-running workflows:
-
-1. **Simple Multi-Phase Analysis** (`simple_multi_phase_analysis.yaml`)
-   - 3 phases: Data Collection → Analysis → Synthesis
-   - Phase coordinator manages transitions
-   - State tracking throughout execution
-
-2. **Iterative Optimization Cycle** (`iterative_optimization_cycle.yaml`)
-   - Quality-driven optimization iterations
-   - Continue/stop decisions based on improvement
-   - Integrated evaluation at each iteration
-
-3. **Self-Improving Research Pattern** (`self_improving_research_pattern.yaml`)
-   - Monitors own performance during execution
-   - Triggers self-optimization when performance degrades
-   - Demonstrates autonomous adaptation
-
-**Pattern Insights**:
-- Phase-based coordination enables complex workflows
-- State entities track progress across phases
-- Performance monitoring enables self-improvement
-- Orchestrator agents coordinate multi-agent activities
-
-## DSPy Optimization Transition (2025-01-26)
-
-### Current Architecture: Hybrid Bootstrap/Agent Model
-
-KSI has sophisticated optimization infrastructure bridging Python bootstrapping and agent orchestration:
-
-**Python Bootstrap Layer**:
-- `ksi_optimization_pipeline.py` - End-to-end workflow orchestrator
-- `dspy_mipro_adapter.py` - MIPRO integration (multi-stage optimization)
-- `dspy_simba_adapter.py` - SIMBA integration (incremental adaptation)
-- `optimization_service.py` - Event handlers and async subprocess management
-
-**Agent/Orchestration Layer**:
-- `simple_component_optimization.yaml` - Basic DSPy optimization orchestration
-- `ksi_native_optimization_pipeline.yaml` - Full pipeline with tournaments
-- `optimization_workflows.md` - Complete DSL patterns for all optimization types
-- Multiple agent components (optimization_coordinator, dspy_optimization_agent, etc.)
-
-### Transition Strategy: Bootstrap → Agent Autonomy
-
-**Key Insight**: The infrastructure is complete. DSL patterns exist for everything the Python bootstrap does.
-
-**Blockers Identified and Solutions**:
-
-1. **Agent Permission Issues**
-   - Problem: Agents ask for permissions instead of executing DSL
-   - Solution: Use `security_profile: self_improver` which grants:
-     - dsl_execution capability
-     - optimization:async/status/get_result events
-     - composition_development for creating components
-     - agent_coordination for spawning variants
-
-2. **Long-Running Subprocess Management**
-   - Problem: DSPy optimizations run 5-15 minutes in subprocesses
-   - Solution: Existing async operation framework with monitor patterns
-   - Agents use optimization:async → monitor with optimization:status
-
-3. **MLflow/Git Integration**
-   - Problem: Python service manages MLflow server and Git operations
-   - Solution: Expose as events or use existing agent file/command capabilities
-
-### Implementation Components Created
-
-**DSL Optimization Executor** (`dsl_optimization_executor.md`):
-- Combines DSL interpreter with self_improver security profile
-- Can execute complete optimization workflows from DSL patterns
-- Replaces Python bootstrap with agent-driven execution
-- Supports MIPRO, SIMBA, tournaments, and hybrid approaches
-
-**Test Orchestration** (`test_dsl_optimization_executor.yaml`):
-- Demonstrates bootstrap replacement
-- Shows DSL executor running full pipeline
-- Monitors key milestones without Python coordination
-
-### Available Optimization Patterns
-
-From `optimization_workflows.md`:
-1. **MIPRO Pattern** - Multi-stage with bootstrapping, proposals, discrete search
-2. **Tournament Pattern** - Pairwise comparisons with Bradley-Terry ranking
-3. **Iterative Improvement** - Continuous refinement with plateaus detection
-4. **Hybrid Optimization** - Combine multiple techniques with cross-evaluation
-5. **Self-Optimizing** - Runtime parameter tuning based on performance
-6. **Component Evolution** - Genetic algorithms with mutation/crossover
-
-### Migration Path
-
-1. **Enable DSL Execution**:
-   ```yaml
-   security_profile: self_improver  # or dsl_interpreter
-   dependencies:
-     - behaviors/dsl/optimization_workflows
-   ```
-
-2. **Test Native Orchestrations**:
-   - Start with `simple_component_optimization.yaml`
-   - Progress to `ksi_native_optimization_pipeline.yaml`
-   - Verify results match Python bootstrap
-
-3. **Gradually Replace Python Scripts**:
-   - Keep Python adapters for DSPy framework integration
-   - Move coordination logic to orchestrations
-   - Let agents handle workflow orchestration
-
-4. **Monitor and Iterate**:
-   - Compare optimization quality
-   - Track execution times
-   - Refine DSL patterns based on results
-
-### Architecture Benefits
-
-**Gained with Agent-Based Optimization**:
-- Full introspection of optimization process
-- Self-documenting workflows in DSL
-- Ability to self-optimize optimization patterns
-- Natural integration with evaluation components
-- No external Python scripts needed for coordination
-
-**Retained from Python Layer**:
-- DSPy framework integration
-- MLflow tracking
-- Git versioning
-- Proven optimization algorithms
-
-The transition enables KSI's vision: agents that improve themselves and each other through systematic optimization, with full visibility into the process.
+**Key Insight**: Evaluation uses normal KSI operations - agents, orchestrations, state management, events. No special evaluation code needed.
 
 ---
 

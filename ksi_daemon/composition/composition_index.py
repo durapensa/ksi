@@ -40,7 +40,7 @@ async def initialize(db_path: Optional[Path] = None):
     global _db_path, _initialized
     
     if db_path is None:
-        db_path = config.db_path
+        db_path = config.composition_index_db_path
     
     _db_path = db_path
     _db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -69,7 +69,7 @@ async def initialize(db_path: Optional[Path] = None):
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS composition_index (
                 name TEXT PRIMARY KEY,
-                type TEXT NOT NULL,
+                component_type TEXT NOT NULL,
                 repository_id TEXT NOT NULL,
                 file_path TEXT NOT NULL,
                 file_hash TEXT,
@@ -108,7 +108,7 @@ async def initialize(db_path: Optional[Path] = None):
             pass  # Column already exists
         
         # Indexes for efficient queries
-        await conn.execute('CREATE INDEX IF NOT EXISTS idx_comp_type ON composition_index(type)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_comp_type ON composition_index(component_type)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_comp_repo ON composition_index(repository_id)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_comp_name ON composition_index(name)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_comp_author ON composition_index(author)')
@@ -191,9 +191,13 @@ async def index_file(file_path: Path) -> bool:
         # Calculate relative path from compositions directory
         relative_path = file_path.relative_to(config.compositions_dir)
         
-        # Extract metadata - handle both 'type' and 'component_type'
+        # Extract metadata - only support 'component_type' field
         simple_name = comp_data['name']
-        comp_type = comp_data.get('type') or comp_data.get('component_type')
+        comp_type = comp_data.get('component_type')
+        
+        if not comp_type:
+            logger.warning(f"Missing component_type in {file_path}")
+            return None
         
         # Use the relative path (without extension) as the unique identifier
         # This is consistent across all composition types
@@ -210,7 +214,7 @@ async def index_file(file_path: Path) -> bool:
         async with _get_db() as conn:
             await conn.execute('''
                 INSERT OR REPLACE INTO composition_index
-                (name, type, repository_id, file_path, file_hash, file_size,
+                (name, component_type, repository_id, file_path, file_hash, file_size,
                  version, description, author, extends, tags, capabilities, 
                  dependencies, loading_strategy, mutable, ephemeral, metadata, 
                  indexed_at, last_modified)
@@ -272,9 +276,9 @@ async def discover(query: Dict[str, Any]) -> List[Dict[str, Any]]:
     conditions = []
     params = []
     
-    if 'type' in query:
-        conditions.append('type = ?')
-        params.append(query['type'])
+    if 'component_type' in query:
+        conditions.append('component_type = ?')
+        params.append(query['component_type'])
         
     if 'name' in query:
         conditions.append('name LIKE ?')
@@ -323,7 +327,7 @@ async def discover(query: Dict[str, Any]) -> List[Dict[str, Any]]:
         limit_clause = f" LIMIT {query['limit']}"
     
     sql = f"""
-        SELECT name, type, description, version, author, 
+        SELECT name, component_type, description, version, author, 
                tags, capabilities, loading_strategy, file_path, metadata, file_hash
         FROM composition_index 
         WHERE {where_clause}
@@ -341,7 +345,7 @@ async def discover(query: Dict[str, Any]) -> List[Dict[str, Any]]:
                 async for row in cursor:
                     result = {
                         'name': row[0],
-                        'type': row[1],
+                        'component_type': row[1],
                         'description': row[2],
                         'version': row[3],
                         'author': row[4],
@@ -373,9 +377,9 @@ async def get_count(query: Dict[str, Any] = None) -> int:
     conditions = []
     params = []
     
-    if 'type' in query:
-        conditions.append('type = ?')
-        params.append(query['type'])
+    if 'component_type' in query:
+        conditions.append('component_type = ?')
+        params.append(query['component_type'])
     
     where_clause = ' AND '.join(conditions) if conditions else '1=1'
     sql = f"SELECT COUNT(*) FROM composition_index WHERE {where_clause}"
@@ -415,9 +419,9 @@ async def get_unique_component_types() -> List[str]:
         async with _get_db() as conn:
             # Get distinct types from the index
             async with conn.execute("""
-                SELECT DISTINCT type
+                SELECT DISTINCT component_type
                 FROM composition_index 
-                WHERE type IS NOT NULL
+                WHERE component_type IS NOT NULL
             """) as cursor:
                 types = [row[0] for row in await cursor.fetchall() if row[0]]
                 return types if types else ['component']
@@ -432,7 +436,7 @@ async def filter_by_component_type(component_type: str) -> List[Dict[str, Any]]:
         async with _get_db() as conn:
             async with conn.execute("""
                 SELECT * FROM composition_index
-                WHERE type = ?
+                WHERE component_type = ?
             """, (component_type,)) as cursor:
                 columns = [description[0] for description in cursor.description]
                 return [dict(zip(columns, row)) for row in await cursor.fetchall()]

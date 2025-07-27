@@ -37,17 +37,12 @@ def create_repository_structure():
     
     repos = {
         "ksi-compositions": {
-            "description": "KSI Compositions - Agent profiles, orchestrations, and prompts",
+            "description": "KSI Compositions - Agent profiles, orchestrations, and components",
             "directories": [
                 "profiles", "profiles/base", "profiles/agents", "profiles/agents/conversation",
                 "profiles/agents/core", "profiles/agents/creative", "profiles/agents/greetings",
                 "profiles/agents/specialized", "orchestrations", "orchestrations/patterns",
-                "prompts", "prompts/core", "prompts/specialized", "prompts/specialized/compression",
-                "prompts/specialized/evaluation", "prompts/specialized/evaluation/judges",
-                "prompts/templates", "prompts/templates/analysis", "prompts/templates/development",
-                "prompts/templates/research", "prompts/conversations", "prompts/conversations/collaboration",
-                "prompts/conversations/debate", "prompts/conversations/teaching", "fragments",
-                "fragments/components", "fragments/components/conversation_control",
+                "fragments", "fragments/components", "fragments/components/conversation_control",
                 "fragments/components/conversation_patterns", "fragments/components/injections",
                 "fragments/prompts", "patterns", "schemas"
             ]

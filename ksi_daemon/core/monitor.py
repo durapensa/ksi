@@ -473,9 +473,7 @@ async def handle_subscribe(data: MonitorSubscribeData, context: Optional[Dict[st
         )
     
     event_patterns = data.get("event_patterns", ["*"])
-    
-    # Import unix_socket module to access subscriptions
-    from ksi_daemon.transport import unix_socket
+    writer = data.get("writer")
     
     # Clean up any stale subscriptions first (clients with invalid writers)
     _cleanup_stale_subscriptions()
@@ -486,6 +484,10 @@ async def handle_subscribe(data: MonitorSubscribeData, context: Optional[Dict[st
     
     # Replace subscription entirely instead of accumulating
     client_subscriptions[client_id] = new_patterns
+    
+    # Register writer if provided
+    if writer:
+        register_client_writer(client_id, writer)
     
     if existing_patterns:
         if existing_patterns == new_patterns:

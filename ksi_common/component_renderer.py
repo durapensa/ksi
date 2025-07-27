@@ -99,6 +99,39 @@ class ComponentRenderer:
         except Exception as e:
             logger.error(f"Component rendering failed for {component_name}: {e}")
             raise ComponentResolutionError(f"Failed to render component {component_name}: {e}") from e
+
+    def render_with_frontmatter(self, component_name: str, variables: Optional[Dict[str, Any]] = None) -> Tuple[str, Dict[str, Any]]:
+        """
+        Render a component and return both content and merged frontmatter.
+        
+        Args:
+            component_name: Name of component to render
+            variables: Variables for substitution
+            
+        Returns:
+            Tuple of (rendered_content, merged_frontmatter)
+            
+        Raises:
+            CircularDependencyError: If circular dependencies detected
+            ComponentResolutionError: If component resolution fails
+        """
+        if variables is None:
+            variables = {}
+            
+        try:
+            # Clear render stack for new rendering session
+            self.render_stack = []
+            
+            # Load and resolve component
+            context = self._load_component_with_resolution(component_name, variables)
+            
+            # Render final content and return both content and merged frontmatter
+            rendered_content = self._render_final_content(context, variables)
+            return rendered_content, context.frontmatter
+            
+        except Exception as e:
+            logger.error(f"Component rendering failed for {component_name}: {e}")
+            raise ComponentResolutionError(f"Failed to render component {component_name}: {e}") from e
     
     def _load_component_with_resolution(self, component_name: str, variables: Dict[str, Any]) -> ComponentContext:
         """Load component and resolve all mixins recursively."""
@@ -370,7 +403,7 @@ class ComponentRenderer:
             
             return {
                 'name': component_name,
-                'type': tree.get('type', 'unknown'),
+                'component_type': tree.get('component_type', 'unknown'),
                 'version': tree.get('version', '0.0.0'),
                 'description': tree.get('description', ''),
                 'capabilities': tree.get('capabilities', []),
@@ -401,7 +434,7 @@ class ComponentRenderer:
             # Build tree node
             node = {
                 'name': component_name,
-                'type': context.frontmatter.get('component_type', context.frontmatter.get('type', 'unknown')),
+                'component_type': context.frontmatter.get('component_type', 'unknown'),
                 'version': context.frontmatter.get('version', '0.0.0'),
                 'description': context.frontmatter.get('description', ''),
                 'capabilities': context.frontmatter.get('capabilities', []),

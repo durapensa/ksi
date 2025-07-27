@@ -11,7 +11,7 @@ import inspect
 import uuid
 import time
 import fnmatch
-from typing import Dict, Any, List, Callable, Optional, Set, Union, TypeVar, Tuple, Type, TypedDict, Literal
+from typing import Dict, Any, List, Callable, Optional, Set, Union, TypeVar, Tuple, Type, TypedDict, Literal, get_type_hints
 from typing_extensions import NotRequired, Required
 from functools import wraps
 import sys
@@ -24,6 +24,7 @@ from ksi_common.config import config
 from ksi_common.template_utils import apply_mapping
 from ksi_common.context_utils import prepare_transformer_context
 from ksi_common.task_management import create_tracked_task
+from ksi_common.json_utils import parse_json_parameter
 
 logger = get_bound_logger("event_system", version="2.0.0")
 
@@ -79,11 +80,60 @@ class EventHandler:
         self.module = func.__module__
         self.name = func.__name__
         
+        # Extract TypedDict info for JSON parameter parsing
+        self._extract_typeddict_info()
+        
+    def _extract_typeddict_info(self):
+        """Extract TypedDict information from handler signature for JSON parsing."""
+        self.json_params = set()
+        try:
+            sig = inspect.signature(self.func)
+            if sig.parameters:
+                # Get the first parameter (data)
+                first_param = list(sig.parameters.values())[0]
+                if first_param.annotation and first_param.annotation != inspect.Parameter.empty:
+                    # Check if it's a TypedDict
+                    hints = get_type_hints(self.func)
+                    data_type = hints.get(first_param.name)
+                    if data_type and hasattr(data_type, '__annotations__'):
+                        # Look for parameters that might be JSON strings
+                        for field, field_type in data_type.__annotations__.items():
+                            # Check if the type is Dict or contains Dict (e.g., Union[str, Dict])
+                            if hasattr(field_type, '__origin__'):
+                                # Handle Union types
+                                if hasattr(field_type, '__args__'):
+                                    for arg in field_type.__args__:
+                                        if arg is dict or (hasattr(arg, '__origin__') and arg.__origin__ is dict):
+                                            self.json_params.add(field)
+                                            break
+                            elif field_type is dict or (hasattr(field_type, '__origin__') and field_type.__origin__ is dict):
+                                # Direct Dict type
+                                self.json_params.add(field)
+                            elif field in ['filter', 'properties', 'metadata', 'vars', 'variables',
+                                         'context', 'message', 'config', 'options', 'params',
+                                         'attributes', 'tags', 'labels', 'settings']:
+                                # Known JSON parameters by name
+                                self.json_params.add(field)
+        except Exception as e:
+            # If we can't extract TypedDict info, that's fine
+            logger.debug(f"Could not extract TypedDict info for {self.func.__name__}: {e}")
+            pass
+        
+        logger.debug(f"EventHandler {self.name} for {self.event} - JSON params: {self.json_params}")
+        
     async def __call__(self, data: Any, context: Optional[Dict[str, Any]] = None) -> Any:
         """Execute the handler."""
         # Apply filter if present
         if self.filter_func and not self.filter_func(self.event, data, context):
             return None
+        
+        # Parse JSON parameters if we have TypedDict info
+        if self.json_params and isinstance(data, dict):
+            # Make a copy to avoid modifying the original
+            data = data.copy()
+            for param in self.json_params:
+                if param in data:
+                    parse_json_parameter(data, param)
         
         # Determine handler signature to call correctly
         sig = inspect.signature(self.func)

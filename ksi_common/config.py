@@ -77,6 +77,7 @@ from .constants import (
     DEFAULT_CHECKPOINT_DB_NAME,
     DEFAULT_EVENTS_DB_NAME,
     DEFAULT_COMPOSITION_INDEX_DB_NAME,
+    DEFAULT_EVALUATION_INDEX_DB_NAME,
 )
 
 
@@ -123,6 +124,9 @@ class KSIBaseConfig(BaseSettings):
     
     # Composition index database
     composition_index_db_path: Path = Path(DEFAULT_DB_DIR) / DEFAULT_COMPOSITION_INDEX_DB_NAME
+    
+    # Evaluation index database
+    evaluation_index_db_path: Path = Path(DEFAULT_DB_DIR) / DEFAULT_EVALUATION_INDEX_DB_NAME
     
     # Context system database (Pythonic Context Refactor)
     context_db_path: Path = Path(DEFAULT_DB_DIR) / "contexts.db"

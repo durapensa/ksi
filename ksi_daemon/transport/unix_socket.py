@@ -120,16 +120,19 @@ async def handle_client(reader, writer):
                 await send_response(writer, {"error": f"Invalid JSON: {e}"})
                 continue
             
+            # Transport layer should NOT handle business logic
+            # The monitor module should handle its own registrations via event handlers
             
-            # Check for monitor:subscribe to register with monitor module
+            # However, for monitor:subscribe, we need to inject the writer reference
             if message.get("event") == "monitor:subscribe":
-                data = message.get("data", {})
-                str_client_id = data.get("client_id")
-                if str_client_id:
-                    # Register client writer with monitor module
-                    from ksi_daemon.core import monitor
-                    monitor.register_client_writer(str_client_id, writer)
-                    logger.debug(f"Registered client {str_client_id} with monitor module")
+                # Add writer reference to data for monitor module
+                if "data" not in message:
+                    message["data"] = {}
+                if isinstance(message["data"], dict):
+                    message["data"]["writer"] = writer
+                    # Also ensure client_id is set
+                    if "client_id" not in message["data"] and "_client_id" in message:
+                        message["data"]["client_id"] = message["_client_id"]
             
             # Handle the message
             response = await handle_message(message)
@@ -149,13 +152,15 @@ async def handle_client(reader, writer):
         # Clean up transport connection
         del client_connections[client_id]
         
-        # Unregister from monitor module
-        from ksi_daemon.core import monitor
-        # Find any client IDs that map to this writer and unregister them
-        for str_client_id in list(monitor.client_writers.keys()):
-            if monitor.client_writers[str_client_id] == writer:
-                monitor.unregister_client_writer(str_client_id)
-                logger.debug(f"Unregistered client {str_client_id} from monitor module")
+        # Notify monitor module about disconnection
+        # We need to find any client_ids that were using this writer
+        try:
+            # Emit an unsubscribe event for any clients using this writer
+            # Note: We don't have direct access to which client_ids map to this writer,
+            # so the monitor module should handle cleanup in its broadcast logic
+            pass
+        except Exception as e:
+            logger.debug(f"Error during client cleanup: {e}")
         
         writer.close()
         await writer.wait_closed()

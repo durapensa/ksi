@@ -44,7 +44,7 @@ class CompositionComponent:
 class Composition:
     """A complete composition definition."""
     name: str
-    type: str
+    component_type: str
     version: str
     description: str
     author: Optional[str] = None
@@ -80,7 +80,7 @@ class Composition:
         
         # Preserve all fields that aren't explicitly handled
         known_fields = {
-            'name', 'type', 'version', 'description', 'author',
+            'name', 'component_type', 'version', 'description', 'author',
             'extends', 'mixins', 'components', 'variables', 
             'metadata', 'required_context'
         }
@@ -93,7 +93,7 @@ class Composition:
         
         return cls(
             name=data['name'],
-            type=data['type'],
+            component_type=data['component_type'],
             version=data['version'],
             description=data['description'],
             author=data.get('author'),

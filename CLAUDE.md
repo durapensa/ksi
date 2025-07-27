@@ -40,6 +40,9 @@ This document serves as your primary instructions for KSI development. For techn
 - Repeated error messages in logs
 - Timeout errors
 - "No event emitter configured" or similar infrastructure errors
+- **Handler errors during testing** (e.g., "'str' object has no attribute 'get'")
+- **Type mismatches or parsing errors**
+- **Any error that prevents expected functionality**
 
 **YOU MUST**:
 1. Fix the issue completely
@@ -56,6 +59,8 @@ This document serves as your primary instructions for KSI development. For techn
 3. **MUST search for patterns** - Search logs for related errors
 4. **MUST test with minimal cases** - Isolate the problem
 5. **MUST fix the root cause** - NEVER bypass or work around issues
+6. **MUST handle edge cases** - Fix parameter parsing, type validation, etc.
+7. **MUST verify the fix** - Test the exact failing case again after fixing
 
 ### Advanced Debugging Techniques
 
