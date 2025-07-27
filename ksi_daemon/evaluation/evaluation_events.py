@@ -168,17 +168,15 @@ async def handle_evaluation_run(data: EvaluationRunData, context: Optional[Dict[
     for any component type in the composition system.
     """
     try:
-        # Validate component path
+        # Validate component path using the same approach as composition system
         component_path = data['component_path']
-        if not component_path.startswith('components/'):
-            component_path = f"components/{component_path}"
-            
-        full_path = Path(config.compositions_dir) / component_path
-        if full_path.suffix != '.md':
-            full_path = full_path.with_suffix('.md')
-            
-        if not full_path.exists():
-            raise ValueError(f"Component not found: {full_path}")
+        
+        # Use shared utilities for consistent path resolution (same as composition:get_component)
+        from ksi_common.composition_utils import load_composition_with_metadata
+        try:
+            metadata, content, full_path = load_composition_with_metadata(component_path, 'component')
+        except FileNotFoundError:
+            raise ValueError(f"Component not found: {component_path}")
         
         # Extract model version date if provided, otherwise use default
         model_version_date = "2025-05-14"  # Default for claude models
