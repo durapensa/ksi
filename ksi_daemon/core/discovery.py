@@ -1049,7 +1049,7 @@ async def handle_discover(data: SystemDiscoverData, context: Optional[Dict[str, 
     event_filter = data.get("event")
     module_filter = data.get("module")
     format_style = data.get("format_style", FORMAT_VERBOSE)
-    level = data.get("level", "namespace")  # Default to namespace level
+    level = data.get("level", "summary")  # CLI should set appropriate default
     orchestration_id = data.get("orchestration_id")
     
     # Prevent detail timeout without filters
@@ -1160,6 +1160,25 @@ async def handle_discover(data: SystemDiscoverData, context: Optional[Dict[str, 
             'total_namespaces': len(namespaces),
             'total_events': len(filtered_events),
             '_level': 'summary',
+            '_filters': {
+                'namespace': namespace_filter,
+                'event': event_filter,
+                'module': module_filter
+            }
+        }
+    elif level == "namespace" and namespace_filter:
+        # Show event names + descriptions for specific namespace
+        events_summary = {}
+        for event_name, handler_info in filtered_events.items():
+            events_summary[event_name] = {
+                "summary": handler_info.get("summary", ""),
+            }
+        
+        response = {
+            'events': events_summary,
+            'total': len(events_summary),
+            'namespaces': [namespace_filter],
+            '_level': 'namespace',
             '_filters': {
                 'namespace': namespace_filter,
                 'event': event_filter,

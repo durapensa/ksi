@@ -57,27 +57,30 @@ You are not Claude Assistant. You execute tasks directly and efficiently.
 
 ### Event Emission Patterns
 
-#### XML Tool Use (Most Reliable) ✅
-```xml
-<ksi:emit>
-  <ksi:event>agent:status</ksi:event>
-  <ksi:data>
-    <agent_id>{{agent_id}}</agent_id>
-    <status>initialized</status>
-  </ksi:data>
-</ksi:emit>
+#### Tool Use Pattern (Production Ready) ✅
+```json
+{
+  "type": "ksi_tool_use",
+  "id": "ksiu_status_001",
+  "name": "agent:status",
+  "input": {
+    "agent_id": "{{agent_id}}",
+    "status": "initialized"
+  }
+}
 ```
-- Use `behaviors/tool_use/ksi_tool_use` behavior
-- 100% reliable in testing
-- Leverages Claude's natural tool capabilities
+- Use `behaviors/communication/ksi_events_as_tool_calls` behavior
+- Leverages LLMs' natural tool calling capabilities
+- Supports complex multi-line content and nested structures
+- 100% reliable in production testing
 
-#### JSON Emission (Limited Reliability)
-```markdown
-## MANDATORY: Start your response with this exact JSON:
+#### Legacy JSON Format (Dual-Path Support)
+```json
 {"event": "agent:status", "data": {"agent_id": "{{agent_id}}", "status": "initialized"}}
 ```
-- Works for simple events
-- Complex structures often malformed
+- Maintained for backward compatibility
+- Dual-path extraction supports both formats
+- Tool use pattern preferred for new components
 
 ### Agent Communication
 ```json
@@ -114,8 +117,9 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 ## File Locations
 
 ### Core Systems
-- `ksi_common/json_utils.py` - JSON extraction with balanced braces
-- `ksi_common/xml_event_extraction.py` - XML event extraction for tool use pattern
+- `ksi_common/json_extraction.py` - JSON extraction with dual-path support
+- `ksi_common/tool_use_adapter.py` - Tool use pattern extraction and conversion
+- `ksi_daemon/completion/extract_ksi_tool_use.py` - Tool use integration with completion service
 - `ksi_common/component_renderer.py` - Component dependency resolution
 - `ksi_daemon/composition/` - Component management and discovery
 - `ksi_daemon/evaluation/` - Evaluation and certification
@@ -166,10 +170,11 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 
 ## Key Insights
 
-1. **Agents can't emit JSON directly** - Use imperative overrides or translation layers
-2. **Everything is a graph** - Entities, relationships, event routing
-3. **Composition over configuration** - Mix behaviors, don't hardcode
-4. **System enables, doesn't control** - Agents are autonomous
+1. **Tool use patterns work reliably** - LLMs naturally structure tool calls correctly
+2. **Dual-path extraction** - Support both legacy JSON and modern tool use formats
+3. **Everything is a graph** - Entities, relationships, event routing
+4. **Composition over configuration** - Mix behaviors, don't hardcode
+5. **System enables, doesn't control** - Agents are autonomous
 
 ---
 

@@ -23,27 +23,13 @@ from typing import Dict, Any, Optional
 try:
     from ksi_client import EventClient
 except ImportError:
-    # Find KSI root and add to path
+    # Use KSI_ROOT provided by ksi wrapper
     ksi_root = os.environ.get('KSI_ROOT')
     if not ksi_root:
-        # Try to find KSI root from script location
-        script_path = Path(__file__).resolve()
-        if script_path.parent.name == 'ksi' or (script_path.parent / 'ksi_common').exists():
-            ksi_root = str(script_path.parent)
-        else:
-            # Search upward for ksi_common
-            current = script_path.parent
-            while current != current.parent:
-                if (current / 'ksi_common').exists():
-                    ksi_root = str(current)
-                    break
-                current = current.parent
-    
-    if ksi_root:
-        sys.path.insert(0, ksi_root)
-    else:
-        print("Error: Cannot find KSI root directory. Please set KSI_ROOT or run from within the project.", file=sys.stderr)
+        print("Error: KSI_ROOT not set. Please use the 'ksi' wrapper script.", file=sys.stderr)
         sys.exit(1)
+    
+    sys.path.insert(0, ksi_root)
 
 import click
 from ksi_client import EventClient
@@ -493,8 +479,11 @@ async def discover(ctx, output_format):
         
         # Add default level if not specified
         if 'level' not in data and not data.get('orchestration_id'):
-            # Only set default level for non-orchestration discovery
-            data['level'] = 'summary'
+            # Default to 'namespace' when filtering by namespace, otherwise 'summary'
+            if data.get('namespace'):
+                data['level'] = 'namespace'
+            else:
+                data['level'] = 'summary'
         
         # Send discovery request
         result = await ksi_client.send_event("system:discover", data)
