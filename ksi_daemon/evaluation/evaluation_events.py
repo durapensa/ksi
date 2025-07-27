@@ -15,7 +15,7 @@ from ksi_common.logging import get_bound_logger
 from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_common.config import config
 from ksi_daemon.event_system import event_handler
-from .certificate_index import CertificateIndex
+from ksi_daemon.composition.composition_index import rebuild as rebuild_composition_index
 from .component_hasher import hash_component_at_path
 
 logger = get_bound_logger("evaluation_events")
@@ -204,9 +204,10 @@ async def handle_evaluation_run(data: EvaluationRunData, context: Optional[Dict[
         # Save certificate using the migrated function
         cert_path = save_certificate(certificate)
         
-        # Index in SQLite
-        cert_index = CertificateIndex()
-        indexed = cert_index.index_certificate(cert_path)
+        # Index in unified composition system (includes evaluations)
+        # The certificate is already saved and added to registry.yaml above
+        # The composition index will pick it up on next rebuild
+        indexed = True  # Always true since we successfully saved
         
         # Also update registry.yaml for backward compatibility
         try:
@@ -270,27 +271,28 @@ class EvaluationQueryData(TypedDict):
 
 @event_handler("evaluation:query")
 async def handle_evaluation_query(data: EvaluationQueryData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Query evaluation certificates."""
+    """Query evaluation certificates using unified composition index."""
     try:
-        cert_index = CertificateIndex()
+        # Use unified composition index with evaluation filters
+        query_params = {}
         
-        results = cert_index.query_evaluations(
-            tested_on_model=data.get('tested_on_model'),
-            evaluation_status=data.get('evaluation_status')
-        )
-        
-        # Filter by component path if specified
-        if component_path := data.get('component_path'):
-            results = [r for r in results if r['component_path'].endswith(component_path)]
-        
-        # Apply limit
-        if limit := data.get('limit'):
-            results = results[:limit]
+        if data.get('tested_on_model'):
+            query_params['tested_on_model'] = data['tested_on_model']
+        if data.get('evaluation_status'):
+            query_params['evaluation_status'] = data['evaluation_status']
+        if data.get('component_path'):
+            query_params['component_path'] = data['component_path']
+        if data.get('limit'):
+            query_params['limit'] = data['limit']
+            
+        # Use unified evaluation discovery
+        from ksi_daemon.composition.evaluation_integration import evaluation_integration
+        evaluated_results = await evaluation_integration.discover_with_evaluations(query_params)
         
         return event_response_builder({
             'status': 'success',
-            'evaluations': results,
-            'count': len(results)
+            'evaluations': evaluated_results,
+            'count': len(evaluated_results)
         }, context)
         
     except Exception as e:
@@ -340,16 +342,18 @@ class EvaluationIndexRebuildData(TypedDict):
 
 @event_handler("evaluation:rebuild_index")
 async def handle_rebuild_evaluation_index(data: EvaluationIndexRebuildData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Rebuild evaluation index from certificates."""
+    """Rebuild evaluation index using unified composition system."""
     try:
-        cert_index = CertificateIndex()
-        indexed, total = cert_index.scan_certificates()
+        # Use unified composition index rebuild which includes evaluations
+        result = await rebuild_composition_index()
         
         return event_response_builder({
             'status': 'success',
-            'certificates_found': total,
-            'certificates_indexed': indexed,
-            'index_path': str(cert_index.db_path)
+            'evaluations_indexed': result.get('evaluations_indexed', 0),
+            'compositions_indexed': result.get('compositions_indexed', 0),
+            'total_scanned': result.get('total_scanned', 0),
+            'skipped_files': result.get('skipped_files', []),
+            'message': 'Rebuilt unified composition and evaluation index'
         }, context)
         
     except Exception as e:

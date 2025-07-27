@@ -991,7 +991,7 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
     agent_info = {
         "agent_id": agent_id,
         "component": compose_name,
-        "composition": composition_name or compose_name,
+        "composition": compose_name,
         "config": agent_config,
         "status": "initializing",
         "created_at": format_for_logging(),

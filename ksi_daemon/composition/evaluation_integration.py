@@ -1,137 +1,149 @@
 #!/usr/bin/env python3
 """
 Integration between composition discovery and evaluation certificates.
-Enhances composition:discover with evaluation data and filters.
+Enhances composition:discover with evaluation data and filters using unified index.
 """
 from typing import Dict, Any, List, Optional
 from pathlib import Path
+import sqlite3
+import json
+from contextlib import asynccontextmanager
 
 from ksi_common.logging import get_bound_logger
-from ksi_daemon.evaluation.certificate_index import CertificateIndex
+from ksi_common.config import config
 
 logger = get_bound_logger("evaluation_integration")
 
 
 class EvaluationIntegration:
-    """Integrates evaluation data with composition discovery."""
+    """Integrates evaluation data with composition discovery using unified index."""
     
-    def __init__(self):
-        self.cert_index = CertificateIndex()
+    @asynccontextmanager
+    async def _get_db(self):
+        """Get database connection to unified composition index."""
+        db_path = config.composition_index_db_path
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        try:
+            yield conn
+        finally:
+            conn.close()
     
-    def enhance_discovery_query(self, query: Dict[str, Any]) -> tuple[List[str], List[Any]]:
+    async def discover_with_evaluations(self, query: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
-        Add evaluation filters to discovery SQL query.
-        Returns additional WHERE clauses and parameters.
+        Discover compositions with evaluation data using unified index.
         """
         conditions = []
         params = []
         
-        # Filter by model tested
-        if tested_model := query.get('tested_on_model'):
-            # This requires a JOIN with evaluation_index
-            conditions.append("""
-                EXISTS (
-                    SELECT 1 FROM evaluation_index e 
-                    WHERE e.component_hash = composition_index.file_hash
-                    AND json_extract(e.models_tested, '$') LIKE ?
-                )
-            """)
-            params.append(f'%{tested_model}%')
-        
-        # Filter by evaluation status
-        if eval_status := query.get('evaluation_status'):
-            conditions.append("""
-                EXISTS (
-                    SELECT 1 FROM evaluation_index e
-                    WHERE e.component_hash = composition_index.file_hash
-                    AND e.latest_status = ?
-                )
-            """)
-            params.append(eval_status)
-        
-        # Filter by minimum performance class
-        if min_perf := query.get('min_performance_class'):
-            perf_values = {'fast': 3, 'standard': 2, 'slow': 1}
-            min_value = perf_values.get(min_perf, 0)
+        # Standard composition filters
+        if 'component_type' in query:
+            conditions.append('ci.component_type = ?')
+            params.append(query['component_type'])
             
-            conditions.append(f"""
-                EXISTS (
-                    SELECT 1 FROM evaluation_index e
-                    WHERE e.component_hash = composition_index.file_hash
-                    AND CASE e.performance_class
-                        WHEN 'fast' THEN 3
-                        WHEN 'standard' THEN 2
-                        WHEN 'slow' THEN 1
-                        ELSE 0
-                    END >= ?
-                )
-            """)
-            params.append(min_value)
+        if 'name' in query:
+            conditions.append('ci.name LIKE ?')
+            params.append(f"%{query['name']}%")
         
-        return conditions, params
-    
-    def enhance_results(self, 
-                       compositions: List[Dict[str, Any]], 
-                       query: Dict[str, Any]) -> List[Dict[str, Any]]:
+        # Evaluation filters
+        if 'evaluation_status' in query:
+            conditions.append('e.status = ?')
+            params.append(query['evaluation_status'])
+            
+        if 'tested_on_model' in query:
+            conditions.append('e.model = ?')
+            params.append(query['tested_on_model'])
+            
+        if 'performance_class' in query:
+            conditions.append('e.performance_class = ?')
+            params.append(query['performance_class'])
+        
+        where_clause = ' AND '.join(conditions) if conditions else '1=1'
+        
+        # Add LIMIT clause if specified
+        limit_clause = ""
+        if 'limit' in query and isinstance(query['limit'], int) and query['limit'] > 0:
+            limit_clause = f" LIMIT {query['limit']}"
+        
+        # Build SQL with proper JOIN
+        sql = f"""
+            SELECT DISTINCT ci.name, ci.component_type, ci.description, ci.version, ci.author, 
+                   ci.tags, ci.capabilities, ci.loading_strategy, ci.file_path, ci.file_hash,
+                   e.status as eval_status, e.model as eval_model, e.performance_class
+            FROM composition_index ci
+            LEFT JOIN evaluations e ON ci.file_hash = REPLACE(e.component_hash, 'sha256:', '')
+            WHERE {where_clause}
+            ORDER BY ci.name{limit_clause}
         """
-        Add evaluation data to composition results based on query parameters.
-        """
-        # Determine evaluation detail level
-        include_eval = query.get('include_evaluation', True)
-        eval_detail = query.get('evaluation_detail', 'minimal')
         
-        if not include_eval:
-            return compositions
-        
-        # Enhance each composition with evaluation data
-        enhanced = []
-        for comp in compositions:
-            # Skip if no file_hash
-            if 'file_hash' not in comp:
-                enhanced.append(comp)
-                continue
-            
-            # Get evaluation summary
-            eval_summary = self.cert_index.get_evaluation_summary(comp['file_hash'])
-            
-            if eval_summary:
-                # Add evaluation data based on detail level
-                if eval_detail == 'minimal':
-                    comp['evaluation'] = {
+        results = []
+        async with self._get_db() as conn:
+            cursor = conn.execute(sql, params)
+            for row in cursor:
+                result = {
+                    'name': row[0],
+                    'component_type': row[1],
+                    'description': row[2],
+                    'version': row[3],
+                    'author': row[4],
+                    'tags': json.loads(row[5] or '[]'),
+                    'capabilities': json.loads(row[6] or '[]'),
+                    'loading_strategy': row[7],
+                    'file_path': row[8],
+                    'file_hash': row[9]
+                }
+                
+                # Add evaluation data
+                if row[10]:  # eval_status
+                    result['evaluation'] = {
                         'tested': True,
-                        'latest_status': eval_summary['latest_status'],
-                        'models': eval_summary['models'],
-                        'performance_class': eval_summary['performance_class']
+                        'latest_status': row[10],
+                        'model': row[11],
+                        'performance_class': row[12] or 'standard'
                     }
-                elif eval_detail == 'summary':
-                    comp['evaluation'] = eval_summary
-                elif eval_detail == 'detailed':
-                    # Include full evaluation summary with certificate references
-                    comp['evaluation'] = eval_summary
-                    comp['evaluation']['certificates'] = self._get_certificate_details(comp['file_hash'])
-            else:
-                comp['evaluation'] = {'tested': False}
-            
-            enhanced.append(comp)
+                else:
+                    result['evaluation'] = {'tested': False}
+                
+                results.append(result)
         
-        return enhanced
+        return results
     
-    def _get_certificate_details(self, component_hash: str) -> List[Dict[str, Any]]:
-        """Get detailed certificate information for a component."""
-        # This would query the evaluation_index for certificate paths
-        # and potentially load certificate details if needed
-        # For now, return basic info from the index
-        return []
+    async def get_certificate_details(self, component_hash: str) -> List[Dict[str, Any]]:
+        """Get detailed certificate information for a component from unified index."""
+        async with self._get_db() as conn:
+            cursor = conn.execute("""
+                SELECT certificate_id, evaluation_date, status, model, test_suite, 
+                       tests_passed, tests_total, performance_class
+                FROM evaluations 
+                WHERE component_hash = ? OR component_hash = ?
+                ORDER BY evaluation_date DESC
+            """, (component_hash, f"sha256:{component_hash}"))
+            
+            certificates = []
+            for row in cursor:
+                certificates.append({
+                    'certificate_id': row[0],
+                    'date': row[1],
+                    'status': row[2],
+                    'model': row[3],
+                    'test_suite': row[4],
+                    'tests_passed': row[5],
+                    'tests_total': row[6],
+                    'performance_class': row[7]
+                })
+            
+            return certificates
     
     async def rebuild_evaluation_index(self) -> Dict[str, Any]:
-        """Rebuild evaluation index from certificates directory."""
-        indexed, total = self.cert_index.scan_certificates()
+        """Rebuild evaluation index using unified composition system."""
+        from . import composition_index
+        result = await composition_index.rebuild()
         
         return {
             'status': 'success',
-            'certificates_found': total,
-            'certificates_indexed': indexed,
-            'index_path': str(self.cert_index.db_path)
+            'evaluations_indexed': result.get('evaluations_indexed', 0),
+            'compositions_indexed': result.get('compositions_indexed', 0),
+            'message': 'Using unified composition index (CertificateIndex deprecated)'
         }
 
 

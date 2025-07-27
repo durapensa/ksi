@@ -583,15 +583,11 @@ async def handle_discover(data: CompositionDiscoverData, context: Optional[Dict[
         
         # Don't include full metadata by default - it makes responses too large
         
-        logger.debug(f"composition:discover sending to index: {query}")
-        discovered = await composition_index.discover(query)
+        logger.debug(f"composition:discover using unified evaluation system: {query}")
         
-        # Enhance results with evaluation data if requested
+        # Always use unified evaluation discovery for consistent results
         from .evaluation_integration import evaluation_integration
-        enhanced_compositions = evaluation_integration.enhance_results(
-            discovered, 
-            query
-        )
+        enhanced_compositions = await evaluation_integration.discover_with_evaluations(query)
         
         return event_response_builder(
             {
