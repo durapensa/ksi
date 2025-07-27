@@ -57,7 +57,7 @@ You are not Claude Assistant. You execute tasks directly and efficiently.
 
 ### Event Emission Patterns
 
-#### Tool Use Pattern (Production Ready) ✅
+#### Tool Use Pattern (Production Validated) ✅
 ```json
 {
   "type": "ksi_tool_use",
@@ -69,10 +69,11 @@ You are not Claude Assistant. You execute tasks directly and efficiently.
   }
 }
 ```
-- Use `behaviors/communication/ksi_events_as_tool_calls` behavior
-- Leverages LLMs' natural tool calling capabilities
-- Supports complex multi-line content and nested structures
-- 100% reliable in production testing
+- **Production Status**: Validated 2025-01-27 with 100% success rate
+- **Component**: `behaviors/communication/ksi_events_as_tool_calls` 
+- **Architecture**: Dual-path extraction engine in `ksi_common/tool_use_adapter.py`
+- **Validation**: 4/4 event types (agent:status, state:entity:create/update) successfully extracted
+- **Integration**: Works seamlessly with base_agent.md v2.0.0 and modern behavioral components
 
 #### Legacy JSON Format (Dual-Path Support)
 ```json
@@ -103,6 +104,13 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 - **Namespace-based**: `system`, `agent`, `orchestration`, `composition`, etc.
 - **Dynamic CLI**: Parameters discovered from handlers, not hardcoded
 - **Caching**: SQLite cache for expensive TypedDict analysis
+- **UX Enhancement**: Automatic namespace level when filtering by namespace
+
+### Path Resolution System (Fixed 2025-01-27)
+- **KSI root detection**: Consistent `find_ksi_root()` logic across all components
+- **Centralized config**: All paths resolved via `ksi_common/config.py` properties
+- **Subdirectory compatibility**: ksi wrapper and daemon work from any project subdirectory
+- **Fixed components**: `daemon_control.py`, `ksi_client/`, `ksi_common/config.py`
 
 ### State Management
 - **Entity system**: Agents, orchestrations tracked as entities

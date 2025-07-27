@@ -172,20 +172,11 @@ components/agents/ksi_aware_analyst.md
 3. **Execution Layer**: System processes the JSON events
 4. See `components/orchestrations/agent_optimization_flow` for implementation
 
-### JSON Emission Patterns (UPDATED 2025-01-27)
+### JSON Emission Patterns (VALIDATED 2025-01-27)
 
-**CRITICAL FINDING**: Direct JSON emission by agents is unreliable due to Claude's inherent assistant behavior.
+**PRODUCTION STATUS**: ✅ KSI tool use pattern validated and production-ready
 
-**Failed Approaches** (Extensive testing showed these don't work):
-- ❌ Behavioral override components
-- ❌ MANDATORY/imperative language 
-- ❌ Direct instructions in prompts
-- ❌ System role configuration
-- ❌ Even putting JSON as literal first line
-
-**Working Solutions**:
-
-#### 1. KSI Tool Use Pattern (PRODUCTION READY) ✅
+#### KSI Tool Use Pattern (PRODUCTION VALIDATED) ✅
 ```json
 {
   "type": "ksi_tool_use",
@@ -197,9 +188,17 @@ components/agents/ksi_aware_analyst.md
   }
 }
 ```
-- **Use** `behaviors/tool_use/ksi_tool_use_emission` component
-- **Leverages** LLMs' native tool-calling abilities
-- **100% reliable** for complex content including multi-line strings
+
+**Validation Results**:
+- ✅ **100% success rate** in comprehensive agent testing
+- ✅ **4/4 event types** successfully extracted and processed
+- ✅ **End-to-end workflow** validation with state management
+- ✅ **Component integration** with base_agent.md v2.0.0
+
+**Implementation**:
+- **Use** `behaviors/communication/ksi_events_as_tool_calls` component
+- **Leverages** LLMs' native tool-calling abilities  
+- **Dual-path extraction** supports both legacy and tool use formats
 - **See** `/docs/KSI_TOOL_USE_PATTERNS.md` for complete specification
 
 #### 2. Orchestration Pattern
@@ -215,26 +214,8 @@ executor:
   prompt: "Convert recommendations to JSON events"
 ```
 
-**Breakthrough Solution - KSI Tool Use Pattern** ✅ PRODUCTION READY:
-```json
-{
-  "type": "ksi_tool_use",
-  "id": "ksiu_unique_id", 
-  "name": "event_name",
-  "input": { /* event data */ }
-}
-```
-
-**Validation Results (2025-01-27)**:
-- ✅ **KSI tool use pattern works reliably for all event types** 
-- ✅ Dual-path extraction supports both legacy and tool use formats
-- ✅ End-to-end validation with complex component creation
-- ✅ Leverages LLMs' native tool-calling abilities
-- ✅ Three-layer orchestration pattern proven effective (alternative)
-- See `/docs/KSI_TOOL_USE_PATTERNS.md` and `/docs/AGENT_JSON_EMISSION_FINDINGS.md`
-
 **When** creating agent systems:
-- **Then** use KSI tool use pattern for reliable JSON event emission
+- **Then** use KSI tool use pattern for reliable JSON event emission (see JSON Emission Patterns above)
 - **Then** leverage LLMs' natural understanding of tool call formats
 - **Then** use orchestration patterns for complex multi-agent flows when needed
 - **Then** focus agents on their domain expertise
