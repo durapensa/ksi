@@ -2,11 +2,27 @@
 """
 Component hashing utility for evaluation tracking.
 Generates stable SHA-256 hashes for component content.
+
+Migrated from ksi_evaluation/hash_component.py to ksi_daemon/evaluation/
 """
 import hashlib
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Tuple, Any
+
+from ksi_common.logging import get_bound_logger
+
+logger = get_bound_logger("component_hasher")
+
+
+def get_instance_id() -> str:
+    """Generate or retrieve instance ID for this KSI installation."""
+    # For now, use a hash of the working directory
+    # In future, this should be stored in KSI configuration
+    cwd = Path.cwd().absolute()
+    instance_hash = hashlib.sha256(str(cwd).encode()).hexdigest()[:12]
+    return f"ksi_instance_{instance_hash}"
+
 
 def normalize_content(content: bytes) -> bytes:
     """Normalize component content for stable hashing."""
@@ -17,6 +33,7 @@ def normalize_content(content: bytes) -> bytes:
     normalized_lines = [line.rstrip() for line in lines]
     return b'\n'.join(normalized_lines)
 
+
 def extract_version(content: str) -> Optional[str]:
     """Extract version from component frontmatter."""
     # Look for version in YAML frontmatter
@@ -25,7 +42,8 @@ def extract_version(content: str) -> Optional[str]:
         return version_match.group(1)
     return None
 
-def hash_component(component_path: Path) -> tuple[str, Optional[str]]:
+
+def hash_component(component_path: Path) -> Tuple[str, Optional[str]]:
     """
     Generate SHA-256 hash for component content.
     Returns (hash, version) tuple.
@@ -40,12 +58,14 @@ def hash_component(component_path: Path) -> tuple[str, Optional[str]]:
     try:
         text_content = content.decode('utf-8')
         version = extract_version(text_content)
-    except:
+    except Exception as e:
+        logger.warning(f"Failed to extract version from {component_path}: {e}")
         version = None
     
     return f"sha256:{sha256_hash}", version
 
-def hash_component_at_path(path: str) -> dict:
+
+def hash_component_at_path(path: str) -> Dict[str, Any]:
     """Hash a component and return metadata."""
     component_path = Path(path)
     if not component_path.exists():
@@ -71,18 +91,3 @@ def hash_component_at_path(path: str) -> dict:
         'type': component_type,
         'filename': component_path.name
     }
-
-if __name__ == '__main__':
-    import sys
-    import json
-    
-    if len(sys.argv) < 2:
-        print("Usage: python hash_component.py <component_path>")
-        sys.exit(1)
-    
-    try:
-        result = hash_component_at_path(sys.argv[1])
-        print(json.dumps(result, indent=2))
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)

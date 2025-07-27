@@ -39,14 +39,26 @@ var/lib/compositions/
 var/lib/compositions/
 ├── components/
 │   ├── agents/
+│   │   ├── optimizers/      # Self-improving agents
+│   │   ├── experimental/    # Testing new approaches
+│   │   └── test/           # Isolated component tests
 │   ├── behaviors/
+│   │   ├── base/           # Fundamental, reusable behaviors
+│   │   ├── core/           # System-essential behaviors
+│   │   ├── optimization/   # Optimization-specific patterns
+│   │   ├── dsl/            # DSL interpretation behaviors
+│   │   └── experimental/   # Testing behavioral patterns
 │   ├── core/
 │   ├── evaluations/
-│   ├── orchestrations/   # Moved from root
+│   │   ├── behavioral/     # Behavioral testing suites
+│   │   ├── judges/         # LLM-as-judge components
+│   │   └── suites/         # Comprehensive test suites
+│   ├── orchestrations/     # Moved from root
 │   ├── personas/
+│   │   └── optimizers/     # Optimization expertise
 │   └── tools/
-├── profiles/             # Only intentional profiles
-└── schemas/              # If needed
+├── profiles/               # Only intentional profiles
+└── schemas/                # If needed
 ```
 
 ### Migration Steps
@@ -54,6 +66,83 @@ var/lib/compositions/
 2. Delete `/var/lib/evaluations/` (bizarre nested duplicate)
 3. Delete all `temp_profile_*` files
 4. Remove `/prompts/` directory after converting any valuable content
+
+## Component Composition Architecture
+
+### Compositional Design Principles
+
+The unified component system enables sophisticated behavior through composition rather than monolithic instructions. Key principles:
+
+1. **Base Components First**: Build from fundamental, well-tested behavioral atoms
+2. **Incremental Composition**: Test each layer before adding complexity
+3. **Existing Component Validation**: Test existing components before adding as final mixins
+4. **Self-Improving Components**: Components that can optimize other components
+
+### Behavioral Component Hierarchy
+
+**Base Behaviors** (Fundamental, widely reusable):
+- `behaviors/base/role_override_pattern.md` - Identity transformation
+- `behaviors/base/imperative_command_style.md` - Direct action patterns
+- `behaviors/base/identity_replacement.md` - Complete persona switching
+- `behaviors/base/negative_conditioning.md` - Suppression patterns
+
+**Core Behaviors** (System-essential):
+- `behaviors/core/system_agent_override.md` - KSI system identity
+- `behaviors/core/claude_code_override.md` - Orchestrator awareness
+- `behaviors/core/claude_code_aware_json.md` - JSON emission patterns
+
+**Optimization Behaviors** (Domain-specific):
+- `behaviors/optimization/systematic_testing_approach.md` - Methodical evaluation
+- `behaviors/optimization/iterative_improvement.md` - Optimization cycles
+- `behaviors/optimization/pattern_discovery.md` - Finding effective patterns
+- `behaviors/optimization/result_analysis.md` - Ranking and selection
+
+### Component Composition Pattern
+
+```yaml
+# Example: Behavioral Override Optimizer Agent
+dependencies:
+  # Layer 1: Foundation
+  - core/base_agent
+  
+  # Layer 2: Base behaviors (tested individually)
+  - behaviors/base/role_override_pattern
+  - behaviors/base/imperative_command_style
+  
+  # Layer 3: Core system behaviors
+  - behaviors/core/system_agent_override
+  
+  # Layer 4: Domain expertise
+  - personas/optimizers/self_improving_agent
+  
+  # Layer 5: Optimization behaviors
+  - behaviors/optimization/systematic_testing_approach
+  - behaviors/dsl/optimization_workflows
+  
+  # Layer 6: Existing components (added after validation)
+  - evaluations/suites/component_optimization_suite
+
+capabilities:
+  - composition_management      # Create/modify components
+  - optimization_coordination   # Run MIPRO/DSPy
+  - evaluation_execution       # Run test suites
+  - self_modification          # Modify own dependencies
+```
+
+### Self-Improving Component Ecosystem
+
+The system supports components that optimize other components, creating a recursive improvement cycle:
+
+1. **Behavioral Override Optimization**: Components test behavioral patterns to find what works
+2. **Pattern Extraction**: Successful patterns become new behavioral components
+3. **Self-Modification**: Optimizer agents update their own dependencies based on discoveries
+4. **Meta-Optimization**: The optimization strategies themselves get optimized
+
+This requires enhanced capabilities:
+- `composition_write` - Create new components
+- `composition_modify` - Edit existing components
+- `agent_reconfiguration` - Modify own component dependencies
+- `optimization_meta_control` - Optimize optimization strategies
 
 ## Phase 2: Field Standardization
 
@@ -199,6 +288,60 @@ Since this is a breaking change:
 4. Test composition:discover returns all components
 5. Test orchestrations work from new location
 
+### Systematic Component Testing Approach
+
+For behavioral components specifically, use an incremental testing methodology:
+
+#### Phase 1: Isolated Component Testing
+```bash
+# Test single behavioral component
+ksi send agent:spawn_from_component \
+  --component "agents/test/test_role_override" \
+  --agent-id "test_isolated"
+
+# Validate behavior with simple commands
+ksi send completion:async \
+  --agent-id "test_isolated" \
+  --prompt "CREATE state entity test"
+```
+
+#### Phase 2: Incremental Composition Testing
+```yaml
+# Build up composition layer by layer
+dependencies:
+  - core/base_agent                    # Test this first
+  - behaviors/base/role_override       # Add and test
+  - behaviors/base/imperative_style    # Add and test
+  # Continue adding one at a time...
+```
+
+#### Phase 3: Behavioral Pattern Evaluation
+Use the evaluation framework to systematically test behavioral patterns:
+
+```python
+# From behavioral_override_optimizer.py patterns
+test_variations = [
+    "imperatives",           # MANDATORY commands
+    "identity_replacement",  # Function transformation
+    "role_override",        # System role switching
+    "negative_conditioning", # Suppression patterns
+    "extreme_directness"    # Minimal language
+]
+
+# Evaluate each with metrics:
+- JSON emission rate (0-100%)
+- Permission request count (should be 0)
+- Direct execution score (0-100%)
+- Response brevity index
+```
+
+#### Phase 4: Production Validation
+Before adding existing components as final mixins:
+1. Test them in isolation first
+2. Verify they don't conflict with base behaviors
+3. Ensure they enhance rather than override core patterns
+4. Validate performance metrics remain acceptable
+
 ## Rollback Plan
 
 This is a breaking change with no rollback. Ensure all systems are ready before deployment.
@@ -261,6 +404,40 @@ await emit_event("evaluation:run", {
 This maintains the file system (`registry.yaml`, `certificates/`) while ensuring all evaluation logic uses normal KSI operations (agents, orchestrations, components) rather than special Python coordination code.
 
 **Key Achievement**: Evaluation system now properly implements **"evaluation uses normal KSI operations"** with advanced orchestration patterns replacing bootstrap Python implementations.
+
+### Behavioral Override Optimization Pattern
+
+A concrete example of the new evaluation paradigm is behavioral override optimization:
+
+**Traditional Approach** (Python Bootstrap):
+```python
+# behavioral_override_optimizer.py - 300+ lines of Python
+variations = ["imperatives", "identity_replacement", ...]
+for variation in variations:
+    result = test_variation(variation)
+    scores[variation] = evaluate_response(result)
+```
+
+**KSI Native Approach** (Component + Orchestration):
+```yaml
+# orchestrations/behavioral_override_optimization.yaml
+agents:
+  optimizer:
+    component: agents/optimizers/behavioral_override_optimizer
+    prompt: |
+      Test behavioral override patterns systematically.
+      Evaluate JSON emission effectiveness.
+      Create improved behavioral components.
+
+  evaluator:
+    component: evaluations/behavioral/json_emission_test
+    
+# Agent discovers patterns through normal KSI operations
+# Results become new behavioral components
+# System self-improves through composition
+```
+
+This demonstrates how complex optimization workflows become simple orchestrations where agents use the composition system to improve itself - no special Python coordination needed.
 
 ## Timeline
 
