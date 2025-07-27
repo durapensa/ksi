@@ -159,13 +159,21 @@ class CompositionalCapabilityResolver:
         capabilities = {mixin_name}
         events = set()
         
-        # Resolve atomic dependencies
-        for atom in mixin.get("dependencies", []):
-            atom_events = self._resolve_atom(atom)
-            events.update(atom_events)
-            capabilities.add(atom)
+        # Resolve dependencies (both atomic and mixin)
+        for dep in mixin.get("dependencies", []):
+            # Check if it's a mixin first
+            if dep in self.system.get("capability_mixins", {}):
+                # It's a mixin - resolve recursively
+                dep_caps, dep_events = self._resolve_mixin(dep, visited)
+                capabilities.update(dep_caps)
+                events.update(dep_events)
+            else:
+                # It's an atomic capability
+                atom_events = self._resolve_atom(dep)
+                events.update(atom_events)
+                capabilities.add(dep)
             
-        # Resolve mixin dependencies (recursive)
+        # Resolve mixin dependencies (recursive) - for backwards compatibility
         for dep_mixin in mixin.get("mixin_dependencies", []):
             dep_caps, dep_events = self._resolve_mixin(dep_mixin, visited)
             capabilities.update(dep_caps)
