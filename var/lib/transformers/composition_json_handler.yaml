@@ -1,0 +1,54 @@
+name: composition_json_handler
+description: Automatically handles JSON encoding/decoding in component content
+enabled: true
+priority: 100
+events:
+  - composition:create_component
+
+condition: |
+  # Check if content contains nested JSON that would break parsing
+  event.get('event') == 'composition:create_component' and 
+  event.get('data', {}).get('content', '').find('{"event"') > -1
+
+transformer: |
+  import base64
+  import json
+  
+  # Extract the content
+  content = event['data'].get('content', '')
+  
+  # Find all JSON blocks in the content
+  json_blocks = []
+  import re
+  
+  # Pattern to find JSON objects that look like KSI events
+  pattern = r'\{"event"[^}]+\}(?:\})?'
+  matches = list(re.finditer(pattern, content))
+  
+  if matches:
+    # Replace JSON blocks with placeholders
+    modified_content = content
+    replacements = {}
+    
+    for i, match in enumerate(matches):
+      json_str = match.group(0)
+      placeholder = f"__JSON_BLOCK_{i}__"
+      replacements[placeholder] = json_str
+      modified_content = modified_content.replace(json_str, placeholder)
+    
+    # Option 1: Use base64 encoding for the entire content
+    if event['data'].get('use_base64_encoding', True):
+      encoded = base64.b64encode(content.encode()).decode()
+      event['data']['content'] = f"BASE64:{encoded}"
+      event['data']['_original_content'] = content
+      event['data']['_encoding'] = 'base64'
+    
+    # Option 2: Store JSON separately in metadata
+    else:
+      event['data']['content'] = modified_content
+      if 'metadata' not in event['data']:
+        event['data']['metadata'] = {}
+      event['data']['metadata']['json_replacements'] = replacements
+      event['data']['metadata']['_original_content'] = content
+  
+  return event

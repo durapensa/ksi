@@ -31,6 +31,7 @@ from ksi_daemon.completion.conversation_tracker import ConversationTracker
 from ksi_daemon.completion.token_tracker import TokenTracker
 from ksi_daemon.completion.retry_manager import RetryManager, RetryPolicy, extract_error_type
 from ksi_common.json_extraction import extract_and_emit_json_events
+from ksi_common.xml_event_extraction import extract_and_emit_xml_events
 from ksi_daemon.completion.litellm import handle_litellm_completion
 from ksi_common.task_management import create_tracked_task
 
@@ -701,12 +702,24 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
                             except Exception as e:
                                 logger.debug(f"Could not get agent orchestration metadata: {e}")
                         
-                        extraction_results = await extract_and_emit_json_events(
+                        # Extract both JSON and XML events
+                        json_results = await extract_and_emit_json_events(
                             text=response_text,
                             event_emitter=event_emitter,
                             context=agent_context,
                             agent_id=agent_id
                         )
+                        
+                        # Also extract XML-formatted events
+                        xml_results = await extract_and_emit_xml_events(
+                            text=response_text,
+                            event_emitter=event_emitter,
+                            context=agent_context,
+                            agent_id=agent_id
+                        )
+                        
+                        # Combine results
+                        extraction_results = json_results + xml_results
                         
                         if extraction_results:
                             logger.info(f"Extracted {len(extraction_results)} events from completion response",

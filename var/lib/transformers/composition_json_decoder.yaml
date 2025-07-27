@@ -1,0 +1,42 @@
+name: composition_json_decoder
+description: Automatically decodes JSON content when retrieving components
+enabled: true
+priority: 100
+events:
+  - composition:get_component:response
+
+condition: |
+  # Check if this is a response with encoded content
+  event.get('event') == 'composition:get_component:response' and
+  event.get('data', {}).get('status') == 'success' and
+  (event.get('data', {}).get('content', '').startswith('BASE64:') or
+   event.get('data', {}).get('metadata', {}).get('json_replacements'))
+
+transformer: |
+  import base64
+  
+  data = event.get('data', {})
+  content = data.get('content', '')
+  
+  # Handle base64 encoded content
+  if content.startswith('BASE64:'):
+    try:
+      decoded = base64.b64decode(content[7:]).decode()
+      event['data']['content'] = decoded
+      event['data']['_was_encoded'] = 'base64'
+    except Exception as e:
+      event['data']['_decode_error'] = str(e)
+  
+  # Handle JSON replacements in metadata
+  elif data.get('metadata', {}).get('json_replacements'):
+    replacements = data['metadata']['json_replacements']
+    modified_content = content
+    
+    # Replace placeholders with original JSON
+    for placeholder, json_str in replacements.items():
+      modified_content = modified_content.replace(placeholder, json_str)
+    
+    event['data']['content'] = modified_content
+    event['data']['_was_encoded'] = 'json_replacements'
+  
+  return event

@@ -4,6 +4,10 @@ JSON Extraction Utilities
 
 Extract JSON objects from text, particularly for parsing agent/LLM responses
 that may contain embedded JSON for event emission.
+
+Supports dual-path extraction:
+1. Legacy format: {"event": "...", "data": {...}}
+2. Tool use format: {"type": "ksi_tool_use", "id": "...", "name": "...", "input": {...}}
 """
 
 import json
@@ -12,6 +16,12 @@ from typing import List, Dict, Any, Optional, Callable, Tuple
 import asyncio
 from ksi_common.logging import get_bound_logger
 from ksi_common.json_utils import JSONExtractor, JSONParseError
+try:
+    from ksi_common.tool_use_adapter import extract_ksi_events, is_ksi_tool_use
+except ImportError:
+    # Fallback if tool_use_adapter not available yet
+    extract_ksi_events = None
+    is_ksi_tool_use = None
 
 logger = get_bound_logger("json_extraction")
 
@@ -108,6 +118,10 @@ async def extract_and_emit_json_events(
     """
     Extract JSON events from text and emit them asynchronously with error feedback.
     
+    Supports dual-path extraction:
+    1. Legacy format: {"event": "...", "data": {...}}
+    2. Tool use format: {"type": "ksi_tool_use", "id": "...", "name": "...", "input": {...}}
+    
     This is designed to be called from completion service to automatically
     emit events found in agent responses. Provides detailed feedback for malformed JSON.
     
@@ -120,11 +134,39 @@ async def extract_and_emit_json_events(
     Returns:
         List of events that were emitted
     """
-    # Use enhanced extraction with error collection
-    def is_event(obj: Dict) -> bool:
-        return isinstance(obj, dict) and 'event' in obj
-    
-    valid_events, parse_errors = extract_json_objects_with_errors(text, filter_func=is_event)
+    # Use dual-path extraction if available
+    if extract_ksi_events:
+        # Extract both legacy and tool use formats
+        all_events = []
+        tool_use_events = []
+        
+        # Get all events using the dual-path extractor
+        extracted = extract_ksi_events(text)
+        
+        for event_dict, format_type in extracted:
+            if format_type == "tool_use":
+                tool_use_events.append(event_dict)
+            else:
+                all_events.append(event_dict)
+        
+        # Also run legacy extraction for comparison/fallback
+        def is_legacy_event(obj: Dict) -> bool:
+            if is_ksi_tool_use:
+                return isinstance(obj, dict) and 'event' in obj and not is_ksi_tool_use(obj)
+            else:
+                return isinstance(obj, dict) and 'event' in obj
+        
+        legacy_events, parse_errors = extract_json_objects_with_errors(text, filter_func=is_legacy_event)
+        
+        # Merge results, preferring tool_use format when available
+        valid_events = tool_use_events + legacy_events
+        
+    else:
+        # Fallback to legacy extraction only
+        def is_event(obj: Dict) -> bool:
+            return isinstance(obj, dict) and 'event' in obj
+        
+        valid_events, parse_errors = extract_json_objects_with_errors(text, filter_func=is_event)
     emitted = []
     
     # Process valid events

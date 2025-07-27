@@ -183,7 +183,26 @@ components/agents/ksi_aware_analyst.md
 - ❌ System role configuration
 - ❌ Even putting JSON as literal first line
 
-**Working Solution - Orchestration Pattern**:
+**Working Solutions**:
+
+#### 1. KSI Tool Use Pattern (PRODUCTION READY) ✅
+```json
+{
+  "type": "ksi_tool_use",
+  "id": "ksiu_status_001",
+  "name": "agent:status",
+  "input": {
+    "agent_id": "{{agent_id}}",
+    "status": "initialized"
+  }
+}
+```
+- **Use** `behaviors/tool_use/ksi_tool_use_emission` component
+- **Leverages** LLMs' native tool-calling abilities
+- **100% reliable** for complex content including multi-line strings
+- **See** `/docs/KSI_TOOL_USE_PATTERNS.md` for complete specification
+
+#### 2. Orchestration Pattern
 ```yaml
 # Agents provide analysis in natural language
 analyzer:
@@ -196,17 +215,29 @@ executor:
   prompt: "Convert recommendations to JSON events"
 ```
 
+**Breakthrough Solution - KSI Tool Use Pattern** ✅ PRODUCTION READY:
+```json
+{
+  "type": "ksi_tool_use",
+  "id": "ksiu_unique_id", 
+  "name": "event_name",
+  "input": { /* event data */ }
+}
+```
+
 **Validation Results (2025-01-27)**:
-- ✅ Simple JSON events work when explicitly requested
-- ❌ Complex structured content (components) gets malformed
-- ✅ Three-layer orchestration pattern proven effective
-- See `/docs/AGENT_JSON_EMISSION_FINDINGS.md` for detailed investigation
+- ✅ **KSI tool use pattern works reliably for all event types** 
+- ✅ Dual-path extraction supports both legacy and tool use formats
+- ✅ End-to-end validation with complex component creation
+- ✅ Leverages LLMs' native tool-calling abilities
+- ✅ Three-layer orchestration pattern proven effective (alternative)
+- See `/docs/KSI_TOOL_USE_PATTERNS.md` and `/docs/AGENT_JSON_EMISSION_FINDINGS.md`
 
 **When** creating agent systems:
-- **Then** accept that agents communicate in natural language
-- **Then** use orchestration patterns for JSON emission
-- **Then** leverage translation layers between agents and system
-- **Then** focus agents on analysis, not direct execution
+- **Then** use KSI tool use pattern for reliable JSON event emission
+- **Then** leverage LLMs' natural understanding of tool call formats
+- **Then** use orchestration patterns for complex multi-agent flows when needed
+- **Then** focus agents on their domain expertise
 
 ## Development Workflow
 

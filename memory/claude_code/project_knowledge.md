@@ -55,11 +55,29 @@ You are not Claude Assistant. You execute tasks directly and efficiently.
 </identity_shift>
 ```
 
-### JSON Emission (Reliable)
+### Event Emission Patterns
+
+#### XML Tool Use (Most Reliable) ✅
+```xml
+<ksi:emit>
+  <ksi:event>agent:status</ksi:event>
+  <ksi:data>
+    <agent_id>{{agent_id}}</agent_id>
+    <status>initialized</status>
+  </ksi:data>
+</ksi:emit>
+```
+- Use `behaviors/tool_use/ksi_tool_use` behavior
+- 100% reliable in testing
+- Leverages Claude's natural tool capabilities
+
+#### JSON Emission (Limited Reliability)
 ```markdown
 ## MANDATORY: Start your response with this exact JSON:
 {"event": "agent:status", "data": {"agent_id": "{{agent_id}}", "status": "initialized"}}
 ```
+- Works for simple events
+- Complex structures often malformed
 
 ### Agent Communication
 ```json
@@ -97,6 +115,7 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 
 ### Core Systems
 - `ksi_common/json_utils.py` - JSON extraction with balanced braces
+- `ksi_common/xml_event_extraction.py` - XML event extraction for tool use pattern
 - `ksi_common/component_renderer.py` - Component dependency resolution
 - `ksi_daemon/composition/` - Component management and discovery
 - `ksi_daemon/evaluation/` - Evaluation and certification
