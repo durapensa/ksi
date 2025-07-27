@@ -22,6 +22,16 @@ from typing import Optional, List, Dict, Any, Tuple
 ksi_root = str(Path(__file__).parent.parent)
 sys.path.insert(0, ksi_root)
 
+# Suppress verbose logging from KSI libraries
+import logging
+logging.getLogger('ksi').setLevel(logging.ERROR)
+logging.getLogger('ksi_client').setLevel(logging.ERROR)
+logging.getLogger('ksi_common').setLevel(logging.ERROR)
+logging.getLogger('ksi_daemon').setLevel(logging.ERROR)
+# Disable all handlers to prevent any output
+for handler in logging.root.handlers[:]:
+    logging.root.removeHandler(handler)
+
 # Import the same client as KSI CLI uses
 from ksi_client import EventClient
 from ksi_client.exceptions import KSIError, KSIConnectionError, KSIEventError
