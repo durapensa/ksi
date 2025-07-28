@@ -70,12 +70,11 @@ class EvaluationIntegration:
             limit_clause = f" LIMIT {query['limit']}"
         
         # Build SQL with path-based JOIN (simpler and more reliable)
+        # First query: Get compositions without duplicates
         sql = f"""
-            SELECT DISTINCT ci.name, ci.component_type, ci.description, ci.version, ci.author, 
-                   ci.tags, ci.capabilities, ci.loading_strategy, ci.file_path, ci.file_hash,
-                   e.status as eval_status, e.model as eval_model, e.performance_class
+            SELECT ci.name, ci.component_type, ci.description, ci.version, ci.author, 
+                   ci.tags, ci.capabilities, ci.loading_strategy, ci.file_path, ci.file_hash
             FROM composition_index ci
-            LEFT JOIN evaluations e ON ci.file_path = e.component_path
             WHERE {where_clause}
             ORDER BY ci.name{limit_clause}
         """
@@ -83,8 +82,9 @@ class EvaluationIntegration:
         results = []
         async with self._get_db() as conn:
             cursor = conn.execute(sql, params)
+            compositions = []
             for row in cursor:
-                result = {
+                comp = {
                     'name': row[0],
                     'component_type': row[1],
                     'description': row[2],
@@ -94,21 +94,42 @@ class EvaluationIntegration:
                     'capabilities': json.loads(row[6] or '[]'),
                     'loading_strategy': row[7],
                     'file_path': row[8],
-                    'file_hash': row[9]
+                    'file_hash': row[9],
+                    'evaluation': {'tested': False}  # Default
                 }
+                compositions.append(comp)
+            
+            # Second query: Get latest evaluations for these compositions
+            if compositions:
+                file_paths = [c['file_path'] for c in compositions]
+                placeholders = ','.join(['?' for _ in file_paths])
                 
-                # Add evaluation data
-                if row[10]:  # eval_status
-                    result['evaluation'] = {
-                        'tested': True,
-                        'latest_status': row[10],
-                        'model': row[11],
-                        'performance_class': row[12] or 'standard'
-                    }
-                else:
-                    result['evaluation'] = {'tested': False}
+                eval_sql = f"""
+                    SELECT component_path, status, model, performance_class, evaluation_date
+                    FROM evaluations
+                    WHERE component_path IN ({placeholders})
+                    AND (component_path, evaluation_date) IN (
+                        SELECT component_path, MAX(evaluation_date)
+                        FROM evaluations
+                        WHERE component_path IN ({placeholders})
+                        GROUP BY component_path
+                    )
+                """
                 
-                results.append(result)
+                eval_cursor = conn.execute(eval_sql, file_paths + file_paths)
+                eval_data = {row[0]: {
+                    'tested': True,
+                    'latest_status': row[1],
+                    'model': row[2],
+                    'performance_class': row[3] or 'standard'
+                } for row in eval_cursor}
+                
+                # Merge evaluation data into compositions
+                for comp in compositions:
+                    if comp['file_path'] in eval_data:
+                        comp['evaluation'] = eval_data[comp['file_path']]
+                
+            results = compositions
         
         return results
     

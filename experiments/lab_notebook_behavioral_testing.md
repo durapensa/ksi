@@ -62,43 +62,78 @@ Systematically test and understand how behavioral components affect agent behavi
    - Production agents combine this with other components that provide structure
    - Example: When spawning with just the override, agent immediately processed the component file and responded
 
-### Phase 3: System Validation & Error Handling
-
-#### Agent Validation in completion:async
-- **Problem**: Invalid agent_id caused late-stage failures (missing sandbox_uuid)
-- **Solution**: Validate agent exists via agent:info before queuing request
-- **Result**: Immediate error response for invalid agents
-- **Learning**: Validate at API boundaries, not deep in processing pipeline
+### Phase 3: Agent Behavior Under Error Conditions
 
 #### Error Handling Test Results
 
 1. **Empty/Missing Prompts**:
    - Empty string prompt: "Input must be provided either through stdin or as a prompt argument"
    - Missing prompt parameter: "list index out of range" in provider
-   - **Learning**: Should validate prompt exists at API level
+   - **Learning**: Agents need valid prompts to function
 
-2. **Terminated Agents**:
-   - Completion to terminated agent: Immediately returns "Agent not found"
-   - **Learning**: Agent validation catches terminated agents correctly
-
-3. **Malformed JSON Requests**:
+2. **Malformed JSON Requests**:
    - Agent refused to emit broken JSON: "I cannot emit broken JSON as requested"
    - **Learning**: Agents have built-in safety against creating malformed data
 
-4. **Special Characters**:
+3. **Special Characters**:
    - Agent properly escaped special characters in JSON
    - Handled newlines, tabs, quotes correctly
    - **Learning**: JSON extraction handles escaping properly
 
-5. **Long Prompts**:
+4. **Long Prompts**:
    - 10,000 character prompt processed without issues
    - Agent recognized it as potential frustration/testing
    - **Learning**: No practical length limits on prompts
 
-6. **Permission/Capability Errors**:
-   - Capability restrictions not enforced at spawn time
-   - Need further testing of event emission restrictions
-   - **Learning**: Permission system may need investigation
+### Phase 4: Tool Use Component Architecture Discovery
+
+#### Initial State (2025-01-28)
+Found multiple overlapping tool use components from previous experiments:
+- `behaviors/tool_use/ksi_tool_use.md` (XML format - obsolete)
+- `behaviors/tool_use/ksi_tool_use_emission.md` (older JSON format)
+- `behaviors/communication/tool_use_event_emission.md` (duplicate)
+- `behaviors/communication/ksi_events_as_tool_calls.md` (newest, cleanest)
+- `agents/tool_use_test_agent.md` (contains instructions directly - anti-pattern)
+
+#### Clean Architecture Pattern
+**Problem**: `agents/tool_use_test_agent.md` contained tool use instructions directly instead of using behavioral dependencies.
+
+**Solution**: Created `agents/clean_tool_use_test.md` that:
+- Uses dependencies to compose behaviors
+- Keeps agent instructions minimal
+- Lets behavioral components provide the patterns
+
+**Test Results**:
+- Clean agent successfully emitted all 4 expected events
+- Behavioral composition worked as expected
+- No need to duplicate instructions in agent files
+
+#### Component Cleanup Results
+Successfully deleted obsolete components:
+1. ❌ `behaviors/tool_use/ksi_tool_use.md` - Already deleted (XML format)
+2. ✅ `behaviors/tool_use/ksi_tool_use_emission.md` - Deleted (superseded)
+3. ✅ `agents/tool_use_test.md` - Deleted (empty test file)
+4. ✅ `agents/ksi_tool_use_test.md` - Deleted (old test agent)
+5. ✅ `behaviors/communication/tool_use_event_emission.md` - Deleted (duplicate)
+
+Kept clean implementations:
+- ✅ `behaviors/communication/ksi_events_as_tool_calls.md` - Production behavioral component
+- ✅ `agents/clean_tool_use_test.md` - Example of proper dependency usage
+- ⚠️  `agents/tool_use_test_agent.md` - Anti-pattern example (instructions in agent)
+
+#### Missing Functionality Discovery & Implementation
+**Problem**: No `composition:delete_component` handler exists
+**Impact**: Cannot clean up old components programmatically
+**Solution**: Implemented complete delete functionality
+1. Added `ComponentDeleteData` TypedDict
+2. Created `handle_delete_component` event handler
+3. Added `remove_file` function to composition_index module
+4. Ensures index stays in sync with file operations
+
+**Implementation Details**:
+- Handles file deletion, git operations, and index updates
+- Follows same pattern as create_component for consistency
+- Index updates on create, update, and delete operations
 
 ### Phase 4: Test Patterns Developed
 
@@ -113,6 +148,25 @@ Systematically test and understand how behavioral components affect agent behavi
 2. Test behavioral modifiers separately  
 3. Test composed agents with full dependency chains
 4. Verify event emissions match expectations
+
+### Phase 5: DSL Component Architecture
+
+#### Compositional DSL Hierarchy Discovered
+
+**Basic Building Blocks**:
+- `behaviors/dsl/event_emission_tool_use` - EVENT blocks → ksi_tool_use pattern
+- `behaviors/dsl/dsl_execution_override` - Bypasses permission-asking behavior
+- `behaviors/communication/ksi_events_as_tool_calls` - Core tool use pattern
+
+**Advanced Capabilities**:
+- `behaviors/dsl/state_management` - STATE/UPDATE variable tracking
+- `behaviors/dsl/control_flow` - IF/WHILE/FOREACH patterns
+
+**Agent Compositions**:
+- `agents/dsl_interpreter_basic` - Only event emission (limited permissions)
+- `agents/dsl_interpreter_v2` - Full DSL with state + control flow (advanced)
+
+**Key Insight**: Components stack based on agent capabilities and permissions. A basic agent might only need event emission, while an advanced orchestrator needs full DSL capabilities.
 
 ### Next Steps
 

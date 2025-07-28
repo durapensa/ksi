@@ -269,6 +269,36 @@ async def index_file(file_path: Path) -> bool:
         return False
 
 
+async def remove_file(file_path: Path) -> bool:
+    """Remove a composition file from the index."""
+    try:
+        # Get relative path for lookup
+        if file_path.is_absolute():
+            relative_path = file_path.relative_to(config.compositions_dir)
+        else:
+            relative_path = file_path
+        
+        # Delete from index
+        async with _get_db() as conn:
+            cursor = await conn.execute(
+                'DELETE FROM composition_index WHERE file_path = ?',
+                (str(relative_path),)
+            )
+            await conn.commit()
+            
+            deleted_count = cursor.rowcount
+            if deleted_count > 0:
+                logger.debug(f"Removed {deleted_count} entries for {file_path} from index")
+                return True
+            else:
+                logger.debug(f"No index entries found for {file_path}")
+                return False
+                
+    except Exception as e:
+        logger.error(f"Failed to remove {file_path} from index: {e}")
+        return False
+
+
 async def rebuild(repository_id: str = 'local') -> Dict[str, Any]:
     """Rebuild unified composition and evaluation index.
     

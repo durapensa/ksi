@@ -1698,6 +1698,13 @@ class ComponentUpdateData(TypedDict):
     message: NotRequired[str]  # Git commit message
     _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
+class ComponentDeleteData(TypedDict):
+    """Delete a component."""
+    name: Required[str]  # Component name/path
+    type: NotRequired[Literal['component', 'template', 'instruction']]  # Default: component
+    message: NotRequired[str]  # Git commit message
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
+
 
 @event_handler("composition:create_component")
 async def handle_create_component(data: ComponentCreateData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -2128,6 +2135,118 @@ async def handle_update_component(data: ComponentUpdateData, context: Optional[D
         
     except Exception as e:
         logger.error(f"Component update failed: {e}")
+        return error_response(str(e), context)
+
+
+@event_handler("composition:delete_component")
+async def handle_delete_component(data: ComponentDeleteData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Delete a component."""
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
+    from ksi_common.event_response_builder import event_response_builder, error_response
+    
+    try:
+        name = _normalize_component_name(data['name'])
+        comp_type = data.get('type', 'component')
+        
+        # Determine base path based on type using shared utility
+        base_path = get_composition_base_path(comp_type)
+        
+        # Create file path - handle subdirectories in name
+        if '/' in name:
+            file_path = base_path / f"{name}.md"
+        else:
+            # For components without subdirectory, put in type subdirectory
+            file_path = base_path / comp_type / f"{name}.md"
+        
+        # Check if exists
+        if not file_path.exists():
+            return error_response(f"Component {name} not found", context)
+        
+        # Delete metadata file if exists
+        metadata_path = file_path.with_suffix('.yaml')
+        if metadata_path.exists():
+            metadata_path.unlink()
+        
+        # Delete the component file
+        file_path.unlink()
+        
+        # Git operations
+        git_result = type('GitResult', (), {
+            'success': False,
+            'message': 'Git operations disabled or failed',
+            'hash': None
+        })()
+        
+        if config.git_operations_enabled:
+            import subprocess
+            repo_path = COMPOSITIONS_BASE
+            relative_path = file_path.relative_to(repo_path)
+            
+            try:
+                # Remove file from git
+                subprocess.run(['git', 'rm', str(relative_path)], 
+                            cwd=repo_path, check=True, capture_output=True)
+                
+                # Commit
+                commit_msg = data.get('message') or f"Delete {comp_type} component: {name}"
+                subprocess.run(['git', 'commit', '-m', commit_msg], 
+                            cwd=repo_path, check=True, capture_output=True)
+                
+                git_result = type('GitResult', (), {
+                        'success': True,
+                        'message': f'Committed deletion of {relative_path}',
+                        'hash': None
+                    })()
+            except subprocess.CalledProcessError as e:
+                # If nothing to commit, that's ok
+                if b"nothing to commit" in e.stderr or b"Your branch is up to date" in e.stderr:
+                    git_result = type('GitResult', (), {
+                        'success': True,
+                        'message': 'No changes to commit',
+                        'hash': None
+                    })()
+                else:
+                    git_result = type('GitResult', (), {
+                        'success': False,
+                        'message': 'Git operation failed',
+                            'error': e.stderr.decode() if e.stderr else str(e),
+                            'hash': None
+                        })()
+            except Exception as e:
+                git_result = type('GitResult', (), {
+                        'success': False,
+                        'message': 'Git operation failed',
+                        'error': str(e),
+                        'hash': None
+                    })()
+        
+        # Check if git failed and we should bypass
+        if not git_result.success:
+            if not config.git_bypass_errors:
+                return error_response(f"Git operation failed: {git_result.error}", context)
+            else:
+                logger.warning(f"Git operation failed but continuing (bypass enabled): {git_result.error}")
+        
+        # Update index to remove the component
+        await composition_index.remove_file(file_path.relative_to(config.compositions_dir))
+        
+        # Clear component renderer cache
+        renderer = get_renderer()
+        renderer.clear_cache()
+        logger.debug(f"Cleared component renderer cache after deleting component: {name}")
+        
+        logger.info(f"Deleted component: {name} ({comp_type})")
+        
+        return event_response_builder({
+            'status': 'success',
+            'name': name,
+            'type': comp_type,
+            'path': str(file_path.relative_to(config.lib_dir)),
+            'message': f'Deleted {comp_type} component: {name}'
+        }, context)
+        
+    except Exception as e:
+        logger.error(f"Component deletion failed: {e}")
         return error_response(str(e), context)
 
 
