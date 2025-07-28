@@ -1105,8 +1105,8 @@ class DynamicAnalysisOrchestration:
 - ✅ **Stage 2.0**: Implement `foreach` transformers for multi-target emission (COMPLETED)
 - ✅ **Stage 2.1**: Add parent-scoped routing rules with auto-cleanup (COMPLETED)
 - ✅ **Stage 2.2**: Create coordination pattern components (COMPLETED)
-- **Stage 2.3**: Build orchestration → component migration tools (NEXT)
-- **Stage 2.4**: Deprecate orchestration system entirely
+- ✅ **Stage 2.3**: Build orchestration → component migration tools (COMPLETED)
+- **Stage 2.4**: Deprecate orchestration system entirely (NEXT)
 
 ### Key Architectural Achievements
 
@@ -1482,6 +1482,80 @@ Create reusable components that encode coordination patterns, replacing static o
 2. **Dynamic Adaptation**: Coordinators modify patterns at runtime
 3. **Clean Lifecycle**: Parent-scoped routing ensures automatic cleanup
 4. **Composable Patterns**: Components work together seamlessly
+
+## Stage 2.3: Orchestration Migration Tools ✅ COMPLETED (2025-01-28)
+
+### Objective
+Build tools to migrate existing orchestrations from static YAML files to dynamic routing patterns.
+
+### Implementation
+
+Created a complete migration toolkit in `ksi_migration/`:
+
+1. **Orchestration Parser** (`orchestration_parser.py`)
+   - Parses YAML orchestration files
+   - Extracts agents, routing rules, transformers, DSL logic
+   - Analyzes patterns and complexity
+   - Generates migration specifications
+
+2. **Component Generator** (`component_generator.py`)
+   - Creates coordination components from orchestrations
+   - Supports multiple patterns: workflow, pipeline, task distribution, conversation
+   - Generates proper frontmatter and instructions
+   - Converts DSL logic to natural language guidance
+
+3. **Transformer Migrator** (`transformer_migration.py`)
+   - Converts routing rules to dynamic transformers
+   - Migrates inline transformers to proper format
+   - Generates foreach transformers for workflows
+   - Creates migration scripts and instructions
+
+4. **Migration Tool** (`migrate_orchestration.py`)
+   - CLI tool for migrating orchestrations
+   - Supports single file or directory migration
+   - Generates comprehensive migration artifacts
+   - Provides summary reports
+
+### Migration Process
+
+1. **Parse**: Extract structure from orchestration YAML
+2. **Analyze**: Determine coordination pattern and complexity
+3. **Generate**: Create coordinator component with instructions
+4. **Convert**: Transform routing rules to dynamic transformers
+5. **Script**: Generate automated migration script
+6. **Document**: Create detailed migration instructions
+
+### Testing Results
+
+Successfully migrated 3 test orchestrations:
+- `simple_agent_coordination.yaml` → simple coordinator + 3 transformers
+- `hello_goodbye.yaml` → conversation coordinator + 3 transformers
+- `test_transformer_flow.yaml` → simple coordinator + 5 transformers
+
+### Migration Artifacts
+
+For each orchestration, the tool generates:
+- **Coordinator Component**: Intelligent agent that manages the workflow
+- **Transformers**: Dynamic routing rules and foreach patterns
+- **Migration Script**: Automated migration execution
+- **Instructions**: Step-by-step migration guide
+
+### Usage
+
+```bash
+# Migrate single orchestration
+python -m ksi_migration.migrate_orchestration path/to/orchestration.yaml
+
+# Migrate directory of orchestrations
+python -m ksi_migration.migrate_orchestration path/to/orchestrations/ -s
+
+# View migration artifacts
+ls migration_output/
+├── components/          # Coordinator components
+├── transformers/        # Dynamic routing transformers
+├── scripts/            # Migration scripts
+└── instructions/       # Migration guides
+```
 
 ## Conclusion
 
