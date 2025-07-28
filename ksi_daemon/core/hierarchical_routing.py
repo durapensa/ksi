@@ -91,12 +91,8 @@ class HierarchicalRouter:
                         )
                     )
             
-            # Also route to parent orchestration if it exists
-            parent_orch_id = source_info.get('parent_orchestration_id')
-            if parent_orch_id:
-                routing_tasks.append(
-                    self._route_to_orchestration(parent_orch_id, source_agent_id, event_name, event_data)
-                )
+            # Note: Parent orchestration routing removed in Stage 2.4 migration
+            # Dynamic routing now handles parent-child relationships through routing rules
             
             # Execute all routing tasks concurrently
             if routing_tasks:
@@ -224,20 +220,8 @@ class HierarchicalRouter:
         except Exception as e:
             logger.error(f"Failed to route to agent {target_agent_id}: {e}")
     
-    async def _route_to_orchestration(self, orchestration_id: str, source_agent_id: str,
-                                    event_name: str, event_data: Dict[str, Any]) -> None:
-        """Route event to parent orchestration."""
-        try:
-            # Send to orchestration:event for orchestration-level handling
-            await self._event_emitter("orchestration:event", {
-                "orchestration_id": orchestration_id,
-                "source_agent": source_agent_id,
-                "event": event_name,
-                "data": event_data
-            })
-            logger.debug(f"Routed {event_name} to orchestration {orchestration_id}")
-        except Exception as e:
-            logger.error(f"Failed to route to orchestration {orchestration_id}: {e}")
+    # _route_to_orchestration method removed in Stage 2.4 migration
+    # Dynamic routing through routing rules replaced orchestration-level routing
     
     def _is_error_event(self, event_name: str, event_data: Dict[str, Any]) -> bool:
         """Determine if an event is an error event."""
