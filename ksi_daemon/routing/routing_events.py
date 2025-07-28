@@ -13,7 +13,7 @@ import uuid
 
 from ksi_common.logging import get_bound_logger
 from ksi_daemon.event_system import event_handler
-from ksi_common.event_response_builder import event_response_builder
+from ksi_common.event_response_builder import event_response_builder, success_response, error_response
 
 logger = get_bound_logger("routing_events", version="1.0.0")
 
@@ -66,7 +66,7 @@ async def handle_add_rule(data: Dict[str, Any], context: Optional[Dict[str, Any]
     # TODO: In Stage 1.3, implement capability checking
     # For now, allow all agents to use routing control
     # if not await capability_check(agent_id, "routing_control"):
-    #     return event_response_builder.error_response(
+    #     return error_response(
     #         error="Permission denied",
     #         details={"required_capability": "routing_control"}
     #     )
@@ -80,14 +80,14 @@ async def handle_add_rule(data: Dict[str, Any], context: Optional[Dict[str, Any]
     target = data.get("target")
     
     if not source_pattern or not target:
-        return event_response_builder.error_response(
+        return error_response(
             error="Missing required fields",
             details={"required": ["source_pattern", "target"]}
         )
     
     # Check for conflicts
     if rule_id in routing_rules:
-        return event_response_builder.error_response(
+        return error_response(
             error="Rule ID already exists",
             details={"rule_id": rule_id}
         )
@@ -123,7 +123,7 @@ async def handle_add_rule(data: Dict[str, Any], context: Optional[Dict[str, Any]
     
     # TODO: In Stage 1.2, actually register with transformer system
     
-    return event_response_builder.success_response(
+    return success_response(
         data={
             "rule_id": rule_id,
             "status": "created",
@@ -148,7 +148,7 @@ async def handle_modify_rule(data: Dict[str, Any], context: Optional[Dict[str, A
     # TODO: In Stage 1.3, implement capability checking
     # For now, allow all agents to use routing control
     # if not await capability_check(agent_id, "routing_control"):
-    #     return event_response_builder.error_response(
+    #     return error_response(
     #         error="Permission denied",
     #         details={"required_capability": "routing_control"}
     #     )
@@ -157,12 +157,12 @@ async def handle_modify_rule(data: Dict[str, Any], context: Optional[Dict[str, A
     updates = data.get("updates", {})
     
     if not rule_id:
-        return event_response_builder.error_response(
+        return error_response(
             error="Missing rule_id"
         )
     
     if rule_id not in routing_rules:
-        return event_response_builder.error_response(
+        return error_response(
             error="Rule not found",
             details={"rule_id": rule_id}
         )
@@ -194,7 +194,7 @@ async def handle_modify_rule(data: Dict[str, Any], context: Optional[Dict[str, A
     
     # TODO: In Stage 1.2, update transformer system
     
-    return event_response_builder.success_response(
+    return success_response(
         data={
             "rule_id": rule_id,
             "status": "modified",
@@ -218,7 +218,7 @@ async def handle_delete_rule(data: Dict[str, Any], context: Optional[Dict[str, A
     # TODO: In Stage 1.3, implement capability checking
     # For now, allow all agents to use routing control
     # if not await capability_check(agent_id, "routing_control"):
-    #     return event_response_builder.error_response(
+    #     return error_response(
     #         error="Permission denied",
     #         details={"required_capability": "routing_control"}
     #     )
@@ -226,12 +226,12 @@ async def handle_delete_rule(data: Dict[str, Any], context: Optional[Dict[str, A
     rule_id = data.get("rule_id")
     
     if not rule_id:
-        return event_response_builder.error_response(
+        return error_response(
             error="Missing rule_id"
         )
     
     if rule_id not in routing_rules:
-        return event_response_builder.error_response(
+        return error_response(
             error="Rule not found",
             details={"rule_id": rule_id}
         )
@@ -253,7 +253,7 @@ async def handle_delete_rule(data: Dict[str, Any], context: Optional[Dict[str, A
     
     # TODO: In Stage 1.2, remove from transformer system
     
-    return event_response_builder.success_response(
+    return success_response(
         data={
             "rule_id": rule_id,
             "status": "deleted"
@@ -302,7 +302,7 @@ async def handle_query_rules(data: Dict[str, Any], context: Optional[Dict[str, A
     # Apply limit
     filtered_rules = filtered_rules[:limit]
     
-    return event_response_builder.success_response(
+    return success_response(
         data={
             "rules": filtered_rules,
             "count": len(filtered_rules),
@@ -329,7 +329,7 @@ async def handle_update_subscription(data: Dict[str, Any], context: Optional[Dic
     # TODO: In Stage 1.3, implement capability checking
     # For now, allow all agents to use routing control
     # if not await capability_check(requesting_agent, "routing_control"):
-    #     return event_response_builder.error_response(
+    #     return error_response(
     #         error="Permission denied",
     #         details={"required_capability": "routing_control"}
     #     )
@@ -338,7 +338,7 @@ async def handle_update_subscription(data: Dict[str, Any], context: Optional[Dic
     subscription_level = data.get("subscription_level")
     
     if not target_agent or subscription_level is None:
-        return event_response_builder.error_response(
+        return error_response(
             error="Missing required fields",
             details={"required": ["agent_id", "subscription_level"]}
         )
@@ -363,7 +363,7 @@ async def handle_update_subscription(data: Dict[str, Any], context: Optional[Dic
                 subscription_level=subscription_level,
                 requesting_agent=requesting_agent)
     
-    return event_response_builder.success_response(
+    return success_response(
         data={
             "agent_id": target_agent,
             "subscription_level": subscription_level,
@@ -393,7 +393,7 @@ async def handle_spawn_with_routing(data: Dict[str, Any], context: Optional[Dict
     # TODO: In Stage 1.3, implement capability checking
     # For now, allow all agents to spawn with routing
     # if not await capability_check(requesting_agent, "agent"):
-    #     return event_response_builder.error_response(
+    #     return error_response(
     #         error="Permission denied",
     #         details={"required_capability": "agent"}
     #     )
@@ -403,7 +403,7 @@ async def handle_spawn_with_routing(data: Dict[str, Any], context: Optional[Dict
     routing_config = data.get("routing", {})
     
     if not agent_id or not component:
-        return event_response_builder.error_response(
+        return error_response(
             error="Missing required fields",
             details={"required": ["agent_id", "component"]}
         )
@@ -441,7 +441,7 @@ async def handle_spawn_with_routing(data: Dict[str, Any], context: Optional[Dict
         # Add each route
         pass  # TODO: Implement
     
-    return event_response_builder.success_response(
+    return success_response(
         data={
             "agent_id": agent_id,
             "status": "spawned_with_routing",
@@ -467,7 +467,7 @@ async def handle_get_audit_log(data: Dict[str, Any], context: Optional[Dict[str,
     # TODO: In Stage 1.3, implement capability checking
     # For now, allow all agents to use routing control
     # if not await capability_check(agent_id, "routing_control"):
-    #     return event_response_builder.error_response(
+    #     return error_response(
     #         error="Permission denied",
     #         details={"required_capability": "routing_control"}
     #     )
@@ -491,7 +491,7 @@ async def handle_get_audit_log(data: Dict[str, Any], context: Optional[Dict[str,
     # Apply limit
     filtered_log = filtered_log[:limit]
     
-    return event_response_builder.success_response(
+    return success_response(
         data={
             "entries": filtered_log,
             "count": len(filtered_log),
