@@ -21,7 +21,7 @@ Essential technical reference for developing with KSI (Knowledge System Infrastr
 - **No hardcoded strategies**: System delivers messages, agents decide coordination
 - **Hierarchical routing**: Events bubble up based on subscription levels (0, 1, N, -1)
 - **Claude Code as orchestrator**: Set `orchestrator_agent_id: "claude-code"` for feedback
-- **Dynamic Routing Architecture**: See `/docs/DYNAMIC_ROUTING_ARCHITECTURE.md` for infrastructure-based dynamic routing (Stages 1.1-1.4 complete)
+- **Dynamic Routing Architecture**: See `/docs/DYNAMIC_ROUTING_ARCHITECTURE.md` for infrastructure-based dynamic routing (Stages 1.1-1.7 complete)
 
 ## Critical Principles
 
@@ -123,6 +123,17 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 - **Security profiles**: Components declare profile in frontmatter
 - **Event permissions**: Profiles map to allowed event lists
 
+### Dynamic Routing System (Production Ready)
+- **Runtime Rule Modification**: Agents with `routing_control` capability can add/modify/delete routes
+- **Transformer Integration**: Routing rules become event transformers dynamically
+- **Priority-Based Resolution**: Higher priority rules win when multiple match
+- **TTL Support**: Rules can expire automatically after specified seconds
+- **Introspection Integration**: Full visibility into routing decisions via introspection events
+- **State Persistence**: Rules survive daemon restarts via state system
+- **Validation & Safety**: Pattern validation, circular routing detection, conflict checking
+- **Audit Trail**: Complete history of routing changes and decisions
+- **See**: `/docs/DYNAMIC_ROUTING_ARCHITECTURE.md` for operational guide and architecture details
+
 ## File Locations
 
 ### Core Systems
@@ -132,6 +143,16 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 - `ksi_common/component_renderer.py` - Component dependency resolution
 - `ksi_daemon/composition/` - Component management and discovery
 - `ksi_daemon/evaluation/` - Evaluation and certification
+
+### Dynamic Routing System
+- `ksi_daemon/routing/routing_service.py` - Core routing service with TTL management
+- `ksi_daemon/routing/routing_events.py` - Event handlers for routing operations
+- `ksi_daemon/routing/transformer_integration.py` - Converts rules to transformers
+- `ksi_daemon/routing/routing_state_adapter.py` - State persistence for rules
+- `ksi_daemon/routing/routing_validation.py` - Rule validation and conflict detection
+- `ksi_daemon/routing/routing_audit.py` - Audit trail for routing decisions
+- `ksi_daemon/routing/routing_introspection.py` - Visibility into routing decisions
+- `ksi_daemon/routing/routing_event_patch.py` - Event router introspection patch
 
 ### Configuration
 - `var/lib/capabilities/` - Capability definitions
@@ -184,6 +205,9 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 3. **Everything is a graph** - Entities, relationships, event routing
 4. **Composition over configuration** - Mix behaviors, don't hardcode
 5. **System enables, doesn't control** - Agents are autonomous
+6. **Dynamic routing enables emergence** - Agents can discover optimal coordination patterns
+7. **Infrastructure as substrate** - Two-layer architecture (agents + transformers) replaces three-layer
+8. **Introspection is key** - Visibility into routing decisions enables debugging and learning
 
 ---
 

@@ -853,6 +853,181 @@ End-to-end testing confirmed all features working:
 - Transformer bridge adds metadata to dynamic transformers
 - Event router patched to track decisions during emission
 
+## Operational Guide for Agents
+
+### How to Use Dynamic Routing as an Agent
+
+#### 1. Obtaining Routing Control Capability
+
+Agents need the `routing_control` capability to modify routing rules:
+
+```bash
+# Option A: Spawn with orchestrator profile (includes routing_control)
+ksi send agent:spawn --agent-id "coordinator" \
+  --component "components/core/coordinator" \
+  --profile "orchestrator"
+
+# Option B: Grant capability after spawn (workaround until v2 integration)
+ksi send state:entity:update --type agent --id "my-agent" \
+  --properties '{"capabilities": ["base", "agent", "routing_control"]}'
+```
+
+#### 2. Creating Dynamic Routes
+
+Agents with routing_control can create routes at runtime:
+
+```python
+# Agent creates a routing rule
+{"event": "routing:add_rule", "data": {
+    "rule_id": "task_distribution_v1",
+    "source_pattern": "task:incoming",
+    "target": "worker:available",
+    "priority": 500,
+    "mapping": {"assigned_by": "{{_agent_id}}"},
+    "ttl": 3600  # Expires in 1 hour
+}}
+```
+
+#### 3. Modifying Routes Based on Conditions
+
+```python
+# Agent adjusts routing based on load
+{"event": "routing:modify_rule", "data": {
+    "rule_id": "task_distribution_v1",
+    "updates": {
+        "target": "worker:pool_2",  # Switch to different pool
+        "priority": 600,  # Increase priority
+        "condition": "data.priority == 'high'"  # Add condition
+    }
+}}
+```
+
+#### 4. Querying Routing Decisions
+
+Agents can introspect routing to understand system behavior:
+
+```python
+# See recent routing decisions
+{"event": "introspection:routing_decisions", "data": {
+    "event_name": "task:incoming",
+    "limit": 10
+}}
+
+# Analyze impact before changes
+{"event": "introspection:routing_impact", "data": {
+    "rule_id": "task_distribution_v1",
+    "event_patterns": ["task:*"],
+    "time_window": 300
+}}
+```
+
+#### 5. Self-Organizing Patterns
+
+Example: Agents forming a processing pipeline dynamically:
+
+```python
+# Analyzer agent discovers it needs help
+if complexity > threshold:
+    # Spawn specialist
+    await emit("agent:spawn", {
+        "agent_id": f"specialist_{domain}",
+        "component": "components/personas/domain_expert"
+    })
+    
+    # Create routing from self to specialist
+    await emit("routing:add_rule", {
+        "rule_id": f"route_to_{domain}_specialist",
+        "source_pattern": f"analysis:{domain}:*",
+        "target": f"agent:{specialist_id}",
+        "priority": 700
+    })
+    
+    # Route specialist results back
+    await emit("routing:add_rule", {
+        "rule_id": f"route_from_{domain}_specialist",
+        "source_pattern": f"specialist:{domain}:complete",
+        "target": "analysis:integration",
+        "mapping": {"specialist": "{{_agent_id}}"}
+    })
+```
+
+#### 6. Monitoring and Debugging Routes
+
+```python
+# Check what routes exist
+{"event": "routing:query_rules", "data": {
+    "filter": {"created_by": "{{_agent_id}}"},
+    "limit": 20
+}}
+
+# See routing audit trail
+{"event": "routing:query_audit_log", "data": {
+    "filter": {"actor": "{{_agent_id}}"},
+    "limit": 50
+}}
+
+# Trace specific event routing
+{"event": "introspection:routing_path", "data": {
+    "event_id": "evt_12345"
+}}
+```
+
+### Common Patterns
+
+#### Load Balancing
+```python
+# Create round-robin routing
+for i, worker in enumerate(workers):
+    await emit("routing:add_rule", {
+        "rule_id": f"balance_{i}",
+        "source_pattern": "work:item",
+        "target": f"worker:{worker}",
+        "condition": f"hashCode(data.id) % {len(workers)} == {i}",
+        "priority": 500
+    })
+```
+
+#### Fallback Routing
+```python
+# Primary route with high priority
+await emit("routing:add_rule", {
+    "rule_id": "primary_processor",
+    "source_pattern": "process:request",
+    "target": "processor:fast",
+    "condition": "data.size < 1000",
+    "priority": 900
+})
+
+# Fallback with lower priority
+await emit("routing:add_rule", {
+    "rule_id": "fallback_processor",
+    "source_pattern": "process:request",
+    "target": "processor:batch",
+    "priority": 100
+})
+```
+
+#### Temporary Workflows
+```python
+# Create time-limited routing for experiments
+await emit("routing:add_rule", {
+    "rule_id": "experiment_route",
+    "source_pattern": "experiment:*",
+    "target": "analyzer:experimental",
+    "ttl": 600,  # 10 minutes
+    "metadata": {"experiment_id": "exp_123"}
+})
+```
+
+### Best Practices
+
+1. **Use Descriptive Rule IDs**: Include agent ID and purpose
+2. **Set Appropriate TTLs**: Clean up temporary routes automatically
+3. **Monitor Impact**: Check routing decisions before major changes
+4. **Use Priorities Wisely**: Reserve high priorities (800+) for critical routes
+5. **Document in Metadata**: Add context to rules for other agents
+6. **Clean Up**: Delete rules when no longer needed
+
 ## Stage 1.8: Simple Test Orchestration 🚧 FUTURE
 
 ### Objective
