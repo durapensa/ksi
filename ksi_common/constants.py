@@ -18,6 +18,7 @@ DEFAULT_WEBSOCKET_CORS_ORIGINS = ["http://localhost:8080", "http://localhost:300
 DEFAULT_COMPLETION_TIMEOUT = 300.0  # 5 minutes for completions
 DEFAULT_REQUEST_TIMEOUT = 30.0      # 30 seconds for normal requests
 DEFAULT_SHUTDOWN_TIMEOUT = 10.0     # 10 seconds for graceful shutdown
+DEFAULT_EVALUATION_COMPLETION_TIMEOUT = 300  # 5 minutes for evaluation completions
 
 # Directory structure (relative to working directory)
 DEFAULT_VAR_DIR = "var"

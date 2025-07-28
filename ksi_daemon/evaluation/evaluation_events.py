@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from ksi_common.logging import get_bound_logger
 from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_common.config import config
-from ksi_daemon.event_system import event_handler
+from ksi_daemon.event_system import event_handler, get_router
 from ksi_daemon.composition.composition_index import rebuild as rebuild_composition_index
 from .component_hasher import hash_component_at_path
 
@@ -62,7 +62,8 @@ def generate_certificate(
     test_results: Dict,
     model: str,
     model_version_date: str = "2025-05-14",
-    notes: Optional[List[str]] = None
+    notes: Optional[List[str]] = None,
+    dependency_hashes: Optional[List[Dict[str, str]]] = None
 ) -> Dict:
     """Generate evaluation certificate for a component."""
     
@@ -105,6 +106,10 @@ def generate_certificate(
             "test_session_id": f"test_session_{timestamp:%Y%m%d_%H%M%S}",
         }
     }
+    
+    # Add dependency hashes if provided
+    if dependency_hashes:
+        certificate["component"]["dependencies"] = dependency_hashes
     
     if notes:
         certificate["results"]["notes"] = notes
@@ -160,9 +165,10 @@ async def handle_evaluation_run(data: EvaluationRunData, context: Optional[Dict[
     
     Flow:
     1. Loads the component to be evaluated
-    2. Executes appropriate evaluation based on component type and test suite
-    3. Generates certificate with evaluation results and component evidence
-    4. Updates certificate index automatically
+    2. Verifies all dependencies have been tested
+    3. Executes appropriate evaluation based on component type and test suite
+    4. Generates certificate with evaluation results and component evidence
+    5. Updates certificate index automatically
     
     This makes evaluation:run a "evaluate component + certify results" operation that works
     for any component type in the composition system.
@@ -173,35 +179,116 @@ async def handle_evaluation_run(data: EvaluationRunData, context: Optional[Dict[
         
         # Use shared utilities for consistent path resolution (same as composition:get_component)
         from ksi_common.composition_utils import load_composition_with_metadata
+        
+        # Try to detect component type from path
+        comp_type = 'component'  # default
+        if 'behaviors/' in component_path:
+            comp_type = 'behavior'
+        elif 'personas/' in component_path:
+            comp_type = 'persona'
+        elif 'orchestrations/' in component_path:
+            comp_type = 'orchestration'
+        elif 'tools/' in component_path:
+            comp_type = 'tool'
+        elif 'evaluations/' in component_path:
+            comp_type = 'evaluation'
+        elif 'core/' in component_path:
+            comp_type = 'core'
+        
         try:
-            metadata, content, full_path = load_composition_with_metadata(component_path, 'component')
-        except FileNotFoundError:
+            logger.info(f"Attempting to load component: {component_path} (type: {comp_type})")
+            metadata, content, full_path = load_composition_with_metadata(component_path, comp_type)
+            logger.info(f"Successfully loaded component from: {full_path}")
+        except FileNotFoundError as e:
+            logger.error(f"Component not found at path: {component_path}, error: {e}")
             raise ValueError(f"Component not found: {component_path}")
+        
+        # Extract dependencies from component metadata
+        dependencies = metadata.get('dependencies', [])
+        dependency_hashes = []
+        
+        # Check that all dependencies have been tested
+        if dependencies:
+            logger.info(f"Component {component_path} has {len(dependencies)} dependencies to verify")
+            
+            # Load registry to check tested components
+            registry_path = config.evaluations_dir / "registry.yaml"
+            registry = {}
+            if registry_path.exists():
+                with open(registry_path, 'r') as f:
+                    registry = yaml.safe_load(f) or {}
+            
+            registered_hashes = set(registry.get('components', {}).keys())
+            
+            for dep in dependencies:
+                # Resolve dependency path and hash
+                try:
+                    dep_metadata, dep_content, dep_full_path = load_composition_with_metadata(dep, 'component')
+                    dep_info = hash_component_at_path(str(dep_full_path))
+                    dep_hash = dep_info['hash']
+                    
+                    # Check if dependency is tested
+                    if dep_hash not in registered_hashes:
+                        return error_response(
+                            f"Dependency {dep} (hash: {dep_hash}) must be evaluated before testing {component_path}",
+                            context
+                        )
+                    
+                    # Record dependency info for certificate
+                    dependency_hashes.append({
+                        'path': dep,
+                        'hash': dep_hash
+                    })
+                    
+                except Exception as e:
+                    return error_response(f"Failed to verify dependency {dep}: {e}", context)
         
         # Extract model version date if provided, otherwise use default
         model_version_date = "2025-05-14"  # Default for claude models
         if 'model_version_date' in data:
             model_version_date = data['model_version_date']
         
-        # Use test_results if provided, otherwise create minimal results
-        test_results = data.get('test_results', {
-            'status': 'unknown',
-            'test_suite': data['test_suite'],
-            'tests': {}
-        })
+        # Use test_results if provided, otherwise run actual tests
+        test_results = data.get('test_results')
+        
+        if not test_results:
+            # No pre-computed results - we need to run actual tests
+            logger.info(f"Running behavioral tests for {component_path}")
+            
+            # Check if orchestration pattern is specified
+            orchestration_pattern = data.get('orchestration_pattern')
+            if orchestration_pattern:
+                # TODO: Start orchestration to run tests
+                logger.warning(f"Orchestration pattern {orchestration_pattern} not yet implemented")
+                test_results = {
+                    'status': 'unknown',
+                    'test_suite': data['test_suite'],
+                    'tests': {},
+                    'notes': ['Orchestration-based testing not yet implemented']
+                }
+            else:
+                # Run component evaluation by spawning test orchestration
+                test_results = await run_component_evaluation(
+                    component_path=str(full_path),
+                    model=data['model'],
+                    test_suite=data['test_suite']
+                )
+        
+        # Ensure test_results has required fields
+        if 'status' not in test_results:
+            test_results['status'] = 'unknown'
+        if 'test_suite' not in test_results:
+            test_results['test_suite'] = data['test_suite']
         
         # Generate certificate using the migrated function
-        # Use relative path for consistency
-        relative_path = component_path
-        if not relative_path.endswith('.md'):
-            relative_path += '.md'
-            
+        # Use the resolved full_path from load_composition_with_metadata
         certificate = generate_certificate(
-            component_path=relative_path,
+            component_path=str(full_path),  # Use the resolved path
             test_results=test_results,
             model=data['model'],
             model_version_date=model_version_date,
-            notes=data.get('notes')
+            notes=data.get('notes'),
+            dependency_hashes=dependency_hashes
         )
         
         # Save certificate using the migrated function
@@ -225,6 +312,8 @@ async def handle_evaluation_run(data: EvaluationRunData, context: Optional[Dict[
                     registry['components'] = {}
                     
                 if component_hash not in registry['components']:
+                    # Calculate relative path from full_path for registry
+                    relative_path = str(Path(full_path).relative_to(config.compositions_dir))
                     registry['components'][component_hash] = {
                         'path': relative_path,
                         'version': certificate['component']['version'],
@@ -368,6 +457,136 @@ class RegistryRemoveData(TypedDict):
     """Remove component from evaluation registry."""
     component_hash: str  # Component hash to remove (e.g., "sha256:...")
     _ksi_context: NotRequired[Dict[str, Any]]
+
+
+async def run_component_evaluation(
+    component_path: str,
+    model: str,
+    test_suite: str
+) -> Dict[str, Any]:
+    """Run component evaluation by spawning test agent directly."""
+    try:
+        import uuid
+        import asyncio
+        
+        # Generate unique evaluation ID
+        eval_id = f"eval_{uuid.uuid4().hex[:8]}"
+        test_agent_id = f"test_agent_{eval_id}"
+        
+        router = get_router()
+        
+        # For now, run a basic behavioral test
+        # In the future, this can be expanded based on test_suite parameter
+        logger.info(f"Running behavioral test for {component_path} with model {model}")
+        
+        # Use the component renderer to ensure dependencies are properly resolved
+        # The agent:spawn handler will use the renderer internally, but we need
+        # to ensure we're passing the correct component path format
+        # Use the original component path passed in
+        spawn_results = await router.emit("agent:spawn", {
+            "agent_id": test_agent_id,
+            "model": model,
+            "component": data['component_path']  # Use the original component path
+        }, context=None)
+        
+        spawn_result = spawn_results[0] if spawn_results else {}
+        
+        if spawn_result.get('status') not in ('success', 'created'):
+            logger.error(f"Failed to spawn test agent: {spawn_result}")
+            return {
+                'status': 'error',
+                'test_suite': test_suite,
+                'tests': {},
+                'notes': [f"Failed to spawn test agent: {spawn_result.get('error', 'Unknown error')}"]
+            }
+        
+        # Send a test prompt to the agent
+        completion_results = await router.emit("completion:async", {
+            "agent_id": test_agent_id,
+            "prompt": "Please emit an agent:status event to confirm you are operational."
+        }, context=None)
+        
+        completion_result = completion_results[0] if completion_results else {}
+        
+        # Check if request was queued (normal async behavior)
+        if completion_result.get('status') == 'queued':
+            request_id = completion_result.get('request_id')
+            logger.info(f"Completion request {request_id} queued, waiting for result...")
+            
+            # Wait for completion to finish (configurable timeout)
+            max_wait = getattr(config, 'evaluation_completion_timeout', 60)  # Default 60 seconds
+            check_interval = 2
+            elapsed = 0
+            completion_done = False
+            
+            while elapsed < max_wait:
+                await asyncio.sleep(check_interval)
+                elapsed += check_interval
+                
+                # Check for completion:result event via monitor
+                event_results = await router.emit("monitor:get_events", {
+                    "event_patterns": ["completion:result"],
+                    "filters": {"request_id": request_id},
+                    "limit": 1
+                }, context=None)
+                
+                event_result = event_results[0] if event_results else {}
+                events = event_result.get('data', {}).get('events', [])
+                
+                if events:
+                    # Found completion result
+                    completion_done = True
+                    result_data = events[0].get('data', {}).get('result', {})
+                    if result_data.get('response', {}).get('is_error'):
+                        test_status = 'failing'
+                        tests_passed = 0
+                        test_notes = f"Agent error: {result_data.get('response', {}).get('error_message', 'Unknown error')}"
+                    else:
+                        test_status = 'passing'
+                        tests_passed = 1
+                        test_notes = 'Agent responded successfully'
+                    break
+            
+            if not completion_done:
+                # Timeout - report as timeout
+                test_status = 'timeout'
+                tests_passed = 0
+                test_notes = 'Agent did not respond within timeout period'
+                
+        elif completion_result.get('status') == 'success':
+            test_status = 'passing'
+            tests_passed = 1
+            test_notes = 'Agent responded successfully to test prompt'
+        else:
+            test_status = 'failing'
+            tests_passed = 0
+            test_notes = f"Agent failed to respond: {completion_result.get('error', completion_result.get('message', 'No response'))}"
+        
+        # Clean up test agent
+        await router.emit("agent:stop", {"agent_id": test_agent_id}, context=None)
+        
+        return {
+            'status': test_status,
+            'test_suite': test_suite,
+            'tests_passed': tests_passed,
+            'tests_total': 1,
+            'performance_class': 'standard',
+            'tests': {
+                'basic_response': {
+                    'status': 'passed' if test_status == 'passing' else 'failed',
+                    'notes': test_notes
+                }
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Component evaluation failed: {e}")
+        return {
+            'status': 'error',
+            'test_suite': test_suite,
+            'tests': {},
+            'notes': [f'Evaluation failed: {str(e)}']
+        }
 
 
 @event_handler("evaluation:registry_remove")

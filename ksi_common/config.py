@@ -78,6 +78,7 @@ from .constants import (
     DEFAULT_EVENTS_DB_NAME,
     DEFAULT_COMPOSITION_INDEX_DB_NAME,
     DEFAULT_EVALUATION_INDEX_DB_NAME,
+    DEFAULT_EVALUATION_COMPLETION_TIMEOUT,
 )
 
 
@@ -317,6 +318,9 @@ class KSIBaseConfig(BaseSettings):
     
     # Test timeouts (in seconds)
     test_completion_timeout: int = 120     # 2 minutes for tests
+    
+    # Evaluation timeouts (in seconds)
+    evaluation_completion_timeout: int = DEFAULT_EVALUATION_COMPLETION_TIMEOUT
     
     # TUI Application Configuration
     tui_default_model: str = "claude-cli/sonnet"  # Default model for TUI apps
