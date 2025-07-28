@@ -14,6 +14,7 @@ import uuid
 from ksi_common.logging import get_bound_logger
 from ksi_daemon.event_system import event_handler
 from ksi_common.event_response_builder import event_response_builder, success_response, error_response
+from .routing_audit import get_audit_trail
 
 logger = get_bound_logger("routing_events", version="1.0.0")
 
@@ -41,13 +42,36 @@ async def check_routing_capability(agent_id: str, context: Optional[Dict[str, An
         
         # Check if agent has routing_control capability
         if "routing_control" not in capabilities:
+            # Audit permission denial
+            audit = get_audit_trail()
+            if audit:
+                audit.log_permission_check(
+                    actor=agent_id,
+                    action="routing_control",
+                    allowed=False,
+                    reason="Missing routing_control capability",
+                    context=context
+                )
+            
             return error_response(
                 error="Permission denied",
                 details={
                     "required_capability": "routing_control",
                     "agent_capabilities": capabilities
-                }
+                },
+                context=context
             )
+        
+        # Audit successful permission check
+        audit = get_audit_trail()
+        if audit:
+            audit.log_permission_check(
+                actor=agent_id,
+                action="routing_control",
+                allowed=True,
+                context=context
+            )
+        
         return None  # Capability check passed
     else:
         # If we can't get agent info, deny by default
@@ -637,3 +661,76 @@ def validate_routing_rule(rule: Dict[str, Any]) -> Optional[str]:
     # TODO: More sophisticated validation in Stage 1.5
     
     return None
+
+
+@event_handler("routing:query_audit_log")
+async def handle_query_audit_log(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Query the routing audit log.
+    
+    Parameters:
+        filter: Optional filter criteria
+            - type: Entry type (rule_change, routing_decision, etc)
+            - actor: Actor who performed action
+            - rule_id: Specific rule ID
+            - since: ISO timestamp for time range
+            - success: Boolean for filtering by success/failure
+        limit: Maximum number of entries to return
+    
+    No special capability required for querying audit log.
+    """
+    # Get audit trail
+    audit = get_audit_trail()
+    if not audit:
+        return error_response(
+            error="Audit trail not available",
+            context=context
+        )
+    
+    # Extract parameters
+    filter_params = data.get("filter", {})
+    
+    # Handle case where filter might be a JSON string
+    if isinstance(filter_params, str):
+        try:
+            filter_params = json.loads(filter_params)
+        except json.JSONDecodeError:
+            filter_params = {}
+    limit = data.get("limit", 100)
+    
+    # Ensure limit is an integer
+    try:
+        limit = int(limit)
+    except (TypeError, ValueError):
+        limit = 100
+    
+    # Query audit log
+    entries = await audit.query_audit_log(filter_params, limit)
+    
+    return event_response_builder({
+        "entries": entries,
+        "count": len(entries),
+        "filter": filter_params,
+        "status": "success"
+    }, context)
+
+
+@event_handler("routing:get_audit_metrics")
+async def handle_get_audit_metrics(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Get routing audit metrics.
+    
+    No special capability required for viewing metrics.
+    """
+    # Get audit trail
+    audit = get_audit_trail()
+    if not audit:
+        return error_response(
+            error="Audit trail not available",
+            context=context
+        )
+    
+    # Get metrics
+    metrics = audit.get_metrics()
+    
+    return event_response_builder(metrics, context)

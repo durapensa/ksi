@@ -18,6 +18,7 @@ from ksi_daemon.event_system import event_handler, get_router
 from .transformer_integration import RoutingTransformerBridge
 from .routing_state_adapter import RoutingStateAdapter
 from .routing_validation import create_validator
+from .routing_audit import get_audit_trail, initialize_audit_trail
 
 logger = get_bound_logger("routing_service", version="1.0.0")
 
@@ -156,6 +157,17 @@ class RoutingService:
         high_severity_conflicts = [c for c in conflicts if c["severity"] == "high"]
         
         if high_severity_conflicts:
+            # Audit validation failure
+            audit = get_audit_trail()
+            if audit:
+                audit.log_validation_result(
+                    rule=rule,
+                    valid=False,
+                    errors="High severity conflicts detected",
+                    conflicts=conflicts,
+                    actor=rule.get("created_by", "system")
+                )
+            
             return {
                 "status": "error", 
                 "error": "High severity conflicts detected",
@@ -185,6 +197,17 @@ class RoutingService:
                    rule_id=rule_id,
                    source_pattern=rule["source_pattern"],
                    target=rule["target"])
+        
+        # Audit trail
+        audit = get_audit_trail()
+        if audit:
+            audit.log_rule_change(
+                action="create",
+                rule_id=rule_id,
+                rule=rule,
+                actor=rule.get("created_by", "system"),
+                result={"status": "success"}
+            )
         
         return {"status": "success", "rule_id": rule_id}
     
@@ -245,6 +268,17 @@ class RoutingService:
         
         logger.info("Routing rule modified", rule_id=rule_id)
         
+        # Audit trail
+        audit = get_audit_trail()
+        if audit:
+            audit.log_rule_change(
+                action="modify",
+                rule_id=rule_id,
+                rule=rule,
+                actor="system",  # TODO: Get actual actor from context
+                result={"status": "success", "updates": updates}
+            )
+        
         return {"status": "success", "rule_id": rule_id}
     
     async def _remove_rule(self, rule_id: str, reason: str = "deleted") -> Dict[str, Any]:
@@ -276,6 +310,20 @@ class RoutingService:
         
         logger.info("Routing rule removed", rule_id=rule_id, reason=reason)
         
+        # Audit trail
+        audit = get_audit_trail()
+        if audit:
+            if reason == "TTL expired":
+                audit.log_ttl_expiration(rule_id, rule)
+            else:
+                audit.log_rule_change(
+                    action="delete",
+                    rule_id=rule_id,
+                    rule=rule,
+                    actor="system",
+                    result={"status": "success", "reason": reason}
+                )
+        
         return {"status": "success", "rule_id": rule_id}
     
     async def get_applicable_rules(self, event_name: str, context: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -302,6 +350,17 @@ class RoutingService:
         applicable_rules.sort(key=lambda r: r.get("priority", 100), reverse=True)
         
         self.metrics["routing_decisions"] += 1
+        
+        # Audit routing decision
+        audit = get_audit_trail()
+        if audit and applicable_rules:
+            # Log which rule would be selected (highest priority)
+            audit.log_routing_decision(
+                event_name=event_name,
+                matched_rules=applicable_rules,
+                selected_rule=applicable_rules[0] if applicable_rules else None,
+                context=context
+            )
         
         return applicable_rules
     
@@ -434,6 +493,10 @@ async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]]
     
     # Initialize the service
     await _routing_service_instance.initialize()
+    
+    # Initialize audit trail
+    await initialize_audit_trail()
+    logger.info("Routing audit trail initialized")
     
     logger.info("Routing service started successfully")
     

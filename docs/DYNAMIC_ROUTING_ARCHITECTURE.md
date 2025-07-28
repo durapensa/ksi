@@ -676,6 +676,45 @@ Fixed routing state adapter field mapping issue:
 - **Result**: Routing rules now properly load on daemon restart
 - TTL expiration queries work ✅
 
+## Stage 1.6: Audit Trail for Debugging ✅ COMPLETE (2025-07-28)
+
+### Objective
+Implement comprehensive audit logging for routing system debugging and analysis.
+
+### Implementation Details:
+1. **RoutingAuditTrail**: Created audit trail class in `routing_audit.py`
+2. **Tracked Events**:
+   - Rule lifecycle (create/modify/delete) with actor tracking
+   - Permission checks (allowed/denied) with reasons
+   - TTL expirations with lifetime calculation
+   - Validation failures with conflict details
+   - System events (startup/shutdown)
+3. **Features**:
+   - In-memory circular buffer (configurable size)
+   - Periodic persistence to state system
+   - Queryable audit log with filters
+   - Metrics aggregation
+4. **Query Capabilities**:
+   - Filter by type, actor, rule_id, time range
+   - Success/failure filtering
+   - Configurable result limits
+
+### Integration Points:
+- Audit logging in all rule CRUD operations
+- Permission check auditing in capability verification
+- Validation result tracking
+- TTL expiration logging
+
+### Testing Results:
+- Rule changes tracked successfully ✅
+- Permission checks logged ✅
+- Audit queries working ✅
+- Metrics aggregation functional ✅
+- State persistence operational ✅
+
+### Known Limitation:
+Routing decision auditing (which rules matched for an event) requires deeper integration with the transformer system and is deferred to future work.
+
 ## Stage 1.5: Validation and Safety ✅ COMPLETE (2025-07-28)
 
 ### Objective
