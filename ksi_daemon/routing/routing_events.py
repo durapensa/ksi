@@ -14,7 +14,6 @@ import uuid
 from ksi_common.logging import get_bound_logger
 from ksi_daemon.event_system import event_handler
 from ksi_common.event_response_builder import event_response_builder
-from ksi_daemon.core.context_manager import get_context_manager
 
 logger = get_bound_logger("routing_events", version="1.0.0")
 
@@ -61,9 +60,9 @@ async def handle_add_rule(event_data: Dict[str, Any]) -> Dict[str, Any]:
     
     Required capability: routing_control
     """
-    cm = get_context_manager()
-    context = await cm.get_current_context()
-    agent_id = context.get("agent_id", "system") if context else "system"
+    # Get agent ID from context
+    ksi_context = event_data.get("_ksi_context", {})
+    agent_id = ksi_context.get("_agent_id", "system")
     
     # TODO: In Stage 1.3, implement capability checking
     # For now, allow all agents to use routing control
@@ -144,9 +143,9 @@ async def handle_modify_rule(event_data: Dict[str, Any]) -> Dict[str, Any]:
     
     Required capability: routing_control
     """
-    cm = get_context_manager()
-    context = await cm.get_current_context()
-    agent_id = context.get("agent_id", "system") if context else "system"
+    # Get agent ID from context
+    ksi_context = event_data.get("_ksi_context", {})
+    agent_id = ksi_context.get("_agent_id", "system")
     
     # TODO: In Stage 1.3, implement capability checking
     # For now, allow all agents to use routing control
@@ -215,9 +214,9 @@ async def handle_delete_rule(event_data: Dict[str, Any]) -> Dict[str, Any]:
     
     Required capability: routing_control
     """
-    cm = get_context_manager()
-    context = await cm.get_current_context()
-    agent_id = context.get("agent_id", "system") if context else "system"
+    # Get agent ID from context
+    ksi_context = event_data.get("_ksi_context", {})
+    agent_id = ksi_context.get("_agent_id", "system")
     
     # TODO: In Stage 1.3, implement capability checking
     # For now, allow all agents to use routing control
@@ -327,9 +326,9 @@ async def handle_update_subscription(event_data: Dict[str, Any]) -> Dict[str, An
     
     Required capability: routing_control
     """
-    cm = get_context_manager()
-    context = await cm.get_current_context()
-    requesting_agent = context.get("agent_id", "system") if context else "system"
+    # Get requesting agent ID from context
+    ksi_context = event_data.get("_ksi_context", {})
+    requesting_agent = ksi_context.get("_agent_id", "system")
     
     # TODO: In Stage 1.3, implement capability checking
     # For now, allow all agents to use routing control
@@ -392,9 +391,9 @@ async def handle_spawn_with_routing(event_data: Dict[str, Any]) -> Dict[str, Any
     
     Required capability: agent (standard agent spawning)
     """
-    cm = get_context_manager()
-    context = await cm.get_current_context()
-    requesting_agent = context.get("agent_id", "system") if context else "system"
+    # Get requesting agent ID from context
+    ksi_context = event_data.get("_ksi_context", {})
+    requesting_agent = ksi_context.get("_agent_id", "system")
     
     # TODO: In Stage 1.3, implement capability checking
     # For now, allow all agents to spawn with routing
@@ -467,9 +466,9 @@ async def handle_get_audit_log(event_data: Dict[str, Any]) -> Dict[str, Any]:
     
     Required capability: routing_control (for security)
     """
-    cm = get_context_manager()
-    context = await cm.get_current_context()
-    agent_id = context.get("agent_id", "system") if context else "system"
+    # Get agent ID from context
+    ksi_context = event_data.get("_ksi_context", {})
+    agent_id = ksi_context.get("_agent_id", "system")
     
     # TODO: In Stage 1.3, implement capability checking
     # For now, allow all agents to use routing control
