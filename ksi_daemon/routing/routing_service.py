@@ -13,7 +13,9 @@ import json
 
 from ksi_common.logging import get_bound_logger
 from ksi_common.checkpoint_participation import checkpoint_participant
+from ksi_common.service_lifecycle import service_startup
 from ksi_daemon.event_system import event_handler, get_router
+from .transformer_integration import RoutingTransformerBridge
 
 logger = get_bound_logger("routing_service", version="1.0.0")
 
@@ -46,12 +48,18 @@ class RoutingService:
             "routing_decisions": 0
         }
         
+        # Create transformer bridge for routing integration
+        self.transformer_bridge = RoutingTransformerBridge(self)
+        
         logger.info("RoutingService initialized")
     
     async def initialize(self):
         """Initialize the routing service."""
         # Load any persisted routing rules
         await self._load_persisted_rules()
+        
+        # Sync all rules with transformer system
+        await self.transformer_bridge.sync_all_rules()
         
         # Start TTL management task
         self._ttl_task = asyncio.create_task(self._manage_ttl())
@@ -125,15 +133,23 @@ class RoutingService:
         
         # Calculate expiration if TTL is set
         if rule.get("ttl"):
-            expires_at = datetime.utcnow() + timedelta(seconds=rule["ttl"])
+            ttl_seconds = int(rule["ttl"]) if isinstance(rule["ttl"], str) else rule["ttl"]
+            expires_at = datetime.utcnow() + timedelta(seconds=ttl_seconds)
             rule["expires_at"] = expires_at.isoformat()
         
         # Store rule
         self.routing_rules[rule_id] = rule
         self.metrics["rules_created"] += 1
         
-        # TODO: In Stage 1.2, register with transformer system
-        # For now, just log
+        # Register with transformer system
+        success = await self.transformer_bridge.apply_routing_rule(rule)
+        
+        if not success:
+            # Roll back if transformer registration failed
+            del self.routing_rules[rule_id]
+            self.metrics["rules_created"] -= 1
+            return {"status": "error", "error": "Failed to register transformer"}
+        
         logger.info("Routing rule added",
                    rule_id=rule_id,
                    source_pattern=rule["source_pattern"],
@@ -156,14 +172,21 @@ class RoutingService:
         # Update TTL if changed
         if "ttl" in updates:
             if updates["ttl"]:
-                expires_at = datetime.utcnow() + timedelta(seconds=updates["ttl"])
+                ttl_seconds = int(updates["ttl"]) if isinstance(updates["ttl"], str) else updates["ttl"]
+                expires_at = datetime.utcnow() + timedelta(seconds=ttl_seconds)
                 rule["expires_at"] = expires_at.isoformat()
             else:
                 rule.pop("expires_at", None)
         
         self.metrics["rules_modified"] += 1
         
-        # TODO: In Stage 1.2, update transformer system
+        # Update transformer system
+        success = await self.transformer_bridge.update_routing_rule(rule_id, rule)
+        
+        if not success:
+            logger.error(f"Failed to update transformer for rule {rule_id}")
+            # We still keep the rule updated in our storage
+            # This is a design choice - we could also roll back
         
         logger.info("Routing rule modified", rule_id=rule_id)
         
@@ -178,7 +201,12 @@ class RoutingService:
         rule = self.routing_rules.pop(rule_id)
         self.metrics["rules_deleted"] += 1
         
-        # TODO: In Stage 1.2, remove from transformer system
+        # Remove from transformer system
+        success = await self.transformer_bridge.remove_routing_rule(rule_id)
+        
+        if not success:
+            logger.error(f"Failed to remove transformer for rule {rule_id}")
+            # Rule is already removed from our storage
         
         logger.info("Routing rule removed", rule_id=rule_id, reason=reason)
         
@@ -255,7 +283,40 @@ class RoutingService:
             "metrics": self.metrics
         }
 
+# Global service instance
+_routing_service_instance = None
+
 # Service initialization function
 def create_service(event_emitter=None) -> RoutingService:
     """Create and return a RoutingService instance."""
     return RoutingService(event_emitter)
+
+def get_routing_service() -> RoutingService:
+    """Get the global routing service instance."""
+    return _routing_service_instance
+
+@service_startup("routing_service", load_transformers=False)
+async def handle_startup(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Initialize routing service on startup."""
+    global _routing_service_instance
+    
+    logger.info("Starting routing service...")
+    
+    # Create service instance
+    _routing_service_instance = create_service()
+    
+    # Initialize the service
+    await _routing_service_instance.initialize()
+    
+    logger.info("Routing service started successfully")
+    
+    return {
+        "status": "started",
+        "features": [
+            "dynamic_routing",
+            "routing_rules", 
+            "ttl_management",
+            "transformer_integration",
+            "audit_trail"
+        ]
+    }

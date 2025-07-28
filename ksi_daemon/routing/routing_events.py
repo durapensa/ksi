@@ -39,6 +39,9 @@ class RoutingPermission:
     ORCHESTRATION = 3  # Can modify orchestration routes
     GLOBAL = 4  # Can modify any routes (admin)
 
+# Import routing service accessor
+from .routing_service import get_routing_service
+
 # In-memory routing store (will be moved to state system in Stage 1.4)
 routing_rules: Dict[str, RoutingRule] = {}
 routing_audit_log: List[Dict[str, Any]] = []
@@ -92,6 +95,21 @@ async def handle_add_rule(data: Dict[str, Any], context: Optional[Dict[str, Any]
             details={"rule_id": rule_id}
         )
     
+    # Convert string parameters to appropriate types
+    priority = data.get("priority", 100)
+    if isinstance(priority, str):
+        try:
+            priority = int(priority)
+        except ValueError:
+            priority = 100
+    
+    ttl = data.get("ttl")
+    if ttl and isinstance(ttl, str):
+        try:
+            ttl = int(ttl)
+        except ValueError:
+            ttl = None
+    
     # Create rule
     rule = RoutingRule(
         rule_id=rule_id,
@@ -99,17 +117,25 @@ async def handle_add_rule(data: Dict[str, Any], context: Optional[Dict[str, Any]
         target=target,
         condition=data.get("condition"),
         mapping=data.get("mapping"),
-        priority=data.get("priority", 100),
-        ttl=data.get("ttl"),
+        priority=priority,
+        ttl=ttl,
         created_by=agent_id,
         created_at=datetime.utcnow().isoformat(),
         metadata=data.get("metadata")
     )
     
-    # Store rule
-    routing_rules[rule_id] = rule
+    # Get routing service
+    service = get_routing_service()
+    if not service:
+        return error_response(
+            error="Routing service not available",
+            details={"service_status": "not_initialized"}
+        )
     
-    # Audit log
+    # Add rule via service (which will integrate with transformers)
+    result = await service.add_routing_rule(rule)
+    
+    # Audit log (TODO: Move to service in Stage 1.6)
     audit_entry = {
         "operation": "add_rule",
         "rule_id": rule_id,
@@ -121,15 +147,19 @@ async def handle_add_rule(data: Dict[str, Any], context: Optional[Dict[str, Any]
     
     logger.info("Routing rule added", rule_id=rule_id, agent_id=agent_id)
     
-    # TODO: In Stage 1.2, actually register with transformer system
-    
-    return success_response(
-        data={
-            "rule_id": rule_id,
-            "status": "created",
-            "rule": rule
-        }
-    )
+    if result.get("status") == "success":
+        return success_response(
+            data={
+                "rule_id": rule_id,
+                "status": "created",
+                "rule": rule
+            }
+        )
+    else:
+        return error_response(
+            error=result.get("error", "Failed to add routing rule"),
+            details=result
+        )
 
 @event_handler("routing:modify_rule")
 async def handle_modify_rule(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -472,7 +502,14 @@ async def handle_get_audit_log(data: Dict[str, Any], context: Optional[Dict[str,
     #         details={"required_capability": "routing_control"}
     #     )
     
+    # Convert limit to int if it's a string
     limit = data.get("limit", 100)
+    if isinstance(limit, str):
+        try:
+            limit = int(limit)
+        except ValueError:
+            limit = 100
+    
     since = data.get("since")
     operation = data.get("operation")
     
