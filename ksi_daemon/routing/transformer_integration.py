@@ -89,6 +89,10 @@ class RoutingTransformerBridge:
             # Convert to transformer
             transformer = self.routing_rule_to_transformer(rule)
             
+            # Add introspection metadata to transformer
+            transformer["_routing_rule"] = rule  # Attach original rule for introspection
+            transformer["_routing_introspection"] = True  # Flag for introspection tracking
+            
             # Register with router
             router = self._get_router()
             router.register_transformer_from_yaml(transformer)

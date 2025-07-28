@@ -73,6 +73,14 @@ class RoutingService:
         # Start TTL management task
         self._ttl_task = asyncio.create_task(self._manage_ttl())
         
+        # Initialize routing introspection
+        from .routing_event_patch import patch_event_router_for_introspection
+        try:
+            patch_event_router_for_introspection()
+            logger.info("Routing introspection initialized")
+        except Exception as e:
+            logger.warning(f"Failed to initialize routing introspection: {e}")
+        
         logger.info("RoutingService initialization complete")
     
     async def shutdown(self):
@@ -283,12 +291,17 @@ class RoutingService:
     
     async def _remove_rule(self, rule_id: str, reason: str = "deleted") -> Dict[str, Any]:
         """Remove a routing rule."""
+        # Get rule for audit trail before deletion
+        rule = None
+        
         # Check cache first
         if rule_id not in self.routing_rules:
             # Check state in case cache is out of sync
             rule = await self.state_adapter.get_rule(rule_id)
             if not rule:
                 return {"status": "error", "error": "Rule not found"}
+        else:
+            rule = self.routing_rules[rule_id]
         
         # Remove from state system (source of truth)
         result = await self.state_adapter.delete_rule(rule_id)
@@ -312,7 +325,7 @@ class RoutingService:
         
         # Audit trail
         audit = get_audit_trail()
-        if audit:
+        if audit and rule:
             if reason == "TTL expired":
                 audit.log_ttl_expiration(rule_id, rule)
             else:
@@ -402,8 +415,13 @@ class RoutingService:
                                 if r.get("target") == filter_params["target"]]
         
         # Apply limit
-        if limit and len(filtered_rules) > limit:
-            filtered_rules = filtered_rules[:limit]
+        try:
+            limit_int = int(limit) if limit else 100
+        except (ValueError, TypeError):
+            limit_int = 100
+            
+        if limit_int and len(filtered_rules) > limit_int:
+            filtered_rules = filtered_rules[:limit_int]
         
         return {
             "rules": filtered_rules,
