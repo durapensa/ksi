@@ -72,6 +72,18 @@ Infrastructure (Smart Transformers) → Execute and report on routing
 
 ## Implementation Design
 
+### Architectural Integration Points
+
+#### Introspection System Integration
+The existing introspection system provides powerful capabilities for understanding event flow and system behavior. Key integration opportunities:
+
+1. **Event Genealogy**: Track routing decisions as part of event chains
+2. **Impact Analysis**: Understand cascading effects of routing changes  
+3. **Performance Monitoring**: Analyze routing efficiency and patterns
+4. **Real-time Visibility**: Monitor routing decisions as they happen
+
+See Stage 1.7 for detailed integration plans with the introspection system.
+
 ### Phase 1: Infrastructure Extensions
 
 #### New Transformer Functions
@@ -752,6 +764,193 @@ Build routing rule validation and conflict detection to ensure system stability.
 - JSON parsing handled for CLI compatibility ✅
 
 **See Also**: [Dynamic Routing Testing Report](DYNAMIC_ROUTING_TESTING_REPORT.md) for comprehensive test results.
+
+## Stage 1.7: Routing Decision Visibility with Introspection System 🚧 NEXT
+
+### Objective
+Integrate the existing introspection system to provide visibility into routing decisions for debugging and analysis.
+
+### Introspection System Analysis
+
+The KSI introspection system (in `ksi_daemon/introspection/`) provides powerful capabilities that can be adapted for routing visibility:
+
+1. **Event Genealogy** (`event_genealogy.py`):
+   - Event chain tracking with parent-child relationships
+   - Tree visualization of event hierarchies
+   - Impact analysis showing cascading effects
+   - Performance analysis of event patterns
+   - Real-time event stream monitoring
+
+2. **Module Introspection** (`introspection.py`):
+   - Event emission discovery
+   - State dependency tracking
+   - Module inter-dependencies
+
+### Integration Approach
+
+1. **Routing Metadata Enhancement**:
+   - Add routing decision metadata to `_ksi_context` when events are transformed
+   - Track which routing rules were evaluated
+   - Record which rule(s) matched and were applied
+   - Include routing priority resolution details
+
+2. **New Introspection Events**:
+   ```python
+   introspection:routing_decision:
+     event_id: Original event ID
+     routing_rules_evaluated: List of rules checked
+     rules_matched: Rules that matched the pattern
+     rule_applied: The winning rule (by priority)
+     transformation_applied: Any data mapping/transformation
+     routing_path: source -> transformer -> target
+   ```
+
+3. **Routing Path Visualization**:
+   - Extend event tree visualization to show routing paths
+   - Highlight dynamic vs static routing decisions
+   - Show rule priority resolution visually
+
+4. **Impact Analysis for Routing**:
+   - Track cascading effects of routing rule changes
+   - Analyze which events would be affected by rule modifications
+   - Performance impact of different routing patterns
+
+### Implementation Plan
+
+1. **Transformer Integration** (Phase 1):
+   - Modify transformer system to add routing metadata to events
+   - Tag events with applied routing rule IDs
+   - Include transformation details in context
+
+2. **Routing Decision Events** (Phase 2):
+   - Emit introspection events for routing decisions
+   - Create routing-specific event chains
+   - Enable correlation between rules and effects
+
+3. **Visualization Tools** (Phase 3):
+   - Extend `introspection:event_tree` to show routing
+   - Create `introspection:routing_path` for specific events
+   - Build `introspection:routing_impact` for rule analysis
+
+### Benefits
+
+1. **Debugging**: See exactly why events were routed where
+2. **Optimization**: Identify inefficient routing patterns
+3. **Validation**: Verify routing rules work as intended
+4. **Learning**: Understand emergent routing behaviors
+
+## Stage 1.8: Simple Test Orchestration 🚧 FUTURE
+
+### Objective
+Create a simple test orchestration that demonstrates dynamic routing capabilities, replacing static orchestration patterns.
+
+### Example: Self-Organizing Analysis Team
+
+Instead of static YAML orchestration:
+```yaml
+# OLD: Static orchestration
+agents:
+  coordinator:
+    component: coordinator
+  analyzer:
+    component: analyzer
+routing:
+  - from: coordinator
+    to: analyzer
+    pattern: "task:assign"
+```
+
+Create dynamic routing orchestration:
+```python
+# NEW: Dynamic routing orchestration
+class DynamicAnalysisOrchestration:
+    async def start(self):
+        # Spawn coordinator with routing capability
+        coordinator = await spawn_agent(
+            "coordinator",
+            component="components/core/coordinator",
+            capabilities=["routing_control", "agent"]
+        )
+        
+        # Coordinator dynamically creates routing
+        await coordinator.emit("routing:add_rule", {
+            "rule_id": "task_distribution",
+            "source_pattern": "analysis:request",
+            "target": "routing:dynamic_assignment",
+            "mapping": {"task_type": "{{data.type}}"}
+        })
+        
+        # Coordinator spawns analysts as needed
+        # and creates routing rules on the fly
+```
+
+### Test Scenarios
+
+1. **Dynamic Load Balancing**:
+   - Coordinator spawns workers
+   - Creates routing rules based on load
+   - Adjusts routing as workers complete tasks
+
+2. **Adaptive Specialization**:
+   - Start with general analysts
+   - Spawn specialists based on task types
+   - Route specific patterns to specialists
+
+3. **Emergent Hierarchies**:
+   - Agents negotiate roles
+   - Establish routing relationships
+   - Form optimal structures
+
+## Implementation Progress Summary
+
+### Completed Stages ✅
+- **Stage 1.1**: Event schemas and basic handlers
+- **Stage 1.2**: Transformer integration for actual routing
+- **Stage 1.3**: Permission system with routing_control capability
+- **Stage 1.4**: State persistence for routing rules
+- **Stage 1.5**: Validation and conflict detection
+- **Stage 1.6**: Audit trail for debugging
+
+### In Progress 🚧
+- **Stage 1.7**: Introspection system integration for visibility
+
+### Future Work 📋
+- **Stage 1.8**: Test orchestration demonstrations
+- **Stage 1.9**: Documentation and patterns
+- **Stage 2.0**: Performance optimizations
+- **Stage 2.1**: Advanced routing features (load balancing, failover)
+
+### Key Architectural Achievements
+
+1. **Two-Layer Architecture Realized**:
+   - Agents with routing_control capability can modify infrastructure
+   - Infrastructure (transformers) executes routing decisions
+   - No static orchestration layer needed
+
+2. **Dynamic Adaptation Working**:
+   - Rules can be created/modified/deleted at runtime
+   - TTL support for temporary routing patterns
+   - Priority-based conflict resolution
+
+3. **Safety and Observability**:
+   - Comprehensive validation prevents dangerous configurations
+   - Audit trail tracks all routing changes
+   - Permission system ensures controlled access
+
+4. **Foundation for Emergence**:
+   - Agents can now discover optimal routing patterns
+   - System can evolve coordination strategies
+   - True multi-agent collaboration enabled
+
+## Known Limitations and Future Enhancements
+
+1. **Transformer Arbitrary Targets**: Current transformer system optimized for monitoring/broadcast patterns. See [TRANSFORMER_ARBITRARY_TARGETS_ANALYSIS.md](TRANSFORMER_ARBITRARY_TARGETS_ANALYSIS.md) for details.
+
+2. **TTL Configuration**: Currently hardcoded 60-second check interval should be configurable via `ksi_common/config.py`.
+
+3. **Permission System Gap**: V2 capability system with orchestrator tier not fully integrated with permission service.
+
+4. **Routing Decision Visibility**: Full integration with introspection system pending (Stage 1.7).
 
 ## Conclusion
 
