@@ -474,26 +474,25 @@ ksi send composition:rebuild_index --include-git-metadata
 - **Then** see `/docs/DYNAMIC_ROUTING_QUICKSTART.md` for examples
 - **Then** see `/docs/DYNAMIC_ROUTING_ARCHITECTURE.md` → Operational Guide for patterns
 
-### Module Interdependence (Intentional Design)
-**When** working with agents and orchestrations:
-- **Then** remember they are intentionally interdependent in the graph model
-- **Then** agents with orchestration capability use `orchestration:start` to spawn orchestrations
-- **Then** orchestrations use `agent:spawn` to create agents
-- **Then** this reflects reality: graph nodes naturally need to create other nodes
-- **Example**: An agent coordinator spawns an orchestration pattern = natural graph growth
+### Dynamic Agent Coordination (Current Architecture)
+**When** working with agents and dynamic routing:
+- **Then** remember agents coordinate through dynamic routing rules, not static orchestrations
+- **Then** agents with routing_control capability use `routing:add_rule` to coordinate
+- **Then** coordination emerges from agent communication and routing decisions
+- **Then** this reflects reality: agents naturally create coordination patterns as needed
+- **Example**: An agent creates routing rules to coordinate with other agents = emergent coordination
 
-### Claude Code as Orchestrator Agent
-**When** spawning orchestrations from Claude Code:
-- **Then** set `orchestrator_agent_id: "claude-code"` to receive feedback
-- **Then** events from child agents will bubble up based on subscription levels
-- **Then** configure dual subscriptions: `event_subscription_level` and `error_subscription_level`
-- **Then** pass initial `prompt` to orchestration for agent initialization
-- **Then** monitor events via `ksi send monitor:get_events --_client_id "claude-code"`
+### Claude Code as Coordinating Agent
+**When** coordinating agents from Claude Code:
+- **Then** spawn agents with appropriate capabilities and prompts
+- **Then** agents can create routing rules to coordinate with each other
+- **Then** use agent:spawn with specific coordination instructions
+- **Then** monitor coordination via `ksi send monitor:get_events --_client_id "claude-code"`
 
-**Example orchestration spawn with feedback**:
+**Example agent-driven coordination**:
 ```bash
-ksi send orchestration:start --pattern "orchestrations/analysis" \
-  --vars '{"orchestrator_agent_id": "claude-code", "prompt": "Analyze this document..."}'
+ksi send agent:spawn --profile "coordination_specialist" \
+  --prompt "Coordinate analysis by spawning analysts and routing their outputs appropriately"
 ```
 
 **When** receiving bubbled events:

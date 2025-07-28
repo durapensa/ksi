@@ -105,21 +105,21 @@ async with AsyncClient() as client:
 ### Agent Self-Improvement Examples
 
 ```bash
-# 1. Agent optimizes another agent's instructions
-./ksi send orchestration:start --pattern "orchestrations/optimization/component_improvement" \
-  --vars '{"target_component": "personas/data_analyst", "optimization_goal": "reduce token usage by 30%"}'
+# 1. Spawn an optimization agent with dynamic routing capabilities
+./ksi send agent:spawn --profile "optimization_specialist" \
+  --prompt "Analyze and optimize the personas/data_analyst component for 30% token reduction"
 
-# 2. Tournament-based strategy evolution
-./ksi send orchestration:start --pattern "orchestrations/tournaments/strategy_evolution" \
-  --vars '{"contestants": ["personas/analyst_v1", "personas/analyst_v2", "personas/analyst_v3"]}'
+# 2. Create competing analysis agents with dynamic coordination
+./ksi send agent:spawn --profile "tournament_coordinator" \
+  --prompt "Coordinate a comparison between analyst_v1, analyst_v2, and analyst_v3"
 
-# 3. Agent creates improved version of itself
+# 3. Agent creates improved version of itself  
 ./ksi send agent:spawn_from_component --component "components/personas/self_improving_agent" \
   --vars '{"instruction": "Create an improved version of yourself that better handles edge cases"}'
 
-# 4. Orchestration pattern optimization (meta-optimization!)
-./ksi send orchestration:start --pattern "orchestrations/meta/pattern_evolution" \
-  --vars '{"target_pattern": "orchestrations/tournaments/basic_tournament"}'
+# 4. Agent-driven optimization using routing control
+./ksi send agent:spawn --profile "meta_optimizer" \
+  --prompt "Optimize coordination patterns by creating dynamic routing rules"
 
 # Monitor agents improving each other in real-time
 python interfaces/monitor_tui.py
