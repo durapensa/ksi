@@ -12,7 +12,6 @@ from datetime import datetime, timedelta
 import json
 
 from ksi_common.logging import get_bound_logger
-from ksi_common.service_base import ServiceBase
 from ksi_common.event_registry_decorator import event_namespace
 from ksi_common.checkpoint_participant import checkpoint_participant
 
@@ -20,7 +19,7 @@ logger = get_bound_logger("routing_service", version="1.0.0")
 
 @checkpoint_participant
 @event_namespace("routing")
-class RoutingService(ServiceBase):
+class RoutingService:
     """
     Service for managing dynamic routing rules.
     
@@ -29,7 +28,7 @@ class RoutingService(ServiceBase):
     """
     
     def __init__(self, event_emitter=None):
-        super().__init__(event_emitter)
+        self.event_emitter = event_emitter
         self.service_name = "routing_service"
         
         # Routing rule storage (will move to state system)
@@ -52,8 +51,6 @@ class RoutingService(ServiceBase):
     
     async def initialize(self):
         """Initialize the routing service."""
-        await super().initialize()
-        
         # Load any persisted routing rules
         await self._load_persisted_rules()
         
@@ -77,7 +74,6 @@ class RoutingService(ServiceBase):
         # Persist current rules
         await self._persist_rules()
         
-        await super().shutdown()
         logger.info("RoutingService shutdown complete")
     
     async def _load_persisted_rules(self):
