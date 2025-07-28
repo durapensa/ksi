@@ -16,6 +16,7 @@ from ksi_common.checkpoint_participation import checkpoint_participant
 from ksi_common.service_lifecycle import service_startup
 from ksi_daemon.event_system import event_handler, get_router
 from .transformer_integration import RoutingTransformerBridge
+from .routing_state_adapter import RoutingStateAdapter
 
 logger = get_bound_logger("routing_service", version="1.0.0")
 
@@ -32,7 +33,10 @@ class RoutingService:
         self.event_emitter = event_emitter
         self.service_name = "routing_service"
         
-        # Routing rule storage (will move to state system)
+        # State adapter for persistence (Stage 1.4 implementation)
+        self.state_adapter = RoutingStateAdapter()
+        
+        # Routing rule storage (cache - state is source of truth)
         self.routing_rules: Dict[str, Dict[str, Any]] = {}
         self.rule_timers: Dict[str, asyncio.Task] = {}  # For TTL management
         
@@ -85,14 +89,28 @@ class RoutingService:
     
     async def _load_persisted_rules(self):
         """Load routing rules from persistent storage."""
-        # TODO: In Stage 1.4, load from state system
-        # For now, start with empty rules
-        logger.info("Loading persisted routing rules", count=0)
+        # Stage 1.4 implementation: Load from state system
+        try:
+            rules = await self.state_adapter.list_rules()
+            
+            # Populate cache and re-apply transformers
+            for rule in rules:
+                self.routing_rules[rule["rule_id"]] = rule
+                
+                # Apply transformer for this rule
+                if await self.transformer_bridge.apply_routing_rule(rule):
+                    logger.debug(f"Re-applied transformer for rule {rule['rule_id']}")
+            
+            logger.info("Loaded persisted routing rules", count=len(rules))
+        except Exception as e:
+            logger.error(f"Failed to load routing rules: {e}")
+            # Continue with empty rules on error
     
     async def _persist_rules(self):
         """Persist routing rules to storage."""
-        # TODO: In Stage 1.4, save to state system
-        logger.info("Persisting routing rules", count=len(self.routing_rules))
+        # Stage 1.4: Rules are already persisted in state system
+        # This method is now a no-op but kept for compatibility
+        logger.info("Rules already persisted in state system", count=len(self.routing_rules))
     
     async def _manage_ttl(self):
         """Background task to manage rule TTLs."""
@@ -100,22 +118,16 @@ class RoutingService:
             try:
                 await asyncio.sleep(60)  # Check every minute
                 
-                now = datetime.utcnow()
-                expired_rules = []
-                
-                for rule_id, rule in self.routing_rules.items():
-                    if rule.get("ttl") and rule.get("expires_at"):
-                        expires_at = datetime.fromisoformat(rule["expires_at"])
-                        if now > expires_at:
-                            expired_rules.append(rule_id)
+                # Check for expired rules using state adapter
+                expired_rule_ids = await self.state_adapter.get_expired_rules()
                 
                 # Remove expired rules
-                for rule_id in expired_rules:
+                for rule_id in expired_rule_ids:
                     await self._remove_rule(rule_id, reason="TTL expired")
                     self.metrics["rules_expired"] += 1
                 
-                if expired_rules:
-                    logger.info("Expired routing rules", count=len(expired_rules))
+                if expired_rule_ids:
+                    logger.info("Expired routing rules", count=len(expired_rule_ids))
                     
             except asyncio.CancelledError:
                 break
@@ -126,18 +138,17 @@ class RoutingService:
         """
         Add a new routing rule to the system.
         
-        This method will be called by the event handlers and will
-        integrate with the transformer system in Stage 1.2.
+        Stage 1.4: Rules are now persisted in state system.
         """
         rule_id = rule["rule_id"]
         
-        # Calculate expiration if TTL is set
-        if rule.get("ttl"):
-            ttl_seconds = int(rule["ttl"]) if isinstance(rule["ttl"], str) else rule["ttl"]
-            expires_at = datetime.utcnow() + timedelta(seconds=ttl_seconds)
-            rule["expires_at"] = expires_at.isoformat()
+        # Store in state system first (source of truth)
+        result = await self.state_adapter.create_rule(rule)
         
-        # Store rule
+        if result.get("status") != "success":
+            return result
+        
+        # Update cache
         self.routing_rules[rule_id] = rule
         self.metrics["rules_created"] += 1
         
@@ -159,24 +170,25 @@ class RoutingService:
     
     async def modify_routing_rule(self, rule_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
         """Modify an existing routing rule."""
+        # Check cache first for quick validation
         if rule_id not in self.routing_rules:
-            return {"status": "error", "error": "Rule not found"}
+            # Try to load from state in case cache is out of sync
+            rule = await self.state_adapter.get_rule(rule_id)
+            if not rule:
+                return {"status": "error", "error": "Rule not found"}
+            self.routing_rules[rule_id] = rule
         
+        # Update in state system (source of truth)
+        result = await self.state_adapter.update_rule(rule_id, updates)
+        
+        if result.get("status") != "success":
+            return result
+        
+        # Update cache
         rule = self.routing_rules[rule_id]
-        
-        # Apply updates
         for key, value in updates.items():
             if key not in ["rule_id", "created_by", "created_at"]:
                 rule[key] = value
-        
-        # Update TTL if changed
-        if "ttl" in updates:
-            if updates["ttl"]:
-                ttl_seconds = int(updates["ttl"]) if isinstance(updates["ttl"], str) else updates["ttl"]
-                expires_at = datetime.utcnow() + timedelta(seconds=ttl_seconds)
-                rule["expires_at"] = expires_at.isoformat()
-            else:
-                rule.pop("expires_at", None)
         
         self.metrics["rules_modified"] += 1
         
@@ -194,11 +206,23 @@ class RoutingService:
     
     async def _remove_rule(self, rule_id: str, reason: str = "deleted") -> Dict[str, Any]:
         """Remove a routing rule."""
+        # Check cache first
         if rule_id not in self.routing_rules:
-            return {"status": "error", "error": "Rule not found"}
+            # Check state in case cache is out of sync
+            rule = await self.state_adapter.get_rule(rule_id)
+            if not rule:
+                return {"status": "error", "error": "Rule not found"}
         
-        # Remove rule
-        rule = self.routing_rules.pop(rule_id)
+        # Remove from state system (source of truth)
+        result = await self.state_adapter.delete_rule(rule_id)
+        
+        if result.get("status") != "success":
+            return result
+        
+        # Remove from cache
+        if rule_id in self.routing_rules:
+            self.routing_rules.pop(rule_id)
+        
         self.metrics["rules_deleted"] += 1
         
         # Remove from transformer system
@@ -206,7 +230,6 @@ class RoutingService:
         
         if not success:
             logger.error(f"Failed to remove transformer for rule {rule_id}")
-            # Rule is already removed from our storage
         
         logger.info("Routing rule removed", rule_id=rule_id, reason=reason)
         
