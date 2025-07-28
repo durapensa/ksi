@@ -394,12 +394,7 @@ async def handle_validate_rule(data: Dict[str, Any], context: Optional[Dict[str,
     Returns validation results and suggestions.
     No special capability required for validation.
     """
-    # Debug logging
-    logger.info(f"Validation handler received data: {data}, type: {type(data)}")
-    
     rule = data.get("rule")
-    logger.info(f"Rule parameter: {rule}, type: {type(rule)}")
-    
     if not rule:
         return error_response(
             error="Missing required parameter: rule",

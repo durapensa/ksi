@@ -712,6 +712,8 @@ Build routing rule validation and conflict detection to ensure system stability.
 - Circular routing detection functional ✅
 - JSON parsing handled for CLI compatibility ✅
 
+**See Also**: [Dynamic Routing Testing Report](DYNAMIC_ROUTING_TESTING_REPORT.md) for comprehensive test results.
+
 ## Conclusion
 
 Dynamic routing represents a fundamental shift in how we think about multi-agent coordination. Instead of prescribing patterns, we give agents the tools to create their own. This transforms KSI from a system that executes predetermined patterns into one that discovers and evolves new forms of coordination.
