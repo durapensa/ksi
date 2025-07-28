@@ -44,7 +44,7 @@ routing_rules: Dict[str, RoutingRule] = {}
 routing_audit_log: List[Dict[str, Any]] = []
 
 @event_handler("routing:add_rule")
-async def handle_add_rule(event_data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_add_rule(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Add a new routing rule to the system.
     
@@ -61,8 +61,7 @@ async def handle_add_rule(event_data: Dict[str, Any]) -> Dict[str, Any]:
     Required capability: routing_control
     """
     # Get agent ID from context
-    ksi_context = event_data.get("_ksi_context", {})
-    agent_id = ksi_context.get("_agent_id", "system")
+    agent_id = context.get("agent_id", "system") if context else "system"
     
     # TODO: In Stage 1.3, implement capability checking
     # For now, allow all agents to use routing control
@@ -73,12 +72,12 @@ async def handle_add_rule(event_data: Dict[str, Any]) -> Dict[str, Any]:
     #     )
     
     # Extract parameters
-    rule_id = event_data.get("rule_id")
+    rule_id = data.get("rule_id")
     if not rule_id:
         rule_id = f"rule_{uuid.uuid4().hex[:8]}"
     
-    source_pattern = event_data.get("source_pattern")
-    target = event_data.get("target")
+    source_pattern = data.get("source_pattern")
+    target = data.get("target")
     
     if not source_pattern or not target:
         return event_response_builder.error_response(
@@ -98,13 +97,13 @@ async def handle_add_rule(event_data: Dict[str, Any]) -> Dict[str, Any]:
         rule_id=rule_id,
         source_pattern=source_pattern,
         target=target,
-        condition=event_data.get("condition"),
-        mapping=event_data.get("mapping"),
-        priority=event_data.get("priority", 100),
-        ttl=event_data.get("ttl"),
+        condition=data.get("condition"),
+        mapping=data.get("mapping"),
+        priority=data.get("priority", 100),
+        ttl=data.get("ttl"),
         created_by=agent_id,
         created_at=datetime.utcnow().isoformat(),
-        metadata=event_data.get("metadata")
+        metadata=data.get("metadata")
     )
     
     # Store rule
@@ -133,7 +132,7 @@ async def handle_add_rule(event_data: Dict[str, Any]) -> Dict[str, Any]:
     )
 
 @event_handler("routing:modify_rule")
-async def handle_modify_rule(event_data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_modify_rule(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Modify an existing routing rule.
     
@@ -144,8 +143,7 @@ async def handle_modify_rule(event_data: Dict[str, Any]) -> Dict[str, Any]:
     Required capability: routing_control
     """
     # Get agent ID from context
-    ksi_context = event_data.get("_ksi_context", {})
-    agent_id = ksi_context.get("_agent_id", "system")
+    agent_id = context.get("agent_id", "system") if context else "system"
     
     # TODO: In Stage 1.3, implement capability checking
     # For now, allow all agents to use routing control
@@ -155,8 +153,8 @@ async def handle_modify_rule(event_data: Dict[str, Any]) -> Dict[str, Any]:
     #         details={"required_capability": "routing_control"}
     #     )
     
-    rule_id = event_data.get("rule_id")
-    updates = event_data.get("updates", {})
+    rule_id = data.get("rule_id")
+    updates = data.get("updates", {})
     
     if not rule_id:
         return event_response_builder.error_response(
@@ -205,7 +203,7 @@ async def handle_modify_rule(event_data: Dict[str, Any]) -> Dict[str, Any]:
     )
 
 @event_handler("routing:delete_rule")
-async def handle_delete_rule(event_data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_delete_rule(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Delete a routing rule.
     
@@ -215,8 +213,7 @@ async def handle_delete_rule(event_data: Dict[str, Any]) -> Dict[str, Any]:
     Required capability: routing_control
     """
     # Get agent ID from context
-    ksi_context = event_data.get("_ksi_context", {})
-    agent_id = ksi_context.get("_agent_id", "system")
+    agent_id = context.get("agent_id", "system") if context else "system"
     
     # TODO: In Stage 1.3, implement capability checking
     # For now, allow all agents to use routing control
@@ -226,7 +223,7 @@ async def handle_delete_rule(event_data: Dict[str, Any]) -> Dict[str, Any]:
     #         details={"required_capability": "routing_control"}
     #     )
     
-    rule_id = event_data.get("rule_id")
+    rule_id = data.get("rule_id")
     
     if not rule_id:
         return event_response_builder.error_response(
@@ -264,7 +261,7 @@ async def handle_delete_rule(event_data: Dict[str, Any]) -> Dict[str, Any]:
     )
 
 @event_handler("routing:query_rules")
-async def handle_query_rules(event_data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_query_rules(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Query active routing rules.
     
@@ -278,8 +275,8 @@ async def handle_query_rules(event_data: Dict[str, Any]) -> Dict[str, Any]:
     No special capability required for querying.
     """
     # Extract filter parameters
-    filter_params = event_data.get("filter", {})
-    limit = event_data.get("limit", 100)
+    filter_params = data.get("filter", {})
+    limit = data.get("limit", 100)
     
     # Filter rules
     filtered_rules = []
@@ -314,7 +311,7 @@ async def handle_query_rules(event_data: Dict[str, Any]) -> Dict[str, Any]:
     )
 
 @event_handler("routing:update_subscription")
-async def handle_update_subscription(event_data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_update_subscription(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Update an agent's event subscription level.
     
@@ -327,8 +324,7 @@ async def handle_update_subscription(event_data: Dict[str, Any]) -> Dict[str, An
     Required capability: routing_control
     """
     # Get requesting agent ID from context
-    ksi_context = event_data.get("_ksi_context", {})
-    requesting_agent = ksi_context.get("_agent_id", "system")
+    requesting_agent = context.get("agent_id", "system") if context else "system"
     
     # TODO: In Stage 1.3, implement capability checking
     # For now, allow all agents to use routing control
@@ -338,8 +334,8 @@ async def handle_update_subscription(event_data: Dict[str, Any]) -> Dict[str, An
     #         details={"required_capability": "routing_control"}
     #     )
     
-    target_agent = event_data.get("agent_id")
-    subscription_level = event_data.get("subscription_level")
+    target_agent = data.get("agent_id")
+    subscription_level = data.get("subscription_level")
     
     if not target_agent or subscription_level is None:
         return event_response_builder.error_response(
@@ -357,8 +353,8 @@ async def handle_update_subscription(event_data: Dict[str, Any]) -> Dict[str, An
         "requesting_agent": requesting_agent,
         "timestamp": datetime.utcnow().isoformat(),
         "subscription_level": subscription_level,
-        "error_subscription_level": event_data.get("error_subscription_level"),
-        "reason": event_data.get("reason")
+        "error_subscription_level": data.get("error_subscription_level"),
+        "reason": data.get("reason")
     }
     routing_audit_log.append(audit_entry)
     
@@ -376,7 +372,7 @@ async def handle_update_subscription(event_data: Dict[str, Any]) -> Dict[str, An
     )
 
 @event_handler("routing:spawn_with_routing")
-async def handle_spawn_with_routing(event_data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_spawn_with_routing(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Spawn an agent with predefined routing relationships.
     
@@ -392,8 +388,7 @@ async def handle_spawn_with_routing(event_data: Dict[str, Any]) -> Dict[str, Any
     Required capability: agent (standard agent spawning)
     """
     # Get requesting agent ID from context
-    ksi_context = event_data.get("_ksi_context", {})
-    requesting_agent = ksi_context.get("_agent_id", "system")
+    requesting_agent = context.get("agent_id", "system") if context else "system"
     
     # TODO: In Stage 1.3, implement capability checking
     # For now, allow all agents to spawn with routing
@@ -403,9 +398,9 @@ async def handle_spawn_with_routing(event_data: Dict[str, Any]) -> Dict[str, Any
     #         details={"required_capability": "agent"}
     #     )
     
-    agent_id = event_data.get("agent_id")
-    component = event_data.get("component")
-    routing_config = event_data.get("routing", {})
+    agent_id = data.get("agent_id")
+    component = data.get("component")
+    routing_config = data.get("routing", {})
     
     if not agent_id or not component:
         return event_response_builder.error_response(
@@ -455,7 +450,7 @@ async def handle_spawn_with_routing(event_data: Dict[str, Any]) -> Dict[str, Any
     )
 
 @event_handler("routing:get_audit_log")
-async def handle_get_audit_log(event_data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_get_audit_log(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Retrieve routing audit log for debugging.
     
@@ -467,8 +462,7 @@ async def handle_get_audit_log(event_data: Dict[str, Any]) -> Dict[str, Any]:
     Required capability: routing_control (for security)
     """
     # Get agent ID from context
-    ksi_context = event_data.get("_ksi_context", {})
-    agent_id = ksi_context.get("_agent_id", "system")
+    agent_id = context.get("agent_id", "system") if context else "system"
     
     # TODO: In Stage 1.3, implement capability checking
     # For now, allow all agents to use routing control
@@ -478,9 +472,9 @@ async def handle_get_audit_log(event_data: Dict[str, Any]) -> Dict[str, Any]:
     #         details={"required_capability": "routing_control"}
     #     )
     
-    limit = event_data.get("limit", 100)
-    since = event_data.get("since")
-    operation = event_data.get("operation")
+    limit = data.get("limit", 100)
+    since = data.get("since")
+    operation = data.get("operation")
     
     # Filter audit log
     filtered_log = routing_audit_log
