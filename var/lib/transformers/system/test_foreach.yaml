@@ -1,0 +1,10 @@
+# Test Foreach Transformer
+transformers:
+  - name: "test_foreach_simple"
+    source: "test:foreach:simple"
+    foreach: "items"
+    target: "test:result"
+    description: "Simple foreach test"
+    mapping:
+      value: "{{item}}"
+      idx: "{{index}}"

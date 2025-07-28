@@ -132,6 +132,7 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 - **State Persistence**: Rules survive daemon restarts via state system
 - **Validation & Safety**: Pattern validation, circular routing detection, conflict checking
 - **Audit Trail**: Complete history of routing changes and decisions
+- **Foreach Transformers**: Multi-target emission via iteration (Stage 2.0 complete)
 - **See**: `/docs/DYNAMIC_ROUTING_ARCHITECTURE.md` for operational guide and architecture details
 
 ## File Locations
@@ -153,6 +154,8 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 - `ksi_daemon/routing/routing_audit.py` - Audit trail for routing decisions
 - `ksi_daemon/routing/routing_introspection.py` - Visibility into routing decisions
 - `ksi_daemon/routing/routing_event_patch.py` - Event router introspection patch
+- `ksi_common/foreach_transformer.py` - Foreach transformer processing logic
+- `var/lib/transformers/system/workflow_transformers.yaml` - Workflow patterns using foreach
 
 ### Configuration
 - `var/lib/capabilities/` - Capability definitions
@@ -208,6 +211,7 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 6. **Dynamic routing enables emergence** - Agents can discover optimal coordination patterns
 7. **Infrastructure as substrate** - Two-layer architecture (agents + transformers) replaces three-layer
 8. **Introspection is key** - Visibility into routing decisions enables debugging and learning
+9. **Foreach transformers unlock orchestration replacement** - Multi-target emission enables workflow patterns
 
 ---
 

@@ -1102,11 +1102,11 @@ class DynamicAnalysisOrchestration:
 - **Stage 1.7**: Introspection system integration for visibility
 
 ### Future Work 📋
-- **Stage 1.8**: Test orchestration demonstrations
-- **Stage 1.9**: Documentation and patterns
-- **Stage 2.0**: Performance optimizations
-- **Stage 2.1**: Advanced routing features (load balancing, failover)
-- **Stage 2.2**: Enhanced transformer metadata for better visibility
+- ✅ **Stage 2.0**: Implement `foreach` transformers for multi-target emission (COMPLETED)
+- **Stage 2.1**: Add parent-scoped routing rules with auto-cleanup (NEXT)
+- **Stage 2.2**: Create coordination pattern components  
+- **Stage 2.3**: Build orchestration → component migration tools
+- **Stage 2.4**: Deprecate orchestration system entirely
 
 ### Key Architectural Achievements
 
@@ -1140,9 +1140,203 @@ class DynamicAnalysisOrchestration:
 
 4. **Routing Decision Visibility**: Full integration with introspection system pending (Stage 1.7).
 
+## Stage 2.0: Foreach Transformers - The Key to Replacing Orchestrations ✅ COMPLETED (2025-01-28)
+
+### Discovery
+
+The transformer system already declared `foreach` patterns in YAML but didn't implement them. This latent capability has now been implemented, enabling complete replacement of the orchestration system.
+
+### Concept
+
+```yaml
+# Multi-target transformer with foreach
+source: "workflow:start"
+foreach: "data.agents"  # Iterate over collection
+target: "agent:spawn"
+mapping:
+  agent_id: "{{item.id}}"
+  component: "{{item.component}}"
+  _parent_id: "{{_agent_id}}"
+  _group_context: "{{data.shared_context}}"
+```
+
+### Implementation ✅ COMPLETED
+
+**Key Files**:
+- `ksi_common/foreach_transformer.py` - Core foreach processing logic
+- `ksi_daemon/event_system.py` - Integration with transformer system  
+- `var/lib/transformers/system/workflow_transformers.yaml` - Workflow patterns
+
+**Technical Details**:
+1. **Foreach Processing**: Iterates over collection specified by JSONPath
+2. **Context Enhancement**: Adds `item`, `index`, `total` to mapping context
+3. **Template Substitution**: Mapping templates can access foreach context
+4. **Error Handling**: Graceful handling of missing paths or invalid data
+
+**Critical Bug Fixed**: Python closure issue where async functions captured transformer variable by reference. Fixed by using default parameters to capture values at function definition time.
+
+### Original Implementation Design
+
+```python
+# Enhanced transformer processing
+if 'foreach' in transformer:
+    # Extract collection from data
+    items = extract_path(data, transformer['foreach'])
+    
+    # Emit to target for each item
+    for index, item in enumerate(items):
+        # Enhanced context for mapping
+        foreach_context = {
+            'item': item,
+            'index': index, 
+            'total': len(items),
+            **original_context
+        }
+        
+        # Apply mapping with item context
+        transformed_data = apply_mapping(
+            transformer.get('mapping', {}), 
+            data, 
+            foreach_context
+        )
+        
+        # Emit to target
+        await self.emit(target, transformed_data, context)
+```
+
+### Replacing Orchestration Patterns
+
+#### 1. Group Spawn Pattern
+```yaml
+# Agent emits structured workflow request
+{"event": "workflow:create", "data": {
+    "workflow_id": "analysis_001",
+    "agents": [
+        {"id": "coordinator", "component": "components/coordinator"},
+        {"id": "analyzer", "component": "components/analyzer"},
+        {"id": "reviewer", "component": "components/reviewer"}
+    ],
+    "routing_rules": [
+        {"pattern": "task:*", "from": "coordinator", "to": "analyzer"},
+        {"pattern": "result:*", "from": "*", "to": "coordinator"}
+    ]
+}}
+
+# Transformers handle the rest
+---
+# Spawn all agents
+source: "workflow:create"
+foreach: "data.agents"
+target: "agent:spawn"
+mapping:
+  agent_id: "{{workflow_id}}_{{item.id}}"
+  component: "{{item.component}}"
+  capabilities: ["{{workflow_id}}_member"]
+
+---  
+# Set up routing rules
+source: "workflow:create"
+foreach: "data.routing_rules"
+target: "routing:add_rule"
+mapping:
+  rule_id: "{{workflow_id}}_rule_{{index}}"
+  source_pattern: "{{item.pattern}}"
+  scope:
+    type: "workflow"
+    workflow_id: "{{workflow_id}}"
+```
+
+#### 2. Coordinated Lifecycle
+```yaml
+# Terminate all agents in workflow
+source: "workflow:terminate"
+target: "agent:list"
+condition: "data.workflow_id == '{{workflow_id}}'"
+response_route:
+  from: "agent:list:result"
+  foreach: "data.agents"
+  target: "agent:terminate"
+  mapping:
+    agent_id: "{{item.id}}"
+```
+
+#### 3. Broadcast Patterns
+```yaml
+# Notify all team members
+source: "team:announcement"
+foreach: "team_members"
+target: "agent:message"
+mapping:
+  agent_id: "{{item}}"
+  message: "{{announcement}}"
+  priority: "{{priority}}"
+```
+
+### Benefits Over Orchestration System
+
+1. **No Special Service**: Just enhanced transformers
+2. **More Flexible**: Any event can trigger group operations
+3. **Composable**: Foreach can be chained and combined
+4. **Emergent**: Patterns can be discovered, not just declared
+
+### Coordination Components
+
+Instead of orchestration YAML files, use components:
+
+```markdown
+---
+component_type: coordination
+name: analysis_workflow
+---
+# Analysis Workflow Coordinator
+
+You coordinate a team of analysts. When starting a workflow:
+
+1. Emit workflow:create with agent definitions and routing rules
+2. Monitor progress via routing introspection  
+3. Adapt routing based on performance
+4. Terminate cleanly when complete
+
+Your workflow pattern:
+```json
+{
+  "agents": [
+    {"id": "analyzer", "component": "components/personas/data_analyst"},
+    {"id": "reviewer", "component": "components/personas/quality_reviewer"}
+  ],
+  "routing_rules": [
+    {"pattern": "analysis:request", "to": "analyzer"},
+    {"pattern": "analysis:complete", "to": "reviewer"},
+    {"pattern": "review:complete", "to": "coordinator"}
+  ]
+}
+```
+```
+
+### Migration Path
+
+1. ✅ **Implement foreach** in transformer system (COMPLETED)
+2. ✅ **Create workflow transformers** using foreach patterns (COMPLETED - workflow_transformers.yaml)
+3. **Build coordination components** to replace orchestration patterns (IN PROGRESS)
+4. **Migrate existing orchestrations** to component + transformer patterns
+5. **Remove orchestration system** entirely
+
+### Implemented Workflow Transformers
+
+Created in `var/lib/transformers/system/workflow_transformers.yaml`:
+
+1. **workflow_spawn_agents**: Spawns all agents defined in a workflow
+2. **workflow_distribute_tasks**: Distributes tasks to workflow agents
+3. **workflow_collect_results**: Collects results from agents
+4. **workflow_parallel_execute**: Executes multiple operations in parallel
+
+All transformers tested and working with foreach functionality.
+
 ## Conclusion
 
 Dynamic routing represents a fundamental shift in how we think about multi-agent coordination. Instead of prescribing patterns, we give agents the tools to create their own. This transforms KSI from a system that executes predetermined patterns into one that discovers and evolves new forms of coordination.
+
+With the addition of `foreach` transformers, we can completely replace the orchestration system, achieving a truly unified architecture where everything is agents, components, and routing rules.
 
 The infrastructure (transformers) provides the mechanism, the agents provide the intelligence, and emergence provides the innovation. This is the path to truly adaptive, self-improving multi-agent systems.
 

@@ -260,14 +260,34 @@ class EventDaemonCore:
             for yaml_file in system_transformers_dir.glob("*.yaml"):
                 try:
                     with open(yaml_file, 'r') as f:
-                        config = yaml.safe_load(f)
+                        # Use safe_load_all to handle multiple YAML documents
+                        documents = list(yaml.safe_load_all(f))
                     
-                    if 'transformers' in config:
-                        for transformer_config in config['transformers']:
+                    # Handle both formats: single doc with 'transformers' key or multiple docs
+                    if len(documents) == 1 and isinstance(documents[0], dict) and 'transformers' in documents[0]:
+                        # Traditional format: {"transformers": [...]}
+                        for transformer_config in documents[0]['transformers']:
                             self.router.register_transformer_from_yaml(transformer_config)
                             logger.info(f"Loaded system transformer '{transformer_config.get('name', 'unnamed')}' from {yaml_file.name}")
                     else:
-                        logger.warning(f"No 'transformers' key found in {yaml_file}")
+                        # Multi-document format or direct transformer definitions
+                        loaded_count = 0
+                        for doc in documents:
+                            if isinstance(doc, dict) and 'source' in doc and 'target' in doc:
+                                # This is a transformer definition
+                                self.router.register_transformer_from_yaml(doc)
+                                logger.info(f"Loaded system transformer '{doc.get('name', 'unnamed')}' from {yaml_file.name}")
+                                loaded_count += 1
+                            elif isinstance(doc, list):
+                                # List of transformers
+                                for transformer_config in doc:
+                                    if isinstance(transformer_config, dict) and 'source' in transformer_config:
+                                        self.router.register_transformer_from_yaml(transformer_config)
+                                        logger.info(f"Loaded system transformer '{transformer_config.get('name', 'unnamed')}' from {yaml_file.name}")
+                                        loaded_count += 1
+                        
+                        if loaded_count == 0:
+                            logger.warning(f"No valid transformers found in {yaml_file}")
                         
                 except Exception as e:
                     logger.error(f"Failed to load system transformer from {yaml_file}: {e}")

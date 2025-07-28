@@ -367,8 +367,45 @@ class EventRouter:
             # Transform the data if no condition or condition passed
             if should_transform:
                 try:
+                    # DEBUG: Log transformer details
+                    logger.info(f"DEBUG: Checking transformer {event} -> {target}")
+                    logger.info(f"DEBUG: Transformer type: {type(transformer)}")
+                    logger.info(f"DEBUG: Transformer keys: {list(transformer.keys()) if isinstance(transformer, dict) else 'Not a dict'}")
+                    logger.info(f"DEBUG: Has foreach: {'foreach' in transformer if isinstance(transformer, dict) else False}")
+                    if isinstance(transformer, dict) and 'foreach' in transformer:
+                        logger.info(f"DEBUG: Foreach value: {transformer.get('foreach')}")
+                    
+                    # Check if this is a foreach transformer
+                    if 'foreach' in transformer and transformer.get('foreach'):
+                        # Import foreach support
+                        from ksi_common.foreach_transformer import process_foreach_transformer
+                        
+                        # Process foreach transformer
+                        async def run_foreach_transform(trans=transformer, tgt=target):
+                            try:
+                                logger.info(f"DEBUG: Processing foreach transformer {event} -> {tgt}")
+                                results = await process_foreach_transformer(
+                                    transformer=trans,
+                                    event=event,
+                                    data=data,
+                                    context=context,
+                                    emit_func=self.emit,
+                                    apply_mapping_func=apply_mapping,
+                                    prepare_context_func=prepare_transformer_context
+                                )
+                                logger.info(f"DEBUG: Foreach transformer completed with {len(results)} emissions")
+                                return results
+                            except Exception as e:
+                                logger.error(f"Foreach transformer failed for {event}: {e}")
+                                return []
+                        
+                        # Create task for foreach processing
+                        task = create_tracked_task("event_system", run_foreach_transform(), task_name="foreach_transform")
+                        transformer_tasks.append(task)
+                        logger.debug(f"Processing foreach transformer {event} -> {target}")
+                        
                     # For async transformers, spawn as background task
-                    if transformer.get('async', False):
+                    elif transformer.get('async', False):
                         # Generate transform_id for async tracking
                         transform_id = str(uuid.uuid4())
                         self._async_transformers[transform_id] = event
@@ -392,13 +429,13 @@ class EventRouter:
                             self._transform_contexts[transform_id] = context
                         
                         # Create background task for async transformation
-                        async def run_async_transform():
+                        async def run_async_transform(tgt=target, tdata=transformed_data):
                             try:
-                                logger.info(f"DEBUG: Async transforming {event} -> {target} (id: {transform_id})")
-                                result = await self.emit(target, transformed_data, context)
-                                logger.info(f"DEBUG: Async transformed event {target} result: {result}")
+                                logger.info(f"DEBUG: Async transforming {event} -> {tgt} (id: {transform_id})")
+                                result = await self.emit(tgt, tdata, context)
+                                logger.info(f"DEBUG: Async transformed event {tgt} result: {result}")
                             except Exception as e:
-                                logger.error(f"Async transformer failed for {event} -> {target}: {e}")
+                                logger.error(f"Async transformer failed for {event} -> {tgt}: {e}")
                         
                         # Collect task instead of just creating it
                         task = create_tracked_task("event_system", run_async_transform(), task_name="async_transform")
@@ -417,13 +454,13 @@ class EventRouter:
                         logger.debug(f"Transforming {event} -> {target}")
                         
                         # Spawn transformation as task to allow multiple transformers and handlers to run
-                        async def run_sync_transform():
+                        async def run_sync_transform(tgt=target, tdata=transformed_data):
                             try:
-                                logger.info(f"DEBUG: Emitting transformed event {target} with data: {transformed_data}")
-                                result = await self.emit(target, transformed_data, context)
-                                logger.info(f"DEBUG: Transformed event {target} result: {result}")
+                                logger.info(f"DEBUG: Emitting transformed event {tgt} with data: {tdata}")
+                                result = await self.emit(tgt, tdata, context)
+                                logger.info(f"DEBUG: Transformed event {tgt} result: {result}")
                             except Exception as e:
-                                logger.error(f"Sync transformer failed for {event} -> {target}: {e}")
+                                logger.error(f"Sync transformer failed for {event} -> {tgt}: {e}")
                         
                         # Collect sync transformer task
                         task = create_tracked_task("event_system", run_sync_transform(), task_name="sync_transform")

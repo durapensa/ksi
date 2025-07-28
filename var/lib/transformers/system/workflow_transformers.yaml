@@ -1,0 +1,94 @@
+# Workflow Transformers using Foreach Pattern
+# These transformers enable orchestration-like behavior through pure routing
+
+---
+# Spawn multiple agents from a workflow definition
+- name: "workflow_spawn_agents"
+  source: "workflow:create"
+  foreach: "agents"
+  target: "agent:spawn"
+  description: "Spawn all agents defined in a workflow"
+  mapping:
+    agent_id: "{{data.workflow_id}}_{{item.id}}"
+    component: "{{item.component}}"
+    initial_prompt: "{{item.prompt|''}}"
+    capabilities: "{{item.capabilities|[]}}"
+    metadata:
+      workflow_id: "{{data.workflow_id}}"
+      role: "{{item.role|item.id}}"
+
+---
+# Set up routing rules for a workflow
+- name: "workflow_setup_routing"
+  source: "workflow:create"
+  foreach: "routing_rules"
+  target: "routing:add_rule"
+  description: "Create routing rules for workflow agents"
+  mapping:
+    rule_id: "{{data.workflow_id}}_rule_{{index}}"
+    source_pattern: "{{item.pattern}}"
+    target: "{{item.to}}"
+    condition: "{{item.condition|''}}"
+    priority: "{{item.priority|500}}"
+    metadata:
+      workflow_id: "{{data.workflow_id}}"
+      from_agent: "{{item.from|'*'}}"
+      to_agent: "{{item.to}}"
+    # Auto-cleanup when workflow ends
+    ttl: "{{data.ttl|3600}}"
+
+---
+# Broadcast message to all agents in a group
+- name: "group_broadcast"
+  source: "group:broadcast"
+  foreach: "recipients"
+  target: "agent:message"
+  description: "Send message to all agents in a group"
+  mapping:
+    agent_id: "{{item}}"
+    message: "{{data.message}}"
+    from: "{{data.from|'system'}}"
+    metadata:
+      broadcast_id: "{{data.broadcast_id}}"
+      group_id: "{{data.group_id}}"
+
+---
+# Terminate all agents in a workflow
+- name: "workflow_terminate_agents"
+  source: "workflow:terminate"
+  foreach: "agent_ids"
+  target: "agent:terminate"
+  description: "Terminate all agents in a workflow"
+  mapping:
+    agent_id: "{{item}}"
+    reason: "{{data.reason|'workflow_complete'}}"
+    force: "{{data.force|false}}"
+
+---
+# Distribute tasks to workers
+- name: "task_distribution"
+  source: "task:distribute"
+  foreach: "tasks"
+  target: "task:assign"
+  description: "Distribute tasks to available workers"
+  mapping:
+    task_id: "{{item.id}}"
+    worker_id: "{{data.workers[index % total].id}}"
+    task_data: "{{item.data}}"
+    priority: "{{item.priority|'normal'}}"
+    deadline: "{{item.deadline|''}}"
+
+---
+# Collect results from multiple agents
+- name: "result_collection"
+  source: "analysis:complete"
+  condition: "data.is_final_result"
+  foreach: "sub_results"
+  target: "result:aggregate"
+  description: "Collect and aggregate results from multiple analyses"
+  mapping:
+    result_id: "{{data.analysis_id}}_{{index}}"
+    result_data: "{{item}}"
+    source_agent: "{{item.agent_id}}"
+    timestamp: "{{item.timestamp}}"
+    parent_analysis: "{{data.analysis_id}}"
