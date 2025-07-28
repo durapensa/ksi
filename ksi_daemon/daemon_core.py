@@ -208,6 +208,10 @@ class EventDaemonCore:
         # Introspection modules
         import ksi_daemon.introspection
         
+        # Routing modules (dynamic routing control)
+        import ksi_daemon.routing.routing_service
+        import ksi_daemon.routing.routing_events
+        
         logger.info("All modules imported and auto-registered")
     
     async def _load_system_transformers(self):
