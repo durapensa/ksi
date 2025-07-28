@@ -21,7 +21,7 @@ Essential technical reference for developing with KSI (Knowledge System Infrastr
 - **No hardcoded strategies**: System delivers messages, agents decide coordination
 - **Hierarchical routing**: Events bubble up based on subscription levels (0, 1, N, -1)
 - **Claude Code as orchestrator**: Set `orchestrator_agent_id: "claude-code"` for feedback
-- **Future: Dynamic Routing**: See `/docs/DYNAMIC_ROUTING_ARCHITECTURE.md` for vision to replace orchestrations with infrastructure-based dynamic routing
+- **Dynamic Routing Architecture**: See `/docs/DYNAMIC_ROUTING_ARCHITECTURE.md` for infrastructure-based dynamic routing (Stages 1.1-1.4 complete)
 
 ## Critical Principles
 

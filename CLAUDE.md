@@ -21,13 +21,19 @@ Essential development practices and workflow for Claude Code when working with K
 
 This document serves as your primary instructions for KSI development. For technical reference, architecture details, and implementation patterns, see `memory/claude_code/project_knowledge.md`.
 
-## Current Development Priority (2025-01-27)
+## Current Development Priority (2025-01-28)
 
-**ACTIVE**: Agent-Driven Optimization via Orchestration Patterns
+**ACTIVE**: Dynamic Routing Architecture Implementation
+- **Foundation**: Agents control event routing at runtime instead of static orchestrations
+- **Progress**: Stages 1.1-1.4 complete (schemas, transformers, permissions, persistence)
+- **Next**: Stage 1.5 - Rule validation and conflict detection
+- **Goal**: Replace static orchestrations with infrastructure-based dynamic routing
+- **See**: `/docs/DYNAMIC_ROUTING_ARCHITECTURE.md` for detailed architecture
+
+**Previous**: Agent-Driven Optimization via Orchestration Patterns
 - **Foundation**: Direct JSON emission by agents proven impossible ❌
 - **Solution**: Three-layer orchestration pattern discovered ✅
-- **Next**: Building optimization orchestrations with analysis/translation layers
-- **Goal**: Self-improving patterns through natural language analysis
+- **Status**: Ready for integration with dynamic routing
 
 ## Investigation-First Philosophy
 
