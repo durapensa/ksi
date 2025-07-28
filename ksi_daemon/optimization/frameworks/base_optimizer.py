@@ -59,28 +59,6 @@ class BaseOptimizer(ABC):
         """
         pass
     
-    @abstractmethod
-    async def optimize_orchestration(
-        self,
-        orchestration_pattern: str,
-        components: Dict[str, str],
-        trainset: List[Dict[str, Any]],
-        valset: Optional[List[Dict[str, Any]]] = None,
-        **kwargs
-    ) -> Dict[str, OptimizationResult]:
-        """Optimize all components in an orchestration jointly.
-        
-        Args:
-            orchestration_pattern: Name of the orchestration pattern
-            components: Dict mapping component names to their content
-            trainset: Training examples for optimization
-            valset: Validation set for evaluation
-            **kwargs: Additional optimizer-specific parameters
-            
-        Returns:
-            Dict mapping component names to their optimization results
-        """
-        pass
     
     def save_optimization_result(self, result: OptimizationResult) -> None:
         """Save optimization result to history."""

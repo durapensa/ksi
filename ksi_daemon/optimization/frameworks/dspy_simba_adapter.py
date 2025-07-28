@@ -313,57 +313,6 @@ class DSPySIMBAAdapter(BaseOptimizer):
         
         return result
     
-    async def optimize_orchestration(
-        self,
-        orchestration_pattern: str,
-        components: Dict[str, str],
-        trainset: List[Dict[str, Any]],
-        valset: Optional[List[Dict[str, Any]]] = None,
-        **kwargs
-    ) -> Dict[str, OptimizationResult]:
-        """Optimize all components in an orchestration using SIMBA."""
-        results = {}
-        
-        # For now, optimize each component independently using recent interactions
-        # Future: implement joint optimization considering component interactions
-        for component_name, component_content in components.items():
-            # Filter interactions relevant to this component
-            component_interactions = [
-                interaction for interaction in trainset
-                if interaction.get("component") == component_name
-            ]
-            
-            if not component_interactions:
-                # Use full trainset if no component-specific interactions
-                component_interactions = trainset
-            
-            try:
-                result = await self.optimize_component(
-                    component_name=component_name,
-                    component_content=component_content,
-                    trainset=component_interactions,
-                    valset=valset,
-                    **kwargs
-                )
-                results[component_name] = result
-            except Exception as e:
-                logger.error(f"Failed to optimize component {component_name}: {e}")
-                # Create error result
-                results[component_name] = {
-                    "component_name": component_name,
-                    "original_score": 0.0,
-                    "optimized_score": 0.0,
-                    "improvement": 0.0,
-                    "optimized_content": component_content,
-                    "optimization_metadata": {
-                        "optimizer": self.get_optimizer_name(),
-                        "error": str(e)
-                    },
-                    "git_commit": None,
-                    "git_tag": None,
-                }
-        
-        return results
     
     async def optimize(
         self,

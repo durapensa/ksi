@@ -2,12 +2,12 @@
 """
 Hierarchical Event Routing for KSI
 
-Implements subscription-level based event routing for orchestration hierarchies.
-Agents and orchestrations can specify what level of event feedback they want:
-- Level 0: Only orchestration-level events  
+Implements subscription-level based event routing for workflow hierarchies.
+Agents and workflows can specify what level of event feedback they want:
+- Level 0: Only workflow-level events  
 - Level 1: Direct child agents + immediate events (default)
 - Level N: Events from agents up to N levels deep in the hierarchy
-- Level -1: ALL events in entire orchestration tree
+- Level -1: ALL events in entire workflow tree
 
 Examples:
 - Level 2: Children and grandchildren events
@@ -44,15 +44,15 @@ class HierarchicalRouter:
                 logger.warning(f"No hierarchy info for agent {source_agent_id}")
                 return
                 
-            orchestration_id = source_info.get('orchestration_id')
-            if not orchestration_id:
-                # Agent not part of an orchestration
+            workflow_id = source_info.get('workflow_id')
+            if not workflow_id:
+                # Agent not part of a workflow
                 return
                 
-            source_depth = source_info.get('orchestration_depth', 0)
+            source_depth = source_info.get('workflow_depth', 0)
             
-            # Get all agents in the orchestration
-            agents = await self._get_orchestration_agents(orchestration_id)
+            # Get all agents in the workflow
+            agents = await self._get_workflow_agents(workflow_id)
             
             # Check if this is an error event (by name pattern or data content)
             is_error = self._is_error_event(event_name, event_data)
@@ -69,7 +69,7 @@ class HierarchicalRouter:
                 else:
                     subscription_level = agent_info.get('event_subscription_level', 1)
                     
-                agent_depth = agent_info.get('orchestration_depth', 0)
+                agent_depth = agent_info.get('workflow_depth', 0)
                 
                 # Check if this agent should receive the event
                 if self._should_receive_event(source_info, agent_info, subscription_level):
@@ -77,21 +77,21 @@ class HierarchicalRouter:
                         self._route_to_agent(agent_id, source_agent_id, event_name, event_data)
                     )
             
-            # Route to orchestrator agent if set
-            orchestrator_agent_id = await self._get_orchestrator_agent(orchestration_id)
-            if orchestrator_agent_id:
-                # Check subscription level for orchestrator
-                orch_subscription_level = await self._get_orchestrator_subscription_level(
-                    orchestration_id, is_error
+            # Route to coordinator agent if set
+            coordinator_agent_id = await self._get_coordinator_agent(workflow_id)
+            if coordinator_agent_id:
+                # Check subscription level for coordinator
+                coord_subscription_level = await self._get_coordinator_subscription_level(
+                    workflow_id, is_error
                 )
-                if self._should_orchestrator_receive_event(source_depth, orch_subscription_level):
+                if self._should_coordinator_receive_event(source_depth, coord_subscription_level):
                     routing_tasks.append(
-                        self._route_to_orchestrator_agent(
-                            orchestrator_agent_id, source_agent_id, event_name, event_data, orchestration_id
+                        self._route_to_coordinator_agent(
+                            coordinator_agent_id, source_agent_id, event_name, event_data, workflow_id
                         )
                     )
             
-            # Note: Parent orchestration routing removed in Stage 2.4 migration
+            # Note: Parent workflow routing removed in Stage 2.4 migration
             # Dynamic routing now handles parent-child relationships through routing rules
             
             # Execute all routing tasks concurrently
@@ -103,14 +103,14 @@ class HierarchicalRouter:
     
     def _should_receive_event(self, source: Dict[str, Any], target: Dict[str, Any], subscription_level: int) -> bool:
         """Determine if target should receive event from source based on subscription level."""
-        source_depth = source.get('orchestration_depth', 0)
-        target_depth = target.get('orchestration_depth', 0)
+        source_depth = source.get('workflow_depth', 0)
+        target_depth = target.get('workflow_depth', 0)
         
-        # Level -1: Receive all events in orchestration
+        # Level -1: Receive all events in workflow
         if subscription_level == -1:
             return True
             
-        # Level 0: Only orchestration-level events (depth 0)
+        # Level 0: Only workflow-level events (depth 0)
         if subscription_level == 0:
             return source_depth == 0
             
@@ -163,10 +163,10 @@ class HierarchicalRouter:
             
             hierarchy_info = {
                 'agent_id': agent_id,
-                'orchestration_id': props.get('orchestration_id'),
-                'orchestration_depth': props.get('orchestration_depth', 0),
+                'workflow_id': props.get('workflow_id'),
+                'workflow_depth': props.get('workflow_depth', 0),
                 'parent_agent_id': props.get('parent_agent_id'),
-                'root_orchestration_id': props.get('root_orchestration_id'),
+                'root_workflow_id': props.get('root_workflow_id'),
                 'event_subscription_level': props.get('event_subscription_level', 1),
                 'error_subscription_level': props.get('error_subscription_level', -1)
             }
@@ -177,12 +177,12 @@ class HierarchicalRouter:
             
         return None
     
-    async def _get_orchestration_agents(self, orchestration_id: str) -> Dict[str, Dict[str, Any]]:
-        """Get all agents in an orchestration."""
+    async def _get_workflow_agents(self, workflow_id: str) -> Dict[str, Dict[str, Any]]:
+        """Get all agents in a workflow."""
         result = await self._event_emitter("state:entity:query", {
             "entity_type": "agent",
             "filters": {
-                "orchestration_id": orchestration_id
+                "workflow_id": workflow_id
             }
         })
         
@@ -194,7 +194,7 @@ class HierarchicalRouter:
                 props = entity.get('properties', {})
                 agents[agent_id] = {
                     'agent_id': agent_id,
-                    'orchestration_depth': props.get('orchestration_depth', 0),
+                    'workflow_depth': props.get('workflow_depth', 0),
                     'parent_agent_id': props.get('parent_agent_id'),
                     'event_subscription_level': props.get('event_subscription_level', 1),
                     'error_subscription_level': props.get('error_subscription_level', -1)
@@ -220,8 +220,8 @@ class HierarchicalRouter:
         except Exception as e:
             logger.error(f"Failed to route to agent {target_agent_id}: {e}")
     
-    # _route_to_orchestration method removed in Stage 2.4 migration
-    # Dynamic routing through routing rules replaced orchestration-level routing
+    # _route_to_workflow method removed in Stage 2.4 migration
+    # Dynamic routing through routing rules replaced workflow-level routing
     
     def _is_error_event(self, event_name: str, event_data: Dict[str, Any]) -> bool:
         """Determine if an event is an error event."""
@@ -237,25 +237,25 @@ class HierarchicalRouter:
             
         return False
     
-    async def _get_orchestrator_agent(self, orchestration_id: str) -> Optional[str]:
-        """Get the orchestrator agent ID for an orchestration."""
+    async def _get_coordinator_agent(self, workflow_id: str) -> Optional[str]:
+        """Get the coordinator agent ID for a workflow."""
         result = await self._event_emitter("state:entity:get", {
-            "entity_type": "orchestration",
-            "entity_id": orchestration_id
+            "entity_type": "workflow",
+            "entity_id": workflow_id
         })
         
         if result and isinstance(result, list) and result[0]:
             entity = result[0].get('entity', {})
             props = entity.get('properties', {})
-            return props.get('orchestrator_agent_id')
+            return props.get('coordinator_agent_id')
             
         return None
     
-    async def _get_orchestrator_subscription_level(self, orchestration_id: str, is_error: bool) -> int:
-        """Get the subscription level for the orchestrator."""
+    async def _get_coordinator_subscription_level(self, workflow_id: str, is_error: bool) -> int:
+        """Get the subscription level for the coordinator."""
         result = await self._event_emitter("state:entity:get", {
-            "entity_type": "orchestration",
-            "entity_id": orchestration_id
+            "entity_type": "workflow",
+            "entity_id": workflow_id
         })
         
         if result and isinstance(result, list) and result[0]:
@@ -268,8 +268,8 @@ class HierarchicalRouter:
                 
         return 1 if not is_error else -1
     
-    def _should_orchestrator_receive_event(self, source_depth: int, subscription_level: int) -> bool:
-        """Check if orchestrator should receive event based on source depth."""
+    def _should_coordinator_receive_event(self, source_depth: int, subscription_level: int) -> bool:
+        """Check if coordinator should receive event based on source depth."""
         # Level -1: Receive all events
         if subscription_level == -1:
             return True
@@ -281,35 +281,35 @@ class HierarchicalRouter:
         # For positive levels, check if source is within subscription depth
         return source_depth <= subscription_level
     
-    async def _route_to_orchestrator_agent(self, orchestrator_agent_id: str, source_agent_id: str,
+    async def _route_to_coordinator_agent(self, coordinator_agent_id: str, source_agent_id: str,
                                           event_name: str, event_data: Dict[str, Any], 
-                                          orchestration_id: str) -> None:
-        """Route event to the orchestrator agent."""
+                                          workflow_id: str) -> None:
+        """Route event to the coordinator agent."""
         try:
-            # Special handling for claude-code as orchestrator
-            if orchestrator_agent_id == "claude-code":
+            # Special handling for claude-code as coordinator
+            if coordinator_agent_id == "claude-code":
                 # Tag with client_id for Claude Code
                 enriched_data = {
                     **event_data,
                     "_client_id": "claude-code",
-                    "_from_orchestration": orchestration_id,
+                    "_from_workflow": workflow_id,
                     "_source_agent": source_agent_id
                 }
                 # Route to system logger (Claude Code will see in logs/hook)
-                logger.info(f"Orchestrator feedback: {event_name}", 
+                logger.info(f"Coordinator feedback: {event_name}", 
                            extra={
                                "event": event_name,
                                "data": enriched_data,
-                               "orchestrator": "claude-code"
+                               "coordinator": "claude-code"
                            })
             else:
                 # Route to regular agent
                 await self._route_to_agent(
-                    orchestrator_agent_id, source_agent_id, event_name, event_data
+                    coordinator_agent_id, source_agent_id, event_name, event_data
                 )
-            logger.debug(f"Routed {event_name} to orchestrator {orchestrator_agent_id}")
+            logger.debug(f"Routed {event_name} to coordinator {coordinator_agent_id}")
         except Exception as e:
-            logger.error(f"Failed to route to orchestrator {orchestrator_agent_id}: {e}")
+            logger.error(f"Failed to route to coordinator {coordinator_agent_id}: {e}")
     
     def clear_cache(self):
         """Clear cached entity data."""

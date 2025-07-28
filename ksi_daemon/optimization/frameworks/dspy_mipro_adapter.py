@@ -445,41 +445,6 @@ class DSPyMIPROAdapter(BaseOptimizer):
         
         return result
     
-    async def optimize_orchestration(
-        self,
-        orchestration_pattern: str,
-        components: Dict[str, str],
-        trainset: List[Dict[str, Any]],
-        valset: Optional[List[Dict[str, Any]]] = None,
-        **kwargs
-    ) -> Dict[str, OptimizationResult]:
-        """Optimize all components in an orchestration jointly."""
-        results = {}
-        
-        # For now, optimize each component independently
-        # Future: implement joint optimization with multi-stage MIPROv2
-        for component_name, component_content in components.items():
-            # Filter training data relevant to this component
-            component_trainset = [
-                ex for ex in trainset 
-                if ex.get("component") == component_name
-            ]
-            
-            if not component_trainset:
-                # Use full trainset if no component-specific data
-                component_trainset = trainset
-            
-            result = await self.optimize_component(
-                component_name=component_name,
-                component_content=component_content,
-                trainset=component_trainset,
-                valset=valset,
-                **kwargs
-            )
-            
-            results[component_name] = result
-        
-        return results
     
     def _generate_minimal_training_data(self, component_name: str, original_body: str) -> List[Any]:
         """Generate minimal training examples for DSPy instruction generation (2-3 examples max)."""
