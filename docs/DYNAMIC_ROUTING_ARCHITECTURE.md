@@ -765,79 +765,93 @@ Build routing rule validation and conflict detection to ensure system stability.
 
 **See Also**: [Dynamic Routing Testing Report](DYNAMIC_ROUTING_TESTING_REPORT.md) for comprehensive test results.
 
-## Stage 1.7: Routing Decision Visibility with Introspection System 🚧 NEXT
+## Stage 1.7: Routing Decision Visibility with Introspection System ✅ COMPLETE (2025-07-28)
 
 ### Objective
 Integrate the existing introspection system to provide visibility into routing decisions for debugging and analysis.
 
-### Introspection System Analysis
+### Implementation Details
 
-The KSI introspection system (in `ksi_daemon/introspection/`) provides powerful capabilities that can be adapted for routing visibility:
+Successfully implemented comprehensive routing introspection capabilities:
 
-1. **Event Genealogy** (`event_genealogy.py`):
-   - Event chain tracking with parent-child relationships
-   - Tree visualization of event hierarchies
-   - Impact analysis showing cascading effects
-   - Performance analysis of event patterns
-   - Real-time event stream monitoring
+1. **Routing Introspection Module** (`routing_introspection.py`):
+   - Tracks all routing decisions with detailed metadata
+   - Stores rules evaluated, matched, and applied
+   - Provides routing path visualization
+   - Enables impact analysis for rule changes
 
-2. **Module Introspection** (`introspection.py`):
-   - Event emission discovery
-   - State dependency tracking
-   - Module inter-dependencies
+2. **Event Router Patching** (`routing_event_patch.py`):
+   - Patches EventRouter.emit to track routing decisions
+   - Identifies dynamic routing transformers via `_routing_introspection` flag
+   - Tracks priority-based rule selection
+   - Minimal performance impact with conditional tracking
 
-### Integration Approach
+3. **New Introspection Events**:
+   - `introspection:routing_decision` - Emitted for each routing decision
+   - `introspection:routing_decisions` - Query recent routing decisions
+   - `introspection:routing_path` - Get detailed routing path for an event
+   - `introspection:routing_impact` - Analyze rule change impacts
 
-1. **Routing Metadata Enhancement**:
-   - Add routing decision metadata to `_ksi_context` when events are transformed
-   - Track which routing rules were evaluated
-   - Record which rule(s) matched and were applied
-   - Include routing priority resolution details
+4. **Tracking Capabilities**:
+   - Rules evaluated vs rules matched
+   - Priority resolution (highest priority wins)
+   - Transformation mappings applied
+   - Human-readable routing paths
 
-2. **New Introspection Events**:
-   ```python
-   introspection:routing_decision:
-     event_id: Original event ID
-     routing_rules_evaluated: List of rules checked
-     rules_matched: Rules that matched the pattern
-     rule_applied: The winning rule (by priority)
-     transformation_applied: Any data mapping/transformation
-     routing_path: source -> transformer -> target
+### Testing Results
+
+End-to-end testing confirmed all features working:
+```bash
+# Create rule with mapping
+✅ Rule created with transformation mapping
+
+# Send event and track routing
+✅ Routing decision tracked with all metadata
+
+# Query routing decisions
+✅ Shows evaluated rules, matched rules, applied rule
+
+# Check introspection events
+✅ introspection:routing_decision events emitted
+
+# Analyze rule impact
+✅ Shows affected events and routing paths
+
+# Delete rule
+✅ Cleanup successful (after bug fix)
+```
+
+### Key Features
+
+1. **Decision Tracking**:
+   - Every routing decision creates a tracking record
+   - Includes timestamp, event info, and rule details
+   - Shows why specific rule was chosen (priority)
+
+2. **Routing Path Format**:
+   ```
+   source_event → [transformer_name] → target_event
    ```
 
-3. **Routing Path Visualization**:
-   - Extend event tree visualization to show routing paths
-   - Highlight dynamic vs static routing decisions
-   - Show rule priority resolution visually
+3. **Impact Analysis**:
+   - Analyzes recent events to show rule effects
+   - Helps understand consequences of rule changes
+   - Time-window based analysis
 
-4. **Impact Analysis for Routing**:
-   - Track cascading effects of routing rule changes
-   - Analyze which events would be affected by rule modifications
-   - Performance impact of different routing patterns
+4. **Performance**:
+   - Minimal overhead - only tracks when routing rules present
+   - In-memory storage with configurable limits
+   - Async event emission for tracking
 
-### Implementation Plan
+### Known Issues Fixed
+- Type conversion for CLI string parameters
+- Datetime comparison in impact analysis
+- Rule deletion audit trail bug
 
-1. **Transformer Integration** (Phase 1):
-   - Modify transformer system to add routing metadata to events
-   - Tag events with applied routing rule IDs
-   - Include transformation details in context
-
-2. **Routing Decision Events** (Phase 2):
-   - Emit introspection events for routing decisions
-   - Create routing-specific event chains
-   - Enable correlation between rules and effects
-
-3. **Visualization Tools** (Phase 3):
-   - Extend `introspection:event_tree` to show routing
-   - Create `introspection:routing_path` for specific events
-   - Build `introspection:routing_impact` for rule analysis
-
-### Benefits
-
-1. **Debugging**: See exactly why events were routed where
-2. **Optimization**: Identify inefficient routing patterns
-3. **Validation**: Verify routing rules work as intended
-4. **Learning**: Understand emergent routing behaviors
+### Integration Points
+- Routing service initializes introspection on startup
+- Transformer bridge adds metadata to dynamic transformers
+- Event router patched to track decisions during emission
 
 ## Stage 1.8: Simple Test Orchestration 🚧 FUTURE
 
@@ -910,8 +924,6 @@ class DynamicAnalysisOrchestration:
 - **Stage 1.4**: State persistence for routing rules
 - **Stage 1.5**: Validation and conflict detection
 - **Stage 1.6**: Audit trail for debugging
-
-### In Progress 🚧
 - **Stage 1.7**: Introspection system integration for visibility
 
 ### Future Work 📋
@@ -919,6 +931,7 @@ class DynamicAnalysisOrchestration:
 - **Stage 1.9**: Documentation and patterns
 - **Stage 2.0**: Performance optimizations
 - **Stage 2.1**: Advanced routing features (load balancing, failover)
+- **Stage 2.2**: Enhanced transformer metadata for better visibility
 
 ### Key Architectural Achievements
 
