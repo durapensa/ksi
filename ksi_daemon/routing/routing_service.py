@@ -12,13 +12,12 @@ from datetime import datetime, timedelta
 import json
 
 from ksi_common.logging import get_bound_logger
-from ksi_common.event_registry_decorator import event_namespace
 from ksi_common.checkpoint_participant import checkpoint_participant
+from ksi_daemon.event_system import event_handler, get_router
 
 logger = get_bound_logger("routing_service", version="1.0.0")
 
 @checkpoint_participant
-@event_namespace("routing")
 class RoutingService:
     """
     Service for managing dynamic routing rules.
