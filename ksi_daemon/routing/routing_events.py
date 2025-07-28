@@ -17,6 +17,45 @@ from ksi_common.event_response_builder import event_response_builder, success_re
 
 logger = get_bound_logger("routing_events", version="1.0.0")
 
+# Helper function for capability checking
+async def check_routing_capability(agent_id: str, context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    """
+    Check if an agent has the routing_control capability.
+    
+    Returns:
+        None if capability check passes, error response dict if it fails
+    """
+    # System agent always has permission
+    if agent_id == "system":
+        return None
+        
+    # Get agent capabilities from state
+    from ksi_daemon.event_system import get_router
+    router = get_router()
+    
+    # Query agent state to get capabilities
+    result = await router.emit("state:entity:get", {"type": "agent", "id": agent_id})
+    if result and len(result) > 0 and result[0].get("status") == "success":
+        entity = result[0].get("data", {}).get("entity", {})
+        capabilities = entity.get("properties", {}).get("capabilities", [])
+        
+        # Check if agent has routing_control capability
+        if "routing_control" not in capabilities:
+            return error_response(
+                error="Permission denied",
+                details={
+                    "required_capability": "routing_control",
+                    "agent_capabilities": capabilities
+                }
+            )
+        return None  # Capability check passed
+    else:
+        # If we can't get agent info, deny by default
+        return error_response(
+            error="Unable to verify agent capabilities",
+            details={"agent_id": agent_id}
+        )
+
 # Type definitions for routing structures
 class RoutingRule(TypedDict):
     """Structure of a routing rule."""
@@ -64,15 +103,12 @@ async def handle_add_rule(data: Dict[str, Any], context: Optional[Dict[str, Any]
     Required capability: routing_control
     """
     # Get agent ID from context
-    agent_id = context.get("agent_id", "system") if context else "system"
+    agent_id = context.get("_agent_id", "system") if context else "system"
     
-    # TODO: In Stage 1.3, implement capability checking
-    # For now, allow all agents to use routing control
-    # if not await capability_check(agent_id, "routing_control"):
-    #     return error_response(
-    #         error="Permission denied",
-    #         details={"required_capability": "routing_control"}
-    #     )
+    # Check routing_control capability
+    capability_error = await check_routing_capability(agent_id, context)
+    if capability_error:
+        return capability_error
     
     # Extract parameters
     rule_id = data.get("rule_id")
@@ -110,13 +146,22 @@ async def handle_add_rule(data: Dict[str, Any], context: Optional[Dict[str, Any]
         except ValueError:
             ttl = None
     
+    # Handle mapping if it's a JSON string
+    mapping = data.get("mapping")
+    if mapping and isinstance(mapping, str):
+        try:
+            mapping = json.loads(mapping)
+        except json.JSONDecodeError:
+            # Leave as string if not valid JSON
+            pass
+    
     # Create rule
     rule = RoutingRule(
         rule_id=rule_id,
         source_pattern=source_pattern,
         target=target,
         condition=data.get("condition"),
-        mapping=data.get("mapping"),
+        mapping=mapping,
         priority=priority,
         ttl=ttl,
         created_by=agent_id,
@@ -173,64 +218,68 @@ async def handle_modify_rule(data: Dict[str, Any], context: Optional[Dict[str, A
     Required capability: routing_control
     """
     # Get agent ID from context
-    agent_id = context.get("agent_id", "system") if context else "system"
+    agent_id = context.get("_agent_id", "system") if context else "system"
     
-    # TODO: In Stage 1.3, implement capability checking
-    # For now, allow all agents to use routing control
-    # if not await capability_check(agent_id, "routing_control"):
-    #     return error_response(
-    #         error="Permission denied",
-    #         details={"required_capability": "routing_control"}
-    #     )
+    # Check routing_control capability
+    capability_error = await check_routing_capability(agent_id, context)
+    if capability_error:
+        return capability_error
     
     rule_id = data.get("rule_id")
     updates = data.get("updates", {})
+    
+    # Handle case where updates might be a JSON string
+    if isinstance(updates, str):
+        try:
+            updates = json.loads(updates)
+        except json.JSONDecodeError:
+            return error_response(
+                error="Invalid updates format",
+                details={"updates": updates, "expected": "JSON object"}
+            )
     
     if not rule_id:
         return error_response(
             error="Missing rule_id"
         )
     
-    if rule_id not in routing_rules:
+    # Get routing service
+    service = get_routing_service()
+    if not service:
         return error_response(
-            error="Rule not found",
-            details={"rule_id": rule_id}
+            error="Routing service not available",
+            details={"service_status": "not_initialized"}
         )
     
-    # Get existing rule
-    rule = routing_rules[rule_id]
+    # Delegate to service for modification
+    result = await service.modify_routing_rule(rule_id, updates)
     
-    # Check permission to modify this specific rule
-    # TODO: Implement ownership/scope checking in Stage 1.5
-    
-    # Apply updates
-    for field, value in updates.items():
-        if field in ["rule_id", "created_by", "created_at"]:
-            continue  # Can't modify these
-        if field in rule:
-            rule[field] = value
-    
-    # Audit log
-    audit_entry = {
-        "operation": "modify_rule",
-        "rule_id": rule_id,
-        "agent_id": agent_id,
-        "timestamp": datetime.utcnow().isoformat(),
-        "updates": updates
-    }
-    routing_audit_log.append(audit_entry)
-    
-    logger.info("Routing rule modified", rule_id=rule_id, agent_id=agent_id)
-    
-    # TODO: In Stage 1.2, update transformer system
-    
-    return success_response(
-        data={
+    # Check result from service
+    if result.get("status") == "success":
+        # Audit log
+        audit_entry = {
+            "operation": "modify_rule",
             "rule_id": rule_id,
-            "status": "modified",
-            "rule": rule
+            "agent_id": agent_id,
+            "timestamp": datetime.utcnow().isoformat(),
+            "updates": updates
         }
-    )
+        routing_audit_log.append(audit_entry)
+        
+        logger.info("Routing rule modified", rule_id=rule_id, agent_id=agent_id)
+        
+        return success_response(
+            data={
+                "rule_id": rule_id,
+                "status": "modified",
+                "updates": updates
+            }
+        )
+    else:
+        return error_response(
+            error=result.get("error", "Failed to modify routing rule"),
+            details=result
+        )
 
 @event_handler("routing:delete_rule")
 async def handle_delete_rule(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -243,15 +292,12 @@ async def handle_delete_rule(data: Dict[str, Any], context: Optional[Dict[str, A
     Required capability: routing_control
     """
     # Get agent ID from context
-    agent_id = context.get("agent_id", "system") if context else "system"
+    agent_id = context.get("_agent_id", "system") if context else "system"
     
-    # TODO: In Stage 1.3, implement capability checking
-    # For now, allow all agents to use routing control
-    # if not await capability_check(agent_id, "routing_control"):
-    #     return error_response(
-    #         error="Permission denied",
-    #         details={"required_capability": "routing_control"}
-    #     )
+    # Check routing_control capability
+    capability_error = await check_routing_capability(agent_id, context)
+    if capability_error:
+        return capability_error
     
     rule_id = data.get("rule_id")
     
@@ -260,35 +306,52 @@ async def handle_delete_rule(data: Dict[str, Any], context: Optional[Dict[str, A
             error="Missing rule_id"
         )
     
-    if rule_id not in routing_rules:
+    # Get routing service
+    service = get_routing_service()
+    if not service:
+        return error_response(
+            error="Routing service not available",
+            details={"service_status": "not_initialized"}
+        )
+    
+    # Delegate to service for deletion (note: service method is _remove_rule, private)
+    # We need to check if rule exists first
+    if rule_id not in service.routing_rules:
         return error_response(
             error="Rule not found",
             details={"rule_id": rule_id}
         )
     
-    # Remove rule
-    rule = routing_rules.pop(rule_id)
+    # Get rule before deletion for audit log
+    deleted_rule = service.routing_rules.get(rule_id)
     
-    # Audit log
-    audit_entry = {
-        "operation": "delete_rule",
-        "rule_id": rule_id,
-        "agent_id": agent_id,
-        "timestamp": datetime.utcnow().isoformat(),
-        "deleted_rule": rule
-    }
-    routing_audit_log.append(audit_entry)
+    # Remove via service
+    result = await service._remove_rule(rule_id)
     
-    logger.info("Routing rule deleted", rule_id=rule_id, agent_id=agent_id)
-    
-    # TODO: In Stage 1.2, remove from transformer system
-    
-    return success_response(
-        data={
+    if result.get("status") == "success":
+        # Audit log
+        audit_entry = {
+            "operation": "delete_rule",
             "rule_id": rule_id,
-            "status": "deleted"
+            "agent_id": agent_id,
+            "timestamp": datetime.utcnow().isoformat(),
+            "deleted_rule": deleted_rule
         }
-    )
+        routing_audit_log.append(audit_entry)
+        
+        logger.info("Routing rule deleted", rule_id=rule_id, agent_id=agent_id)
+        
+        return success_response(
+            data={
+                "rule_id": rule_id,
+                "status": "deleted"
+            }
+        )
+    else:
+        return error_response(
+            error=result.get("error", "Failed to delete routing rule"),
+            details=result
+        )
 
 @event_handler("routing:query_rules")
 async def handle_query_rules(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -308,9 +371,17 @@ async def handle_query_rules(data: Dict[str, Any], context: Optional[Dict[str, A
     filter_params = data.get("filter", {})
     limit = data.get("limit", 100)
     
-    # Filter rules
+    # Get routing service
+    service = get_routing_service()
+    if not service:
+        return error_response(
+            error="Routing service not available",
+            details={"service_status": "not_initialized"}
+        )
+    
+    # Filter rules from service
     filtered_rules = []
-    for rule_id, rule in routing_rules.items():
+    for rule_id, rule in service.routing_rules.items():
         # Apply filters
         if filter_params.get("agent_scope"):
             if rule["created_by"] != filter_params["agent_scope"]:
@@ -336,7 +407,7 @@ async def handle_query_rules(data: Dict[str, Any], context: Optional[Dict[str, A
         data={
             "rules": filtered_rules,
             "count": len(filtered_rules),
-            "total": len(routing_rules)
+            "total": len(service.routing_rules)
         }
     )
 
@@ -354,7 +425,7 @@ async def handle_update_subscription(data: Dict[str, Any], context: Optional[Dic
     Required capability: routing_control
     """
     # Get requesting agent ID from context
-    requesting_agent = context.get("agent_id", "system") if context else "system"
+    requesting_agent = context.get("_agent_id", "system") if context else "system"
     
     # TODO: In Stage 1.3, implement capability checking
     # For now, allow all agents to use routing control
@@ -418,7 +489,7 @@ async def handle_spawn_with_routing(data: Dict[str, Any], context: Optional[Dict
     Required capability: agent (standard agent spawning)
     """
     # Get requesting agent ID from context
-    requesting_agent = context.get("agent_id", "system") if context else "system"
+    requesting_agent = context.get("_agent_id", "system") if context else "system"
     
     # TODO: In Stage 1.3, implement capability checking
     # For now, allow all agents to spawn with routing
@@ -492,15 +563,12 @@ async def handle_get_audit_log(data: Dict[str, Any], context: Optional[Dict[str,
     Required capability: routing_control (for security)
     """
     # Get agent ID from context
-    agent_id = context.get("agent_id", "system") if context else "system"
+    agent_id = context.get("_agent_id", "system") if context else "system"
     
-    # TODO: In Stage 1.3, implement capability checking
-    # For now, allow all agents to use routing control
-    # if not await capability_check(agent_id, "routing_control"):
-    #     return error_response(
-    #         error="Permission denied",
-    #         details={"required_capability": "routing_control"}
-    #     )
+    # Check routing_control capability
+    capability_error = await check_routing_capability(agent_id, context)
+    if capability_error:
+        return capability_error
     
     # Convert limit to int if it's a string
     limit = data.get("limit", 100)

@@ -452,7 +452,178 @@ ksi send routing:add_rule --rule_id "ttl_test" --source_pattern "test:ttl" --tar
 7. **Create** test orchestration using dynamic routing (Stage 1.7)
 8. **Document** patterns and examples (Stage 1.8)
 
-**Current Status**: Stage 1.2 Complete - Dynamic routing rules now control actual event flow through transformer integration. Ready to proceed with capability permissions and state persistence.
+**Current Status**: Stage 1.2 Core Implementation Complete - Dynamic routing rules now control actual event flow through transformer integration. **VALIDATION PHASE REQUIRED** before proceeding to Stage 1.3.
+
+### Stage 1.2.6: Comprehensive Validation and Testing 🚧 NEXT
+
+**Goal**: Thoroughly test and validate the dynamic routing implementation to ensure reliability before building additional features.
+
+**Testing Gaps Identified**:
+
+1. **TTL Expiration Validation** ⏰
+   - Create rule with short TTL (10 seconds)
+   - Verify rule exists and routes events initially
+   - Wait for expiration and verify rule is removed from both storage and transformers
+   - Confirm events no longer route after expiration
+
+2. **Rule Modification Testing** ✏️
+   - Create initial rule with specific target
+   - Modify rule to change target, priority, or condition
+   - Verify transformer is updated correctly
+   - Test event routing reflects the modification
+
+3. **Rule Deletion Testing** 🗑️
+   - Create rule and verify it works
+   - Delete rule via `routing:delete_rule`
+   - Verify transformer is removed from event system
+   - Confirm events no longer route through deleted rule
+
+4. **Error Handling and Edge Cases** ⚠️
+   - Test duplicate rule IDs (should fail gracefully)
+   - Test invalid patterns or targets
+   - Test missing required parameters
+   - Test extremely high/low priority values
+   - Test invalid TTL values
+
+5. **Data Flow Integrity** 📊
+   - Create rule with complex mapping
+   - Send event with structured data
+   - Verify target receives correctly transformed data
+   - Test condition-based routing with various data conditions
+
+6. **Performance and Scale Testing** 🚀
+   - Create 50-100 dynamic rules
+   - Measure rule creation/deletion performance
+   - Test event routing latency with many rules
+   - Verify memory usage remains reasonable
+
+7. **Restart Behavior Validation** 🔄
+   - Create several dynamic rules
+   - Restart daemon
+   - Verify rules are lost (expected in-memory behavior)
+   - Verify transformers are cleaned up properly
+
+8. **Transformer Integration Edge Cases** 🔧
+   - Test interaction between dynamic and static transformers
+   - Test conflicting patterns with different priorities
+   - Verify transformer precedence works correctly
+   - Test malformed transformer configurations
+
+9. **Audit Trail Functionality** 📝
+   - Perform various routing operations
+   - Query audit log via `routing:get_audit_log`
+   - Verify all operations are recorded with correct timestamps
+   - Test audit log filtering and limits
+
+10. **Service Health and Recovery** 🏥
+    - Test routing service behavior when transformer registration fails
+    - Test graceful degradation when routing service unavailable
+    - Verify background TTL task handles exceptions properly
+
+**Testing Implementation Plan**:
+
+```bash
+# Phase 1: Core Functionality Validation (30 minutes)
+./test_routing_core.sh
+# - TTL expiration (create, wait, verify removal)
+# - Rule modification (create, modify, verify changes)
+# - Rule deletion (create, delete, verify removal)
+
+# Phase 2: Error Handling (15 minutes)  
+./test_routing_errors.sh
+# - Duplicate IDs, invalid parameters, edge cases
+# - Service unavailable scenarios
+
+# Phase 3: Data Flow and Performance (20 minutes)
+./test_routing_data_flow.sh  
+# - Complex mappings, conditions, structured data
+# - Performance with many rules
+
+# Phase 4: Integration Testing (15 minutes)
+./test_routing_integration.sh
+# - Static vs dynamic transformer interaction
+# - Restart behavior, audit trail functionality
+```
+
+**Success Criteria for Validation**:
+- ✅ All 10 testing areas pass without critical issues
+- ✅ Performance remains acceptable with 100+ rules
+- ✅ No memory leaks or resource issues detected
+- ✅ Error handling graceful in all edge cases
+- ✅ Data integrity maintained through complex routing
+- ✅ Service remains stable under load and failure conditions
+
+**Validation Results Summary**:
+- ✅ TTL Expiration: Working correctly with 60-second background task
+- ✅ Rule Deletion: Transformers properly cleaned up
+- ✅ Rule Modification: Updates work with transformer re-registration
+- ⚠️ Data Flow Integrity: Transformers registered but events not emitting to targets (needs investigation)
+- ✅ State Persistence: Confirmed in-memory (as expected)
+
+**Critical Findings**:
+1. **Transformer System Capability**: Should support general event routing to arbitrary targets, not just monitoring/broadcast. Current limitation needs investigation.
+2. **TTL Configuration**: The 60-second TTL check interval should be configurable via `ksi_common/config.py` rather than hardcoded.
+
+**Post-Validation Next Steps**:
+- Stage 1.3: Add `routing_control` capability to permission system
+- Stage 1.4: Create routing state persistence (replace in-memory storage)
+- Stage 1.5: Build rule validation and conflict detection
+
+## Stage 1.3: Permission System Integration ✅ COMPLETE
+
+Add routing control capability:
+- [x] Define routing_control capability in capability_mappings.yaml
+- [x] Add to appropriate security profiles (orchestrator tier)
+- [x] Implement capability checking in routing event handlers
+- [x] Test permission enforcement
+
+### Implementation Details:
+
+1. **Capability Definition** (capability_mappings_v2.yaml):
+```yaml
+routing_control:
+  description: "Dynamic routing control - modify event routing at runtime"
+  events:
+    - "routing:add_rule"
+    - "routing:modify_rule"
+    - "routing:delete_rule"
+    - "routing:query_rules"
+    - "routing:update_subscription"
+    - "routing:spawn_with_routing"
+    - "routing:get_audit_log"
+```
+
+2. **Security Profile Integration**:
+- Added to `orchestrator` tier in capability_mappings_v2.yaml
+- Orchestrator inherits: coordinator → executor → analyzer → communicator → base
+
+3. **Permission Checking Implementation**:
+```python
+async def check_routing_capability(agent_id: str, context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    """Check if an agent has the routing_control capability."""
+    # System agent always has permission
+    if agent_id == "system":
+        return None
+        
+    # Get agent capabilities from state
+    # Check if agent has routing_control capability
+    # Return error response if denied
+```
+
+### Critical Findings:
+
+1. **Context Propagation Fixed**: Changed from `context.get("agent_id")` to `context.get("_agent_id")` for proper agent context detection
+
+2. **Capability System Gap**: The v2 capability system (with orchestrator tier) is not integrated with the permission service
+   - Permission service only recognizes: restricted, standard, trusted
+   - The orchestrator profile with routing_control exists in capability_mappings_v2.yaml but isn't loaded
+
+3. **Permission Checking Works**: The check_routing_capability() function properly validates agent permissions when agent context is present
+
+### Testing Results:
+- System agent always has permission ✅
+- Agents without routing_control are denied access (when context is properly propagated) ✅
+- CLI commands default to "system" agent when no agent context present ✅
 
 ## Conclusion
 
