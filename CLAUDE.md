@@ -90,7 +90,7 @@ ksi send config:set --type daemon --key log_level --value INFO
 
 ### Architecture Consistency (CRITICAL)
 - **Event-Driven Only**: All production functionality must use KSI's event system
-- **Bootstrap vs Production Pattern**: Python scripts acceptable for discovery, orchestrations required for production
+- **Bootstrap vs Production Pattern**: Python scripts acceptable for discovery, dynamic routing + components required for production
 - **Anti-Pattern Warning**: Standalone scripts bypassing event system are acceptable for bootstrapping only
 - **Observable Systems**: All processes must be introspectable through KSI's monitoring
 
@@ -117,17 +117,17 @@ ksi send config:set --type daemon --key log_level --value INFO
 
 ### Component Creation (Unified Architecture 2025)
 **CRITICAL**: Everything is a component! The system forms a directed graph where:
-- **Nodes**: Event-emitting entities (agents, orchestrations)
-- **Edges**: Parent-child relationships, routing rules, capabilities
+- **Nodes**: Event-emitting entities (agents, workflows)
+- **Edges**: Parent-child relationships, routing rules, capabilities  
 - **Universal spawn**: Component type determines what gets created
-- **Nested orchestrations**: Agents can spawn orchestrations, creating arbitrary depth trees
+- **Dynamic routing**: Agents control event routing at runtime through routing rules
 
 ```bash
 # Create components via events with proper type
 ksi send composition:create_component --name "personas/analysts/data_analyst" \
   --content "---\ncomponent_type: persona\nname: data_analyst\nversion: 2.0.0\n---\n# Senior Data Analyst\n..."
 
-# Component types: core|persona|behavior|orchestration|evaluation|tool
+# Component types: core|persona|behavior|workflow|evaluation|tool
 # Organization: components/{type}/{category}/{name}.md
 ```
 
@@ -135,7 +135,7 @@ ksi send composition:create_component --name "personas/analysts/data_analyst" \
 - `core/` - Essential building blocks (base_agent, json_emitter)
 - `personas/` - Domain expertise (analysts/, developers/, thinkers/)
 - `behaviors/` - Reusable mixins (communication/, coordination/)
-- `orchestrations/` - Multi-agent patterns (optimization/, workflows/)
+- `workflows/` - Multi-agent patterns (optimization/, coordination/)
 - `evaluations/` - Quality assessments (metrics/, judges/, suites/)
 - `tools/` - External integrations (mcp/, git/, apis/)
 
@@ -168,13 +168,13 @@ components/agents/ksi_aware_analyst.md
 
 **Critical Limitation Discovered (2025-01-27)**:
 - **Agents cannot reliably emit JSON directly** - Claude's default behavior overrides all prompt engineering attempts
-- **Solution**: Use orchestration patterns where agents analyze and orchestrators emit JSON
+- **Solution**: Use dynamic routing patterns where agents analyze and routing transformers emit JSON
 
 **Working Pattern for Agent-Driven Optimization**:
 1. **Analysis Layer**: Agents provide natural language recommendations
-2. **Translation Layer**: JSON orchestrator converts to events
+2. **Translation Layer**: JSON transformer converts to events
 3. **Execution Layer**: System processes the JSON events
-4. See `components/orchestrations/agent_optimization_flow` for implementation
+4. See `components/workflows/agent_optimization_flow` for implementation
 
 ### JSON Emission Patterns (VALIDATED 2025-01-27)
 
@@ -221,7 +221,7 @@ executor:
 **When** creating agent systems:
 - **Then** use KSI tool use pattern for reliable JSON event emission (see JSON Emission Patterns above)
 - **Then** leverage LLMs' natural understanding of tool call formats
-- **Then** use orchestration patterns for complex multi-agent flows when needed
+- **Then** use dynamic routing patterns for complex multi-agent flows when needed
 - **Then** focus agents on their domain expertise
 
 ## Development Workflow
@@ -229,7 +229,7 @@ executor:
 ### Task Management (MANDATORY)
 - **MUST use TodoWrite tool** - Track progress on ALL multi-step tasks. NO EXCEPTIONS.
 - **MUST complete ALL steps**: Code + Test + Deploy + Verify - NEVER stop at code creation
-- **MUST test within KSI system** - Use orchestrations and evaluations for testing
+- **MUST test within KSI system** - Use workflows and evaluations for testing
 
 ### Discovery-First Development (MANDATORY)
 
@@ -282,7 +282,7 @@ python ksi_evaluation/discover_validated.py dsl
 **Component Frontmatter Standard**:
 ```yaml
 ---
-component_type: persona  # MANDATORY: core|persona|behavior|orchestration|evaluation|tool
+component_type: persona  # MANDATORY: core|persona|behavior|workflow|evaluation|tool
 name: data_analyst      # Component identifier
 version: 2.0.0         # Semantic versioning
 description: Senior data analyst with statistical expertise
@@ -319,14 +319,14 @@ Agents can now optimize their own and other agents' instructions using KSI's opt
 ```bash
 # Core self-improvement personas
 personas/optimizers/self_improving_agent      # Optimizes any component
-personas/optimizers/orchestration_optimizer   # Evolves orchestration patterns
+personas/optimizers/workflow_optimizer       # Evolves workflow patterns
 personas/optimizers/tournament_coordinator    # Manages competitive evolution
 
 # Evaluation components  
 evaluations/judges/improvement_judge          # Validates optimizations
 
-# Full ecosystem orchestration
-orchestrations/ecosystem/self_improvement_ecosystem
+# Full ecosystem workflow
+workflows/ecosystem/self_improvement_ecosystem
 ```
 
 **Self-Improvement Workflow**:
@@ -621,21 +621,22 @@ git commit -m "Update composition submodule"
 ## Building Agent-Driven Systems
 
 **When** creating agent-driven optimization or automation:
-- **Then** use the three-layer orchestration pattern
+- **Then** use dynamic routing patterns with workflow components
 - **Then** let agents focus on their expertise (analysis, recommendations)
-- **Then** use orchestrators for system integration (JSON events)
+- **Then** use routing transformers for system integration (JSON events)
 - **Then** test each layer independently before integration
 
-**Proven Orchestration Pattern** (2025-01-27):
+**Proven Dynamic Routing Pattern** (2025-07-28):
 1. **Analysis Layer**: Domain expert agents that understand the problem
-2. **Translation Layer**: JSON orchestrators that convert intent to events
+2. **Translation Layer**: JSON transformers that convert intent to events
 3. **Execution Layer**: System handlers that process the events
 
 **Example - Agent-Driven Optimization**:
 ```bash
-# See components/orchestrations/agent_optimization_flow
-ksi send orchestration:start \
-  --pattern "orchestrations/agent_optimization_flow" \
+# See components/workflows/agent_optimization_flow
+ksi send workflow:create \
+  --workflow_id "agent_optimization" \
+  --agents '[{"id": "optimizer", "component": "personas/optimizers/component_optimizer"}]' \
   --vars '{"component_name": "personas/data_analyst", 
            "optimization_goal": "reduce tokens by 30%"}'
 ```
@@ -659,8 +660,8 @@ This pattern enables agents to effectively "optimize" components without fightin
 4. **Update docs/** for architectural patterns and philosophy
 
 ### Testing Philosophy
-- **Test within KSI** - Use orchestrations and evaluations
-- **Start simple** - Single agent tests before complex orchestrations
+- **Test within KSI** - Use workflows and evaluations
+- **Start simple** - Single agent tests before complex workflows
 - **Validate assumptions** - Don't assume something works without testing
 - **Verify actual behavior** - Check logs, don't trust agent claims
 

@@ -300,7 +300,7 @@ class AgentNegotiateRolesData(TypedDict):
 class AgentInfoData(TypedDict):
     """Get comprehensive information about an agent."""
     agent_id: Required[str]  # Agent ID to get info for
-    include: NotRequired[List[Literal['state', 'identity', 'relationships', 'metadata', 'orchestrations', 'messages', 'observations', 'events']]]  # What to include (default: ['state', 'identity'])
+    include: NotRequired[List[Literal['state', 'identity', 'relationships', 'metadata', 'messages', 'observations', 'events']]]  # What to include (default: ['state', 'identity'])
     depth: NotRequired[int]  # Graph traversal depth for relationships (default: 1, max: 3)
     event_limit: NotRequired[int]  # Max number of recent events to include (default: 10)
     message_limit: NotRequired[int]  # Max number of recent messages to include (default: 10)
@@ -985,12 +985,9 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
             logger.error(f"Failed to create MCP config for agent {agent_id}: {e}")
             # Continue without MCP - not a fatal error
     
-    # Extract orchestration context from spawn data
+    # Extract context from spawn data
     context_data = data.get('context', {})
-    orchestration_id = context_data.get('orchestration_id')
-    orchestration_depth = context_data.get('orchestration_depth', 0)
     parent_agent_id = context_data.get('parent_agent_id')
-    root_orchestration_id = context_data.get('root_orchestration_id', orchestration_id)
     event_subscription_level = context_data.get('event_subscription_level', 1)
     
     # Create agent info
@@ -1013,11 +1010,8 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
         "metadata_namespace": f"metadata:agent:{agent_id}",
         # Originator context for event streaming
         "originator_context": originator_context,
-        # Orchestration tracking
-        "orchestration_id": orchestration_id,
-        "orchestration_depth": orchestration_depth,
+        # Agent context tracking
         "parent_agent_id": parent_agent_id,
-        "root_orchestration_id": root_orchestration_id,
         "event_subscription_level": event_subscription_level
     }
     
@@ -1114,13 +1108,10 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
             "mcp_config_path": agent_info.get("mcp_config_path")
         }
         
-        # Include orchestration metadata if present
-        if orchestration_id:
+        # Include parent agent context if present
+        if parent_agent_id:
             spawn_data.update({
-                "orchestration_id": orchestration_id,
-                "orchestration_depth": orchestration_depth,
-                "parent_agent_id": parent_agent_id,
-                "root_orchestration_id": root_orchestration_id
+                "parent_agent_id": parent_agent_id
             })
         
         await agent_emit_event(agent_id, "agent:spawned", spawn_data, propagate_agent_context(context))
@@ -1630,24 +1621,6 @@ async def handle_agent_info(data: AgentInfoData, context: Optional[Dict[str, Any
         except Exception as e:
             logger.warning(f"Failed to get metadata for {agent_id}: {e}")
     
-    # Include orchestrations the agent is part of
-    if "orchestrations" in include and event_emitter:
-        try:
-            # Query for orchestration entities where this agent is involved
-            orch_result = await event_emitter("state:entity:query", {
-                "type": "orchestration",
-                "where": {
-                    "agents": {"$contains": agent_id}
-                },
-                "include": ["properties"]
-            })
-            # Handle list-wrapped results
-            if isinstance(orch_result, list) and orch_result:
-                orch_result = orch_result[0]
-            if orch_result and orch_result.get("status") == "success":
-                result["orchestrations"] = orch_result.get("entities", [])
-        except Exception as e:
-            logger.warning(f"Failed to query orchestrations for {agent_id}: {e}")
     
     # Include recent messages
     if "messages" in include and event_emitter:

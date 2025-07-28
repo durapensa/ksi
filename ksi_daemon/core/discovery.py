@@ -41,116 +41,6 @@ FORMAT_ULTRA_COMPACT = "ultra_compact"
 FORMAT_MCP = "mcp"
 
 
-async def _discover_orchestration(orchestration_id: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Discover the structure and state of a specific orchestration."""
-    from ksi_common.event_response_builder import event_response_builder, error_response
-    from ksi_daemon.event_system import get_router
-    
-    router = get_router()
-    event_emitter = router.emit if router else None
-    if not event_emitter:
-        return error_response("Event emitter not available", context)
-    
-    try:
-        # Get orchestration entity
-        orch_result = await event_emitter("state:entity:get", {
-            "entity_id": orchestration_id,
-            "entity_type": "orchestration"
-        })
-        
-        if not orch_result or not isinstance(orch_result, list) or not orch_result[0]:
-            return error_response(f"Orchestration {orchestration_id} not found", context)
-        
-        orch_entity = orch_result[0].get('entity', {})
-        orch_props = orch_entity.get('properties', {})
-        
-        # Get all agents in this orchestration
-        agent_results = await event_emitter("state:entity:query", {
-            "entity_type": "agent",
-            "filters": {
-                "orchestration_id": orchestration_id
-            }
-        })
-        
-        agents = []
-        if agent_results and isinstance(agent_results, list) and agent_results[0]:
-            entities = agent_results[0].get('entities', [])
-            for entity in entities:
-                agent_props = entity.get('properties', {})
-                agents.append({
-                    "agent_id": entity.get('id'),
-                    "profile": agent_props.get('profile'),
-                    "status": agent_props.get('status'),
-                    "orchestration_depth": agent_props.get('orchestration_depth', 0),
-                    "parent_agent_id": agent_props.get('parent_agent_id'),
-                    "event_subscription_level": agent_props.get('event_subscription_level', 1)
-                })
-        
-        # Get recent events from this orchestration
-        event_results = await event_emitter("monitor:get_events", {
-            "limit": 100,
-            "_agent_id": None  # We'll filter by orchestration_id in response
-        })
-        
-        orchestration_events = []
-        if event_results and isinstance(event_results, list) and event_results[0]:
-            all_events = event_results[0].get('events', [])
-            # Filter events by orchestration_id
-            for event in all_events:
-                event_data = event.get('data', {})
-                if event_data.get('_orchestration_id') == orchestration_id:
-                    orchestration_events.append({
-                        "timestamp": event.get('timestamp'),
-                        "event_name": event.get('event_name'),
-                        "agent_id": event_data.get('_agent_id'),
-                        "depth": event_data.get('_orchestration_depth', 0)
-                    })
-        
-        # Build hierarchy tree
-        agent_tree = {}
-        root_agents = []
-        
-        for agent in agents:
-            agent_id = agent['agent_id']
-            parent_id = agent.get('parent_agent_id')
-            
-            if not parent_id:
-                root_agents.append(agent_id)
-            else:
-                if parent_id not in agent_tree:
-                    agent_tree[parent_id] = []
-                agent_tree[parent_id].append(agent_id)
-        
-        response = {
-            "orchestration": {
-                "id": orchestration_id,
-                "pattern": orch_props.get('pattern'),
-                "state": orch_props.get('state'),
-                "created_at": orch_props.get('created_at'),
-                "parent_orchestration": orch_props.get('parent_orchestration'),
-                "event_subscription_level": orch_props.get('event_subscription_level', 1),
-                "error_handling": orch_props.get('error_handling', 'bubble'),
-                "initialization_strategy": orch_props.get('initialization_strategy', 'legacy')
-            },
-            "agents": agents,
-            "hierarchy": {
-                "root_agents": root_agents,
-                "agent_tree": agent_tree
-            },
-            "recent_events": orchestration_events[-20:],  # Last 20 events
-            "statistics": {
-                "total_agents": len(agents),
-                "total_events": len(orchestration_events),
-                "max_depth": max([a.get('orchestration_depth', 0) for a in agents]) if agents else 0
-            }
-        }
-        
-        return event_response_builder(response, context)
-        
-    except Exception as e:
-        logger.error(f"Error discovering orchestration: {e}")
-        return error_response(f"Failed to discover orchestration: {str(e)}", context)
-
 
 def _get_namespace_description(ns: str) -> str:
     """Get description for a namespace."""
@@ -160,7 +50,6 @@ def _get_namespace_description(ns: str) -> str:
         'monitor': 'Event monitoring and status',
         'completion': 'LLM completion handling',
         'composition': 'Profile and prompt composition',
-        'orchestration': 'Multi-agent orchestration',
         'state': 'Entity and relationship management',
         'evaluation': 'Testing and evaluation system',
         'permission': 'Access control and sandboxing',
@@ -177,7 +66,6 @@ def _get_namespace_description(ns: str) -> str:
         'mcp': 'Model Context Protocol',
         'runtime': 'Runtime configuration',
         'sandbox': 'Agent sandboxing',
-        'orchestration': 'Multi-agent orchestration patterns',
         'transformer': 'Event transformation',
         'transport': 'Network transport',
         'router': 'Event routing',
@@ -1016,7 +904,6 @@ class SystemDiscoverData(TypedDict):
     module: NotRequired[str]  # Filter by module name (optional) [CLI:option]
     format_style: NotRequired[Literal['verbose', 'compact', 'ultra_compact', 'mcp']]  # Output format (default: verbose) [CLI:option]
     level: NotRequired[Literal['summary', 'namespace', 'full']]  # Discovery detail level (default: namespace) [CLI:option]
-    orchestration_id: NotRequired[str]  # Discover structure of specific orchestration (optional) [CLI:option]
     _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
@@ -1050,7 +937,6 @@ async def handle_discover(data: SystemDiscoverData, context: Optional[Dict[str, 
     module_filter = data.get("module")
     format_style = data.get("format_style", FORMAT_VERBOSE)
     level = data.get("level", "summary")  # CLI should set appropriate default
-    orchestration_id = data.get("orchestration_id")
     
     # Prevent detail timeout without filters
     if include_detail and not (namespace_filter or event_filter) and level != "summary":
@@ -1069,10 +955,6 @@ async def handle_discover(data: SystemDiscoverData, context: Optional[Dict[str, 
     from ksi_daemon.event_system import get_router
 
     router = get_router()
-    
-    # Handle orchestration-specific discovery
-    if orchestration_id:
-        return await _discover_orchestration(orchestration_id, context)
 
     # For summary level, we don't need detailed info
     if level == "summary" and not include_detail:

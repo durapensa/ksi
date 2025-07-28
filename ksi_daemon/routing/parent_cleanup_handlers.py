@@ -40,34 +40,6 @@ async def handle_agent_terminated(data: Dict[str, Any], context: Optional[Dict[s
         logger.error(f"Failed to clean up rules for agent {agent_id}: {e}")
         return {"status": "error", "error": str(e)}
 
-@event_handler("orchestration:terminated")
-async def handle_orchestration_terminated(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """
-    Clean up routing rules when an orchestration is terminated.
-    
-    Parameters:
-        orchestration_id: ID of the terminated orchestration
-    """
-    orchestration_id = data.get("orchestration_id")
-    if not orchestration_id:
-        logger.warning("Orchestration termination event missing orchestration_id")
-        return {"status": "ignored", "reason": "No orchestration_id provided"}
-    
-    # Get routing service
-    service = get_routing_service()
-    if not service:
-        logger.error("Routing service not available")
-        return {"status": "error", "error": "Routing service not available"}
-    
-    # Clean up rules associated with this orchestration
-    try:
-        rules_cleaned = await service.cleanup_parent_rules("orchestration", orchestration_id)
-        logger.info(f"Cleaned up {rules_cleaned} routing rules for terminated orchestration {orchestration_id}")
-        return {"status": "success", "rules_cleaned": rules_cleaned}
-    except Exception as e:
-        logger.error(f"Failed to clean up rules for orchestration {orchestration_id}: {e}")
-        return {"status": "error", "error": str(e)}
-
 @event_handler("workflow:terminated")
 async def handle_workflow_terminated(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
@@ -113,7 +85,7 @@ async def handle_entity_deleted(data: Dict[str, Any], context: Optional[Dict[str
     This is a catch-all for any missed termination events.
     
     Parameters:
-        type: Entity type ("agent", "orchestration", etc.)
+        type: Entity type ("agent", "workflow", etc.)
         id: Entity ID
     """
     entity_type = data.get("type")
@@ -123,7 +95,7 @@ async def handle_entity_deleted(data: Dict[str, Any], context: Optional[Dict[str
         return {"status": "ignored", "reason": "Missing entity type or id"}
     
     # Only handle types we care about
-    if entity_type not in ["agent", "orchestration", "workflow"]:
+    if entity_type not in ["agent", "workflow"]:
         return {"status": "ignored", "reason": f"Entity type {entity_type} not tracked for routing"}
     
     # Get routing service

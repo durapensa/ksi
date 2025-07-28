@@ -77,15 +77,8 @@ async def extract_and_emit_ksi_tool_use_events(
             
             # Add context metadata
             if context:
-                for key in ['_orchestration_id', 'orchestration_id']:
-                    if key in context:
-                        event_data['_orchestration_id'] = context[key]
-                        break
-                
-                for key in ['_orchestration_depth', 'orchestration_depth']:
-                    if key in context:
-                        event_data['_orchestration_depth'] = context[key]
-                        break
+                # Add other context metadata that might be relevant for event routing
+                pass
                 
                 event_data.setdefault('_context', {}).update(context)
             

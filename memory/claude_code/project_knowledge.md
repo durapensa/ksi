@@ -1,6 +1,6 @@
 # KSI Project Knowledge for Claude Code
 
-Essential technical reference for developing with KSI (Knowledge System Infrastructure) - an event-driven orchestration system for autonomous AI agents.
+Essential technical reference for developing with KSI (Knowledge System Infrastructure) - an event-driven system for autonomous AI agents with dynamic routing architecture.
 
 ## Core Architecture
 
@@ -12,16 +12,40 @@ Essential technical reference for developing with KSI (Knowledge System Infrastr
 
 ### Component System (Unified 2025)
 - **Everything is a component**: Single model with `component_type` attribute
-- **Types**: `core`, `persona`, `behavior`, `orchestration`, `evaluation`, `tool`
+- **Types**: `core`, `persona`, `behavior`, `workflow`, `evaluation`, `tool`
 - **Graph-based**: Entities form directed graphs with event routing
 - **Universal spawn**: Component type determines what gets created
 
-### Orchestration System
-- **Agents are autonomous**: Receive composition and optional prompt, then self-coordinate
-- **No hardcoded strategies**: System delivers messages, agents decide coordination
+### Dynamic Routing Architecture (2025) ✅ PRODUCTION
+- **Orchestration system deprecated**: Completely removed (July 2025) - NO backward compatibility
+- **Two-layer architecture**: Agents control routing, Infrastructure (transformers + foreach) executes
+- **Runtime routing control**: Agents create/modify/delete routing rules via `routing:*` events
+- **Foreach transformers**: Multi-target emission replaces static orchestration patterns
+- **Parent-scoped rules**: Automatic cleanup when parent entities (agents/workflows) terminate
 - **Hierarchical routing**: Events bubble up based on subscription levels (0, 1, N, -1)
-- **Claude Code as orchestrator**: Set `orchestrator_agent_id: "claude-code"` for feedback
-- **Dynamic Routing Architecture**: See `/docs/DYNAMIC_ROUTING_ARCHITECTURE.md` for infrastructure-based dynamic routing (Stages 1.1-1.7 complete)
+- **Full implementation**: See `/docs/DYNAMIC_ROUTING_ARCHITECTURE.md` for complete technical details
+
+### Orchestration System Migration (2025-07-28) ✅ COMPLETED
+**BREAKING CHANGE - NO BACKWARD COMPATIBILITY**
+
+Technical changes implemented:
+- **Service removed**: Deleted `ksi_daemon/orchestration/` directory entirely
+- **Event handlers removed**: No `orchestration:*` events handled by services anymore
+- **References cleaned**: Updated agent, completion, routing services to remove orchestration imports
+- **Component types updated**: `orchestration` → `workflow` in all metadata
+- **Discovery updated**: `orchestration` namespace no longer exists (confirmed 33 namespaces)
+
+Migration path for users:
+```bash
+# OLD: Static orchestration (no longer supported)
+# orchestration YAML files are ignored
+
+# NEW: Dynamic workflows via routing
+ksi send workflow:create --workflow_id "my_workflow" \
+  --agents '[{"id": "coordinator", "component": "components/patterns/workflow_coordinator"}]'
+
+# Coordinator agent uses routing:add_rule to create dynamic routing
+```
 
 ## Critical Principles
 
@@ -102,7 +126,7 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 ## Key Systems
 
 ### Discovery System
-- **Namespace-based**: `system`, `agent`, `orchestration`, `composition`, etc.
+- **Namespace-based**: `system`, `agent`, `routing`, `workflow`, `composition`, `state`, etc.
 - **Dynamic CLI**: Parameters discovered from handlers, not hardcoded
 - **Caching**: SQLite cache for expensive TypedDict analysis
 - **UX Enhancement**: Automatic namespace level when filtering by namespace
@@ -114,7 +138,7 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 - **Fixed components**: `daemon_control.py`, `ksi_client/`, `ksi_common/config.py`
 
 ### State Management
-- **Entity system**: Agents, orchestrations tracked as entities
+- **Entity system**: Agents, workflows, routing rules tracked as entities
 - **Hierarchical**: Parent-child relationships preserved
 - **Query patterns**: `state:entity:get --type agent --id agent_123`
 
@@ -190,16 +214,16 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 - Basic behavioral components (claude_code_override, json_emission)
 - Compositional pattern proven
 
-### Phase 2: Single Agent Optimization (Current)
+### Phase 2: Dynamic Routing Implementation ✅ COMPLETED
 - Build evaluation test suites
-- Create component improver agent
-- Test on single component
-- No orchestrations yet
+- Implement foreach transformers for multi-target emission
+- Create parent-scoped routing with auto-cleanup
+- Complete orchestration system deprecation
 
-### Phase 3: Scale to Orchestrations
-- Three-layer pattern (analysis → translation → execution)
-- Multiple agents coordinating
-- Tool integration (MIPRO/DSPy)
+### Phase 3: Emergent Coordination (Current)
+- Agent-driven optimization patterns
+- Dynamic workflow creation using routing rules
+- Meta-coordination and pattern discovery
 
 ## Key Insights
 
@@ -211,7 +235,7 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 6. **Dynamic routing enables emergence** - Agents can discover optimal coordination patterns
 7. **Infrastructure as substrate** - Two-layer architecture (agents + transformers) replaces three-layer
 8. **Introspection is key** - Visibility into routing decisions enables debugging and learning
-9. **Foreach transformers unlock orchestration replacement** - Multi-target emission enables workflow patterns
+9. **Orchestration system completely replaced** - Foreach transformers + dynamic routing handle all coordination patterns
 
 ---
 

@@ -83,7 +83,7 @@ async def check_routing_capability(agent_id: str, context: Optional[Dict[str, An
 # Type definitions for routing structures
 class ParentScope(TypedDict):
     """Parent entity scope for auto-cleanup."""
-    type: str  # "agent", "orchestration", or "workflow"
+    type: str  # "agent" or "workflow"
     id: str    # Parent entity ID
 
 class RoutingRule(TypedDict):
@@ -105,7 +105,7 @@ class RoutingPermission:
     NONE = 0  # No routing control
     SELF = 1  # Can modify own routes only
     CHILDREN = 2  # Can modify children's routes
-    ORCHESTRATION = 3  # Can modify orchestration routes
+    WORKFLOW = 3  # Can modify workflow routes
     GLOBAL = 4  # Can modify any routes (admin)
 
 # Import routing service accessor
@@ -128,7 +128,7 @@ async def handle_add_rule(data: Dict[str, Any], context: Optional[Dict[str, Any]
         mapping: Optional data transformation mapping
         priority: Rule priority (higher number = higher priority)
         ttl: Optional time-to-live in seconds
-        parent_scope: Optional parent entity scope {"type": "agent|orchestration|workflow", "id": "parent_id"}
+        parent_scope: Optional parent entity scope {"type": "agent|workflow", "id": "parent_id"}
         metadata: Optional metadata about the rule
     
     Required capability: routing_control
@@ -203,14 +203,14 @@ async def handle_add_rule(data: Dict[str, Any], context: Optional[Dict[str, Any]
         if not isinstance(parent_scope, dict) or not parent_scope.get("type") or not parent_scope.get("id"):
             return error_response(
                 error="Invalid parent_scope format",
-                details={"expected": {"type": "agent|orchestration|workflow", "id": "parent_id"}}
+                details={"expected": {"type": "agent|workflow", "id": "parent_id"}}
             )
         
         # Validate parent_scope type
-        if parent_scope["type"] not in ["agent", "orchestration", "workflow"]:
+        if parent_scope["type"] not in ["agent", "workflow"]:
             return error_response(
                 error="Invalid parent_scope type",
-                details={"valid_types": ["agent", "orchestration", "workflow"]}
+                details={"valid_types": ["agent", "workflow"]}
             )
     
     # Create rule
@@ -590,7 +590,7 @@ async def handle_spawn_with_routing(data: Dict[str, Any], context: Optional[Dict
         # Create parent-child routing rules
         parent_to_child = {
             "rule_id": f"{parent}_to_{agent_id}",
-            "source_pattern": f"orchestration:broadcast",
+            "source_pattern": f"workflow:broadcast",
             "source_agent": parent,
             "target_agent": agent_id,
             "priority": 200,

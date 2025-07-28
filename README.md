@@ -9,7 +9,7 @@
 
 ## Overview
 
-KSI is an open-source ecosystem where AI agents autonomously improve themselves and each other. Unlike traditional orchestration systems that control agent behavior, KSI provides infrastructure for agents to coordinate naturally through communication. Agents can optimize their own instructions, evaluate different strategies through tournaments, and even evolve the orchestration patterns they use to collaborate.
+KSI is an open-source ecosystem where AI agents autonomously improve themselves and each other. Unlike traditional systems that control agent behavior, KSI provides dynamic routing infrastructure for agents to coordinate naturally through communication. Agents can optimize their own instructions, evaluate different strategies through tournaments, and even evolve the coordination patterns they use to collaborate.
 
 ### What Makes KSI Different
 
@@ -31,12 +31,12 @@ agents:
 
 - 🧬 **Autonomous Self-Improvement** - Agents use optimization tools to enhance their own and others' instructions
 - 🤝 **Emergent Coordination** - No hard-coded strategies; agents coordinate through natural communication
-- 🔄 **Meta-Optimization** - Even the orchestration patterns can be improved by agents
+- 🔄 **Meta-Optimization** - Even the coordination patterns can be improved by agents
 - ⚡ **Event-Driven Core** - Everything happens through discoverable async events
 - 🎭 **Persona-First Design** - Agents are Claude adopting domain expertise, not programmed bots
 - 📊 **Live Ecosystem Visualization** - Watch agents collaborate and evolve in real-time
 - 🛡️ **Production Resilience** - Checkpoint/restore, graceful shutdown, session continuity
-- 🧩 **Component Evolution** - Fork, modify, and improve any component including orchestrations
+- 🧩 **Component Evolution** - Fork, modify, and improve any component including workflows
 - 🌐 **Collaborative Development** - Git-based component sharing and versioning
 
 ## Installation

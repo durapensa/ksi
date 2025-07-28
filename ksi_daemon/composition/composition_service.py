@@ -543,7 +543,7 @@ async def handle_update_composition(data: CompositionUpdateData, context: Option
 
 class CompositionDiscoverData(TypedDict):
     """Discover compositions with filters and limits."""
-    type: NotRequired[Literal['all', 'profile', 'prompt', 'orchestration', 'evaluation', 'component']]  # Filter by type
+    type: NotRequired[Literal['all', 'profile', 'prompt', 'evaluation', 'component']]  # Filter by type
     name: NotRequired[str]  # Filter by name (supports partial matching)
     capabilities: NotRequired[List[str]]  # Filter by capabilities
     tags: NotRequired[List[str]]  # Filter by tags
@@ -610,7 +610,7 @@ async def handle_discover(data: CompositionDiscoverData, context: Optional[Dict[
 
 class CompositionListData(TypedDict):
     """List compositions with filters."""
-    type: NotRequired[Literal['all', 'profile', 'prompt', 'orchestration', 'evaluation', 'component']]  # Filter by type
+    type: NotRequired[Literal['all', 'profile', 'prompt', 'evaluation', 'component']]  # Filter by type
     include_validation: NotRequired[bool]  # Include validation status
     metadata_filter: NotRequired[Dict[str, Any]]  # Filter by metadata
     evaluation_detail: NotRequired[Literal['none', 'minimal', 'summary', 'detailed']]  # Evaluation detail level
@@ -671,7 +671,7 @@ async def handle_list(data: CompositionListData, context: Optional[Dict[str, Any
 async def load_composition_raw(name: str, comp_type: Optional[str] = None) -> Dict[str, Any]:
     """Load raw composition YAML data preserving all sections."""
     # Use shared utility to resolve path based on type
-    composition_path = resolve_composition_path(name, comp_type or 'orchestration')
+    composition_path = resolve_composition_path(name, comp_type or 'component')
     
     if not composition_path:
         raise FileNotFoundError(f"Composition not found: {name}")
@@ -679,8 +679,8 @@ async def load_composition_raw(name: str, comp_type: Optional[str] = None) -> Di
     # Load using shared component loader
     metadata, content = load_component_file(composition_path)
     
-    # For orchestrations and other YAML-content types that have content, parse content as YAML
-    if content and comp_type in ['orchestration', 'evaluation', 'workflow']:
+    # For YAML-content types that have content, parse content as YAML
+    if content and comp_type in ['evaluation', 'workflow']:
         try:
             # Parse the content as YAML
             content_data = safe_load(content) if content.strip() else {}
@@ -2745,7 +2745,7 @@ class ComponentGenerateOrchestrationData(TypedDict):
     _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
-@event_handler("composition:generate_orchestration")
+# Removed: composition:generate_orchestration handler (orchestration system deprecated)
 async def handle_generate_orchestration(data: ComponentGenerateOrchestrationData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Generate an orchestration pattern from a component."""
     # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata

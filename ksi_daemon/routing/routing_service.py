@@ -166,7 +166,7 @@ class RoutingService:
         Clean up all routing rules associated with a parent entity.
         
         Args:
-            parent_type: Type of parent entity ("agent", "orchestration", "workflow")
+            parent_type: Type of parent entity ("agent", "workflow")
             parent_id: ID of the parent entity
             
         Returns:

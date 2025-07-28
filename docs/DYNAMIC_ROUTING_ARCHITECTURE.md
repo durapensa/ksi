@@ -1106,7 +1106,137 @@ class DynamicAnalysisOrchestration:
 - ✅ **Stage 2.1**: Add parent-scoped routing rules with auto-cleanup (COMPLETED)
 - ✅ **Stage 2.2**: Create coordination pattern components (COMPLETED)
 - ✅ **Stage 2.3**: Build orchestration → component migration tools (COMPLETED)
-- **Stage 2.4**: Deprecate orchestration system entirely (NEXT)
+- ✅ **Stage 2.4**: Deprecate orchestration system entirely (COMPLETED 2025-07-28)
+
+## Stage 2.4: Complete Orchestration System Deprecation ✅ COMPLETED (2025-07-28)
+
+### Objective
+**BREAKING CHANGE**: Completely remove the orchestration system from KSI with no backward compatibility, replacing it entirely with dynamic routing architecture.
+
+### Implementation ✅ COMPLETED
+
+**All Orchestration Code Removed**:
+
+1. **Service Removal**:
+   - Removed `ksi_daemon/orchestration/` directory entirely
+   - Removed orchestration service from `daemon_core.py`
+   - Removed all orchestration transformers from `var/lib/transformers/services/`
+
+2. **Event Handler Cleanup**:
+   - Removed orchestration event handlers completely
+   - Updated parent cleanup handlers to only support agents and workflows
+   - Removed orchestration references from routing events
+
+3. **Import and Reference Cleanup**:
+   - Cleaned up orchestration imports in agent service
+   - Removed orchestration context tracking from completion service
+   - Updated composition service to remove orchestration types
+   - Removed orchestration metadata from agent spawn process
+
+4. **Documentation Updates**:
+   - Updated `CLAUDE.md` to reflect dynamic routing architecture
+   - Removed orchestration references from development guidelines
+   - Updated component organization to use workflows instead
+
+### Validation Results ✅
+
+**Comprehensive System Testing Confirmed**:
+- **Agent system**: ✅ Working correctly
+- **Discovery system**: ✅ 33 namespaces, orchestration completely removed
+- **State system**: ✅ Working correctly  
+- **Routing system**: ✅ Working correctly
+- **Workflow system**: ✅ Working with foreach transformers
+- **Monitor system**: ✅ Active and working
+
+**Breaking Change Impact**:
+- ❌ `orchestration:*` events no longer handled by services
+- ❌ Orchestration YAML files no longer supported
+- ❌ Static orchestration patterns no longer available
+- ✅ All functionality replaced by dynamic routing + workflow components
+
+### Migration Path for Users
+
+**From Static Orchestrations**:
+```yaml
+# OLD: Static orchestration (no longer supported)
+name: analysis_workflow
+agents:
+  coordinator: { component: coordinator }
+  analyzer: { component: analyzer }
+routing:
+  - from: coordinator
+    to: analyzer
+    pattern: "task:assign"
+```
+
+**To Dynamic Workflows**:
+```bash
+# NEW: Dynamic routing with workflow components
+ksi send workflow:create --workflow_id "analysis" \
+  --agents '[
+    {"id": "coordinator", "component": "components/patterns/workflow_coordinator"},
+    {"id": "analyzer", "component": "components/personas/data_analyst"}
+  ]'
+
+# Coordinator agent dynamically creates routing
+# Using routing:add_rule events with parent-scoped cleanup
+```
+
+### System Architecture Changes
+
+**Before (3-Layer)**:
+```
+Orchestrations (Static YAML) → Controls coordination
+         ↓
+Agents (LLM Intelligence) → Execute tasks
+         ↓  
+Infrastructure (Transformers) → Execute routing
+```
+
+**After (2-Layer Dynamic)**:
+```
+Agents (Intelligence + Routing Control) → Create and modify routing
+         ↓ ↑
+Infrastructure (Smart Transformers + Foreach) → Execute and adapt
+```
+
+### Technical Benefits Achieved
+
+1. **Simplified Architecture**: Removed entire orchestration service layer
+2. **Runtime Adaptability**: Agents control routing in real-time
+3. **Memory Efficiency**: No static orchestration loading or parsing
+4. **Performance**: Direct agent-to-transformer communication
+5. **Emergent Behavior**: Agents discover optimal coordination patterns
+
+### Validation Testing Summary
+
+```bash
+# Core functionality test results
+✅ Agent spawn: created
+✅ Discovery namespaces: 33 (orchestration removed)
+✅ State creation: success  
+✅ Routing rule creation: created
+✅ Workflow creation: transformed (3 transformers)
+✅ Monitor active: true
+
+# System health confirmed: ALL SYSTEMS OPERATIONAL
+```
+
+### Key Achievement: Two-Layer Architecture Realized
+
+The vision from the original proposal has been fully implemented:
+- **Agents** now have routing control capability and can modify infrastructure rules
+- **Infrastructure** (transformers with foreach capability) execute routing decisions
+- **No orchestration layer** - completely eliminated
+- **Dynamic adaptation** - agents create and modify routing at runtime
+
+### Next Steps
+
+With orchestration system deprecated, future development focuses on:
+1. **Agent-Driven Optimization**: Agents optimizing their own coordination patterns
+2. **Emergent Hierarchies**: Agents negotiating and forming optimal structures
+3. **Pattern Discovery**: System learning better coordination strategies over time
+4. **Meta-Coordination**: Agents that optimize coordination patterns themselves
 
 ### Key Architectural Achievements
 
