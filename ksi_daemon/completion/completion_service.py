@@ -421,6 +421,29 @@ async def handle_async_completion(data: CompletionAsyncData, context: Optional[D
     agent_id = data.get("agent_id")
     requested_session_id = data.get("session_id")
     
+    # Validate agent exists if agent_id provided
+    if agent_id:
+        try:
+            # Query agent:info to validate agent exists
+            if event_emitter:
+                agent_info_result = await event_emitter("agent:info", {
+                    "agent_id": agent_id
+                })
+                # agent:info returns a list with response dict as first element
+                if not agent_info_result or (isinstance(agent_info_result, list) and len(agent_info_result) > 0 and agent_info_result[0].get("status") == "failed"):
+                    return error_response(
+                        f"Agent {agent_id} not found",
+                        context=context
+                    )
+            else:
+                logger.warning("No event emitter available for agent validation")
+        except Exception as e:
+            # agent:info throws KeyError when agent doesn't exist
+            return error_response(
+                f"Agent {agent_id} not found",
+                context=context
+            )
+    
     if requested_session_id:
         # Explicit session_id provided - use it
         session_id = requested_session_id
