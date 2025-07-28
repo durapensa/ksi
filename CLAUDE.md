@@ -24,16 +24,9 @@ This document serves as your primary instructions for KSI development. For techn
 ## Current Development Priority (2025-01-28)
 
 **COMPLETED**: Dynamic Routing Architecture Implementation ✅
-- **Foundation**: Agents control event routing at runtime instead of static orchestrations
-- **Progress**: Stages 1.1-1.7 complete (full infrastructure with introspection)
-- **Status**: Production ready with operational guide
-- **Goal**: Replace static orchestrations with infrastructure-based dynamic routing
-- **See**: `/docs/DYNAMIC_ROUTING_ARCHITECTURE.md` for architecture and operational guide
-
-**Key Achievement**: Two-layer architecture realized
-- Agents with `routing_control` capability modify infrastructure rules
-- Full introspection visibility into routing decisions
-- No static orchestration layer needed
+- **Status**: Production ready - agents can control routing at runtime
+- **Details**: See `memory/claude_code/project_knowledge.md` → Dynamic Routing System
+- **Guide**: See `/docs/DYNAMIC_ROUTING_ARCHITECTURE.md` for operational guide
 
 **Previous**: Agent-Driven Optimization via Orchestration Patterns
 - **Foundation**: Direct JSON emission by agents proven impossible ❌
@@ -476,37 +469,10 @@ ksi send composition:rebuild_index --include-git-metadata
 ### Dynamic Routing Workflow
 
 **When** implementing agent coordination:
-- **Then** use dynamic routing instead of static orchestrations
+- **Then** use dynamic routing instead of static orchestrations  
 - **Then** grant agents `routing_control` capability
-- **Then** let agents create/modify routes at runtime
-- **Then** use introspection to debug routing decisions
-
-**Example workflow**:
-```bash
-# 1. Spawn agent with routing capability
-ksi send agent:spawn --agent-id "coordinator" \
-  --component "components/core/coordinator" \
-  --profile "orchestrator"  # includes routing_control
-
-# 2. Agent creates dynamic routes
-# In agent code:
-{"event": "routing:add_rule", "data": {
-    "rule_id": "my_workflow_step1",
-    "source_pattern": "analysis:request",
-    "target": "worker:pool",
-    "priority": 500
-}}
-
-# 3. Monitor routing decisions
-ksi send introspection:routing_decisions --limit 10
-
-# 4. Analyze routing impact
-ksi send introspection:routing_impact \
-  --rule_id "my_workflow_step1" \
-  --event_patterns '["analysis:*"]'
-```
-
-**See**: `/docs/DYNAMIC_ROUTING_ARCHITECTURE.md` → Operational Guide for complete patterns
+- **Then** see `/docs/DYNAMIC_ROUTING_QUICKSTART.md` for examples
+- **Then** see `/docs/DYNAMIC_ROUTING_ARCHITECTURE.md` → Operational Guide for patterns
 
 ### Module Interdependence (Intentional Design)
 **When** working with agents and orchestrations:
