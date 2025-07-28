@@ -38,6 +38,7 @@ class RoutingStateAdapter:
                 "mapping": rule.get("mapping"),
                 "priority": rule.get("priority", 100),
                 "ttl": rule.get("ttl"),
+                "parent_scope": rule.get("parent_scope"),  # Add parent_scope
                 "created_by": rule["created_by"],
                 "created_at": rule["created_at"],
                 "metadata": rule.get("metadata"),
@@ -93,6 +94,8 @@ class RoutingStateAdapter:
         if "ttl" in updates:
             property_updates["ttl"] = updates["ttl"]
             property_updates["expires_at"] = self._calculate_expiry(updates["ttl"]) if updates["ttl"] else None
+        if "parent_scope" in updates:
+            property_updates["parent_scope"] = updates["parent_scope"]
         
         # Update in state system
         result = await self.router.emit("state:entity:update", {
@@ -196,6 +199,7 @@ class RoutingStateAdapter:
             "mapping": props.get("mapping"),
             "priority": props.get("priority", 100),
             "ttl": props.get("ttl"),
+            "parent_scope": props.get("parent_scope"),  # Include parent_scope
             "created_by": props.get("created_by"),
             "created_at": props.get("created_at"),
             "metadata": props.get("metadata")

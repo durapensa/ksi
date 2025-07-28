@@ -45,6 +45,9 @@ class RoutingService:
         self.routing_rules: Dict[str, Dict[str, Any]] = {}
         self.rule_timers: Dict[str, asyncio.Task] = {}  # For TTL management
         
+        # Parent scope tracking
+        self.parent_rules: Dict[str, List[str]] = {}  # parent_key -> [rule_ids]
+        
         # Subscription tracking
         self.agent_subscriptions: Dict[str, Dict[str, Any]] = {}
         
@@ -110,6 +113,13 @@ class RoutingService:
             for rule in rules:
                 self.routing_rules[rule["rule_id"]] = rule
                 
+                # Rebuild parent tracking
+                if rule.get("parent_scope"):
+                    parent_key = self._get_parent_key(rule["parent_scope"])
+                    if parent_key not in self.parent_rules:
+                        self.parent_rules[parent_key] = []
+                    self.parent_rules[parent_key].append(rule["rule_id"])
+                
                 # Apply transformer for this rule
                 if await self.transformer_bridge.apply_routing_rule(rule):
                     logger.debug(f"Re-applied transformer for rule {rule['rule_id']}")
@@ -146,6 +156,53 @@ class RoutingService:
                 break
             except Exception as e:
                 logger.error("Error in TTL management", error=str(e))
+    
+    def _get_parent_key(self, parent_scope: Dict[str, Any]) -> str:
+        """Generate a unique key for parent scope tracking."""
+        return f"{parent_scope['type']}:{parent_scope['id']}"
+    
+    async def cleanup_parent_rules(self, parent_type: str, parent_id: str) -> int:
+        """
+        Clean up all routing rules associated with a parent entity.
+        
+        Args:
+            parent_type: Type of parent entity ("agent", "orchestration", "workflow")
+            parent_id: ID of the parent entity
+            
+        Returns:
+            Number of rules cleaned up
+        """
+        parent_key = f"{parent_type}:{parent_id}"
+        rule_ids = self.parent_rules.get(parent_key, [])
+        
+        if not rule_ids:
+            logger.debug(f"No rules found for parent {parent_key}")
+            return 0
+        
+        logger.info(f"Cleaning up rules for parent {parent_key}", count=len(rule_ids))
+        
+        # Remove each rule
+        for rule_id in rule_ids:
+            await self._remove_rule(rule_id, reason=f"Parent {parent_type} {parent_id} terminated")
+        
+        # Clear parent tracking
+        del self.parent_rules[parent_key]
+        
+        # Audit the cleanup
+        audit = get_audit_trail()
+        if audit:
+            audit.log_event(
+                event_type="parent_cleanup",
+                details={
+                    "parent_type": parent_type,
+                    "parent_id": parent_id,
+                    "rules_cleaned": len(rule_ids),
+                    "rule_ids": rule_ids
+                },
+                actor="system"
+            )
+        
+        return len(rule_ids)
     
     async def add_routing_rule(self, rule: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -191,6 +248,13 @@ class RoutingService:
         # Update cache
         self.routing_rules[rule_id] = rule
         self.metrics["rules_created"] += 1
+        
+        # Track parent scope if present
+        if rule.get("parent_scope"):
+            parent_key = self._get_parent_key(rule["parent_scope"])
+            if parent_key not in self.parent_rules:
+                self.parent_rules[parent_key] = []
+            self.parent_rules[parent_key].append(rule_id)
         
         # Register with transformer system
         success = await self.transformer_bridge.apply_routing_rule(rule)
@@ -260,9 +324,32 @@ class RoutingService:
         
         # Update cache
         rule = self.routing_rules[rule_id]
+        old_parent_scope = rule.get("parent_scope")
+        
         for key, value in updates.items():
             if key not in ["rule_id", "created_by", "created_at"]:
                 rule[key] = value
+        
+        # Update parent tracking if parent_scope changed
+        new_parent_scope = rule.get("parent_scope")
+        if old_parent_scope != new_parent_scope:
+            # Remove from old parent tracking
+            if old_parent_scope:
+                old_parent_key = self._get_parent_key(old_parent_scope)
+                if old_parent_key in self.parent_rules:
+                    try:
+                        self.parent_rules[old_parent_key].remove(rule_id)
+                        if not self.parent_rules[old_parent_key]:
+                            del self.parent_rules[old_parent_key]
+                    except ValueError:
+                        pass
+            
+            # Add to new parent tracking
+            if new_parent_scope:
+                new_parent_key = self._get_parent_key(new_parent_scope)
+                if new_parent_key not in self.parent_rules:
+                    self.parent_rules[new_parent_key] = []
+                self.parent_rules[new_parent_key].append(rule_id)
         
         self.metrics["rules_modified"] += 1
         
@@ -312,6 +399,19 @@ class RoutingService:
         # Remove from cache
         if rule_id in self.routing_rules:
             self.routing_rules.pop(rule_id)
+        
+        # Clean up parent tracking if present
+        if rule and rule.get("parent_scope"):
+            parent_key = self._get_parent_key(rule["parent_scope"])
+            if parent_key in self.parent_rules:
+                try:
+                    self.parent_rules[parent_key].remove(rule_id)
+                    # If no more rules for this parent, remove the parent key
+                    if not self.parent_rules[parent_key]:
+                        del self.parent_rules[parent_key]
+                except ValueError:
+                    # Rule not in list, ignore
+                    pass
         
         self.metrics["rules_deleted"] += 1
         

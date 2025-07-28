@@ -1103,8 +1103,8 @@ class DynamicAnalysisOrchestration:
 
 ### Future Work 📋
 - ✅ **Stage 2.0**: Implement `foreach` transformers for multi-target emission (COMPLETED)
-- **Stage 2.1**: Add parent-scoped routing rules with auto-cleanup (NEXT)
-- **Stage 2.2**: Create coordination pattern components  
+- ✅ **Stage 2.1**: Add parent-scoped routing rules with auto-cleanup (COMPLETED)
+- **Stage 2.2**: Create coordination pattern components (NEXT)
 - **Stage 2.3**: Build orchestration → component migration tools
 - **Stage 2.4**: Deprecate orchestration system entirely
 
@@ -1331,6 +1331,65 @@ Created in `var/lib/transformers/system/workflow_transformers.yaml`:
 4. **workflow_parallel_execute**: Executes multiple operations in parallel
 
 All transformers tested and working with foreach functionality.
+
+## Stage 2.1: Parent-Scoped Routing Rules ✅ COMPLETED (2025-01-28)
+
+### Objective
+Enable routing rules to be automatically cleaned up when their parent entity (agent, orchestration, or workflow) is terminated.
+
+### Implementation ✅ COMPLETED
+
+**Key Features**:
+1. **Parent Scope Schema**: Rules can specify `parent_scope: {type: "agent|orchestration|workflow", id: "parent_id"}`
+2. **Automatic Tracking**: Parent-child relationships tracked in routing service
+3. **Event-Driven Cleanup**: Handlers listen for termination events and clean up associated rules
+4. **State Persistence**: Parent scope stored and restored across daemon restarts
+
+**Technical Details**:
+- Updated `RoutingRule` TypedDict to include optional `parent_scope` field
+- Added parent tracking map in `RoutingService`: `parent_rules: Dict[str, List[str]]`
+- Created `parent_cleanup_handlers.py` with event handlers for entity termination
+- Modified state adapter to persist and restore parent_scope correctly
+
+**Event Handlers Added**:
+- `agent:terminated` → Cleans up agent-scoped rules
+- `orchestration:terminated` → Cleans up orchestration-scoped rules
+- `workflow:terminated` → Cleans up workflow-scoped rules
+- `state:entity:deleted` → Catch-all for missed termination events
+
+### Usage Example
+
+```python
+# Create rule scoped to an agent
+{"event": "routing:add_rule", "data": {
+    "rule_id": "agent_task_route",
+    "source_pattern": "task:incoming",
+    "target": "processor:available",
+    "parent_scope": {
+        "type": "agent",
+        "id": "coordinator_123"
+    }
+}}
+
+# When agent is terminated, rule is automatically deleted
+{"event": "agent:terminate", "data": {"agent_id": "coordinator_123"}}
+# → All rules with parent_scope.id = "coordinator_123" are removed
+```
+
+### Benefits
+
+1. **No Orphaned Rules**: Rules automatically cleaned up with their parents
+2. **Simplified Lifecycle**: No manual cleanup needed
+3. **Workflow Integrity**: Entire workflow routing cleaned up on termination
+4. **Memory Efficiency**: Prevents rule accumulation over time
+
+### Testing Results
+
+✅ Parent-scoped rules can be created with agents, orchestrations, and workflows
+✅ Rules are automatically removed when parent entities are terminated
+✅ Multiple rules can share the same parent scope
+✅ Parent scope can be modified via rule updates
+✅ State persistence maintains parent relationships across restarts
 
 ## Conclusion
 

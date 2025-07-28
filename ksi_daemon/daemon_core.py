@@ -211,6 +211,7 @@ class EventDaemonCore:
         # Routing modules (dynamic routing control)
         import ksi_daemon.routing.routing_service
         import ksi_daemon.routing.routing_events
+        import ksi_daemon.routing.parent_cleanup_handlers
         
         logger.info("All modules imported and auto-registered")
     

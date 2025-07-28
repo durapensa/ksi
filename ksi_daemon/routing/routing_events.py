@@ -81,6 +81,11 @@ async def check_routing_capability(agent_id: str, context: Optional[Dict[str, An
         )
 
 # Type definitions for routing structures
+class ParentScope(TypedDict):
+    """Parent entity scope for auto-cleanup."""
+    type: str  # "agent", "orchestration", or "workflow"
+    id: str    # Parent entity ID
+
 class RoutingRule(TypedDict):
     """Structure of a routing rule."""
     rule_id: str
@@ -90,6 +95,7 @@ class RoutingRule(TypedDict):
     mapping: Optional[Dict[str, Any]]
     priority: int
     ttl: Optional[int]  # Time-to-live in seconds
+    parent_scope: Optional[ParentScope]  # Parent entity for auto-cleanup
     created_by: str
     created_at: str
     metadata: Optional[Dict[str, Any]]
@@ -122,6 +128,7 @@ async def handle_add_rule(data: Dict[str, Any], context: Optional[Dict[str, Any]
         mapping: Optional data transformation mapping
         priority: Rule priority (higher number = higher priority)
         ttl: Optional time-to-live in seconds
+        parent_scope: Optional parent entity scope {"type": "agent|orchestration|workflow", "id": "parent_id"}
         metadata: Optional metadata about the rule
     
     Required capability: routing_control
@@ -179,6 +186,33 @@ async def handle_add_rule(data: Dict[str, Any], context: Optional[Dict[str, Any]
             # Leave as string if not valid JSON
             pass
     
+    # Handle parent_scope if provided
+    parent_scope = data.get("parent_scope")
+    if parent_scope:
+        # Handle case where parent_scope might be a JSON string
+        if isinstance(parent_scope, str):
+            try:
+                parent_scope = json.loads(parent_scope)
+            except json.JSONDecodeError:
+                return error_response(
+                    error="Invalid parent_scope format - could not parse JSON",
+                    details={"parent_scope": parent_scope}
+                )
+        
+        # Validate parent_scope structure
+        if not isinstance(parent_scope, dict) or not parent_scope.get("type") or not parent_scope.get("id"):
+            return error_response(
+                error="Invalid parent_scope format",
+                details={"expected": {"type": "agent|orchestration|workflow", "id": "parent_id"}}
+            )
+        
+        # Validate parent_scope type
+        if parent_scope["type"] not in ["agent", "orchestration", "workflow"]:
+            return error_response(
+                error="Invalid parent_scope type",
+                details={"valid_types": ["agent", "orchestration", "workflow"]}
+            )
+    
     # Create rule
     rule = RoutingRule(
         rule_id=rule_id,
@@ -188,6 +222,7 @@ async def handle_add_rule(data: Dict[str, Any], context: Optional[Dict[str, Any]
         mapping=mapping,
         priority=priority,
         ttl=ttl,
+        parent_scope=parent_scope,
         created_by=agent_id,
         created_at=datetime.utcnow().isoformat(),
         metadata=data.get("metadata")
