@@ -666,12 +666,51 @@ Create routing state entity type in state system:
 - New rules create state entities ✅
 - Rule modifications update state ✅
 - Rule deletions remove from state ✅
+- Rules load on daemon startup ✅
+
+### Bug Fix (2025-07-28):
+Fixed routing state adapter field mapping issue:
+- **Problem**: State system returns `entities` array, adapter expected `data`
+- **Problem**: Entity has `entity_id` field, adapter expected `id`
+- **Solution**: Updated `list_rules()` and `_entity_to_rule()` methods
+- **Result**: Routing rules now properly load on daemon restart
 - TTL expiration queries work ✅
 
-### Known Issue:
-**Service Startup**: The routing service doesn't automatically load persisted rules on daemon restart. The `@service_startup` handler appears to not be invoked during daemon initialization. This needs investigation but doesn't block Stage 1.4 completion as the persistence mechanism itself works correctly.
+## Stage 1.5: Validation and Safety ✅ COMPLETE (2025-07-28)
 
-**Workaround**: Rules are loaded on-demand when first accessed through the routing service.
+### Objective
+Build routing rule validation and conflict detection to ensure system stability.
+
+### Implementation Details:
+1. **RoutingRuleValidator**: Created comprehensive validation class in `routing_validation.py`
+2. **Validation Types**:
+   - Required field checking (source_pattern, target, priority)
+   - Pattern syntax validation (alphanumeric, colons, wildcards)
+   - Priority range validation (0-10000)
+   - TTL validation (positive integers only)
+   - Condition expression safety checks
+3. **Conflict Detection**:
+   - **Exact match**: Same pattern and priority (high severity)
+   - **Redundant routing**: Overlapping patterns to same target (low severity)
+   - **Circular routing**: Detects potential infinite loops
+4. **Improvement Suggestions**:
+   - Warns about overly broad patterns (*)
+   - Suggests standard priority range (100-900)
+   - Alerts missing TTL on temporary rules
+
+### Integration:
+- Validation runs automatically on `routing:add_rule`
+- Validation runs automatically on `routing:modify_rule`
+- New event `routing:validate_rule` for pre-validation
+- High severity conflicts block rule creation
+
+### Testing Results:
+- Missing fields detected ✅
+- Invalid patterns rejected ✅
+- Double colons caught ✅
+- Conflicts identified correctly ✅
+- Circular routing detection functional ✅
+- JSON parsing handled for CLI compatibility ✅
 
 ## Conclusion
 

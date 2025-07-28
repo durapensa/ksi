@@ -29,6 +29,16 @@ class CapabilityEnforcer:
         else:
             self.resolver = get_capability_resolver()
             self.compositional = False
+            
+        # Load profile-to-tier mapping if using v2
+        self.profile_mapping = None
+        mapping_path = config.lib_dir / "capabilities" / "profile_tier_mapping.yaml"
+        if mapping_path.exists() and self.resolver.mapping_file.name == "capability_mappings_v2.yaml":
+            import yaml
+            with open(mapping_path) as f:
+                mapping_data = yaml.safe_load(f)
+                self.profile_mapping = mapping_data.get("profile_to_tier", {})
+                logger.info("Loaded profile-to-tier mapping for v2 capabilities")
         
     def validate_agent_spawn(self, profile_capabilities: Dict[str, bool], 
                            security_profile: Optional[str] = None) -> Dict[str, Any]:
@@ -57,8 +67,17 @@ class CapabilityEnforcer:
                 logger.info("No security profile provided, defaulting to communicator")
                 resolved = self.resolver.resolve_profile("communicator")
         else:
-            # Use legacy resolver
-            resolved = self.resolver.resolve_capabilities_for_profile(profile_capabilities)
+            # Check if we have v2 with profile mapping
+            if self.profile_mapping and security_profile in self.profile_mapping:
+                # Map legacy profile to v2 tier
+                tier_name = self.profile_mapping[security_profile]
+                logger.info(f"Mapping legacy profile {security_profile} to tier {tier_name}")
+                
+                # Use tier from v2 system
+                resolved = self.resolver.resolve_tier(tier_name)
+            else:
+                # Use legacy resolver
+                resolved = self.resolver.resolve_capabilities_for_profile(profile_capabilities)
         
         # Log security decision
         logger.info(

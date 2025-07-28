@@ -138,6 +138,69 @@ class CapabilityResolver:
             
         return event_cap in expanded
         
+    def resolve_tier(self, tier_name: str) -> Dict[str, Any]:
+        """
+        Resolve a v2 tier to concrete events and tools.
+        
+        Args:
+            tier_name: Name of the tier (e.g., 'communicator', 'executor')
+            
+        Returns:
+            Dict with allowed_events, allowed_claude_tools, expanded_capabilities
+        """
+        # Check if we have v2 tiers
+        tiers = self.mappings.get("tiers", {})
+        if tier_name not in tiers:
+            logger.warning(f"Unknown tier: {tier_name}")
+            # Return minimal permissions
+            return {
+                "allowed_events": ["system:health", "system:help", "system:discover"],
+                "allowed_claude_tools": [],
+                "expanded_capabilities": ["system_access"]
+            }
+            
+        tier = tiers[tier_name]
+        
+        # Build capability list from inheritance chain
+        all_capabilities = set()
+        current_tier = tier_name
+        
+        while current_tier:
+            tier_def = tiers.get(current_tier, {})
+            
+            # Add capabilities from this tier
+            all_capabilities.update(tier_def.get("capabilities", []))
+            all_capabilities.update(tier_def.get("additional_capabilities", []))
+            
+            # Move to parent tier
+            current_tier = tier_def.get("inherits")
+            
+        # Now resolve these capabilities to events
+        allowed_events = set()
+        for cap in all_capabilities:
+            cap_def = self.mappings.get("capabilities", {}).get(cap, {})
+            allowed_events.update(cap_def.get("events", []))
+            
+        # Resolve Claude tools (if defined in v2)
+        allowed_claude_tools = set()
+        # V2 doesn't define claude_tools directly, so we'll use a basic set
+        # based on the tier level
+        if tier_name in ["executor", "coordinator", "orchestrator", "administrator", "overseer"]:
+            # Higher tiers get more tools
+            allowed_claude_tools.update(["Task", "Bash", "Glob", "Grep", "LS", "Read", "Edit", "Write"])
+        elif tier_name in ["communicator"]:
+            # Mid-tier gets read-only tools
+            allowed_claude_tools.update(["Read", "LS", "Grep", "Glob"])
+        elif tier_name in ["observer"]:
+            # Low tier gets minimal tools
+            allowed_claude_tools.update(["Read", "LS"])
+            
+        return {
+            "allowed_events": sorted(allowed_events),
+            "allowed_claude_tools": sorted(allowed_claude_tools),
+            "expanded_capabilities": sorted(all_capabilities)
+        }
+        
     def get_security_profile(self, profile_name: str) -> Optional[Dict[str, Any]]:
         """Get a predefined security profile."""
         profiles = self.mappings.get("security_profiles", {})

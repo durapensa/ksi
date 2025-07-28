@@ -17,6 +17,7 @@ from ksi_common.service_lifecycle import service_startup
 from ksi_daemon.event_system import event_handler, get_router
 from .transformer_integration import RoutingTransformerBridge
 from .routing_state_adapter import RoutingStateAdapter
+from .routing_validation import create_validator
 
 logger = get_bound_logger("routing_service", version="1.0.0")
 
@@ -35,6 +36,9 @@ class RoutingService:
         
         # State adapter for persistence (Stage 1.4 implementation)
         self.state_adapter = RoutingStateAdapter()
+        
+        # Rule validation
+        self.validator = create_validator()
         
         # Routing rule storage (cache - state is source of truth)
         self.routing_rules: Dict[str, Dict[str, Any]] = {}
@@ -142,6 +146,22 @@ class RoutingService:
         """
         rule_id = rule["rule_id"]
         
+        # Validate the rule
+        is_valid, error_msg = self.validator.validate_rule(rule)
+        if not is_valid:
+            return {"status": "error", "error": f"Validation failed: {error_msg}"}
+        
+        # Check for conflicts with existing rules
+        conflicts = self.validator.detect_conflicts(rule, list(self.routing_rules.values()))
+        high_severity_conflicts = [c for c in conflicts if c["severity"] == "high"]
+        
+        if high_severity_conflicts:
+            return {
+                "status": "error", 
+                "error": "High severity conflicts detected",
+                "conflicts": high_severity_conflicts
+            }
+        
         # Store in state system first (source of truth)
         result = await self.state_adapter.create_rule(rule)
         
@@ -177,6 +197,29 @@ class RoutingService:
             if not rule:
                 return {"status": "error", "error": "Rule not found"}
             self.routing_rules[rule_id] = rule
+        
+        # Create a temporary updated rule for validation
+        updated_rule = self.routing_rules[rule_id].copy()
+        for key, value in updates.items():
+            if key not in ["rule_id", "created_by", "created_at"]:
+                updated_rule[key] = value
+        
+        # Validate the updated rule
+        is_valid, error_msg = self.validator.validate_rule(updated_rule)
+        if not is_valid:
+            return {"status": "error", "error": f"Validation failed: {error_msg}"}
+        
+        # Check for conflicts (excluding self)
+        other_rules = [r for r in self.routing_rules.values() if r["rule_id"] != rule_id]
+        conflicts = self.validator.detect_conflicts(updated_rule, other_rules)
+        high_severity_conflicts = [c for c in conflicts if c["severity"] == "high"]
+        
+        if high_severity_conflicts:
+            return {
+                "status": "error", 
+                "error": "High severity conflicts detected",
+                "conflicts": high_severity_conflicts
+            }
         
         # Update in state system (source of truth)
         result = await self.state_adapter.update_rule(rule_id, updates)
@@ -278,6 +321,67 @@ class RoutingService:
         # TODO: In Stage 1.2, update hierarchical routing transformers
         
         return {"status": "success", "agent_id": agent_id}
+    
+    async def query_routing_rules(self, filter_params: Optional[Dict[str, Any]] = None, 
+                                 limit: int = 100) -> Dict[str, Any]:
+        """Query routing rules with optional filtering."""
+        # Get all rules from cache
+        all_rules = list(self.routing_rules.values())
+        
+        # Apply filters if provided
+        filtered_rules = all_rules
+        if filter_params:
+            if "created_by" in filter_params:
+                filtered_rules = [r for r in filtered_rules 
+                                if r.get("created_by") == filter_params["created_by"]]
+            if "source_pattern" in filter_params:
+                pattern = filter_params["source_pattern"]
+                filtered_rules = [r for r in filtered_rules 
+                                if pattern in r.get("source_pattern", "")]
+            if "target" in filter_params:
+                filtered_rules = [r for r in filtered_rules 
+                                if r.get("target") == filter_params["target"]]
+        
+        # Apply limit
+        if limit and len(filtered_rules) > limit:
+            filtered_rules = filtered_rules[:limit]
+        
+        return {
+            "rules": filtered_rules,
+            "count": len(filtered_rules),
+            "total": len(self.routing_rules),
+            "status": "success"
+        }
+    
+    async def validate_routing_rule(self, rule: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Validate a routing rule without adding it.
+        
+        Returns validation results and suggestions.
+        """
+        # Basic validation
+        is_valid, error_msg = self.validator.validate_rule(rule)
+        
+        if not is_valid:
+            return {
+                "status": "invalid",
+                "error": error_msg,
+                "valid": False
+            }
+        
+        # Check for conflicts
+        conflicts = self.validator.detect_conflicts(rule, list(self.routing_rules.values()))
+        
+        # Get suggestions
+        suggestions = self.validator.suggest_improvements(rule, list(self.routing_rules.values()))
+        
+        return {
+            "status": "success",
+            "valid": True,
+            "conflicts": conflicts,
+            "suggestions": suggestions,
+            "warnings": [c for c in conflicts if c["severity"] == "low"]
+        }
     
     def collect_checkpoint_data(self) -> Dict[str, Any]:
         """Collect routing state for checkpointing."""

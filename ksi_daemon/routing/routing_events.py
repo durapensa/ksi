@@ -379,37 +379,55 @@ async def handle_query_rules(data: Dict[str, Any], context: Optional[Dict[str, A
             details={"service_status": "not_initialized"}
         )
     
-    # Filter rules from service
-    filtered_rules = []
-    for rule_id, rule in service.routing_rules.items():
-        # Apply filters
-        if filter_params.get("agent_scope"):
-            if rule["created_by"] != filter_params["agent_scope"]:
-                continue
-        
-        if filter_params.get("source_pattern"):
-            if not rule["source_pattern"].startswith(filter_params["source_pattern"]):
-                continue
-        
-        if filter_params.get("target"):
-            if rule["target"] != filter_params["target"]:
-                continue
-        
-        filtered_rules.append(rule)
+    # Query rules from the service
+    result = await service.query_routing_rules(filter_params, limit)
+    return event_response_builder(result, context)
+
+@event_handler("routing:validate_rule")
+async def handle_validate_rule(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Validate a routing rule without adding it.
     
-    # Sort by priority (descending)
-    filtered_rules.sort(key=lambda r: r["priority"], reverse=True)
+    Parameters:
+        rule: Complete routing rule to validate
     
-    # Apply limit
-    filtered_rules = filtered_rules[:limit]
+    Returns validation results and suggestions.
+    No special capability required for validation.
+    """
+    # Debug logging
+    logger.info(f"Validation handler received data: {data}, type: {type(data)}")
     
-    return success_response(
-        data={
-            "rules": filtered_rules,
-            "count": len(filtered_rules),
-            "total": len(service.routing_rules)
-        }
-    )
+    rule = data.get("rule")
+    logger.info(f"Rule parameter: {rule}, type: {type(rule)}")
+    
+    if not rule:
+        return error_response(
+            error="Missing required parameter: rule",
+            context=context
+        )
+    
+    # Handle case where rule might be a JSON string
+    if isinstance(rule, str):
+        try:
+            rule = json.loads(rule)
+        except json.JSONDecodeError:
+            return error_response(
+                error="Invalid rule format",
+                details={"rule": rule, "expected": "JSON object"},
+                context=context
+            )
+    
+    # Get routing service
+    service = get_routing_service()
+    if not service:
+        return error_response(
+            error="Routing service not available",
+            context=context
+        )
+    
+    # Validate the rule
+    result = await service.validate_routing_rule(rule)
+    return event_response_builder(result, context)
 
 @event_handler("routing:update_subscription")
 async def handle_update_subscription(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

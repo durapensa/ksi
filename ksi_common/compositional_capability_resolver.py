@@ -41,6 +41,15 @@ class CompositionalCapabilityResolver:
         self.system = self._load_system()
         self._build_indexes()
         
+        # Load legacy profile mappings
+        self.profile_mapping = {
+            # Legacy permission profiles to v3 capability profiles
+            "restricted": "observer",
+            "standard": "communicator", 
+            "trusted": "coordinator",
+            "researcher": "orchestrator"
+        }
+        
     def _load_system(self) -> Dict[str, Any]:
         """Load capability system from YAML."""
         try:
@@ -87,6 +96,12 @@ class CompositionalCapabilityResolver:
         - Dependency resolution
         - Event deduplication
         """
+        # Check if this is a legacy permission profile name
+        if profile_name in self.profile_mapping:
+            mapped_name = self.profile_mapping[profile_name]
+            logger.info(f"Mapping legacy profile {profile_name} to {mapped_name}")
+            profile_name = mapped_name
+            
         profiles = self.system.get("capability_profiles", {})
         profile = profiles.get(profile_name)
         

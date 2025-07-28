@@ -149,7 +149,7 @@ class RoutingStateAdapter:
         result = await self.router.emit("state:entity:query", query)
         
         if result and result[0].get("status") == "success":
-            entities = result[0].get("data", [])
+            entities = result[0].get("entities", [])  # Changed from 'data' to 'entities'
             rules = [self._entity_to_rule(entity) for entity in entities]
             # Filter out None values (expired rules)
             return [rule for rule in rules if rule is not None]
@@ -171,8 +171,8 @@ class RoutingStateAdapter:
         })
         
         if result and result[0].get("status") == "success":
-            entities = result[0].get("data", [])
-            return [entity["id"] for entity in entities]
+            entities = result[0].get("entities", [])  # Changed from 'data' to 'entities'
+            return [entity["entity_id"] for entity in entities]  # Changed 'id' to 'entity_id'
         return []
     
     def _entity_to_rule(self, entity: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -189,7 +189,7 @@ class RoutingStateAdapter:
                 return None  # Rule has expired
         
         return {
-            "rule_id": entity["id"],
+            "rule_id": entity["entity_id"],  # Changed from 'id' to 'entity_id'
             "source_pattern": props.get("source_pattern"),
             "target": props.get("target"),
             "condition": props.get("condition"),

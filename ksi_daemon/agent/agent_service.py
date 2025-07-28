@@ -842,6 +842,9 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
             context=context
         )
     
+    # Get permission profile from spawn request first (can override component)
+    requested_permission_profile = data.get("permission_profile", "standard")
+    
     # We always have component_data from manifest rendering
     if component_data:
         # Validate and resolve capabilities for agent spawn
@@ -855,8 +858,11 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
             # Legacy format: capabilities directly on component
             component_capabilities = component_data.get("capabilities", {})
         
+        # Use requested permission profile if provided, otherwise fall back to component's security_profile
+        effective_profile = requested_permission_profile if data.get("permission_profile") else security_profile
+        
         # Validate and resolve capabilities for agent spawn
-        resolved = enforcer.validate_agent_spawn(component_capabilities, security_profile)
+        resolved = enforcer.validate_agent_spawn(component_capabilities, effective_profile)
         allowed_events = resolved["allowed_events"]
         allowed_claude_tools = resolved["allowed_claude_tools"]
         expanded_capabilities = resolved["expanded_capabilities"]
@@ -885,7 +891,7 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
         agent_config.update(data["config"])
     
     # Set up permissions and sandbox
-    permission_profile = data.get("permission_profile", "standard")
+    permission_profile = requested_permission_profile
     sandbox_config = data.get("sandbox_config", {})
     sandbox_dir = None
     
