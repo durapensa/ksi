@@ -444,37 +444,21 @@ async def handle_async_completion(data: CompletionAsyncData, context: Optional[D
                 context=context
             )
     
-    if requested_session_id:
-        # Explicit session_id provided - use it
-        session_id = requested_session_id
-        logger.debug(f"Using explicit session_id {session_id} for agent {agent_id}")
-    elif agent_id:
-        # No explicit session - try to continue agent's current conversation
-        agent_session = conversation_tracker.get_agent_session(agent_id)
-        if agent_session:
-            session_id = agent_session
-            data["session_id"] = session_id  # Update the request data
-            logger.info(f"Automatic session continuity: agent {agent_id} continuing session {session_id}")
-        else:
-            # Agent has no current session - new conversation
-            session_id = None
-            data["session_id"] = None
-            logger.info(f"New conversation for agent {agent_id} (no current session)")
-    else:
-        # No agent_id - use provided session_id or None for new conversation
-        session_id = requested_session_id
-        logger.debug(f"No agent_id provided, using session_id {session_id}")
+    # CRITICAL: Don't resolve session at queue time - only explicit session_id is used
+    # Session resolution happens at processing time to avoid race conditions
+    session_id = requested_session_id  # Only use explicitly provided session_id
     
     logger.info(
         f"Received async completion request",
         request_id=request_id,
         session_id=session_id,
         agent_id=agent_id,
-        automatic_continuity=bool(agent_id and not requested_session_id and session_id),
+        explicit_session=bool(requested_session_id),
         model=data.get("model", config.completion_default_model)
     )
     
     # Track with conversation tracker for session continuity
+    # Note: session_id may be None here - that's OK, will be resolved at processing time
     conversation_tracker.track_request(request_id, agent_id, session_id)
     
     # Save recovery data
@@ -555,9 +539,40 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
         if request_id in active_completions:
             active_completions[request_id]["status"] = "processing"
             active_completions[request_id]["started_at"] = timestamp_utc()
+        
+        # CRITICAL: Resolve session_id at processing time (not queue time)
+        # This avoids race conditions when multiple requests are queued before first session exists
+        agent_id = data.get("agent_id")
+        requested_session_id = data.get("session_id")
+        
+        if requested_session_id:
+            # Explicit session_id provided - use it
+            session_id = requested_session_id
+            logger.debug(f"Using explicit session_id {session_id} for agent {agent_id}")
+        elif agent_id:
+            # No explicit session - try to continue agent's current conversation
+            agent_session = conversation_tracker.get_agent_session(agent_id)
+            if agent_session:
+                session_id = agent_session
+                data["session_id"] = session_id  # Update the request data
+                logger.info(f"Automatic session continuity: agent {agent_id} continuing session {session_id}")
+            else:
+                # Agent has no current session - new conversation
+                session_id = None
+                data["session_id"] = None
+                logger.info(f"New conversation for agent {agent_id} (no current session)")
+        else:
+            # No agent_id - use provided session_id or None for new conversation
+            session_id = requested_session_id
+            logger.debug(f"No agent_id provided, using session_id {session_id}")
+        
+        # Update tracking with resolved session
+        if request_id in active_completions:
+            active_completions[request_id]["session_id"] = session_id
+        
         # Acquire conversation lock for existing conversations (session_id != None)
         # New conversations (session_id == None) don't need locking
-        session_id_for_lock = data.get("session_id")
+        session_id_for_lock = session_id
         if session_id_for_lock:
             conversation_lock = data.get("conversation_lock", {})
             lock_timeout = conversation_lock.get("timeout", 300)

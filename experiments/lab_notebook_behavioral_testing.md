@@ -168,12 +168,39 @@ Kept clean implementations:
 
 **Key Insight**: Components stack based on agent capabilities and permissions. A basic agent might only need event emission, while an advanced orchestrator needs full DSL capabilities.
 
+### Phase 6: Behavioral Component Evaluation Framework
+
+#### Test Suites Created
+
+1. **ksi_tool_use_validation.md**
+   - Tests KSI tool use pattern compliance
+   - Validates format, ID uniqueness, parameter mapping
+   - Ensures reliable JSON extraction
+
+2. **dsl_interpreter_validation.md**
+   - Progressive testing for DSL interpreters
+   - Basic level: EVENT emission only
+   - Advanced level: STATE + control flow
+   - Tests match component capability levels
+
+3. **behavioral_composition_validation.md**
+   - Tests how behaviors combine through dependencies
+   - Validates override precedence
+   - Ensures compositional architecture works
+
+#### Key Testing Insights
+
+1. **Progressive Validation**: Test suites adapt to component capabilities
+2. **Composition Testing**: Validates behaviors work together, not just in isolation  
+3. **Format Compliance**: Strict validation of ksi_tool_use pattern
+4. **Certification Levels**: Gold/Silver/Bronze based on scores
+
 ### Next Steps
 
-1. **Build Evaluation Test Suites**:
-   - Create evaluations that certify behavioral effectiveness
-   - Test that components work correctly with dependencies
-   - Validate event emission patterns
+1. **Run Evaluation Suite**:
+   - Test existing behavioral components
+   - Generate certification reports
+   - Identify improvement areas
 
 2. **Simple Component Improver Agent**:
    - Agent that can read component files
