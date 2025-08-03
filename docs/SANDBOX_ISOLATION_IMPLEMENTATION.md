@@ -168,6 +168,29 @@ semantic_eval_default_model: str = DEFAULT_MODEL
 3. **Session Export**: Consider ability to export/archive agent sessions
 4. **Audit Trail**: Sandbox preservation enables post-execution analysis
 
+## Current Status (2025-08-03)
+
+### Completed ✅
+- [x] Architecture designed and documented
+- [x] Sandbox manager updated for /tmp/ksi/sandbox
+- [x] Claude CLI provider uses clean environment with auth variables
+- [x] LiteLLM integration uses sandbox UUID
+- [x] Session resolution race condition fixed
+- [x] Model name mapping implemented for claude CLI
+- [x] Basic functionality tested and working
+
+### Working Features
+- Claude CLI authentication in subprocess environment
+- Model name mapping (e.g., claude-sonnet-4-20250514 → sonnet)
+- Basic agent request/response flow
+- Some form of session continuity (agents remember context)
+
+### Known Issues
+- Sandbox directories not being created in /tmp/ksi/sandbox
+- Claude CLI using default home directory for sessions
+- Different session IDs generated for each request
+- litellm.py needs update to create sandboxes based on sandbox_uuid
+
 ## Migration Notes
 
 **This is a breaking change** - no backward compatibility:
