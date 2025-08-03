@@ -43,6 +43,7 @@ class SessionMetadata:
     """Tracks metadata for REAL sessions created by claude-cli."""
     session_id: str  # Real session_id from claude-cli - NEVER None
     agent_id: Optional[str]  # Which agent owns this session
+    model: Optional[str] = None  # Model used for this session (for consistency)
     last_activity: datetime = field(default_factory=utc_now)
     request_count: int = 0
     conversation_locked: bool = False
@@ -122,13 +123,14 @@ class ConversationTracker:
             is_new_conversation=session_id is None
         )
         
-    def update_request_session(self, request_id: str, session_id: str) -> None:
+    def update_request_session(self, request_id: str, session_id: str, model: Optional[str] = None) -> None:
         """
         Update request with the session_id returned by claude-cli.
         
         Args:
             request_id: Request identifier
             session_id: Real session_id from claude-cli (never None)
+            model: Model used for this session (for consistency)
         """
         if not session_id:
             logger.error(f"Attempted to update request {request_id} with None session_id")
@@ -147,9 +149,15 @@ class ConversationTracker:
         if session_id not in self._sessions:
             self._sessions[session_id] = SessionMetadata(
                 session_id=session_id,
-                agent_id=request.agent_id
+                agent_id=request.agent_id,
+                model=model
             )
-            logger.info(f"Tracking new session {session_id} from claude-cli")
+            logger.info(f"Tracking new session {session_id} from claude-cli with model {model}")
+        else:
+            # Update model if not set or if provided
+            if model and not self._sessions[session_id].model:
+                self._sessions[session_id].model = model
+                logger.info(f"Updated session {session_id} model to {model}")
         
         # Update session metadata
         session = self._sessions[session_id]
@@ -208,6 +216,19 @@ class ConversationTracker:
             Current session_id for the agent, or None if no active session
         """
         return self._agent_sessions.get(agent_id)
+        
+    def get_session_model(self, session_id: str) -> Optional[str]:
+        """
+        Get the model used for a specific session.
+        
+        Args:
+            session_id: Session identifier
+            
+        Returns:
+            Model name used for the session, or None if session not found
+        """
+        session = self._sessions.get(session_id)
+        return session.model if session else None
         
     def save_recovery_data(self, request_id: str, data: Dict[str, Any]) -> None:
         """Save recovery data for a request."""

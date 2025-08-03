@@ -548,14 +548,28 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
         if requested_session_id:
             # Explicit session_id provided - use it
             session_id = requested_session_id
-            logger.debug(f"Using explicit session_id {session_id} for agent {agent_id}")
+            
+            # CRITICAL: Use the original session model to avoid session/model mismatch
+            session_model = conversation_tracker.get_session_model(session_id)
+            if session_model:
+                data["model"] = session_model
+                logger.debug(f"Using explicit session_id {session_id} for agent {agent_id} with original model {session_model}")
+            else:
+                logger.debug(f"Using explicit session_id {session_id} for agent {agent_id} (no model override)")
         elif agent_id:
             # No explicit session - try to continue agent's current conversation
             agent_session = conversation_tracker.get_agent_session(agent_id)
             if agent_session:
                 session_id = agent_session
                 data["session_id"] = session_id  # Update the request data
-                logger.info(f"Automatic session continuity: agent {agent_id} continuing session {session_id}")
+                
+                # CRITICAL: Use the original session model to avoid session/model mismatch
+                session_model = conversation_tracker.get_session_model(session_id)
+                if session_model:
+                    data["model"] = session_model
+                    logger.info(f"Automatic session continuity: agent {agent_id} continuing session {session_id} with original model {session_model}")
+                else:
+                    logger.info(f"Automatic session continuity: agent {agent_id} continuing session {session_id} (no model override)")
             else:
                 # Agent has no current session - new conversation
                 session_id = None
@@ -797,13 +811,15 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
         if provider == "claude-cli":
             response_session_id = get_response_session_id(standardized_response)
             if response_session_id:
-                # Update ConversationTracker for automatic session continuity
-                conversation_tracker.update_request_session(request_id, response_session_id)
+                # Update ConversationTracker for automatic session continuity with model info
+                model = data.get("model", config.completion_default_model)
+                conversation_tracker.update_request_session(request_id, response_session_id, model)
                 
                 logger.info(
                     f"Updated session tracking: request {request_id} -> session {response_session_id}",
                     original_session_id=data.get("session_id"),
                     agent_id=data.get("agent_id"),
+                    model=model,
                     automatic_continuity=True
                 )
         
