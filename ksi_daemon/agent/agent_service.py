@@ -389,9 +389,9 @@ async def agent_emit_event(agent_id: str, event_name: str, event_data: Dict[str,
     
     try:
         # Emit the event normally
-        logger.info(f"DEBUG: agent_emit_event calling event_emitter for {event_name}")
+        logger.debug(f"agent_emit_event calling event_emitter for {event_name}")
         result = await event_emitter(event_name, event_data, context)
-        logger.info(f"DEBUG: event_emitter returned for {event_name}: {result}")
+        logger.debug(f"event_emitter returned for {event_name}: {result}")
         
         # Route result back to originator (for ALL events)
         await route_to_originator(agent_id, event_name, result)

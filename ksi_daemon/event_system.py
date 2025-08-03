@@ -343,9 +343,9 @@ class EventRouter:
                 logger.debug(f"Pattern {pattern} matched event {event}")
         
         if transformers:
-            logger.info(f"DEBUG: Total transformers found for {event}: {len(transformers)}")
+            logger.debug(f"Total transformers found for {event}: {len(transformers)}")
         else:
-            logger.info(f"DEBUG: No transformers found for {event}")
+            logger.debug(f"No transformers found for {event}")
         
         # Collect transformer tasks to await their completion
         transformer_tasks = []
@@ -353,7 +353,7 @@ class EventRouter:
         # Process all matching transformers
         for transformer in transformers:
             target = transformer.get('target')
-            logger.info(f"DEBUG: Processing transformer: {event} -> {target}")
+            logger.debug(f"Processing transformer: {event} -> {target}")
             
             # Check condition if present
             should_transform = True
@@ -368,12 +368,12 @@ class EventRouter:
             if should_transform:
                 try:
                     # DEBUG: Log transformer details
-                    logger.info(f"DEBUG: Checking transformer {event} -> {target}")
-                    logger.info(f"DEBUG: Transformer type: {type(transformer)}")
-                    logger.info(f"DEBUG: Transformer keys: {list(transformer.keys()) if isinstance(transformer, dict) else 'Not a dict'}")
-                    logger.info(f"DEBUG: Has foreach: {'foreach' in transformer if isinstance(transformer, dict) else False}")
+                    logger.debug(f"Checking transformer {event} -> {target}")
+                    logger.debug(f"Transformer type: {type(transformer)}")
+                    logger.debug(f"Transformer keys: {list(transformer.keys()) if isinstance(transformer, dict) else 'Not a dict'}")
+                    logger.debug(f"Has foreach: {'foreach' in transformer if isinstance(transformer, dict) else False}")
                     if isinstance(transformer, dict) and 'foreach' in transformer:
-                        logger.info(f"DEBUG: Foreach value: {transformer.get('foreach')}")
+                        logger.debug(f"Foreach value: {transformer.get('foreach')}")
                     
                     # Check if this is a foreach transformer
                     if 'foreach' in transformer and transformer.get('foreach'):
@@ -383,7 +383,7 @@ class EventRouter:
                         # Process foreach transformer
                         async def run_foreach_transform(trans=transformer, tgt=target):
                             try:
-                                logger.info(f"DEBUG: Processing foreach transformer {event} -> {tgt}")
+                                logger.debug(f"Processing foreach transformer {event} -> {tgt}")
                                 results = await process_foreach_transformer(
                                     transformer=trans,
                                     event=event,
@@ -393,7 +393,7 @@ class EventRouter:
                                     apply_mapping_func=apply_mapping,
                                     prepare_context_func=prepare_transformer_context
                                 )
-                                logger.info(f"DEBUG: Foreach transformer completed with {len(results)} emissions")
+                                logger.debug(f"Foreach transformer completed with {len(results)} emissions")
                                 return results
                             except Exception as e:
                                 logger.error(f"Foreach transformer failed for {event}: {e}")
@@ -431,9 +431,9 @@ class EventRouter:
                         # Create background task for async transformation
                         async def run_async_transform(tgt=target, tdata=transformed_data):
                             try:
-                                logger.info(f"DEBUG: Async transforming {event} -> {tgt} (id: {transform_id})")
+                                logger.debug(f"Async transforming {event} -> {tgt} (id: {transform_id})")
                                 result = await self.emit(tgt, tdata, context)
-                                logger.info(f"DEBUG: Async transformed event {tgt} result: {result}")
+                                logger.debug(f"Async transformed event {tgt} result: {result}")
                             except Exception as e:
                                 logger.error(f"Async transformer failed for {event} -> {tgt}: {e}")
                         
@@ -456,9 +456,9 @@ class EventRouter:
                         # Spawn transformation as task to allow multiple transformers and handlers to run
                         async def run_sync_transform(tgt=target, tdata=transformed_data):
                             try:
-                                logger.info(f"DEBUG: Emitting transformed event {tgt} with data: {tdata}")
+                                logger.debug(f"Emitting transformed event {tgt} with data: {tdata}")
                                 result = await self.emit(tgt, tdata, context)
-                                logger.info(f"DEBUG: Transformed event {tgt} result: {result}")
+                                logger.debug(f"Transformed event {tgt} result: {result}")
                             except Exception as e:
                                 logger.error(f"Sync transformer failed for {event} -> {tgt}: {e}")
                         
@@ -685,9 +685,9 @@ class EventRouter:
             if transformers:
                 # Wait for transformer tasks to complete before returning
                 if transformer_tasks:
-                    logger.info(f"Awaiting {len(transformer_tasks)} transformer tasks for {event}")
+                    logger.debug(f"Awaiting {len(transformer_tasks)} transformer tasks for {event}")
                     await asyncio.gather(*transformer_tasks, return_exceptions=True)
-                    logger.info(f"All transformer tasks completed for {event}")
+                    logger.debug(f"All transformer tasks completed for {event}")
                 # Transformers handled this event, return success
                 logger.info(f"Event {event} handled by {len(transformers)} transformer(s), no direct handlers")
                 return [{"status": "transformed", "transformers": len(transformers)}]
@@ -749,9 +749,9 @@ class EventRouter:
         
         # Wait for transformer tasks to complete even when we have handlers
         if transformer_tasks:
-            logger.info(f"Awaiting {len(transformer_tasks)} transformer tasks alongside handlers for {event}")
+            logger.debug(f"Awaiting {len(transformer_tasks)} transformer tasks alongside handlers for {event}")
             await asyncio.gather(*transformer_tasks, return_exceptions=True)
-            logger.info(f"All transformer tasks completed alongside handlers for {event}")
+            logger.debug(f"All transformer tasks completed alongside handlers for {event}")
         
         # Notify observers of event completion
         if matching_subscriptions:

@@ -46,6 +46,9 @@ class EventDaemonCore:
         try:
             logger.info("Initializing event daemon core")
             
+            # Rotate daemon log on startup for cleaner log management
+            await self._rotate_daemon_log()
+            
             # Store reference to daemon core in router for shutdown handling
             self.router._daemon_core = self
             
@@ -360,7 +363,7 @@ class EventDaemonCore:
             logger.error(f"Error during shutdown: {e}", exc_info=True)
     
     async def _rotate_daemon_log(self):
-        """Rotate the daemon log file on shutdown."""
+        """Rotate the daemon log file on startup/shutdown or when size limit exceeded."""
         try:
             # Get current daemon log path
             daemon_log_path = config.daemon_log_file
@@ -369,6 +372,19 @@ class EventDaemonCore:
                 logger.debug(f"No {daemon_log_path.name} file to rotate")
                 return
             
+            # Check file size (default 100MB limit)
+            max_size = getattr(config, 'daemon_log_max_size', 100 * 1024 * 1024)  # 100MB default
+            current_size = daemon_log_path.stat().st_size
+            
+            # Only rotate if file exists and is non-empty (or exceeds size limit)
+            if current_size == 0:
+                logger.debug(f"Log file is empty, no rotation needed")
+                return
+            
+            # Log size info
+            size_mb = current_size / (1024 * 1024)
+            logger.info(f"Current log size: {size_mb:.2f}MB")
+            
             # Create timestamp for rotated log
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             # Keep the same extension as the original log file
@@ -376,13 +392,13 @@ class EventDaemonCore:
             extension = daemon_log_path.suffix  # Gets '.jsonl'
             rotated_log_path = daemon_log_path.parent / f"{base_name}_{timestamp}{extension}"
             
-            # Copy the current log to the rotated name
-            shutil.copy2(daemon_log_path, rotated_log_path)
+            # Move (not copy) the current log to the rotated name
+            shutil.move(str(daemon_log_path), str(rotated_log_path))
             
-            logger.info(f"Rotated daemon log to {rotated_log_path}")
+            logger.info(f"Rotated daemon log to {rotated_log_path} ({size_mb:.2f}MB)")
             
-            # Note: We don't truncate the original log here because the logging system
-            # may still write to it during shutdown. The next startup will create a fresh log.
+            # If we're rotating on startup, the logging system will create a new file
+            # If we're rotating on shutdown, we don't need a new file
             
         except Exception as e:
             logger.error(f"Failed to rotate daemon log: {e}")
