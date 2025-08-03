@@ -23,7 +23,7 @@ from ksi_daemon.event_system import event_handler, get_router
 from ksi_common.config import config
 from ksi_common.service_lifecycle import service_startup, service_shutdown
 from ksi_common.task_management import create_tracked_task
-from ksi_common.sandbox_manager import SandboxManager, SandboxConfig, SandboxMode
+from ksi_common.sandbox_manager import SandboxConfig, SandboxMode
 import litellm
 
 # Suppress LiteLLM's console logging to maintain JSON format
@@ -83,10 +83,10 @@ async def handle_litellm_completion(data: Dict[str, Any]) -> Tuple[str, Dict[str
             
             # Only handle sandbox if not already specified
             if "sandbox_dir" not in ksi_params and getattr(config, "sandbox_enabled", True):
-                # Create sandbox - use sandbox_uuid for agents, request_id for temporary
+                # Use the shared sandbox manager instance
+                from ksi_common.sandbox_manager import sandbox_manager as shared_sandbox_manager
                 global sandbox_manager
-                if not sandbox_manager:
-                    sandbox_manager = SandboxManager(config.sandbox_dir)
+                sandbox_manager = shared_sandbox_manager
                 
                 sandbox_config = SandboxConfig(
                     mode=SandboxMode.ISOLATED
@@ -97,9 +97,24 @@ async def handle_litellm_completion(data: Dict[str, Any]) -> Tuple[str, Dict[str
                 sandbox_uuid = ksi_params.get("sandbox_uuid")
                 
                 if sandbox_uuid:
-                    # Agent sandbox - use UUID for unique sandbox paths
-                    sandbox_id = f"agents/{sandbox_uuid}"  # Use UUID to prevent sandbox reuse
-                    logger.debug(f"Using agent sandbox UUID {sandbox_uuid} for agent {agent_id}")
+                    # Agent sandbox - get existing sandbox created at spawn time
+                    sandbox = sandbox_manager.get_sandbox(sandbox_uuid)
+                    
+                    if not sandbox:
+                        # This shouldn't happen - agent sandboxes are created at spawn
+                        logger.error(
+                            "Agent sandbox not found - this indicates a bug in agent spawn",
+                            agent_id=agent_id,
+                            sandbox_uuid=sandbox_uuid
+                        )
+                        # Create it as a fallback to avoid breaking the request
+                        sandbox = sandbox_manager.create_sandbox(sandbox_uuid, sandbox_config)
+                    else:
+                        logger.debug(f"Using existing agent sandbox", 
+                                   agent_id=agent_id, 
+                                   sandbox_uuid=sandbox_uuid)
+                    
+                    sandbox_dir = str(sandbox.path.absolute())
                 elif agent_id:
                     # This is an error - agents should always have sandbox_uuid
                     raise ValueError(f"Agent {agent_id} missing required sandbox_uuid - this indicates a bug in agent creation")
@@ -107,14 +122,10 @@ async def handle_litellm_completion(data: Dict[str, Any]) -> Tuple[str, Dict[str
                     # Temporary sandbox for non-agent requests
                     sandbox_id = f"temp/{request_id}"
                     logger.debug(f"Creating temporary sandbox for request {request_id}")
-                
-                # Check if sandbox already exists (for agents with persistent sandboxes)
-                sandbox = sandbox_manager.get_sandbox(sandbox_id)
-                if not sandbox:
+                    
+                    # Create temporary sandbox
                     sandbox = sandbox_manager.create_sandbox(sandbox_id, sandbox_config)
-                else:
-                    logger.debug(f"Using existing sandbox for {sandbox_id}")
-                sandbox_dir = str(sandbox.path.absolute())
+                    sandbox_dir = str(sandbox.path.absolute())
                 
                 if agent_id:
                     logger.info(f"Using agent sandbox", agent_id=agent_id, sandbox_dir=sandbox_dir)

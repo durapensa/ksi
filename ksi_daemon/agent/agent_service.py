@@ -33,6 +33,7 @@ from ksi_common.task_management import create_tracked_task
 from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_common.response_patterns import validate_required_fields, entity_not_found_response, batch_operation_response, agent_responses
 from ksi_common.json_utils import parse_json_parameter
+from ksi_common.sandbox_manager import sandbox_manager
 from .identity_operations import (
     load_all_identities, save_identity, remove_identity, save_all_identities
 )
@@ -173,7 +174,6 @@ class AgentSpawnData(TypedDict):
     model: NotRequired[str]  # Model to use (overrides component default)
     enable_tools: NotRequired[bool]  # Enable tool usage (overrides component default)
     permission_profile: NotRequired[str]  # Permission profile name
-    sandbox_dir: NotRequired[str]  # Sandbox directory
     mcp_config_path: NotRequired[str]  # MCP configuration path
     conversation_id: NotRequired[str]  # Conversation ID
     _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
@@ -890,7 +890,6 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
     # Set up permissions and sandbox
     permission_profile = requested_permission_profile
     sandbox_config = data.get("sandbox_config", {})
-    sandbox_dir = None
     
     # Get permissions from component if available (either from composition result or in-memory data)
     if "compose_result" in locals() and compose_result and compose_result.get("status") == "success":
@@ -936,8 +935,28 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
             # Use restricted permissions as fallback
             permission_profile = "restricted"
     
-    # Note: Sandbox creation removed - now handled on-demand by litellm provider
-    # based on sandbox_uuid
+    # Create sandbox for agent (UUID-based for isolation)
+    sandbox_uuid = str(uuid.uuid4())
+    
+    # Create sandbox if enabled
+    if sandbox_config.get("enabled", True):
+        try:
+            # Just pass the UUID - SandboxManager handles the path structure
+            sandbox = sandbox_manager.create_sandbox(sandbox_uuid, sandbox_config)
+            logger.info(
+                "Created sandbox for agent",
+                agent_id=agent_id,
+                sandbox_uuid=sandbox_uuid,
+                sandbox_path=str(sandbox.path)
+            )
+        except Exception as e:
+            logger.error(
+                "Failed to create sandbox for agent",
+                agent_id=agent_id,
+                sandbox_uuid=sandbox_uuid,
+                error=str(e)
+            )
+            # Continue without sandbox - not fatal
     
     # Extract metadata to store in state system
     metadata = data.get("metadata", {})
@@ -987,7 +1006,7 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
         # All session management is handled by the completion system
         "message_queue": asyncio.Queue(),
         "permission_profile": permission_profile,
-        "sandbox_uuid": str(uuid.uuid4()),  # Persistent sandbox identifier
+        "sandbox_uuid": sandbox_uuid,  # Persistent sandbox identifier
         "mcp_config_path": str(mcp_config_path) if mcp_config_path else None,
         "conversation_id": conversation_id if 'conversation_id' in locals() else None,
         # Metadata will be stored in state system, not in memory
@@ -2137,7 +2156,6 @@ class AgentSpawnFromComponentData(TypedDict):
     model: NotRequired[str]  # Model to use
     enable_tools: NotRequired[bool]  # Enable tool usage
     permission_profile: NotRequired[str]  # Permission profile name
-    sandbox_dir: NotRequired[str]  # Sandbox directory
     mcp_config_path: NotRequired[str]  # MCP configuration path
     conversation_id: NotRequired[str]  # Conversation ID
     track_component_usage: NotRequired[bool]  # Track component usage (default: True)
