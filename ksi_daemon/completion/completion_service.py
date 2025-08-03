@@ -625,7 +625,9 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
             logger.debug(f"New conversation (session_id=None) - skipping conversation lock")
         
         # Select provider - use agent model if available, otherwise request model, otherwise config default
-        model = agent_model or data.get("model", config.completion_default_model)
+        model = data.get("model", config.completion_default_model)
+        if agent_id and 'agent_model' in locals() and agent_model:
+            model = agent_model
         require_mcp = bool(data.get("extra_body", {}).get("ksi", {}).get("mcp_config_path"))
         provider_name, provider_config = provider_manager.select_provider(
             model, 

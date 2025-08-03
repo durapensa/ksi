@@ -446,13 +446,56 @@ class ClaudeCLIProvider(CustomLLM):
             working_dir = Path(__file__).parent.parent.parent.parent
             logger.debug("Using project root as working directory")
         
-        logger.debug(
+        # Create environment with required variables for Claude CLI authentication
+        # Note: Claude CLI requires more environment access for authentication
+        clean_env = {
+            'HOME': os.environ.get('HOME'),  # For claude API keys in ~/.claude/
+            'PATH': os.environ.get('PATH'),  # For finding claude binary
+            'CLAUDE_TEMP_DIR': str(working_dir / "tmp"),  # Isolate temp files
+            'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
+            'DISABLE_TELEMETRY': '1',
+            # Terminal environment for Claude CLI authentication
+            'TERM': os.environ.get('TERM', 'xterm'),
+            'SHELL': os.environ.get('SHELL', '/bin/bash'),
+            # User identity for authentication
+            'USER': os.environ.get('USER'),
+            'LOGNAME': os.environ.get('LOGNAME'),
+        }
+        
+        # Add Claude-specific environment variables if they exist
+        claude_env_vars = [
+            'CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR',
+            'CLAUDE_CODE_ENTRYPOINT', 
+            'CLAUDECODE',
+            'ANTHROPIC_API_KEY',  # In case API key is set via environment
+            # Authentication-related
+            'SSH_AUTH_SOCK',  # SSH agent for keychain access
+            'CLAUDE_API_KEY',  # Alternative API key variable
+            # System integration
+            'TMPDIR',  # System temp directory
+            'XDG_CONFIG_HOME',  # Config directory
+            'XDG_DATA_HOME',  # Data directory
+        ]
+        
+        for var in claude_env_vars:
+            if var in os.environ:
+                clean_env[var] = os.environ[var]
+        
+        # Ensure temp directory exists if using sandbox
+        if sandbox_dir:
+            temp_dir = working_dir / "tmp"
+            temp_dir.mkdir(exist_ok=True)
+            logger.debug(f"Using clean environment for sandbox: {working_dir}")
+        
+        logger.info(
             "Executing Claude CLI with asyncio",
             cmd=" ".join(cmd),
             timeout=timeout,
             progress_timeout=progress_timeout,
             working_dir=str(working_dir),
-            request_id=request_id
+            request_id=request_id,
+            env_vars=list(clean_env.keys()),
+            full_env=clean_env  # Log full environment for debugging
         )
         
         start_time = time.time()
@@ -488,7 +531,7 @@ class ClaudeCLIProvider(CustomLLM):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(working_dir),
-                env=os.environ
+                env=clean_env
             )
             
             # Register process for cleanup on cancellation
@@ -499,10 +542,13 @@ class ClaudeCLIProvider(CustomLLM):
             # Write prompt to stdin and close it
             if process.stdin:
                 try:
-                    process.stdin.write(prompt.encode('utf-8'))
+                    prompt_bytes = prompt.encode('utf-8')
+                    logger.info(f"Writing {len(prompt_bytes)} bytes to stdin", prompt_preview=prompt[:100])
+                    process.stdin.write(prompt_bytes)
                     await process.stdin.drain()
                     process.stdin.close()
                     await process.stdin.wait_closed()
+                    logger.info("Successfully wrote prompt to stdin and closed")
                 except Exception as e:
                     logger.error(f"Failed to write prompt to stdin: {e}")
                     # Continue anyway - process might still work
@@ -574,7 +620,11 @@ class ClaudeCLIProvider(CustomLLM):
             if process.returncode != 0:
                 logger.error(
                     f"Claude CLI failed with code {process.returncode}",
-                    stderr=stderr[:500],  # First 500 chars of stderr
+                    cmd=" ".join(cmd),
+                    stdout_preview=stdout[:200] if stdout else "(empty)",
+                    stderr_full=stderr if stderr else "(empty)",
+                    stderr_len=len(stderr),
+                    stdout_len=len(stdout),
                     request_id=request_id
                 )
                 raise subprocess.CalledProcessError(process.returncode, cmd, stdout, stderr)
@@ -687,8 +737,29 @@ class ClaudeCLIProvider(CustomLLM):
         if model_name.startswith("claude-cli/"):
             model_name = model_name.replace("claude-cli/", "", 1)
         
-        logger.debug(f"Using model: {model_name} (original: {kwargs.get('model')})")
-        return prompt, model_name
+        # Map full model names to claude CLI names
+        model_mapping = {
+            "claude-sonnet-4-20250514": "sonnet",
+            "claude-opus-4-20250514": "opus",
+            "claude-3-5-sonnet-20241022": "3.5-sonnet",
+            "claude-3-5-sonnet-20240620": "3.5-sonnet",
+            "claude-3-opus-20240229": "3-opus",
+            "claude-3-sonnet-20240229": "3-sonnet",
+            "claude-3-haiku-20240307": "3-haiku",
+            # Add direct mappings for simple names
+            "sonnet": "sonnet",
+            "opus": "opus",
+            "3.5-sonnet": "3.5-sonnet",
+            "3-opus": "3-opus",
+            "3-sonnet": "3-sonnet",
+            "3-haiku": "3-haiku"
+        }
+        
+        # Map the model name
+        mapped_model = model_mapping.get(model_name, model_name)
+        
+        logger.debug(f"Using model: {mapped_model} (original: {kwargs.get('model')}, normalized: {model_name})")
+        return prompt, mapped_model
 
 
 # Register provider with LiteLLM

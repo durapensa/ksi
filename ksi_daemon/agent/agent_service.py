@@ -511,7 +511,6 @@ async def handle_ready(data: Dict[str, Any], context: Optional[Dict[str, Any]] =
                     "created_at": entity.get("created_at_iso"),
                     # NOTE: session_id removed - agents have no awareness of sessions
                     "permission_profile": props.get("permission_profile", "standard"),
-                    "sandbox_dir": props.get("sandbox_dir"),
                     "sandbox_uuid": props.get("sandbox_uuid"),  # Must use stored value
                     "mcp_config_path": props.get("mcp_config_path"),
                     "conversation_id": None,
@@ -629,7 +628,6 @@ async def handle_checkpoint_collect(data: Dict[str, Any], context: Optional[Dict
             "created_at": agent_info.get("created_at"),
             # session_id removed - managed by completion system
             "permission_profile": agent_info.get("permission_profile"),
-            "sandbox_dir": agent_info.get("sandbox_dir"),
             "sandbox_uuid": agent_info.get("sandbox_uuid"),  # Include sandbox UUID
             "mcp_config_path": agent_info.get("mcp_config_path"),
             "conversation_id": agent_info.get("conversation_id"),
@@ -700,7 +698,6 @@ async def handle_checkpoint_restore(data: Dict[str, Any], context: Optional[Dict
                         "capabilities": agents[agent_id].get("config", {}).get("expanded_capabilities", []),
                         # Domain fields removed - use metadata
                         "permission_profile": agents[agent_id].get("permission_profile"),
-                        "sandbox_dir": agents[agent_id].get("sandbox_dir"),
                         "mcp_config_path": agents[agent_id].get("mcp_config_path")
                     }
                 })
@@ -939,20 +936,8 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
             # Use restricted permissions as fallback
             permission_profile = "restricted"
     
-    # Create sandbox
-    if event_emitter:
-        sandbox_result = await event_emitter("sandbox:create", {
-            "agent_id": agent_id,
-            "config": sandbox_config
-        }, propagate_agent_context(context))
-        
-        sandbox_result = unwrap_list_response(sandbox_result)
-        
-        if sandbox_result and "sandbox" in sandbox_result:
-            sandbox_dir = sandbox_result["sandbox"]["path"]
-            logger.info(f"Created sandbox for agent {agent_id}: {sandbox_dir}")
-        else:
-            logger.warning(f"Failed to create sandbox for agent {agent_id}")
+    # Note: Sandbox creation removed - now handled on-demand by litellm provider
+    # based on sandbox_uuid
     
     # Extract metadata to store in state system
     metadata = data.get("metadata", {})
@@ -1002,7 +987,6 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
         # All session management is handled by the completion system
         "message_queue": asyncio.Queue(),
         "permission_profile": permission_profile,
-        "sandbox_dir": sandbox_dir,
         "sandbox_uuid": str(uuid.uuid4()),  # Persistent sandbox identifier
         "mcp_config_path": str(mcp_config_path) if mcp_config_path else None,
         "conversation_id": conversation_id if 'conversation_id' in locals() else None,
@@ -1095,7 +1079,6 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
             "component": compose_name,
             "composition": compose_name,
             "sandbox_uuid": agent_info["sandbox_uuid"],
-            "sandbox_dir": sandbox_dir,
             "permission_profile": permission_profile,
             "capabilities": expanded_capabilities,
             "created_at": timestamp_utc(),
@@ -1265,8 +1248,7 @@ async def _terminate_single_agent(agent_id: str, force: bool = False, context: O
             "force": force,
             "terminated_at": time.time(),  # numeric for DB storage
             "terminated_at_iso": timestamp_utc(),  # ISO for display
-            "component": agent_info.get("component") or agent_info.get("profile"),  # Support legacy
-            "sandbox_dir": agent_info.get("sandbox_dir")
+            "component": agent_info.get("component") or agent_info.get("profile")  # Support legacy
         }
         
         # Emit the source event that transformers will route
@@ -1401,7 +1383,6 @@ async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
             # This ensures all agent-specific context is passed through
             ksi_body = {
                 "agent_id": agent_id,
-                "sandbox_dir": agent_info.get("sandbox_dir"),
                 "sandbox_uuid": agent_info.get("sandbox_uuid"),  # Pass sandbox UUID
                 "permissions": permissions,
                 "allowed_events": agent_config.get("allowed_events", [])  # Add resolved events
@@ -1553,7 +1534,6 @@ async def handle_agent_info(data: AgentInfoData, context: Optional[Dict[str, Any
         "component": agent_info.get("component") or agent_info.get("profile"),  # Support legacy
         "composition": agent_info.get("composition"),
         "created_at": agent_info.get("created_at"),
-        "sandbox_dir": agent_info.get("sandbox_dir"),
         "sandbox_uuid": agent_info.get("sandbox_uuid"),
         "permission_profile": agent_info.get("permission_profile"),
         "mcp_config_path": agent_info.get("mcp_config_path"),
@@ -1876,7 +1856,6 @@ async def handle_send_message(data: AgentSendMessageData, context: Optional[Dict
                 "conversation_id": f"agent_conversation_{agent_id}",
                 "tools": agent_config.get("allowed_claude_tools", []),
                 "agent_id": agent_id,
-                "sandbox_dir": agent_info.get("sandbox_dir"),
                 "sandbox_uuid": agent_info.get("sandbox_uuid"),  # Pass sandbox UUID
                 "construct_id": agent_info.get("construct_id"),
                 "agent_role": agent_config.get("role", "assistant"),
@@ -2245,7 +2224,6 @@ async def handle_spawn_from_component(data: Dict[str, Any], context: Optional[Di
             "model": data.get('model'),
             "enable_tools": data.get('enable_tools'),
             "permission_profile": data.get('permission_profile'),
-            "sandbox_dir": data.get('sandbox_dir'),
             "mcp_config_path": data.get('mcp_config_path'),
             "conversation_id": data.get('conversation_id'),
             "_in_memory_manifest_data": manifest_data  # Pass manifest data directly

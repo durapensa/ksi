@@ -142,7 +142,7 @@ def create_agent_manifest_from_component(
     """
     # Extract agent config fields from frontmatter
     agent_config_fields = {
-        'model': frontmatter.get('model', 'sonnet'),
+        'model': frontmatter.get('model', config.completion_default_model),
         'role': frontmatter.get('role', 'assistant'),
         'enable_tools': frontmatter.get('enable_tools', False),
         'capabilities': frontmatter.get('capabilities', ['conversation', 'analysis', 'task_execution']),

@@ -98,7 +98,8 @@ class SandboxManager:
     """Manages agent sandboxes"""
     
     def __init__(self, sandbox_root: Optional[Path] = None):
-        self.sandbox_root = sandbox_root or config.sandbox_dir
+        # Use /tmp/ksi/sandbox for true isolation from project
+        self.sandbox_root = sandbox_root or Path("/tmp/ksi/sandbox")
         self.shared_root = self.sandbox_root / "shared"
         self.agents_root = self.sandbox_root / "agents"
         self.temp_root = self.sandbox_root / "temp"

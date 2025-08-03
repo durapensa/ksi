@@ -97,8 +97,8 @@ async def handle_litellm_completion(data: Dict[str, Any]) -> Tuple[str, Dict[str
                 sandbox_uuid = ksi_params.get("sandbox_uuid")
                 
                 if sandbox_uuid:
-                    # Agent sandbox - use UUID for consistent location
-                    sandbox_id = sandbox_uuid  # Just the UUID, sandbox_manager will add the agents/ prefix
+                    # Agent sandbox - use UUID for unique sandbox paths
+                    sandbox_id = f"agents/{sandbox_uuid}"  # Use UUID to prevent sandbox reuse
                     logger.debug(f"Using agent sandbox UUID {sandbox_uuid} for agent {agent_id}")
                 elif agent_id:
                     # This is an error - agents should always have sandbox_uuid
