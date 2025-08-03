@@ -536,7 +536,7 @@ async def execute_injection(data: InjectionExecuteData, context: Optional[Dict[s
         completion_data = {
             "prompt": content,
             "agent_id": agent_id,  # Let completion system resolve session internally
-            "model": data.get('model', 'claude-cli/sonnet'),
+            "model": data.get('model', config.completion_default_model),
             "originator_id": "injection_router",
             "request_id": f"inj_{request_id}_{agent_id}" if request_id else f"inj_{int(time.time() * 1000)}_{agent_id}",
             "priority": data.get('priority', 'normal'),

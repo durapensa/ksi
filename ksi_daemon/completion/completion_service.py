@@ -421,10 +421,11 @@ async def handle_async_completion(data: CompletionAsyncData, context: Optional[D
     agent_id = data.get("agent_id")
     requested_session_id = data.get("session_id")
     
-    # Validate agent exists if agent_id provided
+    # Validate agent exists if agent_id provided and get agent config
+    agent_model = None
     if agent_id:
         try:
-            # Query agent:info to validate agent exists
+            # Query agent:info to validate agent exists and get config
             if event_emitter:
                 agent_info_result = await event_emitter("agent:info", {
                     "agent_id": agent_id
@@ -435,6 +436,12 @@ async def handle_async_completion(data: CompletionAsyncData, context: Optional[D
                         f"Agent {agent_id} not found",
                         context=context
                     )
+                # Extract model from agent config
+                if isinstance(agent_info_result, list) and agent_info_result:
+                    agent_info = agent_info_result[0]
+                    if agent_info.get("config", {}).get("model"):
+                        agent_model = agent_info["config"]["model"]
+                        logger.debug(f"Using model {agent_model} from agent {agent_id} config")
             else:
                 logger.warning("No event emitter available for agent validation")
         except Exception as e:
@@ -574,7 +581,21 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
                 # Agent has no current session - new conversation
                 session_id = None
                 data["session_id"] = None
-                logger.info(f"New conversation for agent {agent_id} (no current session)")
+                
+                # For new agent conversations, get model from agent config
+                if not data.get("model") and event_emitter:
+                    try:
+                        agent_info_result = await event_emitter("agent:info", {"agent_id": agent_id})
+                        if isinstance(agent_info_result, list) and agent_info_result:
+                            agent_info = agent_info_result[0]
+                            if agent_info.get("config", {}).get("model"):
+                                data["model"] = agent_info["config"]["model"]
+                                logger.info(f"New conversation for agent {agent_id} using model {data['model']} from config")
+                    except Exception as e:
+                        logger.warning(f"Failed to get model from agent config: {e}")
+                
+                if not data.get("model"):
+                    logger.info(f"New conversation for agent {agent_id} (no current session)")
         else:
             # No agent_id - use provided session_id or None for new conversation
             session_id = requested_session_id
@@ -603,8 +624,8 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
             # New conversation - no lock needed
             logger.debug(f"New conversation (session_id=None) - skipping conversation lock")
         
-        # Select provider - use config default if not specified
-        model = data.get("model", config.completion_default_model)
+        # Select provider - use agent model if available, otherwise request model, otherwise config default
+        model = agent_model or data.get("model", config.completion_default_model)
         require_mcp = bool(data.get("extra_body", {}).get("ksi", {}).get("mcp_config_path"))
         provider_name, provider_config = provider_manager.select_provider(
             model, 
@@ -791,7 +812,7 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
                                     }],
                                     "agent_id": agent_id,
                                     "originator_id": agent_id,
-                                    "model": model,  # Use same model as original
+                                    # model removed - agent session already has model from spawn
                                     "priority": "high",  # Feedback should be prompt
                                     "is_feedback": True,  # Flag to indicate this is event feedback
                                     "parent_request_id": request_id  # Link to original request
@@ -812,7 +833,7 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
             response_session_id = get_response_session_id(standardized_response)
             if response_session_id:
                 # Update ConversationTracker for automatic session continuity with model info
-                model = data.get("model", config.completion_default_model)
+                # Use the resolved model (agent model if available, otherwise request model, otherwise default)
                 conversation_tracker.update_request_session(request_id, response_session_id, model)
                 
                 logger.info(

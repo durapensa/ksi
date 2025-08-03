@@ -281,9 +281,9 @@ class KSIBaseConfig(BaseSettings):
     completion_queue_processor_timeout: float = 1.0  # Queue check timeout in seconds
     
     # Model defaults for different purposes
-    completion_default_model: str = f"claude-cli/{DEFAULT_MODEL}"
-    summary_default_model: str = f"claude-cli/{DEFAULT_MODEL}"
-    semantic_eval_default_model: str = f"claude-cli/{DEFAULT_MODEL}"
+    completion_default_model: str = DEFAULT_MODEL
+    summary_default_model: str = DEFAULT_MODEL
+    semantic_eval_default_model: str = DEFAULT_MODEL
     
     # Optimization Configuration
     optimization_prompt_model: str = DEFAULT_MODEL  # Model for generating optimized prompts (same as task model)

@@ -500,7 +500,7 @@ async def handle_ready(data: Dict[str, Any], context: Optional[Dict[str, Any]] =
                     "component": props.get("component") or props.get("profile"),  # Support legacy
                     "composition": props.get("composition", props.get("component", props.get("profile"))),  # Fallback chain
                     "config": {
-                        "model": props.get("model", "sonnet"),  # Use stored model
+                        "model": props.get("model", config.completion_default_model),  # Use stored model or system default
                         "role": "assistant",
                         "enable_tools": props.get("enable_tools", False),
                         "expanded_capabilities": props.get("capabilities", []),
@@ -876,7 +876,7 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
         
         # Extract config from component
         agent_config = {
-            "model": component_data.get("model", "sonnet"),
+            "model": component_data.get("model", config.completion_default_model),
             "role": component_data.get("role", "assistant"),
             "enable_tools": component_data.get("enable_tools", False),
             "expanded_capabilities": expanded_capabilities,
@@ -1101,7 +1101,7 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
             "created_at": timestamp_utc(),
             "spawned_by": context.get("_agent_id") if context else "system",
             # Include config values needed for restoration
-            "model": agent_config.get("model", "sonnet"),
+            "model": agent_config.get("model", config.completion_default_model),
             "enable_tools": agent_config.get("enable_tools", False),
             "allowed_events": agent_config.get("allowed_events", []),
             "allowed_claude_tools": agent_config.get("allowed_claude_tools", []),
@@ -1392,7 +1392,7 @@ async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
                 "agent_id": agent_id,
                 "originator_id": agent_id,  # Use agent_id as originator_id
                 # session_id removed - completion system tracks this
-                "model": f"claude-cli/{agent_info.get('config', {}).get('model', 'sonnet')}",
+                # model removed - agent session already has model from spawn
                 "priority": "normal",
                 "request_id": f"{agent_id}_{message.get('request_id', uuid.uuid4().hex[:8])}"
             }
@@ -1560,8 +1560,9 @@ async def handle_agent_info(data: AgentInfoData, context: Optional[Dict[str, Any
         "conversation_id": agent_info.get("conversation_id")
     }
     
-    # Add capabilities from config
+    # Add config information
     if agent_info.get("config"):
+        result["config"] = agent_info["config"]  # Include full config with model
         result["capabilities"] = agent_info["config"].get("capabilities", [])
         result["expanded_capabilities"] = agent_info["config"].get("expanded_capabilities", [])
     
@@ -1864,7 +1865,7 @@ async def handle_send_message(data: AgentSendMessageData, context: Optional[Dict
             "agent_id": agent_id,
             "originator_id": agent_id,
             # session_id not included - agents have no session awareness
-            "model": f"claude-cli/{agent_config.get('model', 'sonnet')}",
+            # model not included - agent session already has model from spawn
             "priority": "normal",
             "request_id": f"{agent_id}_{message.get('request_id', uuid.uuid4().hex[:8])}"
         }
@@ -1985,7 +1986,7 @@ async def handle_update_composition(data: AgentUpdateCompositionData, context: O
         
         # Update agent configuration
         agent_info["config"] = {
-            "model": new_profile.get("model", "sonnet"),
+            "model": new_profile.get("model", config.completion_default_model),
             "capabilities": new_profile.get("capabilities", []),
             "role": new_profile.get("role", "assistant"),
             "enable_tools": new_profile.get("enable_tools", False),
