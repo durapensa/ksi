@@ -16,6 +16,7 @@ import time
 import json
 from typing import Dict, Any, Union, List, Optional, Callable
 from datetime import datetime
+from functools import lru_cache
 
 # Import existing utilities - with fallbacks for testing
 try:
@@ -28,6 +29,19 @@ try:
 except ImportError:
     def timestamp_utc():
         return datetime.utcnow().isoformat() + "Z"
+
+
+# Compiled regex patterns for template processing
+TEMPLATE_VARIABLE_PATTERN = re.compile(r'\{\{([^}]+)\}\}')
+FUNCTION_CALL_PATTERN = re.compile(r'(\w+)\((.*)\)')
+
+@lru_cache(maxsize=1000)
+def _split_path(path: str) -> tuple:
+    """
+    Cache path splitting operation for repeated access patterns.
+    Returns tuple for hashability in lru_cache.
+    """
+    return tuple(path.split('.'))
 
 
 # Built-in template functions
@@ -133,6 +147,9 @@ def _substitute_string(template: str, data: Dict[str, Any],
                 value = _get_nested_value(context, context_path)
             else:
                 value = None
+        elif var_name == '_ksi_context':
+            # _ksi_context might be a reference string or actual data
+            value = _get_nested_value(data, var_name)
         else:
             # Regular variable access
             value = _get_nested_value(data, var_name)
@@ -145,7 +162,7 @@ def _substitute_string(template: str, data: Dict[str, Any],
         else:
             return str(value)
     
-    return re.sub(r'\{\{([^}]+)\}\}', replace_var, template)
+    return TEMPLATE_VARIABLE_PATTERN.sub(replace_var, template)
 
 
 def _get_nested_value(data: Union[Dict, List, Any], path: str) -> Any:
@@ -160,7 +177,7 @@ def _get_nested_value(data: Union[Dict, List, Any], path: str) -> Any:
     if not path:
         return data
         
-    parts = path.split('.')
+    parts = _split_path(path)
     current = data
     
     for part in parts:
@@ -197,7 +214,7 @@ def _evaluate_function(expr: str, data: Dict[str, Any],
         upper(name) -> "JOHN"
     """
     # Parse function call (simplified - doesn't handle nested parens)
-    match = re.match(r'(\w+)\((.*)\)', expr)
+    match = FUNCTION_CALL_PATTERN.match(expr)
     if not match:
         return f"{{{{{expr}}}}}"  # Return unchanged if not a valid function
     
@@ -272,8 +289,7 @@ def extract_template_variables(content: Union[str, Dict, List]) -> set:
 
 def _extract_from_string(content: str, variables: set):
     """Extract variables from a string template."""
-    pattern = r'\{\{([^}]+)\}\}'
-    matches = re.findall(pattern, content)
+    matches = TEMPLATE_VARIABLE_PATTERN.findall(content)
     
     for match in matches:
         var_expr = match.strip()
@@ -286,7 +302,7 @@ def _extract_from_string(content: str, variables: set):
         # Handle function calls
         if '(' in var_expr and ')' in var_expr:
             # Extract argument
-            func_match = re.match(r'\w+\((.*)\)', var_expr)
+            func_match = FUNCTION_CALL_PATTERN.match(var_expr)
             if func_match and func_match.group(1):
                 var_expr = func_match.group(1).strip()
                 # Skip literal strings
@@ -303,7 +319,7 @@ def _extract_from_string(content: str, variables: set):
         
         # Extract base variable name
         if '.' in var_expr:
-            base_var = var_expr.split('.')[0]
+            base_var = _split_path(var_expr)[0]
         else:
             base_var = var_expr
             
@@ -330,6 +346,8 @@ def substitute_variables(content: str, variables: Dict[str, Any]) -> str:
     if not isinstance(result, str):
         return json_dumps(result)
     return result
+
+
 
 
 # Export new functionality

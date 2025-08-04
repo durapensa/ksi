@@ -40,8 +40,14 @@ class ContextWrapper:
         - Nested: {{_ksi_context.event}}, {{_ksi_context._agent_id}}
         """
         if self._merged is None:
-            # Start with a copy of the data
-            self._merged = copy.deepcopy(self.data)
+            # Start with an optimized copy of the data
+            # Only deep copy complex objects, shallow copy primitives
+            self._merged = {}
+            for key, value in self.data.items():
+                if isinstance(value, (dict, list)):
+                    self._merged[key] = copy.deepcopy(value)
+                else:
+                    self._merged[key] = value
             
             # Add context fields at root level for direct access
             for key, value in self.context.items():
@@ -188,8 +194,21 @@ def merge_contexts(
     Returns:
         Merged context dictionary
     """
-    merged = copy.deepcopy(base_context)
-    merged.update(override_context)
+    # Start with optimized copy of base_context
+    merged = {}
+    for key, value in base_context.items():
+        if isinstance(value, (dict, list)):
+            merged[key] = copy.deepcopy(value)
+        else:
+            merged[key] = value
+    
+    # Apply overrides with proper copying
+    for key, value in override_context.items():
+        if isinstance(value, (dict, list)):
+            merged[key] = copy.deepcopy(value)
+        else:
+            merged[key] = value
+    
     return merged
 
 
