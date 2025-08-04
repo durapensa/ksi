@@ -18,6 +18,10 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Any, Tuple
 
+# Suppress ALL logging before imports
+os.environ['KSI_LOG_LEVEL'] = 'ERROR'
+os.environ['PYTHONWARNINGS'] = 'ignore'
+
 # Add project root to path for proper imports
 ksi_root = str(Path(__file__).parent.parent)
 sys.path.insert(0, ksi_root)
@@ -28,14 +32,32 @@ logging.getLogger('ksi').setLevel(logging.ERROR)
 logging.getLogger('ksi_client').setLevel(logging.ERROR)
 logging.getLogger('ksi_common').setLevel(logging.ERROR)
 logging.getLogger('ksi_daemon').setLevel(logging.ERROR)
-# Disable all handlers to prevent any output
-for handler in logging.root.handlers[:]:
-    logging.root.removeHandler(handler)
 
-# Import the same client as KSI CLI uses
-from ksi_client import EventClient
-from ksi_client.exceptions import KSIError, KSIConnectionError, KSIEventError
-from ksi_common.config import config
+# Force all loggers to use NullHandler to prevent ANY output
+logging.getLogger().handlers = []
+null_handler = logging.NullHandler()
+logging.getLogger().addHandler(null_handler)
+
+# Disable all existing handlers to prevent any output
+for name in ['ksi', 'ksi_client', 'ksi_common', 'ksi_daemon', 'asyncio']:
+    logger = logging.getLogger(name)
+    logger.handlers = []
+    logger.addHandler(null_handler)
+    logger.propagate = False
+
+# Redirect stdout during imports to suppress any initialization logging
+import io
+_original_stdout = sys.stdout
+sys.stdout = io.StringIO()
+
+try:
+    # Import the same client as KSI CLI uses
+    from ksi_client import EventClient
+    from ksi_client.exceptions import KSIError, KSIConnectionError, KSIEventError
+    from ksi_common.config import config
+finally:
+    # Restore stdout after imports
+    sys.stdout = _original_stdout
 
 # =============================================================================
 # ERROR HANDLING
@@ -175,9 +197,19 @@ class KSIHookMonitor:
     
     async def _send_event_async(self, event_name: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Send an event using EventClient (async)."""
-        client = EventClient(client_id="ksi-hook", socket_path=self.socket_path)
-        async with client:
-            return await client.send_event(event_name, data)
+        # Redirect stdout to suppress KSI client logging
+        import io
+        original_stdout = sys.stdout
+        sys.stdout = io.StringIO()  # Capture stdout
+        
+        try:
+            client = EventClient(client_id="ksi-hook", socket_path=self.socket_path)
+            async with client:
+                result = await client.send_event(event_name, data)
+            return result
+        finally:
+            # Restore stdout
+            sys.stdout = original_stdout
     
     def _send_event(self, event_name: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Send an event using EventClient (sync wrapper)."""
