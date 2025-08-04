@@ -241,7 +241,37 @@ async def send_response(writer, response: Dict[str, Any]):
     try:
         # Send newline-delimited JSON response
         response_str = json.dumps(response) + '\n'
-        logger.debug(f"Sending response: {response_str.strip()}")
+        
+        # Event-aware logging to prevent huge log entries
+        event_name = response.get("event", "unknown")
+        
+        # Events that produce large outputs - log metadata only
+        LARGE_OUTPUT_EVENTS = {
+            "monitor:get_events", "monitor:get_status", "monitor:broadcast_event",
+            "system:discover", "system:help", 
+            "optimization:optimize", "optimization:status",
+            "composition:discover", "composition:get_component",
+            "agent:list", "routing:list"
+        }
+        
+        if event_name in LARGE_OUTPUT_EVENTS:
+            # Log only metadata for large output events
+            log_data = {
+                "event": event_name,
+                "correlation_id": response.get("correlation_id"),
+                "timestamp": response.get("timestamp"),
+                "count": response.get("count", len(response.get("data", [])) if isinstance(response.get("data"), list) else 1),
+                "size_bytes": len(response_str)
+            }
+            logger.debug(f"Sending response: {log_data}")
+        elif len(response_str) > 1024:  # 1KB threshold for other events
+            # Truncate large responses from other events
+            truncated = response_str[:1024] + "... (truncated)"
+            logger.debug(f"Sending response: {truncated}")
+        else:
+            # Log full response for small payloads
+            logger.debug(f"Sending response: {response_str.strip()}")
+        
         writer.write(response_str.encode('utf-8'))
         await writer.drain()
         logger.debug("Response sent successfully")
