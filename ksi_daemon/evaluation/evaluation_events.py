@@ -514,7 +514,8 @@ async def run_component_evaluation(
             logger.info(f"Completion request {request_id} queued, waiting for result...")
             
             # Wait for completion to finish (configurable timeout)
-            max_wait = getattr(config, 'evaluation_completion_timeout', 60)  # Default 60 seconds
+            from ksi_common.constants import DEFAULT_EVALUATION_COMPLETION_TIMEOUT
+            max_wait = getattr(config, 'evaluation_completion_timeout', DEFAULT_EVALUATION_COMPLETION_TIMEOUT)  # Default 5 minutes
             check_interval = 2
             elapsed = 0
             completion_done = False
