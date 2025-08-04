@@ -7,7 +7,7 @@ routing patterns dynamically instead of relying on static orchestrations.
 """
 
 from typing import Dict, Any, List, Optional, TypedDict
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import uuid
 
@@ -224,7 +224,7 @@ async def handle_add_rule(data: Dict[str, Any], context: Optional[Dict[str, Any]
         ttl=ttl,
         parent_scope=parent_scope,
         created_by=agent_id,
-        created_at=datetime.utcnow().isoformat(),
+        created_at=datetime.now(timezone.utc).isoformat(),
         metadata=data.get("metadata")
     )
     
@@ -244,7 +244,7 @@ async def handle_add_rule(data: Dict[str, Any], context: Optional[Dict[str, Any]
         "operation": "add_rule",
         "rule_id": rule_id,
         "agent_id": agent_id,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "rule": rule
     }
     routing_audit_log.append(audit_entry)
@@ -320,7 +320,7 @@ async def handle_modify_rule(data: Dict[str, Any], context: Optional[Dict[str, A
             "operation": "modify_rule",
             "rule_id": rule_id,
             "agent_id": agent_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "updates": updates
         }
         routing_audit_log.append(audit_entry)
@@ -393,7 +393,7 @@ async def handle_delete_rule(data: Dict[str, Any], context: Optional[Dict[str, A
             "operation": "delete_rule",
             "rule_id": rule_id,
             "agent_id": agent_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "deleted_rule": deleted_rule
         }
         routing_audit_log.append(audit_entry)
@@ -524,7 +524,7 @@ async def handle_update_subscription(data: Dict[str, Any], context: Optional[Dic
         "operation": "update_subscription",
         "target_agent": target_agent,
         "requesting_agent": requesting_agent,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "subscription_level": subscription_level,
         "error_subscription_level": data.get("error_subscription_level"),
         "reason": data.get("reason")

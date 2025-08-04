@@ -10,7 +10,7 @@ import asyncio
 import json
 from pathlib import Path
 from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 import aiofiles
 
@@ -114,7 +114,7 @@ class TokenTracker:
         if not self._usage_log_path.exists():
             return
         
-        cutoff = datetime.now() - timedelta(hours=hours)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
         loaded = 0
         
         try:
@@ -257,7 +257,7 @@ class TokenTracker:
         """
         if time_window_hours:
             # Filter records by time window
-            cutoff = datetime.now() - timedelta(hours=time_window_hours)
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=time_window_hours)
             records = [
                 r for r in self._in_memory_records
                 if r.agent_id == agent_id and 
@@ -355,7 +355,7 @@ class TokenTracker:
         Returns:
             Usage trends by time bucket
         """
-        cutoff = datetime.now() - timedelta(hours=hours)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
         buckets = defaultdict(lambda: {
             "input": 0, "output": 0, "requests": 0
         })

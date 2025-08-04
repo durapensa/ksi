@@ -8,7 +8,7 @@ and analysis of the dynamic routing system.
 
 import asyncio
 from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import deque
 import json
 
@@ -84,7 +84,7 @@ class RoutingAuditTrail:
                        actor: str, result: Dict[str, Any], context: Optional[Dict[str, Any]] = None):
         """Log a rule lifecycle event."""
         entry = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "type": "rule_change",
             "action": action,  # create, modify, delete
             "rule_id": rule_id,
@@ -102,7 +102,7 @@ class RoutingAuditTrail:
                            selected_rule: Optional[Dict[str, Any]], context: Optional[Dict[str, Any]] = None):
         """Log a routing decision."""
         entry = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "type": "routing_decision",
             "event_name": event_name,
             "matched_rules_count": len(matched_rules),
@@ -119,7 +119,7 @@ class RoutingAuditTrail:
                             actor: str, context: Optional[Dict[str, Any]] = None):
         """Log a validation result."""
         entry = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "type": "validation",
             "rule": rule,
             "valid": valid,
@@ -140,7 +140,7 @@ class RoutingAuditTrail:
                            reason: Optional[str] = None, context: Optional[Dict[str, Any]] = None):
         """Log a permission check."""
         entry = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "type": "permission_check",
             "actor": actor,
             "action": action,
@@ -156,7 +156,7 @@ class RoutingAuditTrail:
     def log_ttl_expiration(self, rule_id: str, rule: Dict[str, Any]):
         """Log a TTL expiration event."""
         entry = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "type": "ttl_expiration",
             "rule_id": rule_id,
             "rule": rule,
@@ -171,7 +171,7 @@ class RoutingAuditTrail:
     def log_system_event(self, event_type: str, details: Dict[str, Any]):
         """Log a system event (startup, shutdown, errors, etc)."""
         entry = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "type": "system_event",
             "event_type": event_type,
             "details": details
@@ -257,7 +257,7 @@ class RoutingAuditTrail:
         
         try:
             created = datetime.fromisoformat(rule["created_at"].replace('Z', '+00:00'))
-            expired = datetime.utcnow()
+            expired = datetime.now(timezone.utc)
             return (expired - created).total_seconds()
         except:
             return None
@@ -282,7 +282,7 @@ class RoutingAuditTrail:
         
         # Create audit summary
         summary = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "metrics": self.metrics.copy(),
             "recent_entries": list(self.audit_log)[-100:],  # Last 100 entries
             "audit_log_size": len(self.audit_log)
@@ -295,7 +295,7 @@ class RoutingAuditTrail:
                 "id": "current",
                 "properties": {
                     "summary": json.dumps(summary),
-                    "last_updated": datetime.utcnow().isoformat()
+                    "last_updated": datetime.now(timezone.utc).isoformat()
                 }
             })
             

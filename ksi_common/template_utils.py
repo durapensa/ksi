@@ -27,7 +27,7 @@ import re
 import time
 import json
 from typing import Any, Dict, List, Union, Optional, Callable
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Try to import KSI utilities, fallback for standalone usage
 try:
@@ -39,7 +39,7 @@ try:
     from ksi_common.utils import timestamp_utc
 except ImportError:
     def timestamp_utc():
-        return datetime.utcnow().isoformat() + "Z"
+        return datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
 
 
 # Template pattern for matching {{variable}} syntax

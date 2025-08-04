@@ -148,7 +148,39 @@ class GraphStateManager:
         current_time = time.time()
         
         async with self._get_db() as conn:
-            # Create entity
+            # Check if entity already exists
+            existing = await conn.execute_fetchone(
+                "SELECT id, type, created_at, updated_at FROM entities WHERE id = ?",
+                (entity_id,)
+            )
+            
+            if existing:
+                # Entity already exists, update properties if provided
+                self.logger.warning(f"Entity {entity_id} already exists, updating properties instead")
+                if properties:
+                    # Update existing entity with new properties
+                    await self.update_entity(entity_id, properties)
+                
+                # Return existing entity with current properties
+                props = {}
+                async with conn.execute(
+                    "SELECT property, value, value_type FROM properties WHERE entity_id = ?",
+                    (entity_id,)
+                ) as cursor:
+                    async for row in cursor:
+                        props[row['property']] = self._deserialize_value(
+                            row['value'], row['value_type']
+                        )
+                
+                return {
+                    "id": existing["id"],
+                    "type": existing["type"],
+                    "created_at": existing["created_at"],
+                    "updated_at": existing["updated_at"],
+                    "properties": props
+                }
+            
+            # Create new entity
             await conn.execute(
                 "INSERT INTO entities (id, type, created_at, updated_at) VALUES (?, ?, ?, ?)",
                 (entity_id, entity_type, current_time, current_time)

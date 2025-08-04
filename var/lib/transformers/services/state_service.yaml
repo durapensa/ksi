@@ -1,0 +1,10 @@
+# State Service Transformers
+# 
+# The state service itself has no specific transformers since it provides
+# the core state management functionality. State-related transformers are
+# defined in state_config_propagation.yaml which handles propagation of
+# state changes to other services.
+#
+# This file exists to suppress the "no_transformers" warning during startup.
+
+transformers: []

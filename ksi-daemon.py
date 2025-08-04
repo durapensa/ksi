@@ -150,12 +150,9 @@ def run_as_daemon():
     
     # Set up logging before daemonization
     setup_daemon_logging()
-    logger = get_bound_logger('daemon_main', version='1.0.0')
-    
-    # Ensure all required directories exist
+    # Don't use logger here - it will be closed during daemonization
+    # Just ensure directories exist
     config.ensure_directories()
-    
-    logger.info("Preparing to daemonize KSI daemon")
     
     context = daemon.DaemonContext(
         # Working directory - stay in project directory
@@ -186,8 +183,6 @@ def run_as_daemon():
         # Don't detach for debugging (can be overridden)
         detach_process=True,
     )
-    
-    logger.info("Starting daemon context")
     
     # Run the daemon
     with context:

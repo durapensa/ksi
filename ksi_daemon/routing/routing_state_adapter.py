@@ -7,7 +7,7 @@ with persistent state entities. Part of Stage 1.4 implementation.
 """
 
 from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 
 from ksi_common.logging import get_bound_logger
@@ -162,7 +162,7 @@ class RoutingStateAdapter:
     
     async def get_expired_rules(self) -> List[str]:
         """Get IDs of expired routing rules."""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         
         # Query for expired rules
         result = await self.router.emit("state:entity:query", {
@@ -188,7 +188,7 @@ class RoutingStateAdapter:
         # Check if expired
         if props.get("expires_at"):
             expires_at = datetime.fromisoformat(props["expires_at"].replace('Z', '+00:00'))
-            if expires_at.replace(tzinfo=None) < datetime.utcnow():
+            if expires_at < datetime.now(timezone.utc):
                 return None  # Rule has expired
         
         return {
@@ -210,5 +210,5 @@ class RoutingStateAdapter:
         if not ttl_seconds:
             return None
         
-        expiry = datetime.utcnow() + timedelta(seconds=ttl_seconds)
+        expiry = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
         return expiry.isoformat()
