@@ -4,6 +4,7 @@ Essential technical reference for developing with KSI (Knowledge System Infrastr
 
 **Related Documents**: 
 - [CLAUDE.md](../../CLAUDE.md) - Development workflow guide
+- [Context Reference Architecture](../../docs/CONTEXT_REFERENCE_ARCHITECTURE.md) - Dual-Path Context Architecture details
 - [KSI Transparency & Alignment Enhancements](../../docs/KSI_TRANSPARENCY_ALIGNMENT_ENHANCEMENTS.md) - AI safety research platform initiative
 
 ## Core Architecture
@@ -13,6 +14,13 @@ Essential technical reference for developing with KSI (Knowledge System Infrastr
 - **Discovery first**: `ksi discover` shows capabilities, `ksi help event:name` for parameters
 - **Socket communication**: Events flow through `var/run/daemon.sock`
 - **Never import internals**: Always use the event system for cross-service communication
+
+### Dual-Path Context Architecture
+- **Implicit Path**: Python contextvars for automatic async propagation
+- **Explicit Path**: Context dict parameters for manipulation and boundaries
+- **Reference-based storage**: 70.6% storage reduction via context references
+- **Both paths essential**: Not legacy/modern, but complementary solutions
+- **See**: `/docs/CONTEXT_REFERENCE_ARCHITECTURE.md` for complete details
 
 ### Component System (Unified 2025)
 - **Everything is a component**: Single model with `component_type` attribute
@@ -104,13 +112,13 @@ You are not Claude Assistant. You execute tasks directly and efficiently.
 - **Validation**: 4/4 event types (agent:status, state:entity:create/update) successfully extracted
 - **Integration**: Works seamlessly with base_agent.md v2.0.0 and modern behavioral components
 
-#### Legacy JSON Format (Dual-Path Support)
+#### Event JSON Format (Dual-Path JSON Emission)
 ```json
 {"event": "agent:status", "data": {"agent_id": "{{agent_id}}", "status": "initialized"}}
 ```
-- Maintained for backward compatibility
-- Dual-path extraction supports both formats
-- Tool use pattern preferred for new components
+- Direct event emission pattern
+- Dual-path extraction supports both event and tool-use formats
+- Choose based on agent capabilities and reliability needs
 
 ### Agent Communication
 ```json
@@ -232,7 +240,9 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 ## Key Insights
 
 1. **Tool use patterns work reliably** - LLMs naturally structure tool calls correctly
-2. **Dual-path extraction** - Support both legacy JSON and modern tool use formats
+2. **Dual-path architectures throughout** - Multiple complementary approaches, not legacy transitions:
+   - **Context**: Implicit (contextvars) + Explicit (dict) paths
+   - **JSON Emission**: Event JSON + Tool-use JSON paths
 3. **Everything is a graph** - Entities, relationships, event routing
 4. **Composition over configuration** - Mix behaviors, don't hardcode
 5. **System enables, doesn't control** - Agents are autonomous
@@ -240,6 +250,7 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 7. **Infrastructure as substrate** - Two-layer architecture (agents + transformers) replaces three-layer
 8. **Introspection is key** - Visibility into routing decisions enables debugging and learning
 9. **Orchestration system completely replaced** - Foreach transformers + dynamic routing handle all coordination patterns
+10. **Context propagation is foundational** - Enables event trees, request tracing, and system observability
 
 ---
 
