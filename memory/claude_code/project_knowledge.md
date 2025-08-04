@@ -6,6 +6,9 @@ Essential technical reference for developing with KSI (Knowledge System Infrastr
 - [CLAUDE.md](../../CLAUDE.md) - Development workflow guide
 - [Context Reference Architecture](../../docs/CONTEXT_REFERENCE_ARCHITECTURE.md) - Dual-Path Context Architecture details
 - [KSI Transparency & Alignment Enhancements](../../docs/KSI_TRANSPARENCY_ALIGNMENT_ENHANCEMENTS.md) - AI safety research platform initiative
+- [Optimization Approach](../../docs/OPTIMIZATION_APPROACH.md) - DSPy/MIPRO integration and optimization philosophy
+- [Optimization Metrics Guide](../../docs/OPTIMIZATION_METRICS_GUIDE.md) - Metric design for effective agent optimization
+- [Tournament Optimization Approach](../../docs/TOURNAMENT_OPTIMIZATION_APPROACH.md) - Pairwise comparison-based optimization
 
 ## Core Architecture
 
@@ -244,6 +247,17 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 - **Foreach Transformers**: Multi-target emission via iteration (Stage 2.0 complete)
 - **See**: `/docs/DYNAMIC_ROUTING_ARCHITECTURE.md` for operational guide and architecture details
 
+### Optimization System (Phase 2 Complete)
+- **Framework Integration**: MIPRO and SIMBA optimizers operational via subprocess architecture
+- **Agent-in-the-Loop**: Optimization requires behavioral testing, not just text analysis
+- **Metric Design**: Default minimal metric insufficient - need comprehensive behavioral evaluation
+- **LLM-as-Judge**: Comparative rankings more reliable than absolute scoring
+- **Tournament Approach**: Pairwise comparisons with Bradley-Terry model for co-evolution
+- **Context Tracking**: Full optimization lineage through context system
+- **Key Finding**: 0% improvement with minimal metrics proves need for agent behavioral testing
+- **See**: `/docs/OPTIMIZATION_APPROACH.md` for philosophy and implementation
+- **See**: `/docs/OPTIMIZATION_METRICS_GUIDE.md` for proper metric design
+
 ## File Locations
 
 ### Core Systems
@@ -265,6 +279,16 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 - `ksi_daemon/routing/routing_event_patch.py` - Event router introspection patch
 - `ksi_common/foreach_transformer.py` - Foreach transformer processing logic
 - `var/lib/transformers/system/workflow_transformers.yaml` - Workflow patterns using foreach
+
+### Optimization System
+- `ksi_daemon/optimization/optimization_service.py` - Core optimization service
+- `ksi_daemon/optimization/optimization_events.py` - Event handlers for optimization
+- `ksi_daemon/optimization/adapters/mipro_adapter.py` - MIPRO/DSPy integration
+- `ksi_daemon/optimization/adapters/simba_adapter.py` - SIMBA optimizer adapter
+- `ksi_optimize_component.py` - Subprocess script for long-running optimizations
+- `var/db/mlflow_artifacts/` - MLflow tracking and optimization artifacts
+- `components/personas/optimizers/` - Optimization-focused agent personas
+- `components/workflows/agent_optimization_flow` - Agent-driven optimization workflow
 
 ### Configuration
 - `var/lib/capabilities/` - Capability definitions

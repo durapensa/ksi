@@ -9,6 +9,18 @@ KSI takes a minimal, composable approach to optimization:
 3. **Optimization provides utilities** - The optimization module provides framework-agnostic integration
 4. **Components define everything** - Signatures, metrics, and optimization strategies are all components
 
+## Optimization Targets
+
+KSI optimizes for multiple dimensions beyond token efficiency:
+
+- **Instruction Following**: Agents precisely execute requested tasks
+- **Task Lock-In**: Agents maintain focus without digression
+- **Behavioral Consistency**: Predictable, reliable agent behavior
+- **Token Efficiency**: Minimal token usage while maintaining quality
+- **Response Quality**: Accuracy, completeness, and usefulness
+
+These dimensions require sophisticated metrics that evaluate actual agent behavior, not just instruction text.
+
 ## Context System Integration
 
 The new Pythonic context system transforms optimization observability:
@@ -153,7 +165,17 @@ The optimization module provides minimal utilities:
 - Git tracking for experiments
 - Framework information queries
 
-### 5. The Evaluation Paradox & Tournament Solution
+### 5. Current Implementation Status (2025-01)
+
+**MIPRO and SIMBA Integration**: Successfully integrated and operational
+- ✅ MIPRO runs complete optimization cycles with configurable trials
+- ✅ SIMBA configured (currently falls back to MIPRO internally)
+- ✅ Subprocess architecture handles long-running optimizations
+- ⚠️ **Key Finding**: 0% improvement with minimal default metric
+
+**Critical Insight**: The default metric is too simplistic for meaningful optimization. Need proper agent-in-the-loop evaluation with real behavioral testing.
+
+### 6. The Evaluation Paradox & Tournament Solution
 
 **The Paradox**: To optimize prompts we need good metrics, but good metrics require optimized evaluation prompts.
 
@@ -197,6 +219,36 @@ flow:
   5. Update both optimizers with rankings
   6. Iterate until convergence
 ```
+
+## Recent Research Integration (2024-2025)
+
+### Automatic Prompt Optimization Techniques
+
+**OPRO (Optimization by PROmpting)**: Uses LLMs to iteratively evaluate and optimize prompts
+- Outperforms human-designed prompts by up to 8% on GSM8K
+- Up to 50% improvement on Big-Bench Hard tasks
+- Works with only 3.5% of training data
+
+**Meta Prompting**: Self-improving feedback loops
+- DSPy manages multiple LLM calls for refinement
+- TEXTGRAD uses natural language feedback
+- Iterative improvement through successive generations
+
+### Key Optimization Principles
+
+1. **Clarity and Specificity**: Well-defined queries prevent inconsistent outputs
+2. **Structured I/O**: JSON/XML formats enhance LLM understanding
+3. **Task Decomposition**: Break complex processes into subtasks
+4. **Few-Shot Examples**: Guide pattern recognition
+5. **Chain-of-Thought**: Step-by-step reasoning for complex tasks
+6. **ReAct Pattern**: Combine reasoning with action planning
+
+### Practical Findings
+
+- **Word Choice Sensitivity**: Minor variations cause significant accuracy differences
+- **Direct Communication**: Politeness phrases have no impact on LLM performance
+- **Audience Specification**: Targeted responses improve quality
+- **Iterative Refinement**: Essential for optimization convergence
 
 ### 6. Agent-Based Evaluation Metrics
 
