@@ -46,9 +46,11 @@ async def _capture_optimization_state(opt_id: str, state: str, data: Dict[str, A
         cm = get_context_manager()
         
         # Create a context for this optimization state
+        # timestamp_utc() returns a string, convert to timestamp for event_id
+        current_time = time.time()
         optimization_context = await cm.create_context(
-            event_id=f"optimization_state_{opt_id}_{state}_{int(timestamp_utc().timestamp())}",
-            timestamp=timestamp_utc().timestamp(),
+            event_id=f"optimization_state_{opt_id}_{state}_{int(current_time)}",
+            timestamp=current_time,
             optimization_id=opt_id,
             state=state
         )
