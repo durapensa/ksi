@@ -72,6 +72,43 @@ The event system automatically:
 3. Stores events with contexts
 4. Propagates references to child events
 
+#### Dual Context Propagation Strategy
+KSI employs a sophisticated dual-context propagation system to maintain backward compatibility while modernizing:
+
+**Modern Path (contextvars)**:
+- Uses Python's `ContextVar` for automatic async task propagation
+- Context flows naturally through async boundaries
+- Zero overhead for context inheritance in child tasks
+- Clean separation from event data
+
+**Legacy Path (context dict)**:
+- Traditional dictionary passed as `context` parameter to handlers
+- Required for backward compatibility with existing event handlers
+- Used by event response builders, monitoring, and logging systems
+- Explicitly passed through call chains: `emit(event, data, context)`
+
+**Why Both Are Updated**:
+```python
+# In EventRouter.emit(), both paths are maintained:
+# 1. Contextvar is set for modern async propagation
+ksi_context.set(new_context)
+
+# 2. Context dict is updated for legacy handlers
+context.update({
+    "_event_id": ksi_context["_event_id"],
+    "_parent_event_id": ksi_context["_event_id"],  # Current event becomes parent
+    "_root_event_id": ksi_context.get("_root_event_id", ksi_context["_event_id"]),
+    "_event_depth": ksi_context.get("_event_depth", 0) + 1,
+    "_ksi_context_ref": context_ref
+})
+```
+
+This dual approach ensures:
+- Child events get correct parent-child relationships regardless of emission method
+- Legacy handlers continue receiving expected context structure
+- Modern code can use cleaner contextvar patterns
+- Gradual migration is possible without breaking changes
+
 ### 3. Context Gateway Service (`ksi_daemon/core/context_service.py`)
 
 External API for context access:
@@ -322,6 +359,63 @@ ws://localhost:8080/context/subscribe?correlation_id=corr_456
 4. **Cold storage migration**: Background process migrates historical data
 5. **Cleanup**: Remove old embedded context data after verification
 
+### Legacy Context Dict Removal Analysis
+
+#### What Would Be Involved
+
+Removing the legacy context dict path would require:
+
+1. **Code Audit & Updates**:
+   - Identify all event handlers using `context` parameter (~100+ handlers)
+   - Update handlers to use contextvar: `ksi_context.get()` instead of `context` param
+   - Modify event response builders to extract context via contextvar
+   - Update monitoring/logging systems to use modern context access
+
+2. **API Changes**:
+   - Remove `context` parameter from event handler signatures
+   - Update `EventRouter.emit()` to stop maintaining dual paths
+   - Modify event emission patterns throughout codebase
+
+3. **Testing & Validation**:
+   - Comprehensive testing of all event handlers
+   - Verify parent-child relationships still propagate correctly
+   - Ensure logging/monitoring systems continue functioning
+   - Test all client libraries and external integrations
+
+4. **Migration Tools**:
+   - Automated script to update handler signatures
+   - Context access wrapper for gradual migration
+   - Runtime warnings for deprecated context usage
+
+#### Is Removal Prudent?
+
+**Arguments FOR Removal**:
+- **Simplification**: Single context propagation path reduces complexity
+- **Performance**: Eliminate overhead of maintaining two systems
+- **Modern patterns**: Embrace Python's native async context management
+- **Cleaner code**: Remove "backward compatibility" comments and dual logic
+
+**Arguments AGAINST Removal**:
+- **Breaking change**: Would break all existing event handlers and integrations
+- **Migration effort**: Significant work to update entire codebase
+- **External dependencies**: Third-party integrations rely on context parameter
+- **Risk**: Potential for subtle bugs in parent-child relationships
+- **Flexibility**: Context parameter allows explicit context override when needed
+
+**Recommendation**: **NOT YET PRUDENT**
+
+The legacy path should be maintained until:
+1. All core KSI services fully adopt contextvar patterns (6-12 months)
+2. Major version bump (KSI 3.0) can accommodate breaking changes
+3. Migration tools and documentation are comprehensive
+4. Performance benefits justify the migration cost
+
+A phased approach would be more prudent:
+- **Phase 1**: Add deprecation warnings for context parameter usage
+- **Phase 2**: Provide migration tools and updated documentation
+- **Phase 3**: Update core services to use contextvars
+- **Phase 4**: Remove legacy path in major version release
+
 ## Performance Characteristics
 
 ### Hot Storage Performance
@@ -362,6 +456,6 @@ The system's automatic context propagation, combined with powerful introspection
 
 ---
 
-*Last updated: 2025-07-22*
+*Last updated: 2025-08-04*
 *Architecture version: 2.0.0*
 *Storage reduction: 70.6%*
