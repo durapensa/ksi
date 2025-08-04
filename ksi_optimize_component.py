@@ -97,8 +97,24 @@ def log_progress(opt_id: str, status: str, **kwargs):
     logger.info(f"Optimization {opt_id} progress: {status}", **kwargs)
 
 
-def create_minimal_metric():
-    """Create a simple metric for optimization."""
+def create_minimal_metric(config_data=None):
+    """Create a metric for optimization based on configuration."""
+    config_data = config_data or {}
+    metric_type = config_data.get("metric", "baseline")
+    
+    # Try to use behavioral metric if requested
+    if metric_type == "behavioral":
+        try:
+            from ksi_daemon.optimization.metrics.agent_behavioral_metric import create_behavioral_metric
+            
+            metric_config = config_data.get("metric_config", {})
+            metric = create_behavioral_metric(**metric_config)
+            logger.info("Using agent behavioral evaluation metric")
+            return metric
+            
+        except ImportError as e:
+            logger.warning(f"Behavioral metric not available: {e}, falling back to baseline")
+    
     # Try to use agent-based evaluation metric
     try:
         from ksi_daemon.optimization.metrics.agent_output_metric import evaluate_data_analysis
@@ -228,7 +244,7 @@ async def run_optimization(args):
         )
         
         # Create metric
-        metric = create_minimal_metric()
+        metric = create_minimal_metric(config_data)
         
         # Create adapter based on optimizer type
         log_progress(opt_id, "initializing_optimizer")

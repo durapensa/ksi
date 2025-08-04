@@ -7,6 +7,9 @@ from ksi_daemon.optimization.frameworks.dspy_simba_adapter import DSPySIMBAAdapt
 # Import evaluation service to register event handlers
 from ksi_daemon.optimization import evaluation_service
 
+# Import integrated optimization events  
+from ksi_daemon.optimization import integrated_optimization_events
+
 __all__ = [
     "BaseOptimizer", 
     "OptimizationResult",
