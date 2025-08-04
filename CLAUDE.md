@@ -624,6 +624,14 @@ git commit -m "Update composition submodule"
   - **Workaround**: `tail -f /tmp/ksi_hook_diagnostic.log`
   - **Hook control**: `echo ksi_verbose` / `ksi_summary` / `ksi_silent`
 
+**Optimization Service Issues**:
+- **Timestamp attribute errors**: `timestamp_utc()` returns string, not timestamp object
+  - **Fix**: Use `time.time()` for numeric timestamps
+  - **Location**: `ksi_daemon/optimization/optimization_service.py`
+- **0% improvement with MIPRO/SIMBA**: Default metric too simplistic
+  - **Solution**: Implement proper evaluation metrics or LLM-as-Judge
+  - **Note**: Both optimizers run successfully but need better metrics
+
 ## Building Agent-Driven Systems
 
 **When** creating agent-driven optimization or automation:
