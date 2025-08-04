@@ -287,6 +287,7 @@ The discovery system automatically extracts parameter types, descriptions, and v
 - [Architecture Analysis](docs/ksi_architecture_analysis.md) - Deep technical dive
 - [Optimization Approach](docs/OPTIMIZATION_APPROACH.md) - How agents improve themselves
 - [DSL Patterns](docs/DSL_PATTERNS_AND_OPTIMIZATION.md) - Meta-linguistic evolution
+- [Transparency & Alignment Enhancements](docs/KSI_TRANSPARENCY_ALIGNMENT_ENHANCEMENTS.md) - AI safety research platform
 - [Claude Code Integration](CLAUDE.md) - Development workflow with Claude Code
 - [Technical Reference](memory/claude_code/project_knowledge.md) - Implementation details
 

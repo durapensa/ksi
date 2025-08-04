@@ -699,6 +699,7 @@ This pattern enables agents to effectively "optimize" components without fightin
 ### What Doesn't Belong Here
 - **Technical Architecture**: Belongs in PROGRESSIVE_COMPONENT_SYSTEM.md
 - **Implementation Details**: Belongs in project_knowledge.md
+- **AI Safety Research Plans**: Belongs in KSI_TRANSPARENCY_ALIGNMENT_ENHANCEMENTS.md
 - **Development History**: Belongs in git commits
 - **Accomplishment Lists**: Remove when they become outdated
 - **Progress Reports**: Temporary information that doesn't improve workflows
@@ -714,6 +715,6 @@ This pattern enables agents to effectively "optimize" components without fightin
 
 ---
 
-**Remember**: This is your workflow guide. For technical details, implementation patterns, and architecture, always refer to `memory/claude_code/project_knowledge.md`.
+**Remember**: This is your workflow guide. For technical details, implementation patterns, and architecture, always refer to `memory/claude_code/project_knowledge.md`. For AI safety research initiatives and transparency enhancements, see `docs/KSI_TRANSPARENCY_ALIGNMENT_ENHANCEMENTS.md`.
 
 *Last updated: 2025-01-27*
