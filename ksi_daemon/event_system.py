@@ -611,8 +611,9 @@ class EventRouter:
             enhanced_data["_ksi_context"] = context_ref
             
             # Update the router's context for child event propagation
-            # The context manager already set contextvars, but we also update
-            # the passed context dict for backward compatibility
+            # This implements KSI's Dual-Path Context Architecture:
+            # - Implicit path: contextvars (already set by context manager)
+            # - Explicit path: context dict (for manipulation, boundaries, testing)
             context.update({
                 "_event_id": ksi_context["_event_id"],
                 "_correlation_id": ksi_context["_correlation_id"],
