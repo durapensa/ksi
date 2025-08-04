@@ -110,32 +110,13 @@ class ExitStrategy:
     @staticmethod
     def exit_with_feedback(message: str, is_error: bool = False):
         """Exit with JSON format for Claude Code feedback"""
-        # IMPORTANT: As of Claude Code issue #3983, we must include
-        # "decision": "block" for the "reason" field to be shown to Claude.
-        # This is counterintuitive since we're not actually blocking,
-        # but it's currently required for visibility.
-        # See: https://docs.anthropic.com/en/docs/claude-code/hooks#posttooluse-decision-control
-        # 
-        # UPDATE 2025-01-27: Hook feedback has stopped appearing in Claude Code.
-        # This is a regression - the exact same code was working last week.
-        # Reported in: https://github.com/anthropics/claude-code/issues/3983#issuecomment-3124420434
-        # Hook still runs correctly (check /tmp/ksi_hook_diagnostic.log) but
-        # Claude cannot see the KSI status updates.
+        # Note: "decision": "block" is required for "reason" to be shown
+        # Despite the name, it doesn't actually block tool execution
         output = {
-            "decision": "block",  # Required for "reason" to be shown
+            "decision": "block",
             "reason": message
         }
-        json_output = json.dumps(output)
-        
-        # Log the exact JSON being sent for debugging
-        try:
-            with open("/tmp/ksi_hook_diagnostic.log", "a") as f:
-                f.write(f"{datetime.now().isoformat()} - Sending JSON to stdout: {json_output}\n")
-        except:
-            pass
-            
-        # Must be stdout according to Claude Code docs
-        print(json_output, flush=True)
+        print(json.dumps(output), flush=True)
         sys.exit(ExitStrategy.SUCCESS)
     
     @staticmethod
@@ -155,12 +136,8 @@ class HookLogger:
         self.debug_log = Path(config.debug_log_path) if config.debug_log else None
         
     def log_diagnostic(self, message: str):
-        """Log to diagnostic file"""
-        try:
-            with open(self.diagnostic_log, "a") as f:
-                f.write(f"{datetime.now().isoformat()} - {message}\n")
-        except Exception:
-            pass  # Silent fail for logging
+        """Log to diagnostic file - DISABLED for production"""
+        pass  # Diagnostic logging disabled
     
     def log_debug(self, message: str):
         """Log to debug file if debug mode is enabled"""
@@ -185,7 +162,6 @@ class KSIHookMonitor:
             self.config.socket_path = self._find_socket_path()
         
         self.socket_path = Path(self.config.socket_path)
-        self.logger.log_diagnostic(f"Using socket path: {self.socket_path}")
         
         # State files
         self.timestamp_file = Path(self.config.timestamp_file)
@@ -327,12 +303,6 @@ class KSIHookMonitor:
             
             result = self._send_event("monitor:get_events", data)
             events = result.get("events", [])
-            
-            # Debug: log what events we're getting
-            self.logger.log_diagnostic(f"Got {len(events)} events since {self.last_timestamp}")
-            if events:
-                event_types = [e.get("event_name", "unknown") for e in events[:5]]
-                self.logger.log_diagnostic(f"Event types: {event_types}")
             
             # Extract agent status from events (no additional queries)
             agent_status = self._extract_agent_status_from_events(events)
@@ -830,7 +800,6 @@ class KSIHookMonitor:
         
         # Skip if no data received
         if tool_name == "unknown" or not hook_data:
-            self.logger.log_diagnostic("No data received, skipping")
             return False
         
         # Smart filtering for Bash commands - only monitor KSI-related activity
@@ -845,44 +814,19 @@ class KSIHookMonitor:
             if self.handle_mode_command(command):
                 return False  # Already handled
             
-            # Load KSI indicators
-            ksi_indicators = self._load_ksi_indicators()
-            
-            if not any(indicator in command for indicator in ksi_indicators):
-                self.logger.log_diagnostic("Not KSI-related, skipping")
-                return False
-            else:
-                self.logger.log_diagnostic("KSI-related command detected!")
+            # Process any command with 'ksi ' to show event status
+            # Note: "decision": "block" doesn't actually block execution
+            # It just displays the feedback message
+            if 'ksi ' in command or command.strip() == "echo ksi_check":
                 return True
+            
+            return False
         
-        return True
+        # Only process Bash commands with KSI indicators
+        return False
     
-    def _load_ksi_indicators(self) -> List[str]:
-        """Load KSI indicators from external filters file."""
-        try:
-            # Find the filters file relative to this script
-            script_dir = Path(__file__).parent
-            filters_file = script_dir / "ksi_hook_monitor_filters.txt"
-            
-            if not filters_file.exists():
-                raise FileNotFoundError("Filters file not found")
-            
-            indicators = []
-            with open(filters_file, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith('#'):
-                        indicators.append(line)
-            return indicators
-            
-        except Exception as e:
-            self.logger.log_debug(f"Failed to load indicators: {e}")
-            # Fallback to inline filters on any error
-            return [
-                "nc -U var/run/daemon.sock", "./daemon_control.py", "daemon_control.py",
-                "agent:spawn", "agent:", "state:", "entity:", "completion:", "event:",
-                "ksi_", "KSI", "/ksi/", "ksi-", "ksi_check"
-            ]
+    # Removed _load_ksi_indicators method - no longer using filters file
+    # Now using simple 'ksi ' pattern matching directly
 
 # =============================================================================
 # MAIN ENTRY POINT
@@ -895,8 +839,6 @@ def main():
     monitor = None
     
     try:
-        # Always write basic debug info to help diagnose issues
-        logger.log_diagnostic("Hook triggered")
         
         # Read hook input from stdin
         hook_data = {}
@@ -911,11 +853,6 @@ def main():
         
         # Extract context (based on actual hook format)
         tool_name = hook_data.get("tool_name", "unknown")
-        session_id = hook_data.get("session_id", "unknown")
-        tool_response = hook_data.get("tool_response", {})
-        
-        # Write tool info to diagnostic log
-        logger.log_diagnostic(f"Tool: {tool_name}")
         
         # Initialize monitor
         monitor = KSIHookMonitor(config)
@@ -925,14 +862,8 @@ def main():
             ExitStrategy.exit_silent()
         
         # Get KSI status (consolidated call)
-        logger.log_diagnostic("Getting KSI status...")
-        
         try:
             events, agent_status, optimization_status = monitor.get_status_consolidated("*", limit=config.event_limit)
-            logger.log_diagnostic(f"Got {len(events) if events else 0} events")
-            logger.log_diagnostic(f"Agent status: {agent_status[:50]}...")
-            if optimization_status:
-                logger.log_diagnostic(f"Optimization status: {optimization_status}")
             
         except KSIConnectionError:
             logger.log_diagnostic("Daemon not running")
@@ -953,7 +884,6 @@ def main():
         output = monitor.format_output(events, agent_status, optimization_status)
         
         if output:
-            logger.log_diagnostic(f"JSON feedback output: {output}")
             ExitStrategy.exit_with_feedback(output)
         else:
             ExitStrategy.exit_silent()
