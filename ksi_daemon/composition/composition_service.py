@@ -1708,7 +1708,7 @@ class ComponentDeleteData(TypedDict):
 
 @event_handler("composition:create_component")
 async def handle_create_component(data: ComponentCreateData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Create a component (fragment/template) with content preserved."""
+    """Create a component file in the composition system with content preserved."""
     # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
     from ksi_common.event_response_builder import event_response_builder, error_response
     
@@ -1717,6 +1717,14 @@ async def handle_create_component(data: ComponentCreateData, context: Optional[D
         name = _normalize_component_name(data['name'])
         content = data['content']
         comp_type = data.get('type', 'component')
+        
+        # Validate content is a string
+        if not isinstance(content, str):
+            return error_response(
+                f"Content must be a string, got {type(content).__name__}. "
+                f"Ensure content is properly formatted as a string.",
+                context=context
+            )
         
         # Determine base path based on type using shared utility
         base_path = get_composition_base_path(comp_type)
@@ -1730,8 +1738,12 @@ async def handle_create_component(data: ComponentCreateData, context: Optional[D
         ensure_directory(file_path.parent)
         
         # Check if exists
-        if file_path.exists() and not data.get('overwrite', False):
-            return error_response(f"Component {name} already exists", context)
+        overwrite = data.get('overwrite', False)
+        if file_path.exists() and not overwrite:
+            return error_response(
+                f"Component {name} already exists. Use --overwrite flag to replace it.",
+                context=context
+            )
         
         # Write content directly
         file_path.write_text(content)

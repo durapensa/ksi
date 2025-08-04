@@ -79,6 +79,47 @@ ksi send workflow:create --workflow_id "my_workflow" \
 - **Behavioral overrides merge**: Applied in dependency order
 - **Security profiles compose**: Capabilities resolved through profiles
 
+### 4. Documentation Standards
+- **Single-line docstrings**: Event handlers should have concise, descriptive docstrings
+- **TypedDict parameters**: Define all parameters in TypedDict classes with inline comments
+- **Auto-discovery**: Discovery system extracts parameters from TypedDict + AST analysis
+- **No manual examples**: Examples are auto-generated from parameter definitions
+- **Why**: Prevents docstring parsing errors where content is misinterpreted as parameters
+
+**Pattern to follow**:
+```python
+class MyEventData(TypedDict):
+    """Event data for my_event handler."""
+    name: str  # Component name (e.g., "core/base_agent")
+    enabled: NotRequired[bool]  # Whether to enable (default: true)
+
+@event_handler("namespace:my_event")
+async def handle_my_event(data: MyEventData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Single-line description of what this handler does."""
+    # Implementation here
+```
+
+**Anti-pattern to avoid**:
+```python
+@event_handler("namespace:my_event")
+async def handle_my_event(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Long docstring with detailed description.
+    
+    Args:
+        data: Event data with fields:
+            - name: Component name
+            - enabled: Whether to enable
+    
+    Returns:
+        Success response
+        
+    Examples:
+        ksi send namespace:my_event --name "test"
+    """
+    # This pattern causes parsing issues!
+```
+
 ## Working Patterns
 
 ### Behavioral Components (Proven)
@@ -120,6 +161,33 @@ You are not Claude Assistant. You execute tasks directly and efficiently.
 - Dual-path extraction supports both event and tool-use formats
 - Choose based on agent capabilities and reliability needs
 
+#### Discovery Response Format (Dual-Path)
+**CLI Context** (standard format):
+```json
+{
+  "events": {"agent:spawn": {...}, "agent:list": {...}},
+  "total": 15,
+  "namespaces": ["agent"]
+}
+```
+
+**Agent Context** (ksi_tool_use format):
+```json
+{
+  "type": "ksi_tool_use",
+  "id": "ksiu_discover_abc123",
+  "name": "discovery:results",
+  "input": {
+    "request": {"namespace": "agent"},
+    "results": {
+      "total_events": 15,
+      "events": ["agent:spawn", "agent:list", ...],
+      "namespaces": {"agent": 15}
+    }
+  }
+}
+```
+
 ### Agent Communication
 ```json
 {"event": "completion:async", "data": {"agent_id": "target", "prompt": "message"}}
@@ -142,6 +210,11 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 - **Dynamic CLI**: Parameters discovered from handlers, not hardcoded
 - **Caching**: SQLite cache for expensive TypedDict analysis
 - **UX Enhancement**: Automatic namespace level when filtering by namespace
+- **Dual-Path JSON Output** (2025-01-28):
+  - CLI tools receive standard JSON format
+  - Agents receive ksi_tool_use format
+  - Context detection via `_agent_id` presence
+  - Errors remain standard format for all consumers
 
 ### Path Resolution System (Fixed 2025-01-27)
 - **KSI root detection**: Consistent `find_ksi_root()` logic across all components

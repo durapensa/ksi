@@ -25,6 +25,8 @@ from ksi_daemon.event_system import event_handler, get_router
 from .discovery_utils import HandlerAnalyzer, extract_summary
 from .discovery_cache import get_discovery_cache
 from ksi_common.service_lifecycle import service_startup, service_shutdown
+from ksi_common.agent_context import is_agent_context
+import uuid
 
 logger = get_bound_logger("discovery", version="2.0.0")
 
@@ -39,6 +41,7 @@ FORMAT_VERBOSE = "verbose"
 FORMAT_COMPACT = "compact" 
 FORMAT_ULTRA_COMPACT = "ultra_compact"
 FORMAT_MCP = "mcp"
+FORMAT_AGENT_TOOL_USE = "agent_tool_use"
 
 
 
@@ -230,6 +233,80 @@ def filter_events(
         filtered[event_name] = event_info
 
     return filtered
+
+
+def format_discovery_for_agent(events: Dict[str, Any], request_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Format discovery response as ksi_tool_use for agent consumption.
+    
+    This enables agents to reliably emit discovery requests and receive
+    responses in a format they can parse and act upon.
+    
+    Args:
+        events: Discovery results
+        request_data: Original request data (for context)
+        
+    Returns:
+        ksi_tool_use formatted response
+    """
+    # Generate unique ID for this response
+    response_id = f"ksiu_discover_{uuid.uuid4().hex[:8]}"
+    
+    # Convert discovery results to tool use format
+    return {
+        "type": "ksi_tool_use",
+        "id": response_id,
+        "name": "discovery:results",
+        "input": {
+            "request": request_data,
+            "results": {
+                "total_events": len(events),
+                "events": list(events.keys()) if len(events) <= 50 else list(events.keys())[:50],
+                "truncated": len(events) > 50,
+                "namespaces": _extract_namespaces(events)
+            }
+        }
+    }
+
+
+def format_help_for_agent(event_name: str, event_info: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Format help response as ksi_tool_use for agent consumption.
+    
+    Args:
+        event_name: Event name
+        event_info: Event details
+        
+    Returns:
+        ksi_tool_use formatted response
+    """
+    response_id = f"ksiu_help_{uuid.uuid4().hex[:8]}"
+    
+    # Extract key information for agent consumption
+    params = event_info.get("parameters", {})
+    required_params = [name for name, info in params.items() if info.get("required", False)]
+    
+    return {
+        "type": "ksi_tool_use",
+        "id": response_id,
+        "name": "help:results",
+        "input": {
+            "event_name": event_name,
+            "summary": event_info.get("summary", ""),
+            "parameters": list(params.keys()),
+            "required_parameters": required_params,
+            "usage_hint": f"ksi send {event_name}" + (f" --{required_params[0]} <value>" if required_params else "")
+        }
+    }
+
+
+def _extract_namespaces(events: Dict[str, Any]) -> Dict[str, int]:
+    """Extract namespace counts from events."""
+    namespaces = {}
+    for event_name in events:
+        ns = event_name.split(":")[0] if ":" in event_name else "default"
+        namespaces[ns] = namespaces.get(ns, 0) + 1
+    return namespaces
 
 
 def build_discovery_response(
@@ -877,6 +954,7 @@ class UnifiedHandlerAnalyzer:
     def _enhance_from_docstring(self):
         """Enhance parameters with docstring information."""
         doc_params = parse_docstring_params(self.func)
+        
         for name, doc_info in doc_params.items():
             if name in self.parameters:
                 # Don't override existing info, just supplement
@@ -1085,10 +1163,22 @@ async def handle_discover(data: SystemDiscoverData, context: Optional[Dict[str, 
             if module_info and "docstring" in module_info:
                 response["module_description"] = module_info["docstring"].split("\n")[0].strip()
     
-    return event_response_builder(
-        response,
-        context=context
-    )
+    # Check if request is from an agent
+    if is_agent_context(context):
+        # Return ksi_tool_use format for agents
+        logger.debug("Agent context detected for discovery", agent_id=context.get("_agent_id"), client_id=context.get("_client_id"))
+        agent_response = format_discovery_for_agent(
+            formatted_events if 'formatted_events' in locals() else filtered_events,
+            data
+        )
+        return event_response_builder(agent_response, context=context)
+    else:
+        # Return standard format for CLI tools
+        logger.debug("CLI context detected for discovery", client_id=context.get("_client_id") if context else None)
+        return event_response_builder(
+            response,
+            context=context
+        )
 
 
 @event_handler("system:help")
@@ -1131,7 +1221,14 @@ async def handle_help(data: SystemHelpData, context: Optional[Dict[str, Any]] = 
     analysis_result = analyzer.analyze()
     handler_info.update(analysis_result)
 
-    # Format based on style
+    # Check if request is from an agent
+    if is_agent_context(context):
+        # Return ksi_tool_use format for agents
+        logger.debug("Agent context detected for help", agent_id=context.get("_agent_id"), client_id=context.get("_client_id"), event_name=event_name)
+        agent_response = format_help_for_agent(event_name, handler_info)
+        return event_response_builder(agent_response, context=context)
+    
+    # Format based on style for CLI tools
     if format_style == FORMAT_MCP:
         # Return MCP-compatible format
         return event_response_builder(

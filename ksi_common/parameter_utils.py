@@ -301,10 +301,24 @@ def parse_docstring_params(func: Callable) -> Dict[str, Dict[str, Any]]:
         if line.lower() in ["parameters:", "args:", "arguments:", "params:"]:
             in_params = True
             continue
-        elif line and line.endswith(":") and not in_params:
-            # Other section started
-            in_params = False
-            continue
+        elif line and line.endswith(":"):
+            # Check if this is a new section (not a parameter continuation)
+            lower_line = line.lower()
+            if in_params and (lower_line.startswith("returns:") or 
+                            lower_line.startswith("examples:") or 
+                            lower_line.startswith("raises:") or 
+                            lower_line.startswith("yields:") or 
+                            lower_line.startswith("note:") or 
+                            lower_line.startswith("notes:") or 
+                            lower_line.startswith("warning:") or
+                            lower_line.startswith("see also:") or
+                            lower_line.startswith("references:")):
+                # Exit parameter section
+                in_params = False
+                continue
+            elif not in_params:
+                # Other section started while not in params
+                continue
 
         if in_params and line:
             # Check if this is a parameter definition

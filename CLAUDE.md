@@ -262,6 +262,13 @@ python ksi_evaluation/discover_validated.py dsl
 - **Use error_response()** - For handler errors
 - **Log with context** - Include relevant details for debugging
 
+### Event Handler Documentation
+- **Use single-line docstrings** - Just describe what the handler does
+- **Define parameters in TypedDict** - With inline comments for descriptions
+- **Let discovery auto-extract** - Parameters, types, and examples are generated
+- **No Args/Returns/Examples sections** - These cause parsing issues
+- **See** `memory/claude_code/project_knowledge.md` → Documentation Standards for details
+
 ### Service Robustness
 - **Use checkpoint_participant decorator** - For automatic state persistence
 - **Implement collect_checkpoint_data()** - Return service state to checkpoint
