@@ -292,6 +292,17 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 ### Timeouts
 **Fix**: Check logs, look for serialization errors
 
+### Evaluation System Issues (2025-08-04)
+**Issue**: `evaluation:run` times out even though agent tests complete
+**Cause**: Multiple issues discovered:
+1. `monitor:get_events` doesn't support field filtering - must fetch and filter manually
+2. Behavioral components need `ksi_events_as_tool_calls` dependency to emit events
+3. Possible async event loop blocking in evaluation handler
+**Workaround**: 
+- Fixed monitor filtering issue in evaluation_events.py
+- Added required dependencies to behavioral components
+- Further investigation needed for timeout root cause
+
 ## Current Development Focus (2025-01-27)
 
 ### Phase 1: Component Foundation ✅
@@ -326,5 +337,32 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 10. **Context propagation is foundational** - Enables event trees, request tracing, and system observability
 
 ---
+
+## Future Development Patterns
+
+### Long Docstring Migration
+Many handlers still use long docstrings that should be migrated to single-line format:
+```python
+# Current (long form)
+@event_handler("example:event")
+async def handle_example(data, context):
+    """
+    Handle example event.
+    
+    Args:
+        data: Event data
+        context: System context
+        
+    Returns:
+        Response dict
+    """
+    
+# Target (concise form)  
+@event_handler("example:event")
+async def handle_example(data, context):
+    """Handle example event with minimal description."""
+```
+
+This reduces discovery system overhead and improves performance. When migrating, preserve valuable sections like "Returns:", "Examples:" as they provide context for agents.
 
 *Essential development knowledge - for workflows see CLAUDE.md*
