@@ -149,10 +149,11 @@ class GraphStateManager:
         
         async with self._get_db() as conn:
             # Check if entity already exists
-            existing = await conn.execute_fetchone(
+            cursor = await conn.execute(
                 "SELECT id, type, created_at, updated_at FROM entities WHERE id = ?",
                 (entity_id,)
             )
+            existing = await cursor.fetchone()
             
             if existing:
                 # Entity already exists, update properties if provided
