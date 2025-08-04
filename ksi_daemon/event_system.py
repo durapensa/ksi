@@ -104,15 +104,18 @@ class EventHandler:
                                 if hasattr(field_type, '__args__'):
                                     for arg in field_type.__args__:
                                         if arg is dict or (hasattr(arg, '__origin__') and arg.__origin__ is dict):
-                                            self.json_params.add(field)
+                                            # Exclude _ksi_context which contains resolved objects
+                                            if field != '_ksi_context':
+                                                self.json_params.add(field)
                                             break
                             elif field_type is dict or (hasattr(field_type, '__origin__') and field_type.__origin__ is dict):
-                                # Direct Dict type
-                                self.json_params.add(field)
+                                # Direct Dict type (but exclude _ksi_context which contains resolved objects)
+                                if field != '_ksi_context':
+                                    self.json_params.add(field)
                             elif field in ['filter', 'properties', 'metadata', 'vars', 'variables',
                                          'context', 'message', 'config', 'options', 'params',
-                                         'attributes', 'tags', 'labels', 'settings']:
-                                # Known JSON parameters by name
+                                         'attributes', 'tags', 'labels', 'settings'] and field != '_ksi_context':
+                                # Known JSON parameters by name (but exclude _ksi_context which contains resolved objects)
                                 self.json_params.add(field)
         except Exception as e:
             # If we can't extract TypedDict info, that's fine
