@@ -769,3 +769,28 @@ async def handle_get_audit_metrics(data: Dict[str, Any], context: Optional[Dict[
     metrics = audit.get_metrics()
     
     return event_response_builder(metrics, context)
+
+
+@event_handler("routing:expire_rule")
+async def handle_expire_rule(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Handle scheduled rule expiration (called by scheduler service).
+    
+    This is an internal event triggered by the scheduler when a rule's TTL expires.
+    """
+    # Get routing service
+    service = get_routing_service()
+    if not service:
+        logger.error("Routing service not available for rule expiration")
+        return error_response(
+            error="Routing service not available",
+            context=context
+        )
+    
+    # Delegate to service method
+    await service.handle_rule_expiration(data)
+    
+    return success_response({
+        "status": "expired",
+        "rule_id": data.get("rule_id")
+    })

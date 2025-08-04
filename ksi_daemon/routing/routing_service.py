@@ -73,8 +73,8 @@ class RoutingService:
         # Sync all rules with transformer system
         await self.transformer_bridge.sync_all_rules()
         
-        # Start TTL management task
-        self._ttl_task = asyncio.create_task(self._manage_ttl())
+        # Event-driven TTL replaces polling (Stage 2.5)
+        # self._ttl_task = asyncio.create_task(self._manage_ttl())
         
         # Initialize routing introspection
         from .routing_event_patch import patch_event_router_for_introspection
@@ -90,13 +90,13 @@ class RoutingService:
         """Shutdown the routing service."""
         logger.info("RoutingService shutting down")
         
-        # Cancel TTL task
-        if hasattr(self, '_ttl_task'):
-            self._ttl_task.cancel()
-            try:
-                await self._ttl_task
-            except asyncio.CancelledError:
-                pass
+        # Event-driven TTL replaces polling (Stage 2.5)
+        # if hasattr(self, '_ttl_task'):
+        #     self._ttl_task.cancel()
+        #     try:
+        #         await self._ttl_task
+        #     except asyncio.CancelledError:
+        #         pass
         
         # Persist current rules
         await self._persist_rules()
@@ -135,27 +135,32 @@ class RoutingService:
         # This method is now a no-op but kept for compatibility
         logger.info("Rules already persisted in state system", count=len(self.routing_rules))
     
-    async def _manage_ttl(self):
-        """Background task to manage rule TTLs."""
-        while True:
-            try:
-                await asyncio.sleep(60)  # Check every minute
-                
-                # Check for expired rules using state adapter
-                expired_rule_ids = await self.state_adapter.get_expired_rules()
-                
-                # Remove expired rules
-                for rule_id in expired_rule_ids:
-                    await self._remove_rule(rule_id, reason="TTL expired")
-                    self.metrics["rules_expired"] += 1
-                
-                if expired_rule_ids:
-                    logger.info("Expired routing rules", count=len(expired_rule_ids))
-                    
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error("Error in TTL management", error=str(e))
+    async def _schedule_rule_expiration(self, rule_id: str, ttl_seconds: int):
+        """Schedule a routing rule to expire after TTL seconds."""
+        try:
+            # Get router instance and schedule event to expire this rule
+            router = get_router()
+            await router.emit("scheduler:schedule_once", {
+                "event_name": "routing:expire_rule",
+                "event_data": {"rule_id": rule_id},
+                "delay_seconds": ttl_seconds,
+                "event_id": f"expire_{rule_id}"
+            })
+            logger.debug(f"Scheduled expiration for rule {rule_id} in {ttl_seconds} seconds")
+        except Exception as e:
+            logger.error(f"Failed to schedule rule expiration: {e}")
+    
+    async def handle_rule_expiration(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle scheduled rule expiration."""
+        rule_id = data.get("rule_id")
+        if not rule_id:
+            logger.error("Rule expiration event missing rule_id")
+            return
+        
+        # Remove the expired rule
+        await self._remove_rule(rule_id, reason="TTL expired")
+        self.metrics["rules_expired"] += 1
+        logger.info(f"Expired routing rule {rule_id} due to TTL")
     
     def _get_parent_key(self, parent_scope: Dict[str, Any]) -> str:
         """Generate a unique key for parent scope tracking."""
@@ -249,6 +254,10 @@ class RoutingService:
         self.routing_rules[rule_id] = rule
         self.metrics["rules_created"] += 1
         
+        # Schedule expiration if TTL is set
+        if rule.get("ttl"):
+            await self._schedule_rule_expiration(rule_id, rule["ttl"])
+        
         # Track parent scope if present
         if rule.get("parent_scope"):
             parent_key = self._get_parent_key(rule["parent_scope"])
@@ -325,10 +334,25 @@ class RoutingService:
         # Update cache
         rule = self.routing_rules[rule_id]
         old_parent_scope = rule.get("parent_scope")
+        old_ttl = rule.get("ttl")
         
         for key, value in updates.items():
             if key not in ["rule_id", "created_by", "created_at"]:
                 rule[key] = value
+        
+        # Handle TTL changes
+        new_ttl = rule.get("ttl")
+        if old_ttl != new_ttl:
+            # Cancel old expiration if it existed
+            if old_ttl:
+                router = get_router()
+                await router.emit("scheduler:cancel", {
+                    "event_id": f"expire_{rule_id}"
+                })
+            
+            # Schedule new expiration if TTL is set
+            if new_ttl:
+                await self._schedule_rule_expiration(rule_id, new_ttl)
         
         # Update parent tracking if parent_scope changed
         new_parent_scope = rule.get("parent_scope")
@@ -399,6 +423,13 @@ class RoutingService:
         # Remove from cache
         if rule_id in self.routing_rules:
             self.routing_rules.pop(rule_id)
+        
+        # Cancel scheduled expiration if rule had TTL
+        if rule and rule.get("ttl"):
+            router = get_router()
+            await router.emit("scheduler:cancel", {
+                "event_id": f"expire_{rule_id}"
+            })
         
         # Clean up parent tracking if present
         if rule and rule.get("parent_scope"):
