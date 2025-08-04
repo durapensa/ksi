@@ -269,7 +269,7 @@ async def handle_evaluation_run(data: EvaluationRunData, context: Optional[Dict[
             else:
                 # Run component evaluation by spawning test orchestration
                 test_results = await run_component_evaluation(
-                    component_path=str(full_path),
+                    component_path=component_path,  # Pass original relative path, not full_path
                     model=data['model'],
                     test_suite=data['test_suite']
                 )
@@ -486,7 +486,7 @@ async def run_component_evaluation(
         spawn_results = await router.emit("agent:spawn", {
             "agent_id": test_agent_id,
             "model": model,
-            "component": data['component_path']  # Use the original component path
+            "component": component_path  # Use the component_path parameter
         }, context=None)
         
         spawn_result = spawn_results[0] if spawn_results else {}
@@ -524,19 +524,22 @@ async def run_component_evaluation(
                 elapsed += check_interval
                 
                 # Check for completion:result event via monitor
+                # Note: monitor:get_events doesn't support field filtering, so get recent events and filter manually
                 event_results = await router.emit("monitor:get_events", {
                     "event_patterns": ["completion:result"],
-                    "filters": {"request_id": request_id},
-                    "limit": 1
+                    "limit": 10  # Get recent completion results
                 }, context=None)
                 
                 event_result = event_results[0] if event_results else {}
                 events = event_result.get('data', {}).get('events', [])
                 
-                if events:
-                    # Found completion result
+                # Filter events by request_id
+                matching_events = [e for e in events if e.get('data', {}).get('request_id') == request_id]
+                
+                if matching_events:
+                    # Found completion result for our request
                     completion_done = True
-                    result_data = events[0].get('data', {}).get('result', {})
+                    result_data = matching_events[0].get('data', {}).get('result', {})
                     if result_data.get('response', {}).get('is_error'):
                         test_status = 'failing'
                         tests_passed = 0
