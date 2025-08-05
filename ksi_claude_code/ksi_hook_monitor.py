@@ -322,8 +322,8 @@ class KSIHookMonitor:
     def _extract_agent_status_from_events(self, events: List[Dict[str, Any]]) -> str:
         """Extract agent status from events without additional queries."""
         try:
-            # Look for recent agent:spawn:success events to find active agents
-            spawn_events = [e for e in events if e.get("event_name") == "agent:spawn:success"]
+            # Look for recent agent:spawned events to find active agents
+            spawn_events = [e for e in events if e.get("event_name") == "agent:spawned"]
             
             if spawn_events:
                 # Extract agent IDs from spawn events
@@ -514,7 +514,7 @@ class KSIHookMonitor:
                             lines.append(f"{time_str} ✓ completion:{session} ({duration_s:.1f}s)")
                         else:
                             lines.append(f"{time_str} ✓ completion:{session}")
-                elif event_name == "agent:spawn:success":
+                elif event_name == "agent:spawned":
                     agent_id = event.get("data", {}).get("agent_id", "?")
                     session_id = event.get("data", {}).get("session_id")
                     if session_id and self.verbosity_mode == "orchestration":
@@ -625,7 +625,7 @@ class KSIHookMonitor:
         
         # Determine if we have errors or significant events
         has_errors = any("error" in e.get("event_name", "").lower() for e in new_events)
-        has_significant = any(e.get("event_name", "") in ["agent:spawn:success", "completion:result"] for e in new_events)
+        has_significant = any(e.get("event_name", "") in ["agent:spawned", "completion:result"] for e in new_events)
         
         # Check for active agents
         agent_count = len(agent_status.split(": ")[1].split(", ")) if "Agents[" in agent_status else 0
@@ -765,9 +765,9 @@ class KSIHookMonitor:
             # Build compact status with emojis
             parts = []
             
-            # Events with E:
+            # Events with EVENTS:
             if new_events:
-                parts.append(f"E:{len(new_events)}")
+                parts.append(f"EVENTS:{len(new_events)}")
             
             # Agents with A:
             if agent_count > 0:
