@@ -330,9 +330,6 @@ class EventRouter:
     async def emit(self, event: str, data: Any = None, 
                    context: Optional[Dict[str, Any]] = None) -> List[Any]:
         """Emit an event to all matching handlers."""
-        # Debug logging for injection:clear issue
-        if event == "injection:clear":
-            logger.error(f"DEBUG: emit called for injection:clear, data type: {type(data)}, value: {data}")
         
         # Store current event for condition evaluation
         self._current_event = event
@@ -550,10 +547,7 @@ class EventRouter:
         for mw in self._middleware:
             data = await mw(event, data, context)
             
-        # Debug logging for injection:clear issue
-        if event == "injection:clear":
-            logger.debug(f"DEBUG: After middleware, data type: {type(data)}, value: {data}")
-            
+        
         # PYTHONIC CONTEXT REFACTOR: Use reference-based context management
         # This reduces event size by 66% and enables automatic context propagation
         if context and isinstance(data, dict):
@@ -713,14 +707,6 @@ class EventRouter:
             return [unknown_event_response]
             
         # Execute handlers concurrently with enhanced data
-        # Debug logging for injection:clear issue
-        if event == "injection:clear":
-            logger.error(f"DEBUG: injection:clear enhanced_data type: {type(enhanced_data)}, value: {enhanced_data}")
-            logger.error(f"DEBUG: injection:clear original data type: {type(data)}, value: {data}")
-            logger.error(f"DEBUG: injection:clear handlers: {handlers}")
-            logger.error(f"DEBUG: injection:clear handler count: {len(handlers)}")
-            if handlers:
-                logger.error(f"DEBUG: First handler: {handlers[0]}, func: {handlers[0].func}, module: {handlers[0].module}")
         
         if self._propagate_errors:
             # In error propagation mode, let exceptions bubble up

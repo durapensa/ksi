@@ -186,8 +186,6 @@ class EventDaemonCore:
         import ksi_daemon.conversation.conversation_service
         import ksi_daemon.conversation.conversation_lock
         
-        # Injection modules
-        import ksi_daemon.injection.injection_router
         
         # Config modules
         import ksi_daemon.config.config_service

@@ -392,7 +392,6 @@ class CompletionAsyncData(TypedDict):
     temperature: NotRequired[float]  # Sampling temperature
     max_tokens: NotRequired[int]  # Maximum tokens to generate
     conversation_lock: NotRequired[Dict[str, Any]]  # Lock configuration
-    injection_config: NotRequired[Dict[str, Any]]  # Injection configuration
     circuit_breaker_config: NotRequired[Dict[str, Any]]  # Circuit breaker config
     extra_body: NotRequired[Dict[str, Any]]  # Provider-specific parameters
     originator_id: NotRequired[str]  # Original requester ID
@@ -949,25 +948,11 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
                 active_tasks.pop(request_id, None)  # Clean up task tracking
             create_tracked_task("completion_service", cleanup(), task_name="completion_cleanup")
         
-        # Handle injection if needed
+        # Prepare result event data
         result_event_data = {
             "request_id": request_id,
             "result": standardized_response
         }
-        
-        injection_config = data.get("injection_config")
-        if injection_config and injection_config.get('enabled') and event_emitter:
-            injection_result = await event_emitter("injection:process_result", {
-                "request_id": request_id,
-                "result": standardized_response,
-                "injection_metadata": {
-                    "injection_config": injection_config,
-                    "circuit_breaker_config": data.get('circuit_breaker_config', {})
-                }
-            })
-            
-            if injection_result and isinstance(injection_result, dict) and "result" in injection_result:
-                result_event_data["result"] = injection_result["result"]
         
         # Emit result
         logger.info(f"About to emit completion:result event", 
