@@ -8,6 +8,7 @@ session lifecycle management.
 """
 
 import asyncio
+from dataclasses import dataclass, field
 from typing import Dict, Set, Tuple, Any, Optional
 
 from ksi_common.logging import get_bound_logger
@@ -18,18 +19,40 @@ from ksi_common.config import config
 logger = get_bound_logger("completion.queue_manager")
 
 
+# Priority levels for completion requests
+class CompletionPriority:
+    """Priority levels for completion requests."""
+    INJECT = 1    # High priority - completion:inject for agent coordination
+    ASYNC = 2     # Normal priority - completion:async for regular requests
+
+
+@dataclass
+class PriorityQueueItem:
+    """Item for priority queue with proper ordering."""
+    priority: int
+    timestamp: str  # For FIFO within same priority
+    request_id: str
+    request_data: Dict[str, Any]
+    
+    def __lt__(self, other):
+        """Compare items for priority queue ordering."""
+        if self.priority != other.priority:
+            return self.priority < other.priority  # Lower number = higher priority
+        return self.timestamp < other.timestamp  # FIFO within same priority
+
+
 class CompletionQueueManager:
     """Manages per-session completion queues."""
     
     def __init__(self):
         """Initialize the queue manager."""
-        self._session_queues: Dict[str, asyncio.Queue] = {}
+        self._session_queues: Dict[str, asyncio.PriorityQueue] = {}
         self._active_sessions: Set[str] = set()
         self._queue_sizes: Dict[str, int] = {}  # Track sizes for monitoring
         self._queue_timeout = config.completion_queue_processor_timeout
         
     async def enqueue(self, session_id: str, request_id: str, 
-                     request_data: Dict[str, Any]) -> Dict[str, Any]:
+                     request_data: Dict[str, Any], priority: int = CompletionPriority.ASYNC) -> Dict[str, Any]:
         """
         Add a completion request to the appropriate session queue.
         
@@ -37,39 +60,51 @@ class CompletionQueueManager:
             session_id: The session identifier
             request_id: Unique request identifier
             request_data: The completion request data
+            priority: Request priority (CompletionPriority.INJECT or CompletionPriority.ASYNC)
             
         Returns:
             Queue status information
         """
-        # Get or create queue for session
+        # Get or create priority queue for session
         if session_id not in self._session_queues:
-            self._session_queues[session_id] = asyncio.Queue()
-            logger.debug(f"Created new queue for session {session_id}")
+            self._session_queues[session_id] = asyncio.PriorityQueue()
+            logger.debug(f"Created new priority queue for session {session_id}")
         
         queue = self._session_queues[session_id]
         
-        # Add to queue
-        await queue.put((request_id, request_data))
+        # Create priority queue item
+        item = PriorityQueueItem(
+            priority=priority,
+            timestamp=timestamp_utc(),
+            request_id=request_id,
+            request_data=request_data
+        )
+        
+        # Add to priority queue
+        await queue.put(item)
         
         # Update size tracking
         self._queue_sizes[session_id] = queue.qsize()
         
+        priority_name = "INJECT" if priority == CompletionPriority.INJECT else "ASYNC"
         logger.info(
             "Enqueued completion request",
             request_id=request_id,
             session_id=session_id,
+            priority=priority_name,
             queue_depth=queue.qsize()
         )
         
         return {
             "queued": True,
             "queue_depth": queue.qsize(),
-            "session_active": session_id in self._active_sessions
+            "session_active": session_id in self._active_sessions,
+            "priority": priority_name
         }
     
     async def dequeue(self, session_id: str, timeout: float = 1.0) -> Optional[Tuple[str, Dict[str, Any]]]:
         """
-        Get the next request from a session queue.
+        Get the next request from a session queue (highest priority first).
         
         Args:
             session_id: The session identifier
@@ -84,9 +119,9 @@ class CompletionQueueManager:
         queue = self._session_queues[session_id]
         
         try:
-            result = await asyncio.wait_for(queue.get(), timeout=timeout)
+            item = await asyncio.wait_for(queue.get(), timeout=timeout)
             self._queue_sizes[session_id] = queue.qsize()
-            return result
+            return (item.request_id, item.request_data)
         except asyncio.TimeoutError:
             return None
     
@@ -181,10 +216,10 @@ class CompletionQueueManager:
         queue = self._session_queues[session_id]
         cleared = 0
         
-        # Drain the queue
+        # Drain the priority queue
         while not queue.empty():
             try:
-                queue.get_nowait()
+                item = queue.get_nowait()  # Returns PriorityQueueItem
                 cleared += 1
             except asyncio.QueueEmpty:
                 break

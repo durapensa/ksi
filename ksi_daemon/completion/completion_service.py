@@ -26,7 +26,7 @@ from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 
 # Import modular components
-from ksi_daemon.completion.queue_manager import CompletionQueueManager
+from ksi_daemon.completion.queue_manager import CompletionQueueManager, CompletionPriority
 from ksi_daemon.completion.provider_manager import ProviderManager
 from ksi_daemon.completion.conversation_tracker import ConversationTracker
 from ksi_daemon.completion.token_tracker import TokenTracker
@@ -400,10 +400,8 @@ class CompletionAsyncData(TypedDict):
     _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
-@event_handler("completion:async")
-async def handle_async_completion(data: CompletionAsyncData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Handle async completion requests with smart queueing and automatic session continuity."""
-    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
+async def _handle_completion_core(data: Dict[str, Any], context: Optional[Dict[str, Any]], priority: int) -> Dict[str, Any]:
+    """Core completion request handler shared by both async and inject events."""
     from ksi_common.event_response_builder import event_response_builder, error_response
     if not all([queue_manager, provider_manager, conversation_tracker]):
         return error_response(
@@ -456,13 +454,18 @@ async def handle_async_completion(data: CompletionAsyncData, context: Optional[D
     # Session resolution happens at processing time to avoid race conditions
     session_id = requested_session_id  # Only use explicitly provided session_id
     
+    # Determine event type and priority name for logging
+    event_type = "completion:inject" if priority == CompletionPriority.INJECT else "completion:async"
+    priority_name = "INJECT" if priority == CompletionPriority.INJECT else "ASYNC"
+    
     logger.info(
-        f"Received async completion request",
+        f"Received {priority_name} completion request" + (" (HIGH PRIORITY)" if priority == CompletionPriority.INJECT else ""),
         request_id=request_id,
         session_id=session_id,
         agent_id=agent_id,
         explicit_session=bool(requested_session_id),
-        model=data.get("model", config.completion_default_model)
+        model=data.get("model", config.completion_default_model),
+        priority=priority_name
     )
     
     # Track with conversation tracker for session continuity
@@ -472,9 +475,9 @@ async def handle_async_completion(data: CompletionAsyncData, context: Optional[D
     # Save recovery data
     conversation_tracker.save_recovery_data(request_id, data)
     
-    # Enqueue request (use "pending" as session key if session_id is None)
-    queue_session_key = session_id or "pending"
-    queue_status = await queue_manager.enqueue(queue_session_key, request_id, data)
+    # Enqueue request with specified priority (use agent_id as queue key for parallel processing)
+    queue_session_key = agent_id or "anonymous_rate_limited"
+    queue_status = await queue_manager.enqueue(queue_session_key, request_id, data, priority=priority)
     
     # Track active completion (preserved from original)
     active_completions[request_id] = {
@@ -483,7 +486,7 @@ async def handle_async_completion(data: CompletionAsyncData, context: Optional[D
         "status": "queued",
         "queued_at": timestamp_utc(),
         "data": dict(data),  # Store full request for potential retry
-        "original_event": "completion:async"
+        "original_event": event_type
     }
     
     # Start processor if needed - one processor per conversation
@@ -505,12 +508,43 @@ async def handle_async_completion(data: CompletionAsyncData, context: Optional[D
             logger.warning(f"Task group not ready, creating processor task directly for session {queue_session_key}")
             create_tracked_task("completion_service", process_session(), task_name="process_session")
     
+    # Generate appropriate response message
+    message = f"{'HIGH PRIORITY ' if priority == CompletionPriority.INJECT else ''}completion request queued for processing"
+    
     return {
         "request_id": request_id,
         "status": "queued",
-        "message": "Completion request queued for processing",
+        "message": message,
         **queue_status
     }
+
+
+@event_handler("completion:async")
+async def handle_async_completion(data: CompletionAsyncData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Handle async completion requests with smart queueing and automatic session continuity."""
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
+    return await _handle_completion_core(data, context, CompletionPriority.ASYNC)
+
+
+# TypedDict for completion:inject data structure
+class CompletionInjectData(TypedDict):
+    """Data structure for completion:inject requests - high priority agent coordination."""
+    messages: Required[List[Dict[str, str]]]  # Required message list
+    agent_id: NotRequired[str]  # Optional agent ID
+    session_id: NotRequired[str]  # Optional session ID  
+    model: NotRequired[str]  # Optional model override
+    request_id: NotRequired[str]  # Optional request ID
+    originator_id: NotRequired[str]  # Who initiated this request
+    priority: NotRequired[str]  # Priority level (always "high" for inject)
+    timeout: NotRequired[int]  # Request timeout in seconds
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
+
+
+@event_handler("completion:inject")
+async def handle_inject_completion(data: CompletionInjectData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Handle high-priority completion:inject requests for agent coordination."""
+    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
+    return await _handle_completion_core(data, context, CompletionPriority.INJECT)
 
 
 async def process_session_queue(session_id: str):

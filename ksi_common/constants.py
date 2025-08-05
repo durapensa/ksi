@@ -20,6 +20,9 @@ DEFAULT_REQUEST_TIMEOUT = 30.0      # 30 seconds for normal requests
 DEFAULT_SHUTDOWN_TIMEOUT = 10.0     # 10 seconds for graceful shutdown
 DEFAULT_EVALUATION_COMPLETION_TIMEOUT = 300  # 5 minutes for evaluation completions
 
+# Completion concurrency limits
+DEFAULT_MAX_CONCURRENT_COMPLETIONS = 4  # Maximum concurrent completion requests
+
 # Directory structure (relative to working directory)
 DEFAULT_VAR_DIR = "var"
 DEFAULT_LOG_DIR = "var/logs"

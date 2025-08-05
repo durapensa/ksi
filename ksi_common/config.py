@@ -30,6 +30,9 @@ Environment Variables:
     KSI_SUMMARY_DEFAULT_MODEL - Default model for summaries (default: claude-cli/claude-sonnet-4-20250514)
     KSI_SEMANTIC_EVAL_DEFAULT_MODEL - Default model for semantic evaluation (default: claude-cli/claude-sonnet-4-20250514)
     
+    Completion Configuration:
+    KSI_MAX_CONCURRENT_COMPLETIONS - Maximum concurrent completion requests (default: 4)
+    
     TUI Configuration:
     KSI_TUI_DEFAULT_MODEL - Default model for TUI apps (default: claude-cli/sonnet)
     KSI_TUI_CHAT_CLIENT_ID - Client ID for chat app (default: ksi-chat)
@@ -79,6 +82,7 @@ from .constants import (
     DEFAULT_COMPOSITION_INDEX_DB_NAME,
     DEFAULT_EVALUATION_INDEX_DB_NAME,
     DEFAULT_EVALUATION_COMPLETION_TIMEOUT,
+    DEFAULT_MAX_CONCURRENT_COMPLETIONS,
 )
 
 
@@ -279,6 +283,7 @@ class KSIBaseConfig(BaseSettings):
     
     # Completion queue settings
     completion_queue_processor_timeout: float = 1.0  # Queue check timeout in seconds
+    max_concurrent_completions: int = DEFAULT_MAX_CONCURRENT_COMPLETIONS
     
     # Model defaults for different purposes
     completion_default_model: str = DEFAULT_MODEL
