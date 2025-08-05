@@ -148,21 +148,39 @@ class GraphStateManager:
         current_time = time.time()
         
         async with self._get_db() as conn:
-            # Check if entity already exists
+            # Use upsert semantics to handle race conditions
+            # INSERT OR REPLACE will either create new or update existing
             cursor = await conn.execute(
-                "SELECT id, type, created_at, updated_at FROM entities WHERE id = ?",
+                "SELECT id, type, created_at FROM entities WHERE id = ?",
                 (entity_id,)
             )
             existing = await cursor.fetchone()
             
             if existing:
-                # Entity already exists, update properties if provided
-                self.logger.warning(f"Entity {entity_id} already exists, updating properties instead")
-                if properties:
-                    # Update existing entity with new properties
-                    await self.update_entity(entity_id, properties)
+                # Entity already exists - update it
+                self.logger.debug(f"Entity {entity_id} already exists, updating properties")
+                await conn.execute(
+                    "UPDATE entities SET updated_at = ? WHERE id = ?",
+                    (current_time, entity_id)
+                )
                 
-                # Return existing entity with current properties
+                # Update properties if provided
+                if properties:
+                    # Clear existing properties and set new ones
+                    await conn.execute(
+                        "DELETE FROM properties WHERE entity_id = ?",
+                        (entity_id,)
+                    )
+                    for prop, value in properties.items():
+                        serialized, value_type = self._serialize_value(value)
+                        await conn.execute(
+                            "INSERT INTO properties (entity_id, property, value, value_type) VALUES (?, ?, ?, ?)",
+                            (entity_id, prop, serialized, value_type)
+                        )
+                
+                await conn.commit()
+                
+                # Return entity with properties
                 props = {}
                 async with conn.execute(
                     "SELECT property, value, value_type FROM properties WHERE entity_id = ?",
@@ -177,26 +195,54 @@ class GraphStateManager:
                     "id": existing["id"],
                     "type": existing["type"],
                     "created_at": existing["created_at"],
-                    "updated_at": existing["updated_at"],
+                    "updated_at": current_time,
                     "properties": props
                 }
             
-            # Create new entity
-            await conn.execute(
-                "INSERT INTO entities (id, type, created_at, updated_at) VALUES (?, ?, ?, ?)",
-                (entity_id, entity_type, current_time, current_time)
-            )
-            
-            # Add properties if provided
-            if properties:
-                for prop, value in properties.items():
-                    serialized, value_type = self._serialize_value(value)
-                    await conn.execute(
-                        "INSERT INTO properties (entity_id, property, value, value_type) VALUES (?, ?, ?, ?)",
-                        (entity_id, prop, serialized, value_type)
-                    )
-            
-            await conn.commit()
+            # Create new entity using INSERT OR REPLACE to handle concurrent creation
+            try:
+                await conn.execute(
+                    "INSERT OR REPLACE INTO entities (id, type, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                    (entity_id, entity_type, current_time, current_time)
+                )
+                
+                # Add properties if provided
+                if properties:
+                    for prop, value in properties.items():
+                        serialized, value_type = self._serialize_value(value)
+                        await conn.execute(
+                            "INSERT OR REPLACE INTO properties (entity_id, property, value, value_type) VALUES (?, ?, ?, ?)",
+                            (entity_id, prop, serialized, value_type)
+                        )
+                
+                await conn.commit()
+            except Exception as e:
+                # Log but don't fail - another process may have created it
+                self.logger.debug(f"Concurrent entity creation for {entity_id}: {e}")
+                # Fetch and return the entity that was created
+                cursor = await conn.execute(
+                    "SELECT id, type, created_at, updated_at FROM entities WHERE id = ?",
+                    (entity_id,)
+                )
+                existing = await cursor.fetchone()
+                if existing:
+                    props = {}
+                    async with conn.execute(
+                        "SELECT property, value, value_type FROM properties WHERE entity_id = ?",
+                        (entity_id,)
+                    ) as cursor:
+                        async for row in cursor:
+                            props[row['property']] = self._deserialize_value(
+                                row['value'], row['value_type']
+                            )
+                    return {
+                        "id": existing["id"],
+                        "type": existing["type"],
+                        "created_at": existing["created_at"],
+                        "updated_at": existing["updated_at"],
+                        "properties": props
+                    }
+                raise  # Re-raise if we still can't find it
             
         self.logger.debug(f"Created entity {entity_id} of type {entity_type}")
         

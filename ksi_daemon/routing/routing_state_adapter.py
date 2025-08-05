@@ -8,11 +8,16 @@ with persistent state entities. Part of Stage 1.4 implementation.
 
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta, timezone
-import json
+from pathlib import Path
 
 from ksi_common.logging import get_bound_logger
+from ksi_common.config import config
 from ksi_daemon.event_system import get_router
 from ksi_common.event_utils import extract_single_response
+from ksi_common.yaml_utils import save_yaml_file, load_yaml_file
+from ksi_common.file_utils import ensure_directory
+from ksi_common.timestamps import filename_timestamp
+from ksi_common.json_utils import JSONProcessor
 
 logger = get_bound_logger("routing_state_adapter", version="1.0.0")
 
@@ -24,10 +29,14 @@ class RoutingStateAdapter:
     
     def __init__(self):
         self.router = get_router()
+        self.json_processor = JSONProcessor()
         logger.info("RoutingStateAdapter initialized")
     
     async def create_rule(self, rule: Dict[str, Any]) -> Dict[str, Any]:
-        """Create a routing rule in state system."""
+        """Create a routing rule in state system with hybrid persistence."""
+        # Determine persistence class
+        persistence_class = rule.get("persistence_class", "ephemeral")
+        
         # Convert rule to state entity
         entity_data = {
             "type": self.ENTITY_TYPE,
@@ -39,12 +48,15 @@ class RoutingStateAdapter:
                 "mapping": rule.get("mapping"),
                 "priority": rule.get("priority", 100),
                 "ttl": rule.get("ttl"),
-                "parent_scope": rule.get("parent_scope"),  # Add parent_scope
+                "parent_scope": rule.get("parent_scope"),
                 "created_by": rule["created_by"],
                 "created_at": rule["created_at"],
                 "metadata": rule.get("metadata"),
+                "persistence_class": persistence_class,
                 # Store expiry time if TTL is set
-                "expires_at": self._calculate_expiry(rule.get("ttl")) if rule.get("ttl") else None
+                "expires_at": self._calculate_expiry(rule.get("ttl")) if rule.get("ttl") else None,
+                # Store full rule config for restoration
+                "rule_config": rule
             }
         }
         
@@ -53,8 +65,16 @@ class RoutingStateAdapter:
         result = extract_single_response(result_list)
         
         if result and result.get("status") == "success":
-            logger.info(f"Created routing rule entity: {rule['rule_id']}")
-            return {"status": "success", "rule": rule}
+            logger.info(f"Created routing rule entity: {rule['rule_id']} (persistence: {persistence_class})")
+            
+            # Persist to YAML if marked persistent
+            if persistence_class == "persistent":
+                await self._persist_to_yaml(rule)
+            # Optional: Log ephemeral rules for debugging
+            elif rule.get("debug_log", False):
+                await self._log_ephemeral_rule(rule)
+            
+            return {"status": "success", "rule": rule, "persistence": persistence_class}
         else:
             error = result.get("error") if result else "Unknown error"
             logger.error(f"Failed to create routing rule entity: {error}")
@@ -219,3 +239,119 @@ class RoutingStateAdapter:
         
         expiry = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
         return expiry.isoformat()
+    
+    async def _persist_to_yaml(self, rule: Dict[str, Any]) -> None:
+        """Persist a rule to YAML for recovery using ksi_common utilities."""
+        try:
+            rule_id = rule["rule_id"]
+            source_pattern = rule.get("source_pattern", "unknown").replace(":", "_").replace("*", "wildcard")
+            
+            # Ensure directory exists using file_utils
+            ensure_directory(config.routes_dir)
+            
+            # Prepare YAML content
+            # Handle metadata which might be a string or dict
+            metadata = rule.get("metadata", {})
+            if isinstance(metadata, str):
+                try:
+                    metadata = self.json_processor.loads(metadata)
+                except Exception as e:
+                    logger.debug(f"Failed to parse metadata as JSON: {e}")
+                    metadata = {"raw": metadata}
+            
+            yaml_content = {
+                "rule": rule,
+                "metadata": {
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "created_by": rule.get("created_by", "system"),
+                    "description": metadata.get("description", "") if isinstance(metadata, dict) else "",
+                    "persistence_class": "persistent"
+                }
+            }
+            
+            # Use taxonomy: source_pattern_ruleid.yaml
+            yaml_path = config.routes_dir / f"{source_pattern}_{rule_id}.yaml"
+            # Use atomic write for safety
+            save_yaml_file(yaml_path, yaml_content, create_dirs=False, atomic=True)
+            
+            logger.info(f"Persisted routing rule to YAML: {yaml_path}")
+        except Exception as e:
+            logger.error(f"Failed to persist rule to YAML: {e}")
+    
+    async def _log_ephemeral_rule(self, rule: Dict[str, Any]) -> None:
+        """Log ephemeral rule for debugging (optional)."""
+        try:
+            # Create routes directory if needed for debug logs
+            debug_dir = ensure_directory(config.routes_dir / "debug")
+            
+            # Add .gitignore if not exists
+            gitignore_path = debug_dir / ".gitignore"
+            if not gitignore_path.exists():
+                gitignore_path.write_text("# Debug routing rules - not tracked\n*\n!.gitignore\n")
+            
+            # Write debug log using timestamp utility
+            timestamp = filename_timestamp(utc=True, include_seconds=True)
+            debug_path = debug_dir / f"{rule['rule_id']}_{timestamp}.yaml"
+            
+            debug_content = {
+                "rule": rule,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "debug": True
+            }
+            save_yaml_file(debug_path, debug_content, create_dirs=False, atomic=False)
+            
+            logger.debug(f"Logged ephemeral rule for debugging: {debug_path}")
+        except Exception as e:
+            logger.debug(f"Failed to log ephemeral rule: {e}")
+    
+    async def restore_rules_from_yaml(self) -> List[Dict[str, Any]]:
+        """Restore persistent rules from YAML files using ksi_common utilities."""
+        restored_rules = []
+        
+        if not config.routes_dir.exists():
+            logger.info("No routes directory found")
+            return restored_rules
+        
+        # Walk through YAML files in routes directory (skip debug subdirectory)
+        for yaml_file in config.routes_dir.glob("*.yaml"):
+            try:
+                content = load_yaml_file(yaml_file)
+                if content and "rule" in content:
+                    rule = content["rule"]
+                    rule["persistence_class"] = "persistent"
+                    rule["restored_from"] = str(yaml_file)
+                    restored_rules.append(rule)
+                    logger.info(f"Restored rule from YAML: {rule['rule_id']}")
+            except Exception as e:
+                logger.error(f"Failed to restore rule from {yaml_file}: {e}")
+        
+        return restored_rules
+    
+    async def restore_ephemeral_rules(self) -> List[Dict[str, Any]]:
+        """Restore non-expired ephemeral rules from state."""
+        # Query non-expired ephemeral rules
+        current_time = datetime.now(timezone.utc).isoformat()
+        
+        result = await self.router.emit("state:entity:query", {
+            "type": self.ENTITY_TYPE,
+            "where": {
+                "persistence_class": "ephemeral",
+                "$or": [
+                    {"expires_at": None},  # No expiry
+                    {"expires_at": {">=": current_time}}  # Not expired
+                ]
+            }
+        })
+        
+        response = extract_single_response(result)
+        if response and response.get("status") == "success":
+            entities = response.get("entities", [])
+            rules = []
+            for entity in entities:
+                if "properties" in entity and "rule_config" in entity["properties"]:
+                    rule = entity["properties"]["rule_config"]
+                    rule["restored_from"] = "state"
+                    rules.append(rule)
+                    logger.info(f"Restored ephemeral rule from state: {rule['rule_id']}")
+            return rules
+        return []

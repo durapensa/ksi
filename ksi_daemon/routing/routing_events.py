@@ -98,6 +98,7 @@ class RoutingRule(TypedDict):
     priority: int
     ttl: Optional[int]  # Time-to-live in seconds
     parent_scope: Optional[ParentScope]  # Parent entity for auto-cleanup
+    persistence_class: str  # "ephemeral" or "persistent"
     created_by: str
     created_at: str
     metadata: Optional[Dict[str, Any]]
@@ -225,6 +226,7 @@ async def handle_add_rule(data: Dict[str, Any], context: Optional[Dict[str, Any]
         priority=priority,
         ttl=ttl,
         parent_scope=parent_scope,
+        persistence_class=data.get("persistence_class", "ephemeral"),
         created_by=agent_id,
         created_at=datetime.now(timezone.utc).isoformat(),
         metadata=data.get("metadata")

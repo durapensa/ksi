@@ -148,6 +148,8 @@ class KSIBaseConfig(BaseSettings):
     components_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/compositions/components"
     schemas_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/schemas"
     capabilities_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/capabilities"
+    routes_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/routes"
+    transformers_dir: Path = Path(DEFAULT_VAR_DIR) / "lib/transformers"
     
     # Composition type to directory mapping
     COMPOSITION_TYPE_DIRS: Dict[str, str] = {
@@ -377,6 +379,8 @@ class KSIBaseConfig(BaseSettings):
             self.components_dir,      # var/lib/compositions/components
             self.schemas_dir,        # var/lib/schemas
             self.capabilities_dir,   # var/lib/capabilities
+            self.routes_dir,         # var/lib/routes
+            self.transformers_dir,   # var/lib/transformers
             self.daemon_log_dir,     # var/logs/daemon
             self.daemon_tmp_dir,     # var/tmp
             self.experiments_cognitive_dir,  # var/experiments/cognitive

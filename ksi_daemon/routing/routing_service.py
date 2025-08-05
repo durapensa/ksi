@@ -104,13 +104,18 @@ class RoutingService:
         logger.info("RoutingService shutdown complete")
     
     async def _load_persisted_rules(self):
-        """Load routing rules from persistent storage."""
-        # Stage 1.4 implementation: Load from state system
+        """Load routing rules from hybrid persistent storage (YAML + state)."""
+        # Enhanced hybrid persistence implementation
+        restored_count = 0
+        
         try:
-            rules = await self.state_adapter.list_rules()
-            
-            # Populate cache and re-apply transformers
-            for rule in rules:
+            # 1. Load persistent rules from YAML (source of truth)
+            yaml_rules = await self.state_adapter.restore_rules_from_yaml()
+            for rule in yaml_rules:
+                # Ensure rule exists in state for runtime queries
+                await self.state_adapter.create_rule(rule)
+                
+                # Add to cache
                 self.routing_rules[rule["rule_id"]] = rule
                 
                 # Rebuild parent tracking
@@ -122,9 +127,30 @@ class RoutingService:
                 
                 # Apply transformer for this rule
                 if await self.transformer_bridge.apply_routing_rule(rule):
-                    logger.debug(f"Re-applied transformer for rule {rule['rule_id']}")
+                    logger.debug(f"Re-applied transformer for persistent rule {rule['rule_id']}")
+                
+                restored_count += 1
             
-            logger.info("Loaded persisted routing rules", count=len(rules))
+            # 2. Load ephemeral rules from state (check TTL)
+            ephemeral_rules = await self.state_adapter.restore_ephemeral_rules()
+            for rule in ephemeral_rules:
+                # Add to cache
+                self.routing_rules[rule["rule_id"]] = rule
+                
+                # Rebuild parent tracking
+                if rule.get("parent_scope"):
+                    parent_key = self._get_parent_key(rule["parent_scope"])
+                    if parent_key not in self.parent_rules:
+                        self.parent_rules[parent_key] = []
+                    self.parent_rules[parent_key].append(rule["rule_id"])
+                
+                # Apply transformer for this rule
+                if await self.transformer_bridge.apply_routing_rule(rule):
+                    logger.debug(f"Re-applied transformer for ephemeral rule {rule['rule_id']}")
+                
+                restored_count += 1
+            
+            logger.info(f"Restored {restored_count} routing rules ({len(yaml_rules)} persistent, {len(ephemeral_rules)} ephemeral)")
         except Exception as e:
             logger.error(f"Failed to load routing rules: {e}")
             # Continue with empty rules on error
