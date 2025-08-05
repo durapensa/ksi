@@ -536,14 +536,20 @@ ksi send agent:info --agent-id agent_123
 **Session IDs must NEVER leak outside completion system!**
 - **Agents are the ONLY abstraction** - External systems use `agent_id` only
 - **Session IDs are internal** - Completion system manages them privately
+- **Parameter is hidden** - `session_id` marked with `[CLI:option,hidden=true]` and filtered from discovery
 
 ```bash
 # ✅ CORRECT: External APIs use agent_id
 ksi send completion:async --agent-id my_agent --prompt "..."
 
-# ❌ WRONG: Session IDs should never be exposed
+# ❌ WRONG: Session IDs should never be exposed (parameter hidden from discovery)
 ksi send completion:async --session-id 943a3864-d5bb... --prompt "..."
 ```
+
+**Implementation Notes** (2025-01-05):
+- The `session_id` parameter still exists internally for completion system operations
+- Discovery filtering removes parameters with `cli_hidden=True` from public visibility
+- Agent_id provides automatic session continuity without exposing internal details
 
 ### Session Continuity (FIXED 2025) ✅
 

@@ -638,8 +638,16 @@ class UnifiedHandlerAnalyzer:
                 self.examples = miner.mine_examples(limit=2)
                 # Cache examples will be updated in batch later
         
+        # Filter out hidden parameters
+        visible_parameters = {}
+        for param_name, param_info in self.parameters.items():
+            # Check if parameter has cli_hidden flag
+            if param_info.get('cli', {}).get('cli_hidden', False):
+                continue
+            visible_parameters[param_name] = param_info
+        
         result = {
-            "parameters": self.parameters,
+            "parameters": visible_parameters,
             "triggers": self.triggers
         }
         

@@ -382,7 +382,7 @@ async def handle_clear_agent_session(data: ClearAgentSessionData, context: Optio
 class CompletionAsyncData(TypedDict):
     """Async completion request."""
     request_id: NotRequired[str]  # Request ID (auto-generated if not provided)
-    session_id: NotRequired[str]  # Session ID for conversation continuity
+    session_id: NotRequired[str]  # INTERNAL: Session ID for conversation continuity - use agent_id instead [CLI:option,hidden=true]
     agent_id: NotRequired[str]  # Agent making the request
     model: NotRequired[str]  # Model to use (defaults to config.completion_default_model)
     messages: NotRequired[List[Dict[str, Any]]]  # Conversation messages
