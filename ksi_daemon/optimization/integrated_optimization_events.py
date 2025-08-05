@@ -16,14 +16,10 @@ logger = get_bound_logger("integrated_optimization")
 @event_handler("optimization:run_with_evaluation")
 async def handle_optimization_run_with_evaluation(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
-    Run optimization followed by automatic LLM-as-Judge evaluation.
+    Start optimization with automatic LLM-as-Judge evaluation on completion.
     
-    This combines:
-    1. Running MIPRO/SIMBA optimization
-    2. Waiting for completion
-    3. Loading optimization results
-    4. Triggering LLM-as-Judge evaluation
-    5. Handling accept/reject/revise decisions
+    This starts the optimization and returns immediately. A transformer
+    handles the completion and triggers evaluation.
     """
     component = data.get("component")
     if not component:
@@ -31,29 +27,31 @@ async def handle_optimization_run_with_evaluation(data: Dict[str, Any], context:
     
     optimizer = data.get("optimizer", "mipro")
     num_trials = data.get("num_trials", 10)
+    skip_git = data.get("skip_git", False)
     
     try:
         router = get_router()
         
-        # Step 1: Start optimization
-        logger.info(f"Starting {optimizer} optimization for {component}")
+        # Start optimization with evaluation flag
+        logger.info(f"Starting {optimizer} optimization for {component} with auto-evaluation")
         
         opt_result = await router.emit(
             "optimization:async",
             {
-                "target": component,  # Changed from "component"
-                "framework": "dspy",  # Always DSPy for MIPRO/SIMBA
+                "target": component,
+                "framework": "dspy",
                 "config": {
-                    "optimizer": optimizer,  # MIPRO or SIMBA
+                    "optimizer": optimizer,
                     "num_trials": num_trials,
+                    "auto_evaluate": True,  # Flag for transformer
+                    "skip_git": skip_git,
                     **data.get("config", {})
                 }
             }
         )
         
-        # Handle case where emit returns a list (multiple handlers)
+        # Handle case where emit returns a list
         if isinstance(opt_result, list):
-            # Find the response with 'started' status
             opt_result = next((r for r in opt_result if r.get("status") == "started"), opt_result[0] if opt_result else {})
         
         if opt_result.get("status") != "started":
@@ -66,103 +64,11 @@ async def handle_optimization_run_with_evaluation(data: Dict[str, Any], context:
         optimization_id = opt_result.get("optimization_id")
         logger.info(f"Optimization started with ID: {optimization_id}")
         
-        # Step 2: Monitor optimization progress
-        max_wait = 900  # 15 minutes
-        check_interval = 30  # Check every 30 seconds
-        elapsed = 0
-        
-        while elapsed < max_wait:
-            await asyncio.sleep(check_interval)
-            elapsed += check_interval
-            
-            status_result = await router.emit(
-                "optimization:status",
-                {"optimization_id": optimization_id}
-            )
-            
-            # Handle case where emit returns a list
-            if isinstance(status_result, list):
-                status_result = status_result[0] if status_result else {}
-            
-            status = status_result.get("status")
-            logger.info(f"Optimization {optimization_id} status: {status}")
-            
-            if status == "completed":
-                break
-            elif status in ["failed", "error"]:
-                return {
-                    "status": "error",
-                    "message": f"Optimization failed with status: {status}",
-                    "optimization_id": optimization_id,
-                    "details": status_result
-                }
-        
-        if elapsed >= max_wait:
-            return {
-                "status": "error",
-                "message": "Optimization timed out",
-                "optimization_id": optimization_id
-            }
-        
-        # Step 3: Load optimization results
-        result_file = status_result.get("result", {}).get("result_file")
-        if not result_file or not Path(result_file).exists():
-            return {
-                "status": "error",
-                "message": "Optimization result file not found",
-                "optimization_id": optimization_id
-            }
-        
-        with open(result_file, 'r') as f:
-            optimization_result = json.load(f)
-        
-        # Add original content (load from component)
-        comp_result = await router.emit(
-            "composition:get_component",
-            {"name": component}
-        )
-        
-        # Handle case where emit returns a list
-        if isinstance(comp_result, list):
-            comp_result = comp_result[0] if comp_result else {}
-        
-        if comp_result.get("status") != "success":
-            return {
-                "status": "error",
-                "message": "Failed to load original component",
-                "details": comp_result
-            }
-        
-        # Step 4: Prepare evaluation data
-        evaluation_data = {
-            "component_name": component,
-            "original_content": comp_result.get("content", ""),
-            "optimized_content": optimization_result.get("optimized_content", ""),
-            "optimization_metadata": {
-                "optimizer": optimizer,
-                "improvement": optimization_result.get("improvement", 0.0),
-                "metadata": optimization_result.get("metadata", {})
-            }
-        }
-        
-        # Step 5: Trigger LLM-as-Judge evaluation
-        logger.info(f"Starting LLM-as-Judge evaluation for optimization {optimization_id}")
-        
-        eval_result = await evaluation_service.process_optimization_completion(
-            optimization_id=optimization_id,
-            optimization_result=evaluation_data,
-            skip_git=data.get("skip_git", False)
-        )
-        
-        # Step 6: Return comprehensive results
         return {
-            "status": "success",
+            "status": "started",
             "optimization_id": optimization_id,
-            "optimization_improvement": optimization_result.get("improvement", 0.0),
-            "evaluation_result": eval_result,
-            "component_updated": eval_result.get("component_updated", False),
-            "judge_decision": eval_result.get("recommendation"),
-            "message": f"Optimization and evaluation completed for {component}"
+            "message": f"Started {optimizer} optimization for {component} with automatic evaluation on completion",
+            "details": "The optimization will run in the background. LLM-as-Judge evaluation will trigger automatically upon completion."
         }
         
     except Exception as e:
@@ -223,6 +129,147 @@ async def handle_optimization_run_behavioral(data: Dict[str, Any], context: Opti
             
     except Exception as e:
         logger.error(f"Error starting behavioral optimization: {e}")
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+
+@event_handler("optimization:completed_with_evaluation")
+async def handle_optimization_completed_with_evaluation(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Handle optimization completion and trigger LLM-as-Judge evaluation.
+    
+    This is triggered by a transformer when an optimization with auto_evaluate completes.
+    """
+    logger.info(f"Received optimization:completed_with_evaluation data type: {type(data)}, keys: {list(data.keys()) if isinstance(data, dict) else 'NOT A DICT'}")
+    
+    optimization_id = data.get("optimization_id")
+    if not optimization_id:
+        return {"status": "error", "message": "optimization_id is required"}
+    
+    try:
+        router = get_router()
+        
+        # Get data from the transformer result
+        result = data.get("result", {})
+        logger.info(f"Result type: {type(result)}, value: {result if not isinstance(result, dict) else 'dict with keys: ' + str(list(result.keys()))}")
+        
+        # Handle case where result might be a JSON string
+        if isinstance(result, str):
+            try:
+                import json
+                result = json.loads(result)
+                logger.info(f"Parsed JSON string result to dict with keys: {list(result.keys())}")
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse result as JSON: {e}")
+                return {"status": "error", "message": "Invalid JSON format from transformer"}
+            
+        opt_metadata = result.get("optimization_metadata", {}) if isinstance(result, dict) else {}
+        opt_config = opt_metadata.get("config", {}) if isinstance(opt_metadata, dict) else {}
+        
+        # Check auto_evaluate flag
+        if not opt_config.get("auto_evaluate"):
+            return {"status": "skipped", "message": "Optimization not marked for auto-evaluation"}
+        
+        component = result.get("component_name")
+        if not component:
+            return {"status": "error", "message": "component_name not found in result"}
+        
+        skip_git = opt_config.get("skip_git", False)
+        
+        logger.info(f"Processing completed optimization {optimization_id} for evaluation")
+        
+        # Get optimization result from the status response
+        status_result = await router.emit(
+            "optimization:status",
+            {"optimization_id": optimization_id}
+        )
+        
+        if isinstance(status_result, list):
+            status_result = status_result[0] if status_result else {}
+        
+        # The result data should be in the status response
+        if status_result.get("status") != "completed":
+            return {
+                "status": "error",
+                "message": f"Optimization not completed: {status_result.get('status')}"
+            }
+        
+        # Extract optimization result from status
+        optimization_result = status_result.get("result", {})
+        if not optimization_result:
+            # Try to extract from the original result passed by transformer
+            optimization_result = result
+        
+        # Get original component content
+        comp_result = await router.emit_first(
+            "composition:get_component",
+            {"name": component}
+        )
+        
+        # Handle case where comp_result might be a string or unexpected format
+        if isinstance(comp_result, str):
+            logger.warning(f"Unexpected string response from composition:get_component: {comp_result[:100]}")
+            comp_result = {"content": ""}
+        elif not isinstance(comp_result, dict):
+            logger.warning(f"Unexpected response type from composition:get_component: {type(comp_result)}")
+            comp_result = {"content": ""}
+        
+        # Prepare evaluation data
+        # The optimization result might be in different formats
+        optimized_content = ""
+        improvement = 0.0
+        
+        if isinstance(optimization_result, dict):
+            # Try different possible field names
+            optimized_content = optimization_result.get("optimized_content", 
+                                 optimization_result.get("content", 
+                                 optimization_result.get("result", "")))
+            improvement = optimization_result.get("improvement", 
+                          result.get("improvement", 0.0))
+        
+        # If no optimized content (0% improvement case), use original content
+        original_content = comp_result.get("content", "")
+        if not optimized_content and improvement == 0.0:
+            logger.info(f"No optimized content found (0% improvement), using original content for evaluation")
+            optimized_content = original_content
+        
+        evaluation_data = {
+            "component_name": component,
+            "original_content": original_content,
+            "optimized_content": optimized_content,
+            "optimization_metadata": {
+                "optimizer": opt_metadata.get("optimizer", "unknown"),
+                "improvement": improvement,
+                "metadata": optimization_result if isinstance(optimization_result, dict) else {}
+            }
+        }
+        
+        # Trigger LLM-as-Judge evaluation
+        logger.info(f"Starting LLM-as-Judge evaluation for optimization {optimization_id}")
+        
+        # Ensure evaluation service is initialized
+        if evaluation_service.router is None:
+            await evaluation_service.initialize(context)
+        
+        eval_result = await evaluation_service.process_optimization_completion(
+            optimization_id=optimization_id,
+            optimization_result=evaluation_data,
+            skip_git=skip_git
+        )
+        
+        return {
+            "status": "success",
+            "optimization_id": optimization_id,
+            "evaluation_result": eval_result,
+            "component_updated": eval_result.get("component_updated", False),
+            "judge_decision": eval_result.get("recommendation"),
+            "message": f"Evaluation completed for optimization {optimization_id}"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in optimization completion handler: {e}")
         return {
             "status": "error",
             "message": str(e)

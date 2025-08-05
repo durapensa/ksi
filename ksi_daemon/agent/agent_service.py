@@ -941,8 +941,21 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
     # Create sandbox if enabled
     if sandbox_config.get("enabled", True):
         try:
+            # Convert dict to SandboxConfig object
+            from ksi_common.sandbox_manager import SandboxConfig, SandboxMode
+            
+            # Create SandboxConfig from dict
+            mode = SandboxMode(sandbox_config.get("mode", "isolated"))
+            sandbox_config_obj = SandboxConfig(
+                mode=mode,
+                originator_agent_id=sandbox_config.get("originator_agent_id"),
+                session_id=sandbox_config.get("session_id"),
+                originator_share=sandbox_config.get("originator_share", "read_only"),
+                session_share=sandbox_config.get("session_share", False)
+            )
+            
             # Just pass the UUID - SandboxManager handles the path structure
-            sandbox = sandbox_manager.create_sandbox(sandbox_uuid, sandbox_config)
+            sandbox = sandbox_manager.create_sandbox(sandbox_uuid, sandbox_config_obj)
             logger.info(
                 "Created sandbox for agent",
                 agent_id=agent_id,

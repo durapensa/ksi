@@ -34,13 +34,18 @@ class OptimizationEvaluationService:
         
         try:
             logger.info(f"Processing optimization completion: {optimization_id}")
+            logger.info(f"Optimization result type: {type(optimization_result)}")
+            logger.info(f"Optimization result keys: {list(optimization_result.keys()) if isinstance(optimization_result, dict) else 'Not a dict'}")
             
             # Extract optimization artifacts and metadata
             component_name = optimization_result.get("component_name")
             original_content = optimization_result.get("original_content")
             optimized_content = optimization_result.get("optimized_content")
             
+            logger.info(f"Extracted - component: {component_name is not None}, original: {original_content is not None}, optimized: {optimized_content is not None}")
+            
             if not all([component_name, original_content, optimized_content]):
+                logger.error(f"Missing fields - component: {component_name}, original_len: {len(original_content) if original_content else 0}, optimized_len: {len(optimized_content) if optimized_content else 0}")
                 return {
                     "status": "error",
                     "message": "Missing required optimization result fields",
@@ -139,21 +144,34 @@ class OptimizationEvaluationService:
         """Spawn LLM-as-Judge agent to evaluate optimization results."""
         
         try:
-            # Spawn judge agent using the optimization_judge component
-            spawn_result = await self.router.emit(
-                "agent:spawn_from_component",
-                {
-                    "component": "components/evaluations/quality/optimization_judge",
-                    "agent_name": f"optimization_judge_{optimization_id}",
-                    "metadata": {
-                        "optimization_id": optimization_id,
-                        "component_name": component_name,
-                        "purpose": "optimization_evaluation"
-                    }
-                }
-            )
+            logger.info(f"Starting agent spawn for optimization judge: optimization_judge_{optimization_id}")
             
-            if spawn_result.get("status") != "success":
+            # Spawn judge agent using the optimization_judge component
+            spawn_data = {
+                "component": "evaluations/quality/optimization_judge",
+                "agent_id": f"optimization_judge_{optimization_id}",
+                "metadata": {
+                    "optimization_id": optimization_id,
+                    "component_name": component_name,
+                    "purpose": "optimization_evaluation"
+                },
+                "task": "Evaluate optimization results",
+                "enable_tools": False,
+                "permission_profile": "standard"
+            }
+            
+            logger.info(f"Emitting agent:spawn with data: {spawn_data}")
+            
+            spawn_result = await self.router.emit("agent:spawn", spawn_data)
+            
+            logger.info(f"Agent spawn result type: {type(spawn_result)}, value: {spawn_result}")
+            
+            # Handle case where emit returns a list
+            if isinstance(spawn_result, list):
+                logger.info(f"Spawn result is a list with {len(spawn_result)} items")
+                spawn_result = spawn_result[0] if spawn_result else {}
+            
+            if spawn_result.get("status") not in ["success", "created"]:
                 return {
                     "status": "error",
                     "message": "Failed to spawn optimization judge agent",
@@ -171,6 +189,9 @@ class OptimizationEvaluationService:
             )
             
             # Send evaluation task to judge agent
+            logger.info(f"Sending evaluation prompt to judge agent {judge_agent_id}")
+            logger.info(f"Evaluation prompt length: {len(evaluation_prompt)} characters")
+            
             completion_result = await self.router.emit(
                 "completion:async",
                 {
@@ -179,6 +200,13 @@ class OptimizationEvaluationService:
                     "timeout": 180  # 3 minutes for evaluation
                 }
             )
+            
+            logger.info(f"Completion result type: {type(completion_result)}, value: {completion_result}")
+            
+            # Handle case where emit returns a list
+            if isinstance(completion_result, list):
+                logger.info(f"Completion result is a list with {len(completion_result)} items")
+                completion_result = completion_result[0] if completion_result else {}
             
             if completion_result.get("status") != "success":
                 return {

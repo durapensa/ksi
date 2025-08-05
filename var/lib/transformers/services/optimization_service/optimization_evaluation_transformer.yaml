@@ -1,0 +1,11 @@
+---
+# Optimization Evaluation Auto-Trigger Transformer
+transformers:
+  - name: "optimization_auto_evaluate"
+    source: "optimization:result"
+    target: "optimization:completed_with_evaluation"
+    condition: "result.optimization_metadata.config.auto_evaluate == true"
+    mapping:
+      optimization_id: "{{optimization_id}}"
+      result: "{{result}}"
+    description: "Trigger LLM-as-Judge evaluation for optimizations with auto_evaluate flag"
