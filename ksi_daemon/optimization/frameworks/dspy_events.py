@@ -8,6 +8,7 @@ from ksi_daemon.event_system import get_router
 from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
+from ksi_common.event_utils import extract_single_response
 
 from .dspy_mipro_adapter import DSPyMIPROAdapter
 from .dspy_simba_adapter import DSPySIMBAAdapter
@@ -189,9 +190,10 @@ class DSPyFramework:
         
         # Load target component
         router = get_router()
-        target_response = await router.emit_first("composition:get_component", {
+        target_response_list = await router.emit("composition:get_component", {
             "name": target
         })
+        target_response = extract_single_response(target_response_list)
         
         if target_response.get("status") != "success":
             raise ValueError(f"Failed to load target component: {target}")
@@ -415,9 +417,10 @@ class DSPyFramework:
     async def _load_signature(self, signature_component: str) -> Dict[str, Any]:
         """Load a signature component."""
         router = get_router()
-        response = await router.emit_first("composition:get_component", {
+        response_list = await router.emit("composition:get_component", {
             "name": signature_component
         })
+        response = extract_single_response(response_list)
         
         if response.get("status") != "success":
             raise ValueError(f"Failed to load signature: {signature_component}")

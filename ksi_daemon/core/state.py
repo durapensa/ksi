@@ -589,6 +589,9 @@ class GraphStateManager:
 # Global state manager instance
 state_manager: Optional[GraphStateManager] = None
 
+# Global event router instance (for scheduler integration)
+event_router = None  # Set during context initialization
+
 
 def get_state_manager() -> GraphStateManager:
     """Get the global state manager instance."""
@@ -611,7 +614,13 @@ def initialize_state() -> GraphStateManager:
 @event_handler("system:context")
 async def handle_context(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
     """Receive infrastructure context."""
+    global event_router
     # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
+    
+    # Get router directly to avoid JSON serialization issues
+    from ksi_daemon.event_system import get_router
+    event_router = get_router()
+    
     if state_manager:
         logger.info("Graph state manager connected to event system")
 
@@ -1251,6 +1260,304 @@ async def handle_aggregate_count(data: Dict[str, Any], context: Optional[Dict[st
             str(e),
             context=context
         )
+
+
+# Async State Queue Operations
+# These handlers implement persistent queuing functionality expected by the injection router
+
+class AsyncPushData(TypedDict):
+    """Push data to an async queue."""
+    namespace: str  # Queue namespace (e.g., "injection", "subscription")
+    key: str  # Queue key (e.g., session_id, agent_id)
+    data: Dict[str, Any]  # Data to queue
+    ttl_seconds: NotRequired[int]  # Queue expiration (default: 3600)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
+
+
+@event_handler("async_state:push")
+async def handle_async_push(data: AsyncPushData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Push data to an async queue for later retrieval."""
+    if not state_manager:
+        return error_response(
+            "State infrastructure not available",
+            context=context
+        )
+    
+    namespace = data.get("namespace")
+    key = data.get("key")
+    queue_data = data.get("data")
+    ttl_seconds = data.get("ttl_seconds", 3600)
+    
+    validation_error = validate_required_fields(data, ["namespace", "key", "data"], context)
+    if validation_error:
+        return validation_error
+    
+    # Create queue entity ID
+    queue_id = f"queue:{namespace}:{key}"
+    
+    try:
+        # Get or create queue entity
+        queue_entity = await state_manager.get_entity(queue_id)
+        
+        if not queue_entity:
+            # Create new queue
+            await state_manager.create_entity(
+                entity_id=queue_id,
+                entity_type="async_queue",
+                properties={
+                    "namespace": namespace,
+                    "key": key,
+                    "items": [],
+                    "created_at": time.time(),
+                    "ttl_seconds": ttl_seconds
+                }
+            )
+            queue_entity = await state_manager.get_entity(queue_id)
+        
+        # Append to queue
+        current_items = queue_entity["properties"].get("items", [])
+        current_items.append({
+            "data": queue_data,
+            "pushed_at": time.time()
+        })
+        
+        await state_manager.update_entity(queue_id, {"items": current_items})
+        
+        # Schedule cleanup if TTL specified
+        if ttl_seconds > 0:
+            if event_router:
+                await event_router.emit("scheduler:schedule_once", {
+                    "event_time": time.time() + ttl_seconds,
+                    "event": "async_state:expire_queue",
+                    "data": {"queue_id": queue_id}
+                })
+            else:
+                logger.warning(f"Event router not available, cannot schedule TTL for queue {queue_id}")
+        
+        logger.debug(f"Pushed to queue {queue_id}, size now: {len(current_items)}")
+        
+        return event_response_builder(
+            {
+                "status": "pushed",
+                "queue_size": len(current_items),
+                "queue_id": queue_id
+            },
+            context=context
+        )
+        
+    except Exception as e:
+        logger.error(f"Error pushing to async queue: {e}")
+        return error_response(str(e), context=context)
+
+
+class AsyncPopData(TypedDict):
+    """Pop items from async queue."""
+    namespace: str  # Queue namespace
+    key: str  # Queue key
+    count: NotRequired[int]  # Number of items to pop (default: 1)
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
+
+
+@event_handler("async_state:pop")
+async def handle_async_pop(data: AsyncPopData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Pop items from queue (FIFO)."""
+    if not state_manager:
+        return error_response(
+            "State infrastructure not available",
+            context=context
+        )
+    
+    namespace = data.get("namespace")
+    key = data.get("key")
+    count = data.get("count", 1)
+    
+    validation_error = validate_required_fields(data, ["namespace", "key"], context)
+    if validation_error:
+        return validation_error
+    
+    queue_id = f"queue:{namespace}:{key}"
+    
+    try:
+        queue_entity = await state_manager.get_entity(queue_id)
+        
+        if not queue_entity:
+            return event_response_builder(
+                {"items": [], "remaining": 0},
+                context=context
+            )
+        
+        items = queue_entity["properties"].get("items", [])
+        popped = items[:count]
+        remaining = items[count:]
+        
+        # Update queue or delete if empty
+        if remaining:
+            await state_manager.update_entity(queue_id, {"items": remaining})
+        else:
+            await state_manager.delete_entity(queue_id)
+        
+        logger.debug(f"Popped {len(popped)} items from queue {queue_id}, {len(remaining)} remaining")
+        
+        return event_response_builder(
+            {
+                "items": [item["data"] for item in popped],
+                "remaining": len(remaining)
+            },
+            context=context
+        )
+        
+    except Exception as e:
+        logger.error(f"Error popping from async queue: {e}")
+        return error_response(str(e), context=context)
+
+
+class AsyncGetQueueData(TypedDict):
+    """Get queue contents without removing."""
+    namespace: str  # Queue namespace
+    key: str  # Queue key
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
+
+
+@event_handler("async_state:get_queue")
+async def handle_async_get_queue(data: AsyncGetQueueData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Get all items from queue without removing them."""
+    if not state_manager:
+        return error_response(
+            "State infrastructure not available",
+            context=context
+        )
+    
+    namespace = data.get("namespace")
+    key = data.get("key")
+    
+    validation_error = validate_required_fields(data, ["namespace", "key"], context)
+    if validation_error:
+        return validation_error
+    
+    queue_id = f"queue:{namespace}:{key}"
+    
+    try:
+        queue_entity = await state_manager.get_entity(queue_id)
+        
+        if not queue_entity:
+            return event_response_builder(
+                {"items": [], "exists": False, "queue_size": 0},
+                context=context
+            )
+        
+        items = queue_entity["properties"].get("items", [])
+        
+        return event_response_builder(
+            {
+                "items": [item["data"] for item in items],
+                "exists": True,
+                "queue_size": len(items)
+            },
+            context=context
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting async queue: {e}")
+        return error_response(str(e), context=context)
+
+
+class AsyncDeleteData(TypedDict):
+    """Delete an async queue."""
+    namespace: str  # Queue namespace
+    key: str  # Queue key
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
+
+
+@event_handler("async_state:delete")
+async def handle_async_delete(data: AsyncDeleteData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Delete an entire async queue."""
+    if not state_manager:
+        return error_response(
+            "State infrastructure not available",
+            context=context
+        )
+    
+    namespace = data.get("namespace")
+    key = data.get("key")
+    
+    validation_error = validate_required_fields(data, ["namespace", "key"], context)
+    if validation_error:
+        return validation_error
+    
+    queue_id = f"queue:{namespace}:{key}"
+    
+    try:
+        # Check if queue exists
+        queue_entity = await state_manager.get_entity(queue_id)
+        
+        if not queue_entity:
+            return event_response_builder(
+                {"status": "not_found", "queue_id": queue_id},
+                context=context
+            )
+        
+        # Delete the queue
+        await state_manager.delete_entity(queue_id)
+        
+        logger.info(f"Deleted async queue {queue_id}")
+        
+        return event_response_builder(
+            {"status": "deleted", "queue_id": queue_id},
+            context=context
+        )
+        
+    except Exception as e:
+        logger.error(f"Error deleting async queue: {e}")
+        return error_response(str(e), context=context)
+
+
+class ExpireQueueData(TypedDict):
+    """Expire a queue (internal event from scheduler)."""
+    queue_id: str  # Queue entity ID
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
+
+
+@event_handler("async_state:expire_queue")
+async def handle_expire_queue(data: ExpireQueueData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Expire a queue (called by scheduler)."""
+    if not state_manager:
+        return error_response(
+            "State infrastructure not available",
+            context=context
+        )
+    
+    queue_id = data.get("queue_id")
+    
+    if not queue_id:
+        return error_response("queue_id required", context=context)
+    
+    try:
+        # Get queue to log info before deletion
+        queue_entity = await state_manager.get_entity(queue_id)
+        
+        if queue_entity:
+            items = queue_entity["properties"].get("items", [])
+            logger.info(f"Expiring queue {queue_id} with {len(items)} items")
+            
+            await state_manager.delete_entity(queue_id)
+            
+            return event_response_builder(
+                {
+                    "status": "expired",
+                    "queue_id": queue_id,
+                    "items_lost": len(items)
+                },
+                context=context
+            )
+        else:
+            return event_response_builder(
+                {"status": "not_found", "queue_id": queue_id},
+                context=context
+            )
+        
+    except Exception as e:
+        logger.error(f"Error expiring queue: {e}")
+        return error_response(str(e), context=context)
 
 
 @shutdown_handler("state_service")

@@ -19,6 +19,7 @@ from ksi_common.logging import get_bound_logger
 from ksi_common.timestamps import timestamp_utc, numeric_to_iso
 # Removed event_format_linter import - BREAKING CHANGE: Direct TypedDict access
 from ksi_common.event_response_builder import event_response_builder, error_response
+from ksi_common.event_utils import extract_single_response
 from ksi_daemon.event_system import event_handler, get_router
 from ksi_common.task_management import create_tracked_task
 
@@ -138,7 +139,8 @@ async def query_observation_history(data: ObservationQueryHistoryData) -> Dict[s
     })
     
     # Extract events from result
-    events = query_result[0].get("events", []) if query_result else []
+    response = extract_single_response(query_result)
+    events = response.get("events", []) if response else []
     
     # Process events into observation records
     observations = {}  # observation_id -> record
@@ -212,7 +214,8 @@ async def replay_observations(data: ObservationReplayData) -> Dict[str, Any]:
     })
     
     # Extract events from result (already in chronological order from event_log:query)
-    events = query_result[0].get("events", []) if query_result else []
+    response = extract_single_response(query_result)
+    events = response.get("events", []) if response else []
     
     if not events:
         return {"error": "No events found to replay"}
@@ -335,7 +338,8 @@ async def analyze_observation_patterns(data: ObservationAnalyzePatternsData) -> 
     })
     
     # Extract events from result
-    events = query_result[0].get("events", []) if query_result else []
+    response = extract_single_response(query_result)
+    events = response.get("events", []) if response else []
     
     if not events:
         return {"error": "No events found to analyze"}

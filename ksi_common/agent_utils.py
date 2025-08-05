@@ -12,6 +12,7 @@ from pathlib import Path
 
 from .event_response_builder import error_response, event_response_builder
 from .logging import get_bound_logger
+from .event_utils import extract_single_response
 
 logger = get_bound_logger("agent_utils")
 
@@ -319,9 +320,10 @@ async def batch_query_state_entities(event_emitter: Callable, entity_type: str,
         if isinstance(result, Exception):
             entities.append(None)
         else:
-            result = unwrap_list_response(result)
-            if result and isinstance(result, list) and len(result) > 0:
-                entities.append(result[0])
+            result = extract_single_response(result)
+            # result should now be the search response, check if it has entities
+            if result and result.get('entities') and len(result['entities']) > 0:
+                entities.append(result['entities'][0])
             else:
                 entities.append(None)
                 

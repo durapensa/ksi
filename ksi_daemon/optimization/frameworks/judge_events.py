@@ -94,7 +94,7 @@ Provide scores and detailed feedback in JSON format.
         
         # Create judge agent for evaluation
         try:
-            agent_result = await router.emit_first("agent:spawn", {
+            agent_result_list = await router.emit("agent:spawn", {
                 "profile": "components/personas/analysts/insight_analyst",
                 "prompt": prompt,
                 "config": {
@@ -103,6 +103,7 @@ Provide scores and detailed feedback in JSON format.
                     "max_tokens": 1000
                 }
             })
+            agent_result = extract_single_response(agent_result_list)
             
             if "error" in agent_result:
                 return {"error": f"Failed to spawn judge agent: {agent_result['error']}"}
@@ -110,14 +111,16 @@ Provide scores and detailed feedback in JSON format.
             agent_id = agent_result["agent_id"]
             
             # Get evaluation response
-            completion_result = await router.emit_first("completion:async", {
+            completion_result_list = await router.emit("completion:async", {
                 "agent_id": agent_id,
                 "prompt": "Please provide your evaluation in the requested JSON format.",
                 "timeout": 60
             })
+            completion_result = extract_single_response(completion_result_list)
             
             # Cleanup agent
-            await router.emit_first("agent:terminate", {"agent_id": agent_id})
+            result_list = await router.emit("agent:terminate", {"agent_id": agent_id})
+            result = extract_single_response(result_list)
             
             if "error" in completion_result:
                 return {"error": f"Judge evaluation failed: {completion_result['error']}"}

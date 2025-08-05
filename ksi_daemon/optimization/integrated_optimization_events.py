@@ -8,6 +8,7 @@ from pathlib import Path
 from ksi_common.logging import get_bound_logger
 from ksi_daemon.event_system import event_handler, get_router
 from ksi_common.config import config
+from ksi_common.event_utils import extract_single_response
 from ksi_daemon.optimization.evaluation_service import evaluation_service
 
 logger = get_bound_logger("integrated_optimization")
@@ -52,7 +53,7 @@ async def handle_optimization_run_with_evaluation(data: Dict[str, Any], context:
         
         # Handle case where emit returns a list
         if isinstance(opt_result, list):
-            opt_result = next((r for r in opt_result if r.get("status") == "started"), opt_result[0] if opt_result else {})
+            opt_result = next((r for r in opt_result if r.get("status") == "started"), extract_single_response(opt_result) or {})
         
         if opt_result.get("status") != "started":
             return {
@@ -115,7 +116,7 @@ async def handle_optimization_run_behavioral(data: Dict[str, Any], context: Opti
         
         # Handle case where emit returns a list
         if isinstance(result, list):
-            result = next((r for r in result if r.get("status") == "started"), result[0] if result else {})
+            result = next((r for r in result if r.get("status") == "started"), extract_single_response(result) or {})
         
         if result.get("status") == "started":
             return {
@@ -187,7 +188,7 @@ async def handle_optimization_completed_with_evaluation(data: Dict[str, Any], co
         )
         
         if isinstance(status_result, list):
-            status_result = status_result[0] if status_result else {}
+            status_result = extract_single_response(status_result) or {}
         
         # The result data should be in the status response
         if status_result.get("status") != "completed":
@@ -203,10 +204,11 @@ async def handle_optimization_completed_with_evaluation(data: Dict[str, Any], co
             optimization_result = result
         
         # Get original component content
-        comp_result = await router.emit_first(
+        comp_result_list = await router.emit(
             "composition:get_component",
             {"name": component}
         )
+        comp_result = extract_single_response(comp_result_list)
         
         # Handle case where comp_result might be a string or unexpected format
         if isinstance(comp_result, str):

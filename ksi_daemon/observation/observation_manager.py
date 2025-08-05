@@ -22,6 +22,7 @@ from ksi_common.timestamps import timestamp_utc
 # Removed event_format_linter import - BREAKING CHANGE: Direct TypedDict access
 from ksi_common.event_response_builder import event_response_builder, error_response
 from ksi_common.response_patterns import validate_required_fields, entity_not_found_response, service_ready_response
+from ksi_common.event_utils import extract_single_response
 from ksi_daemon.event_system import event_handler, get_router, RateLimiter
 from ksi_common.task_management import create_tracked_task, cleanup_service_tasks
 from ksi_common.service_lifecycle import service_shutdown, service_startup
@@ -248,27 +249,21 @@ async def handle_subscribe(data: ObservationSubscribeData, context: Optional[Dic
     # Validate agents exist
     if _event_emitter:
         # Check observer exists
-        observer_result = await _event_emitter("state:entity:get", {
+        observer_result_list = await _event_emitter("state:entity:get", {
             "id": observer_id,
             "type": "agent"
         })
-        
-        # Handle list response format
-        if isinstance(observer_result, list):
-            observer_result = observer_result[0] if observer_result else {}
+        observer_result = extract_single_response(observer_result_list)
         
         if observer_result.get("error") or not observer_result.get("entity"):
             return entity_not_found_response("observer agent", observer_id, context)
         
         # Check target exists
-        target_result = await _event_emitter("state:entity:get", {
+        target_result_list = await _event_emitter("state:entity:get", {
             "id": target_id,
             "type": "agent"
         })
-        
-        # Handle list response format
-        if isinstance(target_result, list):
-            target_result = target_result[0] if target_result else {}
+        target_result = extract_single_response(target_result_list)
         
         if target_result.get("error") or not target_result.get("entity"):
             return error_response(f"Target agent {target_id} not found", context)
@@ -638,8 +633,7 @@ async def _notify_observer_with_circuit_breaker(
         # Send observation
         result = await _event_emitter(f"observe:{event_type}", observation_event)
         
-        if result and isinstance(result, list):
-            result = result[0] if result else {}
+        result = extract_single_response(result) or {}
             
         if result.get("error"):
             raise Exception(result["error"])

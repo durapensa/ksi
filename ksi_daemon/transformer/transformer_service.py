@@ -29,6 +29,7 @@ from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
 from ksi_common.service_lifecycle import service_startup
 from ksi_common.event_response_builder import event_response_builder
+from ksi_common.event_utils import extract_single_response
 
 logger = get_bound_logger("transformer_service", version="1.0.0")
 
@@ -304,7 +305,7 @@ class TransformerService:
             result = await router.emit("composition:get", {"name": pattern_name, "type": "orchestration"})
             
             if result and isinstance(result, list) and result:
-                response = result[0]  # First result
+                response = extract_single_response(result)
                 logger.debug(f"Composition response type: {type(response)}, keys: {response.keys() if isinstance(response, dict) else 'not a dict'}")
                 
                 # Handle different response formats

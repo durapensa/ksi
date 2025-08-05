@@ -11,6 +11,7 @@ from typing_extensions import TypedDict, NotRequired
 
 from ksi_daemon.event_system import event_handler, emit_event, get_router
 from ksi_common.logging import get_bound_logger
+from ksi_common.event_utils import extract_single_response
 
 logger = get_bound_logger("event_log_handlers")
 
@@ -58,10 +59,7 @@ async def handle_event_log_query(data: EventLogQueryData, context: Optional[Dict
     result = await emit_event("monitor:get_events", query)
     
     # Handle response - emit_event returns a list of responses
-    if isinstance(result, list) and result:
-        result = result[0]  # Take first response
-    else:
-        result = {}
+    result = extract_single_response(result) or {}
     
     # Extract events from result
     events = result.get("events", [])

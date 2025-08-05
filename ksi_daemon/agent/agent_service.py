@@ -23,6 +23,7 @@ from ksi_common import format_for_logging
 from ksi_common.agent_context import propagate_agent_context
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
+from ksi_common.event_utils import extract_single_response
 from ksi_common.timestamps import timestamp_utc
 from ksi_common.agent_utils import (
     query_agent_state, query_agent_metadata, query_agent_relationships, 
@@ -416,6 +417,7 @@ async def agent_emit_event(agent_id: str, event_name: str, event_data: Dict[str,
         return error_result
 
 
+
 # System event handlers
 @event_handler("system:context", schema=SystemContextData, require_agent=False, auto_response=False)
 async def handle_context(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> None:
@@ -478,8 +480,7 @@ async def handle_ready(data: Dict[str, Any], context: Optional[Dict[str, Any]] =
         logger.debug(f"Query result: {result}")
         
         # Handle both single dict and list of dicts responses
-        if isinstance(result, list) and result:
-            result = result[0]
+        result = extract_single_response(result)
         
         if result and "entities" in result:
             for entity in result["entities"]:
@@ -1047,8 +1048,7 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
             "namespace": f"metadata:agent:{agent_id}",
             "data": metadata
         }, propagate_agent_context(context))
-        if metadata_result and isinstance(metadata_result, list):
-            metadata_result = metadata_result[0] if metadata_result else {}
+        metadata_result = extract_single_response(metadata_result)
         
         if metadata_result.get("error"):
             logger.warning(f"Failed to store agent metadata: {metadata_result}")
@@ -1096,8 +1096,7 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
             }
         }, propagate_agent_context(context))
         
-        if initial_result and isinstance(initial_result, list):
-            initial_result = initial_result[0] if initial_result else {}
+        initial_result = extract_single_response(initial_result)
         
         logger.info(f"Initial context sent to agent {agent_id}: {initial_result.get('status', 'unknown')}")
         
@@ -1588,8 +1587,7 @@ async def handle_agent_info(data: AgentInfoData, context: Optional[Dict[str, Any
                     "include": ["properties", "relationships"]
                 })
                 # Handle list-wrapped results
-                if isinstance(state_result, list) and state_result:
-                    state_result = state_result[0]
+                state_result = extract_single_response(state_result)
                 logger.debug(f"State result for {agent_id}: {state_result}")
                 if state_result and state_result.get("status") == "success":
                     result["state_entity"] = state_result
@@ -1613,7 +1611,7 @@ async def handle_agent_info(data: AgentInfoData, context: Optional[Dict[str, Any
             })
             # Handle list-wrapped results
             if isinstance(traverse_result, list) and traverse_result:
-                traverse_result = traverse_result[0]
+                traverse_result = extract_single_response(traverse_result)
             if traverse_result and traverse_result.get("status") == "success":
                 result["graph"] = traverse_result.get("graph", {})
                 result["traversal_depth"] = depth
@@ -1628,7 +1626,7 @@ async def handle_agent_info(data: AgentInfoData, context: Optional[Dict[str, Any
             })
             # Handle list-wrapped results
             if isinstance(metadata_result, list) and metadata_result:
-                metadata_result = metadata_result[0]
+                metadata_result = extract_single_response(metadata_result)
             if metadata_result and metadata_result.get("status") == "success":
                 result["metadata"] = metadata_result.get("data", {})
         except Exception as e:
@@ -1653,7 +1651,7 @@ async def handle_agent_info(data: AgentInfoData, context: Optional[Dict[str, Any
             })
             # Handle list-wrapped results
             if isinstance(msg_result, list) and msg_result:
-                msg_result = msg_result[0]
+                msg_result = extract_single_response(msg_result)
             if msg_result and msg_result.get("status") == "success":
                 result["recent_messages"] = msg_result.get("entities", [])
         except Exception as e:
@@ -1667,7 +1665,7 @@ async def handle_agent_info(data: AgentInfoData, context: Optional[Dict[str, Any
             })
             # Handle list-wrapped results
             if isinstance(obs_result, list) and obs_result:
-                obs_result = obs_result[0]
+                obs_result = extract_single_response(obs_result)
             if obs_result and obs_result.get("status") == "success":
                 result["subscriptions"] = obs_result.get("subscriptions", [])
         except Exception as e:
@@ -1685,7 +1683,7 @@ async def handle_agent_info(data: AgentInfoData, context: Optional[Dict[str, Any
             })
             # Handle list-wrapped results
             if isinstance(events_result, list) and events_result:
-                events_result = events_result[0]
+                events_result = extract_single_response(events_result)
             if events_result and events_result.get("status") == "success":
                 result["recent_events"] = events_result.get("events", [])
         except Exception as e:
@@ -1901,8 +1899,7 @@ async def handle_send_message(data: AgentSendMessageData, context: Optional[Dict
                                     propagate_agent_context(context))
         
         # Handle list response format
-        if result and isinstance(result, list):
-            result = result[0] if result else {}
+        result = extract_single_response(result) or {}
         
         # Agents have no awareness of sessions - completion system handles everything
         
@@ -1972,7 +1969,7 @@ async def handle_update_composition(data: AgentUpdateCompositionData, context: O
         }, propagate_agent_context(context))
         
         if comp_result and isinstance(comp_result, list):
-            comp_result = comp_result[0] if comp_result else {}
+            comp_result = extract_single_response(comp_result)
         
         if comp_result and comp_result.get("status") == "success":
             metadata = comp_result["composition"].get("metadata", {})
@@ -1990,7 +1987,7 @@ async def handle_update_composition(data: AgentUpdateCompositionData, context: O
     }, propagate_agent_context(context))
     
     if compose_result and isinstance(compose_result, list):
-        compose_result = compose_result[0] if compose_result else {}
+        compose_result = extract_single_response(compose_result)
     
     if compose_result and compose_result.get("status") == "success":
         new_profile = compose_result["composition"]
@@ -2367,7 +2364,7 @@ async def handle_agent_conversation_summary(data: AgentConversationSummaryData, 
     
     # Use internal event to get conversation summary from completion service
     # This avoids cross-module imports and maintains architectural boundaries
-    summary_result = await agent_emit_event(
+    summary_result_list = await agent_emit_event(
         "system",  # System-level event
         "completion:get_conversation_summary",
         {
@@ -2377,12 +2374,8 @@ async def handle_agent_conversation_summary(data: AgentConversationSummaryData, 
         context
     )
     
-    # Handle the case where agent_emit_event returns a list
-    if isinstance(summary_result, list):
-        if len(summary_result) > 0 and isinstance(summary_result[0], dict):
-            summary_result = summary_result[0]
-        else:
-            return error_response("Unexpected response format from completion service", context)
+    # Extract single result from list using consumption-side helper
+    summary_result = extract_single_response(summary_result_list)
     
     if summary_result.get("status") == "error":
         return error_response(f"Failed to get conversation summary: {summary_result.get('error', 'Unknown error')}", context)
@@ -2413,7 +2406,7 @@ async def handle_agent_conversation_reset(data: AgentConversationResetData, cont
     depth = data.get("depth", 0)  # Default to full reset
     
     # Use internal event to reset conversation in completion service
-    reset_result = await agent_emit_event(
+    reset_result_list = await agent_emit_event(
         "system",  # System-level event
         "completion:reset_conversation",
         {
@@ -2423,12 +2416,8 @@ async def handle_agent_conversation_reset(data: AgentConversationResetData, cont
         context
     )
     
-    # Handle the case where agent_emit_event returns a list
-    if isinstance(reset_result, list):
-        if len(reset_result) > 0 and isinstance(reset_result[0], dict):
-            reset_result = reset_result[0]
-        else:
-            return error_response("Unexpected response format from completion service", context)
+    # Extract single result from list using consumption-side helper
+    reset_result = extract_single_response(reset_result_list)
     
     if reset_result.get("status") == "error":
         return error_response(f"Failed to reset conversation: {reset_result.get('error', 'Unknown error')}", context)
@@ -2481,7 +2470,7 @@ async def handle_agent_spawned(data: AgentSpawnedData, context: Optional[Dict[st
     }, context)
     
     if isinstance(entity_result, list) and entity_result:
-        entity_result = entity_result[0]
+        entity_result = extract_single_response(entity_result)
     
     logger.info(f"Created state entity for agent {agent_id}")
     

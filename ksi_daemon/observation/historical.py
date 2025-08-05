@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from ksi_common.logging import get_bound_logger
 # Removed event_format_linter import - BREAKING CHANGE: Direct TypedDict access
 from ksi_common.event_response_builder import event_response_builder, error_response
+from ksi_common.event_utils import extract_single_response
 from ksi_daemon.event_system import event_handler, get_router
 
 logger = get_bound_logger("observation.historical")
@@ -105,8 +106,7 @@ async def query_historical_observations(data: ObservationQueryData) -> Dict[str,
     # Query event log
     result = await event_emitter("event_log:query", query)
     
-    if result and isinstance(result, list):
-        result = result[0] if result else {}
+    result = extract_single_response(result) or {}
     
     if result.get("error"):
         return {"error": f"Event log query failed: {result['error']}"}
@@ -190,8 +190,7 @@ async def analyze_observation_patterns(data: ObservationAnalyzeData) -> Dict[str
     
     result = await event_emitter("event_log:query", query)
     
-    if result and isinstance(result, list):
-        result = result[0] if result else {}
+    result = extract_single_response(result) or {}
     
     if result.get("error"):
         return {"error": f"Event log query failed: {result['error']}"}

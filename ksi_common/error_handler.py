@@ -72,6 +72,10 @@ async def enhance_error(
         return await _handle_unknown_event(
             event_name, provided_params, error_str, verbosity
         )
+    elif error_type == "attribute_error":
+        return await _handle_attribute_error(
+            event_name, provided_params, error_str, event_info, verbosity
+        )
     else:
         # Generic enhancement
         return await _handle_generic_error(
@@ -107,7 +111,14 @@ async def handle_unknown_event(
 
 def _classify_error(error_str: str) -> str:
     """Classify the error type based on error message patterns."""
-    if "Missing required parameter" in error_str:
+    # AttributeError pattern - check this first as it's commonly misclassified
+    if "'list' object has no attribute" in error_str or "'dict' object has no attribute" in error_str:
+        return "attribute_error"
+    elif "'object has no attribute" in error_str:
+        return "attribute_error"
+    elif "AttributeError:" in error_str:
+        return "attribute_error"
+    elif "Missing required parameter" in error_str:
         return "missing_parameter"
     elif error_str.startswith("'") and error_str.endswith("'"):
         # KeyError pattern: 'parameter_name'
@@ -242,6 +253,45 @@ async def _handle_generic_error(
         details["help"] = f"Use: help {event_name}"
         
     return build_error_response(error_str, details if details else None)
+
+
+async def _handle_attribute_error(
+    event_name: str, provided_params: Dict[str, Any],
+    error_str: str, event_info: Optional[Dict[str, Any]], verbosity: str
+) -> Dict[str, Any]:
+    """Handle attribute errors (e.g., 'list' object has no attribute 'get')."""
+    
+    # Extract what type was received and what attribute was missing
+    type_match = re.search(r"'(\w+)' object has no attribute '(\w+)'", error_str)
+    
+    if type_match:
+        received_type = type_match.group(1)
+        missing_attr = type_match.group(2)
+        error_message = f"Type error: Received {received_type} but expected a dict-like object with '{missing_attr}' method"
+    else:
+        error_message = f"Attribute error: {error_str}"
+    
+    details = {}
+    
+    if verbosity in ["medium", "verbose"]:
+        details["error_type"] = "type_mismatch"
+        details["received"] = f"Handler received wrong data type"
+        
+        if type_match:
+            details["expected"] = "dict"
+            details["actual"] = received_type
+            
+        if provided_params:
+            details["provided_params"] = provided_params
+    
+    if verbosity == "verbose" and event_info:
+        # Add parameter information
+        parameters = event_info.get("parameters", {})
+        if parameters:
+            details["expected_params"] = list(parameters.keys())
+            details["help"] = f"Use: help {event_name}"
+    
+    return build_error_response(error_message, details if details else None)
 
 
 def get_error_handler_router():

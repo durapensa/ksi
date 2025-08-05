@@ -12,6 +12,7 @@ from typing_extensions import NotRequired, Required
 from ksi_daemon.event_system import event_handler, get_router
 # Removed event_format_linter import - BREAKING CHANGE: Direct TypedDict access
 from ksi_common.event_response_builder import event_response_builder, error_response
+from ksi_common.event_utils import extract_single_response
 from ksi_common.logging import get_bound_logger
 
 logger = get_bound_logger("event_genealogy")
@@ -189,8 +190,9 @@ async def build_event_chain(
             "reverse": True
         })
         
-        if result and isinstance(result, list) and result[0]:
-            all_events = result[0].get("events", [])
+        response = extract_single_response(result)
+        if response:
+            all_events = response.get("events", [])
             
             # Build event map for quick lookup
             # PYTHONIC CONTEXT REFACTOR: Resolve context references
@@ -468,8 +470,9 @@ async def handle_event_stream(data: EventStreamData, context: Optional[Dict[str,
                 "reverse": True
             })
             
-            if result and isinstance(result, list) and result[0]:
-                events = result[0].get("events", [])
+            response = extract_single_response(result)
+            if response:
+                events = response.get("events", [])
                 
                 for event in events:
                     # Check if event matches patterns
@@ -590,8 +593,9 @@ async def handle_performance_analysis(data: PerformanceAnalysisData, context: Op
             })
             
             events = []
-            if result and isinstance(result, list) and result[0]:
-                all_events = result[0].get("events", [])
+            response = extract_single_response(result)
+            if response:
+                all_events = response.get("events", [])
                 current_time = asyncio.get_event_loop().time()
                 
                 # Resolve contexts and filter
@@ -644,10 +648,11 @@ async def _build_impact_tree(event_id: str, max_depth: int, time_window: int, in
     # Get the source event first
     result = await event_router.emit("monitor:get_events", {"limit": 1000, "reverse": True})
     
-    if not result or not isinstance(result, list) or not result[0]:
+    response = extract_single_response(result)
+    if not response:
         return {"error": "Could not retrieve events"}
     
-    all_events = result[0].get("events", [])
+    all_events = response.get("events", [])
     event_map = {}
     
     # Resolve contexts and build event map

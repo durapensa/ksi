@@ -4,9 +4,10 @@ Event Utilities - Common patterns for KSI event system
 
 Provides consistent patterns for:
 - Emitting events and handling responses
-- Single response extraction
+- Single response extraction from lists
 - Error handling for event responses
 - Event validation
+- Working with event system's list-based results
 """
 
 from typing import Any, Dict, List, Optional, Union, TypeVar, Callable
@@ -15,6 +16,163 @@ from ksi_common.logging import get_bound_logger
 logger = get_bound_logger("event_utils")
 
 T = TypeVar('T')
+
+
+class EventResult:
+    """Wrapper for event system results handling single/multiple responses."""
+    
+    def __init__(self, result: Union[List[Any], Any]):
+        """Initialize with event system result (list or single value)."""
+        self._raw = result
+        # Normalize to list format (event system should always return lists)
+        if isinstance(result, list):
+            self._results = result
+        elif result is not None:
+            self._results = [result]
+        else:
+            self._results = []
+    
+    @property
+    def single(self) -> Optional[Dict[str, Any]]:
+        """Get first result or None."""
+        return self._results[0] if self._results else None
+    
+    @property
+    def all(self) -> List[Any]:
+        """Get all results as list."""
+        return self._results
+    
+    @property
+    def count(self) -> int:
+        """Get number of results."""
+        return len(self._results)
+    
+    @property
+    def empty(self) -> bool:
+        """Check if no results."""
+        return len(self._results) == 0
+    
+    def get(self, key: str, default: Any = None) -> Any:
+        """Get value from first result dict."""
+        if self.single and isinstance(self.single, dict):
+            return self.single.get(key, default)
+        return default
+    
+    @property
+    def error(self) -> Optional[str]:
+        """Get error from first result if any."""
+        return self.get("error")
+    
+    @property
+    def success(self) -> bool:
+        """Check if first result indicates success (no error)."""
+        return self.single is not None and not self.error
+    
+    @property
+    def status(self) -> Optional[str]:
+        """Get status from first result."""
+        return self.get("status")
+    
+    def __bool__(self) -> bool:
+        """Truthiness based on having results."""
+        return not self.empty
+    
+    def __len__(self) -> int:
+        """Length is number of results."""
+        return self.count
+    
+    def __iter__(self):
+        """Iterate over results."""
+        return iter(self._results)
+    
+    def __getitem__(self, index: int) -> Any:
+        """Get result by index."""
+        return self._results[index]
+
+
+async def emit_single(event_emitter: Callable, event: str, data: Any = None, 
+                     context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    """
+    Emit event and return single result.
+    
+    Args:
+        event_emitter: The event emitter function (usually router.emit)
+        event: Event name to emit
+        data: Event data
+        context: Event context
+        
+    Returns:
+        First result dict or None if no results
+        
+    Note:
+        Logs warning if multiple results returned (indicates unexpected multiple handlers)
+    """
+    results = await event_emitter(event, data, context)
+    
+    if not results:
+        return None
+    elif len(results) == 1:
+        return results[0]
+    else:
+        logger.warning(f"emit_single() got {len(results)} results for {event}, expected 1. Using first result.")
+        return results[0]
+
+
+async def emit_for_single(event_emitter: Callable, event: str, data: Any = None,
+                         context: Optional[Dict[str, Any]] = None) -> EventResult:
+    """
+    Emit event and return EventResult wrapper optimized for single results.
+    
+    Args:
+        event_emitter: The event emitter function (usually router.emit)
+        event: Event name to emit  
+        data: Event data
+        context: Event context
+        
+    Returns:
+        EventResult wrapper for convenient access
+    """
+    results = await event_emitter(event, data, context)
+    return EventResult(results)
+
+
+def require_single_result(results: List[Any], event_name: str = "unknown") -> Dict[str, Any]:
+    """
+    Extract single result, raising error if not exactly one.
+    
+    Args:
+        results: List of results from event system
+        event_name: Event name for error messages
+        
+    Returns:
+        Single result dict
+        
+    Raises:
+        ValueError: If not exactly one result
+    """
+    if not results:
+        raise ValueError(f"Expected exactly 1 result for {event_name}, got 0")
+    elif len(results) > 1:
+        raise ValueError(f"Expected exactly 1 result for {event_name}, got {len(results)}")
+    
+    return results[0]
+
+
+def safe_get_from_results(results: List[Any], key: str, default: Any = None) -> Any:
+    """
+    Safely get a key from the first result dict.
+    
+    Args:
+        results: List of results from event system
+        key: Key to extract
+        default: Default value if key not found
+        
+    Returns:
+        Value from first result or default
+    """
+    if results and isinstance(results[0], dict):
+        return results[0].get(key, default)
+    return default
 
 
 def extract_single_response(

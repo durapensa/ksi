@@ -12,6 +12,7 @@ from dspy.primitives.prediction import Prediction
 
 from ksi_daemon.event_system import get_router
 from ksi_common.timestamps import timestamp_utc
+from ksi_common.event_utils import extract_single_response
 
 
 logger = logging.getLogger(__name__)
@@ -84,7 +85,8 @@ class KSIAgentLanguageModel(LM):
         }
         
         # Spawn agent
-        result = await router.emit_first("agent:spawn", agent_config)
+        result_list = await router.emit("agent:spawn", agent_config)
+        result = extract_single_response(result_list)
         
         if isinstance(result, dict) and "agent_id" in result:
             agent_id = result["agent_id"]
@@ -134,13 +136,14 @@ class KSIAgentLanguageModel(LM):
         
         # Make completion request through agent
         try:
-            result = await router.emit_first("completion:async", {
+            result_list = await router.emit("completion:async", {
                 "agent_id": agent_id,
                 "prompt": prompt,
                 "temperature": kwargs.get("temperature", 0.7),
                 "max_tokens": kwargs.get("max_tokens", 1000),
                 "timeout": kwargs.get("timeout", 300),  # 5 minute default
             })
+            result = extract_single_response(result_list)
             
             if isinstance(result, dict):
                 if "error" in result:
@@ -204,9 +207,10 @@ class KSIAgentLanguageModel(LM):
         for context_key, agent_id in self.agent_pool.items():
             try:
                 # Terminate agent
-                result = await router.emit_first("agent:terminate", {
+                result_list = await router.emit("agent:terminate", {
                     "agent_id": agent_id
                 })
+                result = extract_single_response(result_list)
                 logger.info(f"Terminated optimization agent {agent_id}")
             except Exception as e:
                 logger.error(f"Failed to terminate agent {agent_id}: {e}")

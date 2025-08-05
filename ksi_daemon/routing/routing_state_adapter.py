@@ -12,6 +12,7 @@ import json
 
 from ksi_common.logging import get_bound_logger
 from ksi_daemon.event_system import get_router
+from ksi_common.event_utils import extract_single_response
 
 logger = get_bound_logger("routing_state_adapter", version="1.0.0")
 
@@ -48,13 +49,14 @@ class RoutingStateAdapter:
         }
         
         # Create in state system
-        result = await self.router.emit("state:entity:create", entity_data)
+        result_list = await self.router.emit("state:entity:create", entity_data)
+        result = extract_single_response(result_list)
         
-        if result and result[0].get("status") == "success":
+        if result and result.get("status") == "success":
             logger.info(f"Created routing rule entity: {rule['rule_id']}")
             return {"status": "success", "rule": rule}
         else:
-            error = result[0].get("error") if result else "Unknown error"
+            error = result.get("error") if result else "Unknown error"
             logger.error(f"Failed to create routing rule entity: {error}")
             return {"status": "error", "error": error}
     
@@ -65,8 +67,9 @@ class RoutingStateAdapter:
             "id": rule_id
         })
         
-        if result and result[0].get("status") == "success":
-            entity = result[0].get("data", {})
+        response = extract_single_response(result)
+        if response and response.get("status") == "success":
+            entity = response.get("data", {})
             return self._entity_to_rule(entity)
         return None
     
@@ -104,11 +107,12 @@ class RoutingStateAdapter:
             "properties": property_updates
         })
         
-        if result and result[0].get("status") == "success":
+        response = extract_single_response(result)
+        if response and response.get("status") == "success":
             logger.info(f"Updated routing rule entity: {rule_id}")
             return {"status": "success"}
         else:
-            error = result[0].get("error") if result else "Unknown error"
+            error = response.get("error") if response else "Unknown error"
             logger.error(f"Failed to update routing rule entity: {error}")
             return {"status": "error", "error": error}
     
@@ -119,11 +123,12 @@ class RoutingStateAdapter:
             "id": rule_id
         })
         
-        if result and result[0].get("status") == "success":
+        response = extract_single_response(result)
+        if response and response.get("status") == "success":
             logger.info(f"Deleted routing rule entity: {rule_id}")
             return {"status": "success"}
         else:
-            error = result[0].get("error") if result else "Unknown error"
+            error = response.get("error") if response else "Unknown error"
             logger.error(f"Failed to delete routing rule entity: {error}")
             return {"status": "error", "error": error}
     
@@ -149,10 +154,11 @@ class RoutingStateAdapter:
             query["where"] = where
         
         # Query state system
-        result = await self.router.emit("state:entity:query", query)
+        result_list = await self.router.emit("state:entity:query", query)
+        result = extract_single_response(result_list)
         
-        if result and result[0].get("status") == "success":
-            entities = result[0].get("entities", [])  # Changed from 'data' to 'entities'
+        if result and result.get("status") == "success":
+            entities = result.get("entities", [])  # Changed from 'data' to 'entities'
             rules = [self._entity_to_rule(entity) for entity in entities]
             # Filter out None values (expired rules)
             return [rule for rule in rules if rule is not None]
@@ -173,8 +179,9 @@ class RoutingStateAdapter:
             "include": ["id"]
         })
         
-        if result and result[0].get("status") == "success":
-            entities = result[0].get("entities", [])  # Changed from 'data' to 'entities'
+        response = extract_single_response(result)
+        if response and response.get("status") == "success":
+            entities = response.get("entities", [])  # Changed from 'data' to 'entities'
             return [entity["entity_id"] for entity in entities]  # Changed 'id' to 'entity_id'
         return []
     

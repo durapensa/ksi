@@ -20,6 +20,7 @@ from typing_extensions import NotRequired, Required
 
 from ksi_daemon.event_system import event_handler, EventPriority, emit_event, get_router
 from ksi_common import timestamp_utc, create_completion_response, parse_completion_response, get_response_session_id
+from ksi_common.event_utils import extract_single_response
 from ksi_common.completion_format import get_response_text
 from ksi_common.config import config
 from ksi_common.logging import get_bound_logger
@@ -431,14 +432,14 @@ async def handle_async_completion(data: CompletionAsyncData, context: Optional[D
                     "agent_id": agent_id
                 })
                 # agent:info returns a list with response dict as first element
-                if not agent_info_result or (isinstance(agent_info_result, list) and len(agent_info_result) > 0 and agent_info_result[0].get("status") == "failed"):
+                agent_info = extract_single_response(agent_info_result)
+                if not agent_info or agent_info.get("status") == "failed":
                     return error_response(
                         f"Agent {agent_id} not found",
                         context=context
                     )
                 # Extract model from agent config
-                if isinstance(agent_info_result, list) and agent_info_result:
-                    agent_info = agent_info_result[0]
+                if agent_info:
                     if agent_info.get("config", {}).get("model"):
                         agent_model = agent_info["config"]["model"]
                         logger.debug(f"Using model {agent_model} from agent {agent_id} config")
@@ -586,11 +587,10 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
                 if not data.get("model") and event_emitter:
                     try:
                         agent_info_result = await event_emitter("agent:info", {"agent_id": agent_id})
-                        if isinstance(agent_info_result, list) and agent_info_result:
-                            agent_info = agent_info_result[0]
-                            if agent_info.get("config", {}).get("model"):
-                                data["model"] = agent_info["config"]["model"]
-                                logger.info(f"New conversation for agent {agent_id} using model {data['model']} from config")
+                        agent_info = extract_single_response(agent_info_result)
+                        if agent_info and agent_info.get("config", {}).get("model"):
+                            data["model"] = agent_info["config"]["model"]
+                            logger.info(f"New conversation for agent {agent_id} using model {data['model']} from config")
                     except Exception as e:
                         logger.warning(f"Failed to get model from agent config: {e}")
                 
@@ -693,8 +693,8 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
                 logger.info(f"State entity query result for {agent_id}: {entity_result}")
                 logger.info(f"Entity result type: {type(entity_result)}")
                 
-                if entity_result and isinstance(entity_result, list) and len(entity_result) > 0:
-                    entity = entity_result[0]
+                entity = extract_single_response(entity_result)
+                if entity:
                     if entity and isinstance(entity, dict) and "properties" in entity:
                         props = entity.get('properties', {})
                         sandbox_uuid = props.get('sandbox_uuid')
@@ -763,8 +763,8 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
                                     "entity_type": "agent"
                                 })
                                 
-                                if entity_result and isinstance(entity_result, list) and entity_result[0]:
-                                    agent_entity = entity_result[0]
+                                agent_entity = extract_single_response(entity_result)
+                                if agent_entity:
                                     if 'entity' in agent_entity:
                                         props = agent_entity['entity'].get('properties', {})
                                         # Add agent metadata to context

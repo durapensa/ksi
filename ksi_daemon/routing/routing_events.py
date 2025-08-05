@@ -14,6 +14,7 @@ import uuid
 from ksi_common.logging import get_bound_logger
 from ksi_daemon.event_system import event_handler
 from ksi_common.event_response_builder import event_response_builder, success_response, error_response
+from ksi_common.event_utils import extract_single_response
 from .routing_audit import get_audit_trail
 
 logger = get_bound_logger("routing_events", version="1.0.0")
@@ -35,9 +36,10 @@ async def check_routing_capability(agent_id: str, context: Optional[Dict[str, An
     router = get_router()
     
     # Query agent state to get capabilities
-    result = await router.emit("state:entity:get", {"type": "agent", "id": agent_id})
-    if result and len(result) > 0 and result[0].get("status") == "success":
-        entity = result[0].get("data", {}).get("entity", {})
+    result_list = await router.emit("state:entity:get", {"type": "agent", "id": agent_id})
+    result = extract_single_response(result_list)
+    if result and result.get("status") == "success":
+        entity = result.get("data", {}).get("entity", {})
         capabilities = entity.get("properties", {}).get("capabilities", [])
         
         # Check if agent has routing_control capability

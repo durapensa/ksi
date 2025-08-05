@@ -19,6 +19,7 @@ import asyncio
 from typing import Dict, Any, List, Optional, Set, Tuple
 from collections import defaultdict
 from ksi_common.logging import get_bound_logger
+from ksi_common.event_utils import extract_single_response
 
 logger = get_bound_logger("hierarchical_routing")
 
@@ -157,8 +158,9 @@ class HierarchicalRouter:
             "entity_type": "agent"
         })
         
-        if result and isinstance(result, list) and result[0]:
-            entity = result[0].get('entity', {})
+        response = extract_single_response(result)
+        if response:
+            entity = response.get('entity', {})
             props = entity.get('properties', {})
             
             hierarchy_info = {
@@ -187,8 +189,9 @@ class HierarchicalRouter:
         })
         
         agents = {}
-        if result and isinstance(result, list) and result[0]:
-            entities = result[0].get('entities', [])
+        response = extract_single_response(result)
+        if response:
+            entities = response.get('entities', [])
             for entity in entities:
                 agent_id = entity.get('id')
                 props = entity.get('properties', {})
@@ -244,8 +247,9 @@ class HierarchicalRouter:
             "entity_id": workflow_id
         })
         
-        if result and isinstance(result, list) and result[0]:
-            entity = result[0].get('entity', {})
+        response = extract_single_response(result)
+        if response:
+            entity = response.get('entity', {})
             props = entity.get('properties', {})
             return props.get('coordinator_agent_id')
             
@@ -258,8 +262,9 @@ class HierarchicalRouter:
             "entity_id": workflow_id
         })
         
-        if result and isinstance(result, list) and result[0]:
-            entity = result[0].get('entity', {})
+        response = extract_single_response(result)
+        if response:
+            entity = response.get('entity', {})
             props = entity.get('properties', {})
             if is_error:
                 return props.get('error_subscription_level', -1)

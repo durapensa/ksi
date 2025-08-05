@@ -8,6 +8,7 @@ from pathlib import Path
 from ksi_common.logging import get_bound_logger
 from ksi_daemon.event_system import event_handler, get_router
 from ksi_common.config import config
+from ksi_common.event_utils import extract_single_response
 
 logger = get_bound_logger("optimization_evaluation")
 
@@ -162,14 +163,10 @@ class OptimizationEvaluationService:
             
             logger.info(f"Emitting agent:spawn with data: {spawn_data}")
             
-            spawn_result = await self.router.emit("agent:spawn", spawn_data)
+            spawn_result_list = await self.router.emit("agent:spawn", spawn_data)
+            spawn_result = extract_single_response(spawn_result_list)
             
-            logger.info(f"Agent spawn result type: {type(spawn_result)}, value: {spawn_result}")
-            
-            # Handle case where emit returns a list
-            if isinstance(spawn_result, list):
-                logger.info(f"Spawn result is a list with {len(spawn_result)} items")
-                spawn_result = spawn_result[0] if spawn_result else {}
+            logger.info(f"Agent spawn result: {spawn_result}")
             
             if spawn_result.get("status") not in ["success", "created"]:
                 return {
@@ -204,9 +201,7 @@ class OptimizationEvaluationService:
             logger.info(f"Completion result type: {type(completion_result)}, value: {completion_result}")
             
             # Handle case where emit returns a list
-            if isinstance(completion_result, list):
-                logger.info(f"Completion result is a list with {len(completion_result)} items")
-                completion_result = completion_result[0] if completion_result else {}
+            completion_result = extract_single_response(completion_result)
             
             if completion_result.get("status") != "success":
                 return {
@@ -482,7 +477,8 @@ async def handle_optimization_process_completion(data, context):
     try:
         # Get optimization status/result 
         router = get_router()
-        status_result = await router.emit("optimization:status", {"optimization_id": optimization_id})
+        status_result_list = await router.emit("optimization:status", {"optimization_id": optimization_id})
+        status_result = extract_single_response(status_result_list)
         
         if status_result.get("status") != "completed":
             return {

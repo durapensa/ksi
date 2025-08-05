@@ -20,6 +20,7 @@ from ksi_common import timestamp_utc
 from ksi_common.completion_format import parse_completion_result_event
 # Removed event_format_linter import - BREAKING CHANGE: Direct TypedDict access
 from ksi_common.event_response_builder import event_response_builder, error_response
+from ksi_common.event_utils import extract_single_response
 from ksi_daemon.injection.injection_types import (
     InjectionRequest,
     InjectionMode,
@@ -336,6 +337,7 @@ class InjectionClearData(TypedDict):
 async def handle_injection_clear(data: InjectionClearData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Handle clear injections request."""
     # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
+    
     session_id = data.get("session_id")
     mode = data.get("mode")
     result = await clear_injections(session_id, mode)
@@ -467,12 +469,13 @@ async def handle_injection_process_result(data: InjectionProcessResultData, cont
             
             # Use async_state API
             if event_emitter:
-                result = await event_emitter("async_state:push", {
+                result_list = await event_emitter("async_state:push", {
                     "namespace": "injection",
                     "key": session_id,
                     "data": injection_data,
                     "ttl_seconds": 3600  # 1 hour TTL
                 })
+                result = extract_single_response(result_list)
                 
                 if result and not result.get("error"):
                     stored_count += 1
@@ -548,7 +551,8 @@ async def execute_injection(data: InjectionExecuteData, context: Optional[Dict[s
         }
         
         # Emit the completion request
-        result = await event_emitter("completion:async", completion_data)
+        result_list = await event_emitter("completion:async", completion_data)
+        result = extract_single_response(result_list)
         
         logger.info(f"Injected completion request {completion_data['request_id']} for agent {agent_id}")
         
@@ -650,12 +654,13 @@ async def inject_content(
             }
             
             if event_emitter:
-                result = await event_emitter("async_state:push", {
+                result_list = await event_emitter("async_state:push", {
                     "namespace": "injection",
                     "key": target,
                     "data": injection_data,
                     "ttl_seconds": ttl_seconds
                 })
+                result = extract_single_response(result_list)
                 
                 if result and not result.get("error"):
                     stored_count += 1
@@ -730,9 +735,10 @@ async def list_pending_injections(session_id: Optional[str] = None) -> Dict[str,
     # If no session_id, list all sessions with injections
     if not session_id:
         # Get all keys in injection namespace
-        result = await event_emitter("async_state:get_keys", {
+        result_list = await event_emitter("async_state:get_keys", {
             "namespace": "injection"
         })
+        result = extract_single_response(result_list)
         
         if result and not result.get("error"):
             keys = result.get("keys", [])
@@ -740,10 +746,11 @@ async def list_pending_injections(session_id: Optional[str] = None) -> Dict[str,
             
             # Get queue length for each session
             for key in keys:
-                queue_result = await event_emitter("async_state:queue_length", {
+                queue_result_list = await event_emitter("async_state:queue_length", {
                     "namespace": "injection",
                     "key": key
                 })
+                queue_result = extract_single_response(queue_result_list)
                 if queue_result and not queue_result.get("error"):
                     length = queue_result.get("length", 0)
                     if length > 0:
@@ -762,10 +769,11 @@ async def list_pending_injections(session_id: Optional[str] = None) -> Dict[str,
         }
     
     # Get all injections from async state
-    result = await event_emitter("async_state:get_queue", {
+    result_list = await event_emitter("async_state:get_queue", {
         "namespace": "injection",
         "key": session_id
     })
+    result = extract_single_response(result_list)
     
     if result and not result.get("error"):
         injections = result.get("data", [])
@@ -803,10 +811,11 @@ async def clear_injections(session_id: str, mode: Optional[str] = None) -> Dict[
     # Clear next-mode injections from async state
     if mode in [None, "next"]:
         if event_emitter:
-            result = await event_emitter("async_state:delete", {
+            result_list = await event_emitter("async_state:delete", {
                 "namespace": "injection",
                 "key": session_id
             })
+            result = extract_single_response(result_list)
             
             if result and not result.get("error"):
                 cleared_count += result.get("deleted", 0)
@@ -1088,11 +1097,12 @@ async def process_injection(request: InjectionRequest) -> InjectionResult:
         }
         
         # Emit completion result
-        result = await event_emitter("claude:completion:result", {
+        result_list = await event_emitter("claude:completion:result", {
             "session_id": request.session_id,
             "injection": injection_data,
             "timestamp": timestamp_utc()
         })
+        result = extract_single_response(result_list)
         
         return InjectionResult(
             success=True,
@@ -1123,12 +1133,13 @@ async def process_injection(request: InjectionRequest) -> InjectionResult:
         
         try:
             # Use event system for async state operations
-            result = await event_emitter("async_state:push", {
+            result_list = await event_emitter("async_state:push", {
                 "namespace": "injection",
                 "key": request.session_id,
                 "data": queue_data,
                 "ttl_seconds": 3600  # 1 hour TTL
             })
+            result = extract_single_response(result_list)
             
             if result and not result.get("error"):
                 return InjectionResult(

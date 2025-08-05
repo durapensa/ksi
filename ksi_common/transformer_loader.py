@@ -9,6 +9,7 @@ import yaml
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from ksi_common.logging import get_bound_logger
+from ksi_common.event_utils import extract_single_response
 
 logger = get_bound_logger("transformer_loader", version="1.0.0")
 
@@ -73,8 +74,7 @@ async def load_service_transformers(
                 })
                 
                 # Check result
-                if result and isinstance(result, list):
-                    result = result[0] if result else {}
+                result = extract_single_response(result)
                 
                 if result.get('status') == 'registered':
                     loaded += 1
