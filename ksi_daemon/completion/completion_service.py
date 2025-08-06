@@ -951,6 +951,7 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
         # Prepare result event data
         result_event_data = {
             "request_id": request_id,
+            "agent_id": data.get("agent_id"),
             "result": standardized_response
         }
         

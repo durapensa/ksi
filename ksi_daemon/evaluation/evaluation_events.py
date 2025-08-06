@@ -520,6 +520,8 @@ async def run_component_evaluation(
             elapsed = 0
             completion_done = False
             
+            logger.info(f"Waiting for completion of request_id: {request_id}, max_wait: {max_wait}s")
+            
             while elapsed < max_wait:
                 await asyncio.sleep(check_interval)
                 elapsed += check_interval
@@ -532,13 +534,23 @@ async def run_component_evaluation(
                 }, context=None)
                 
                 event_result = event_results[0] if event_results else {}
-                events = event_result.get('data', {}).get('events', [])
+                events = event_result.get('events', [])
+                
+                # Log detailed debugging info
+                logger.info(f"Monitor query returned: event_results count={len(event_results) if event_results else 0}")
+                logger.info(f"First result keys: {list(event_result.keys()) if event_result else 'None'}")
+                logger.info(f"Events data structure: {type(events)}, count={len(events)}")
+                
+                # Log what events we're seeing for debugging
+                event_request_ids = [e.get('data', {}).get('request_id') for e in events]
+                logger.info(f"Found {len(events)} completion:result events, request_ids: {event_request_ids}")
                 
                 # Filter events by request_id
                 matching_events = [e for e in events if e.get('data', {}).get('request_id') == request_id]
                 
                 if matching_events:
                     # Found completion result for our request
+                    logger.info(f"Found matching completion result for request_id: {request_id}")
                     completion_done = True
                     result_data = matching_events[0].get('data', {}).get('result', {})
                     if result_data.get('response', {}).get('is_error'):
@@ -553,9 +565,10 @@ async def run_component_evaluation(
             
             if not completion_done:
                 # Timeout - report as timeout
+                logger.warning(f"Evaluation timeout after {elapsed}s waiting for request_id: {request_id}")
                 test_status = 'timeout'
                 tests_passed = 0
-                test_notes = 'Agent did not respond within timeout period'
+                test_notes = f'Agent did not respond within timeout period ({elapsed}s)'
                 
         elif completion_result.get('status') == 'success':
             test_status = 'passing'

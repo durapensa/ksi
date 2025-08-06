@@ -11,13 +11,13 @@ transformers:
     source_pattern: "completion:result"
     target: "evaluation:judge_completed"
     condition: |
-      data.get('agent_id', '').startswith('judge_')
+      agent_id.startswith('judge_')
     mapping:
-      evaluation_id: "{{data.metadata.evaluation_id}}"
-      optimization_id: "{{data.metadata.optimization_id}}"
-      judge_agent_id: "{{data.agent_id}}"
-      judge_response: "{{data.response}}"
-      completion_metadata: "{{data.metadata}}"
+      evaluation_id: "{{metadata.evaluation_id}}"
+      optimization_id: "{{metadata.optimization_id}}"
+      judge_agent_id: "{{agent_id}}"
+      judge_response: "{{response}}"
+      completion_metadata: "{{metadata}}"
     enabled: true
     priority: 100
     
@@ -26,13 +26,13 @@ transformers:
     source_pattern: "completion:error"
     target: "evaluation:judge_error"
     condition: |
-      data.get('agent_id', '').startswith('judge_')
+      agent_id.startswith('judge_')
     mapping:
-      evaluation_id: "{{data.metadata.evaluation_id}}"
-      optimization_id: "{{data.metadata.optimization_id}}"
-      judge_agent_id: "{{data.agent_id}}"
-      error: "{{data.error}}"
-      error_type: "{{data.error_type}}"
+      evaluation_id: "{{metadata.evaluation_id}}"
+      optimization_id: "{{metadata.optimization_id}}"
+      judge_agent_id: "{{agent_id}}"
+      error: "{{error}}"
+      error_type: "{{error_type}}"
     enabled: true
     priority: 100
 
