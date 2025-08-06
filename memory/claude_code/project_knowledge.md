@@ -247,16 +247,93 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 - **Foreach Transformers**: Multi-target emission via iteration (Stage 2.0 complete)
 - **See**: `/docs/DYNAMIC_ROUTING_ARCHITECTURE.md` for operational guide and architecture details
 
-### Optimization System (Phase 2 Complete)
+### Optimization System (Multi-Dimensional Framework Complete)
+
+#### Core Infrastructure
 - **Framework Integration**: MIPRO and SIMBA optimizers operational via subprocess architecture
 - **Agent-in-the-Loop**: Optimization requires behavioral testing, not just text analysis
-- **Metric Design**: Default minimal metric insufficient - need comprehensive behavioral evaluation
-- **LLM-as-Judge**: Comparative rankings more reliable than absolute scoring
-- **Tournament Approach**: Pairwise comparisons with Bradley-Terry model for co-evolution
 - **Context Tracking**: Full optimization lineage through context system
-- **Key Finding**: 0% improvement with minimal metrics proves need for agent behavioral testing
-- **See**: `/docs/OPTIMIZATION_APPROACH.md` for philosophy and implementation
-- **See**: `/docs/OPTIMIZATION_METRICS_GUIDE.md` for proper metric design
+- **Subprocess Architecture**: Long-running optimizations (5-15 min) via detached processes
+
+#### Multi-Dimensional Quality Framework (2025-08-06)
+**Five Quality Dimensions** - Beyond simple token reduction:
+
+1. **Instruction Following Fidelity (IFF)** - 40% weight
+   - Measures directive compliance and requirement satisfaction
+   - Detects hallucinations and task substitutions
+   - Formula: `(tasks_completed/requested * 0.4 + requirements_met/total * 0.3) * hallucination_penalty`
+
+2. **Task Lock-in Persistence (TLP)** - 20% weight  
+   - Evaluates focus through long-running tasks
+   - Checks for context drift and distraction resistance
+   - Formula: `(focus_time/total_time * 0.5 + context_switches_penalty * 0.5)`
+
+3. **Agent Orchestration Capability (AOC)** - 15% weight
+   - Assesses multi-agent coordination abilities
+   - Tests communication patterns and delegation
+   - Formula: `(successful_spawns/attempted * 0.4 + coordination_quality * 0.6)`
+
+4. **Behavioral Consistency (BC)** - 15% weight
+   - Validates cross-context stability
+   - Ensures persona maintenance
+   - Formula: `1 - (behavior_variance / baseline_variance)`
+
+5. **Token Efficiency (TE)** - 10% weight
+   - Optimizes cost while preserving quality
+   - Formula: `(1 - tokens_used/baseline_tokens) * quality_preservation_factor`
+
+**Overall Quality Score**: `Σ(dimension_score * dimension_weight)`
+
+#### Hybrid Optimization Pipeline
+**Three-Method Approach** with decision framework:
+
+1. **DSPy/MIPRO** - Quantitative optimization
+   - Best for: Structured tasks, tool-using agents
+   - Metrics: Token count, latency, accuracy
+   - Execution: 30-50 iterations, hyperparameter search
+
+2. **LLM-as-Judge** - Qualitative refinement
+   - Best for: Creative tasks, conversational agents
+   - Evaluation: Specialized judge components per dimension
+   - Process: Iterative refinement based on judge feedback
+
+3. **Hybrid Pipeline** - Combined approach
+   - Phase 1: DSPy quantitative optimization
+   - Phase 2: Judge qualitative refinement
+   - Phase 3: Tournament validation
+   - Result: Balanced optimization across all dimensions
+
+#### Evaluation Infrastructure
+- **Judge Components**: Specialized evaluators for each quality dimension
+   - `instruction_fidelity_judge.md` - IFF evaluation
+   - `task_persistence_judge.md` - TLP evaluation
+   - `orchestration_capability_judge.md` - AOC evaluation
+   - `behavioral_consistency_judge.md` - BC evaluation
+   - `token_efficiency_judge.md` - TE evaluation
+
+- **Test Suites**: Comprehensive evaluation scenarios
+   - `basic_effectiveness` - Fundamental functionality
+   - `behavioral_effectiveness` - Behavioral consistency
+   - `comprehensive_quality_suite` - All 5 dimensions
+   - `ksi_tool_use_validation` - JSON emission patterns
+
+- **Dependency Validation** (Enhanced 2025-08-06)
+   - Components must have passing dependencies
+   - Registry tracks evaluation status per component
+   - Certification requires all dependencies passing
+
+#### Key Findings
+- **0% improvement with minimal metrics** proves need for comprehensive evaluation
+- **48.8% token reduction achieved** while maintaining 95% quality (hello_agent case)
+- **LLM-as-Judge more reliable** for qualitative aspects than DSPy alone
+- **Tournament approach effective** for comparative optimization
+
+#### Documentation
+- **See**: `/docs/OPTIMIZATION_APPROACH.md` - Philosophy and implementation
+- **See**: `/docs/OPTIMIZATION_METRICS_GUIDE.md` - Metric design patterns
+- **See**: `/docs/OPTIMIZATION_COMPARISON_FRAMEWORK.md` - Method selection guide
+- **See**: `/docs/HYBRID_OPTIMIZATION_RUNBOOK.md` - Step-by-step execution
+- **See**: `/docs/AGENT_IMPROVEMENT_ROADMAP.md` - 6-phase implementation plan
 
 ## File Locations
 
@@ -280,15 +357,22 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 - `ksi_common/foreach_transformer.py` - Foreach transformer processing logic
 - `var/lib/transformers/system/workflow_transformers.yaml` - Workflow patterns using foreach
 
-### Optimization System
+### Optimization & Evaluation System
 - `ksi_daemon/optimization/optimization_service.py` - Core optimization service
 - `ksi_daemon/optimization/optimization_events.py` - Event handlers for optimization
 - `ksi_daemon/optimization/adapters/mipro_adapter.py` - MIPRO/DSPy integration
 - `ksi_daemon/optimization/adapters/simba_adapter.py` - SIMBA optimizer adapter
 - `ksi_optimize_component.py` - Subprocess script for long-running optimizations
+- `ksi_daemon/evaluation/evaluation_events.py` - Evaluation handlers with dependency validation
+- `ksi_daemon/evaluation/evaluation_async.py` - Async evaluation support
 - `var/db/mlflow_artifacts/` - MLflow tracking and optimization artifacts
+- `var/lib/evaluations/registry.yaml` - Component evaluation registry
+- `var/lib/evaluations/certificates/` - Evaluation certificates by date
 - `components/personas/optimizers/` - Optimization-focused agent personas
+- `components/evaluations/judges/` - LLM-as-Judge components for 5 dimensions
+- `components/evaluations/suites/` - Test suite definitions
 - `components/workflows/agent_optimization_flow` - Agent-driven optimization workflow
+- `var/lib/transformers/evaluation/judge_result_routing.yaml` - Judge result transformers
 
 ### Configuration
 - `var/lib/capabilities/` - Capability definitions

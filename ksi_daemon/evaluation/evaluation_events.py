@@ -218,7 +218,8 @@ async def handle_evaluation_run(data: EvaluationRunData, context: Optional[Dict[
                 with open(registry_path, 'r') as f:
                     registry = yaml.safe_load(f) or {}
             
-            registered_hashes = set(registry.get('components', {}).keys())
+            components_registry = registry.get('components', {})
+            registered_hashes = set(components_registry.keys())
             
             for dep in dependencies:
                 # Resolve dependency path and hash
@@ -227,10 +228,33 @@ async def handle_evaluation_run(data: EvaluationRunData, context: Optional[Dict[
                     dep_info = hash_component_at_path(str(dep_full_path))
                     dep_hash = dep_info['hash']
                     
+                    logger.info(f"Checking dependency {dep}: hash={dep_hash}, in_registry={dep_hash in registered_hashes}")
+                    
                     # Check if dependency is tested
                     if dep_hash not in registered_hashes:
                         return error_response(
                             f"Dependency {dep} (hash: {dep_hash}) must be evaluated before testing {component_path}",
+                            context
+                        )
+                    
+                    # Check if dependency has passing evaluations
+                    dep_evaluations = components_registry[dep_hash].get('evaluations', [])
+                    if not dep_evaluations:
+                        return error_response(
+                            f"Dependency {dep} has no evaluations recorded",
+                            context
+                        )
+                    
+                    # Check for at least one passing evaluation
+                    has_passing = any(
+                        eval.get('status') == 'passing' 
+                        for eval in dep_evaluations
+                    )
+                    
+                    if not has_passing:
+                        failed_statuses = list(set(eval.get('status', 'unknown') for eval in dep_evaluations))
+                        return error_response(
+                            f"Dependency {dep} must have at least one passing evaluation (current statuses: {', '.join(failed_statuses)})",
                             context
                         )
                     
