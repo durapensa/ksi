@@ -215,7 +215,7 @@ class TransformerService:
         # Unregister each transformer
         for source in pattern_info.transformer_sources:
             try:
-                router.unregister_transformer(source)
+                router.unregister_transformer_by_source(source)
                 logger.debug(f"Unregistered transformer: {source}")
             except Exception as e:
                 logger.error(f"Failed to unregister transformer {source}: {e}")

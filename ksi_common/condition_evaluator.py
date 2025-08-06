@@ -29,6 +29,9 @@ class ConditionEvaluator:
         self.token_patterns = [
             ('LPAREN', r'\('),
             ('RPAREN', r'\)'),
+            ('LBRACKET', r'\['),
+            ('RBRACKET', r'\]'),
+            ('COMMA', r','),
             ('AND', r'\band\b'),
             ('OR', r'\bor\b'),
             ('NOT', r'\bnot\b'),
@@ -37,9 +40,9 @@ class ConditionEvaluator:
             ('NONE', r'\bnone\b|\bNone\b'),
             ('NUMBER', r'-?\d+\.?\d*'),
             ('STRING', r"'[^']*'|\"[^\"]*\""),
-            ('IDENTIFIER', r'[a-zA-Z_][a-zA-Z0-9_]*'),
+            ('COMPARISON', r'==|!=|<=|>=|<|>|not in|in'),  # MOVED BEFORE IDENTIFIER
+            ('IDENTIFIER', r'[a-zA-Z_][a-zA-Z0-9_]*'),      # MOVED AFTER COMPARISON
             ('DOT', r'\.'),
-            ('COMPARISON', r'==|!=|<=|>=|<|>|not in|in'),
             ('WHITESPACE', r'\s+'),
         ]
         
@@ -66,6 +69,18 @@ class ConditionEvaluator:
                 'source_event': context.get('event', '') if context else '',
                 '_ksi_context': context or {}
             }
+            
+            # Log evaluation details for debugging complex conditions
+            import logging
+            logger = logging.getLogger(__name__)
+            if 'agent_id' in condition and 'result_type' in condition:
+                # This looks like a routing condition, log details
+                logger.debug(f"Evaluating routing condition: {condition}")
+                logger.debug(f"  Available data keys: {list(eval_context.keys())}")
+                if 'agent_id' in eval_context:
+                    logger.debug(f"  agent_id value: {eval_context['agent_id']}")
+                if 'result_type' in eval_context:
+                    logger.debug(f"  result_type value: {eval_context['result_type']}")
             
             # Tokenize the condition
             tokens = self._tokenize(condition)
@@ -164,7 +179,7 @@ class ConditionEvaluator:
         return left
     
     def _parse_primary(self, tokens: list, context: Dict[str, Any]) -> Any:
-        """Parse primary expressions (values, identifiers, parentheses)."""
+        """Parse primary expressions (values, identifiers, parentheses, lists)."""
         if not tokens:
             raise ValueError("Unexpected end of expression")
             
@@ -176,6 +191,40 @@ class ConditionEvaluator:
             if not tokens or tokens.pop(0) != ('RPAREN', ')'):
                 raise ValueError("Missing closing parenthesis")
             return result
+            
+        elif token_type == 'LBRACKET':
+            # List expression
+            list_items = []
+            
+            # Handle empty list
+            if tokens and tokens[0] == ('RBRACKET', ']'):
+                tokens.pop(0)  # Consume closing bracket
+                return list_items
+            
+            # Parse list items
+            while True:
+                if not tokens:
+                    raise ValueError("Unexpected end of list expression")
+                    
+                # Parse list item
+                item = self._parse_primary(tokens, context)
+                list_items.append(item)
+                
+                # Check for comma or closing bracket
+                if not tokens:
+                    raise ValueError("Missing closing bracket for list")
+                    
+                next_token = tokens[0]
+                if next_token == ('RBRACKET', ']'):
+                    tokens.pop(0)  # Consume closing bracket
+                    break
+                elif next_token == ('COMMA', ','):
+                    tokens.pop(0)  # Consume comma
+                    continue
+                else:
+                    raise ValueError(f"Expected comma or closing bracket in list, got {next_token}")
+            
+            return list_items
             
         elif token_type in ('NUMBER', 'STRING', 'TRUE', 'FALSE', 'NONE'):
             # Literal value

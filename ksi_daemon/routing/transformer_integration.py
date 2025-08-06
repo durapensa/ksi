@@ -26,7 +26,7 @@ class RoutingTransformerBridge:
     def __init__(self, routing_service):
         self.routing_service = routing_service
         self._router = None
-        self._applied_rules: Dict[str, str] = {}  # rule_id -> source pattern
+        self._applied_rules: Dict[str, str] = {}  # rule_id -> transformer name
         
     def _get_router(self):
         """Get cached router instance."""
@@ -97,8 +97,8 @@ class RoutingTransformerBridge:
             router = self._get_router()
             router.register_transformer_from_yaml(transformer)
             
-            # Track applied rule
-            self._applied_rules[rule["rule_id"]] = rule["source_pattern"]
+            # Track applied transformer by name
+            self._applied_rules[rule["rule_id"]] = transformer["name"]
             
             logger.info(f"Applied routing rule {rule['rule_id']}: {rule['source_pattern']} -> {rule['target']}")
             return True
@@ -123,19 +123,22 @@ class RoutingTransformerBridge:
                 logger.warning(f"Routing rule {rule_id} not found in applied rules")
                 return False
             
-            # Get source pattern
-            source_pattern = self._applied_rules[rule_id]
+            # Get transformer name
+            transformer_name = self._applied_rules[rule_id]
             
-            # Unregister from router
-            # NOTE: This removes ALL transformers for this source pattern
-            # In the future, we might want more granular control
+            # Unregister specific transformer by name (not source pattern)
+            # This allows multiple rules to share the same source pattern
             router = self._get_router()
-            router.unregister_transformer(source_pattern)
+            success = router.unregister_transformer_by_name(transformer_name)
+            
+            if not success:
+                logger.error(f"Failed to unregister transformer by name: {transformer_name}")
+                return False
             
             # Remove from tracking
             del self._applied_rules[rule_id]
             
-            logger.info(f"Removed routing rule {rule_id} (source: {source_pattern})")
+            logger.info(f"Removed routing rule {rule_id} (transformer: {transformer_name})")
             return True
             
         except Exception as e:
@@ -182,5 +185,5 @@ class RoutingTransformerBridge:
         return await self.apply_routing_rule(rule)
     
     def get_applied_rules(self) -> Dict[str, str]:
-        """Get currently applied routing rules."""
+        """Get currently applied routing rules (rule_id -> transformer_name)."""
         return self._applied_rules.copy()

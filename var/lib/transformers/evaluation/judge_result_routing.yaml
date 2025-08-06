@@ -1,0 +1,50 @@
+name: judge_result_routing
+description: Routes judge completion results back to evaluation service
+version: 1.0.0
+metadata:
+  author: system
+  purpose: Agent-ready evaluation pattern
+  pattern_type: result_capture
+transformers:
+  - name: judge_completion_to_evaluation
+    description: Captures completion results from judge agents and routes to evaluation handler
+    source_pattern: "completion:result"
+    target: "evaluation:judge_completed"
+    condition: |
+      data.get('agent_id', '').startswith('judge_')
+    mapping:
+      evaluation_id: "{{data.metadata.evaluation_id}}"
+      optimization_id: "{{data.metadata.optimization_id}}"
+      judge_agent_id: "{{data.agent_id}}"
+      judge_response: "{{data.response}}"
+      completion_metadata: "{{data.metadata}}"
+    enabled: true
+    priority: 100
+    
+  - name: judge_error_to_evaluation
+    description: Routes judge agent errors to evaluation error handler
+    source_pattern: "completion:error"
+    target: "evaluation:judge_error"
+    condition: |
+      data.get('agent_id', '').startswith('judge_')
+    mapping:
+      evaluation_id: "{{data.metadata.evaluation_id}}"
+      optimization_id: "{{data.metadata.optimization_id}}"
+      judge_agent_id: "{{data.agent_id}}"
+      error: "{{data.error}}"
+      error_type: "{{data.error_type}}"
+    enabled: true
+    priority: 100
+
+  - name: evaluation_result_broadcast
+    description: Broadcasts evaluation results for monitoring and downstream processing
+    source_pattern: "evaluation:result"
+    target: "monitor:broadcast_event"
+    mapping:
+      event_type: "evaluation_completed"
+      evaluation_id: "{{data.evaluation_id}}"
+      optimization_id: "{{data.optimization_id}}"
+      recommendation: "{{data.recommendation}}"
+      confidence: "{{data.evaluation.confidence}}"
+    enabled: true
+    priority: 50

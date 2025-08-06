@@ -56,7 +56,28 @@ TEMPLATE_FUNCTIONS = {
     'json': json_dumps,
     'upper': lambda s: str(s).upper(),
     'lower': lambda s: str(s).lower(),
+    'is_event_handled': lambda event_name: _check_event_handled(event_name),
 }
+
+
+def _check_event_handled(event_name: str) -> bool:
+    """
+    Template function to check if an event is handled by real handlers or transformers.
+    
+    This is a wrapper around event_validation.is_event_handled() for use in templates.
+    
+    Args:
+        event_name: The event name to check
+        
+    Returns:
+        True if event has real handlers/transformers, False otherwise
+    """
+    try:
+        from ksi_common.event_validation import is_event_handled
+        return is_event_handled(event_name)
+    except ImportError:
+        # If event_validation is not available, assume event is valid
+        return True
 
 
 def substitute_template(template: Any, context: Dict[str, Any],

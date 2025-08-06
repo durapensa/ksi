@@ -2,316 +2,41 @@
 
 ## Executive Summary
 
-This document outlines the architecture for implementing missing async state functionality and creating common pub/sub patterns across KSI by composing existing services. Rather than introducing new services, we enhance the state service with queue operations and leverage dynamic routing for all watch-and-trigger patterns.
+This document outlines the architecture for async state and pub/sub patterns in KSI. We compose existing services rather than creating new ones, using the state service for queuing and dynamic routing for all watch-and-trigger patterns.
 
 **Key Principles**: 
-- State is ephemeral - for active tracking and queuing only. Historical data belongs in logs and monitor's index
-- Persistence where needed - queues, routing rules, and transformers survive daemon restarts
-- Compose existing services - no new architectural concepts
+- State is ephemeral - for active tracking and queuing only
+- Everything is async and event-driven - no blocking operations
+- Routing patterns as data (YAML) - not embedded in code
+- Services as pattern libraries - teaching agents coordination
 
-## Architecture Overview
+## Core Patterns
 
-### Core Components
+### 1. Async State Queues
 
-1. **Enhanced State Service** - Adds async queue operations to existing graph database
-2. **Dynamic Routing** - All watch-and-trigger patterns use routing rules with TTL and persistence
-3. **PubSub API** - Common interface wrapping routing + state + monitor + completion
-4. **Event Scheduler** - Handles all time-based operations (TTL, timeouts)
+The state service provides queue operations for async coordination:
+- `async_state:push` - Add items to a queue with TTL
+- `async_state:pop` - Remove and return items (FIFO)
+- `async_state:get_queue` - Peek without removing
+- `async_state:expire` - TTL-based cleanup
 
-### Design Principles
+### 2. Hybrid Routing Persistence
 
-1. **Compose, Don't Create** - Use existing services in new combinations
-2. **State is Ephemeral** - Active queues and tracking only, no history
-3. **Event-Driven** - No polling, use routing rules for triggers
-4. **Lifecycle Management** - TTL and parent-scoped cleanup everywhere
+Routing rules support three persistence classes:
+- **ephemeral** - State DB only, cleared on restart
+- **persistent** - State DB + YAML files in `var/lib/routes/`
+- **system** - Defined in transformer YAML files
 
-## Current State Analysis
-
-### Critical Findings
-
-1. **async_state Handlers Fully Implemented** ✅ - The state service has complete async queue operations with persistence (lines 1277-1580 in state.py)
-2. **Injection Router Removed** - Replaced by `completion:inject` (priority queue) + dynamic routing patterns (commit bd7c277)
-3. **Dynamic Routing Rules Need Persistence** - Currently exist only in memory
-4. **Dynamic Transformers Need Persistence** - Should be saved to `var/lib/transformers/dynamic/`
-
-## Implementation Design
-
-### 1. Async State Enhancement ✅ COMPLETE
-
-The async_state handlers are fully implemented in state service:
-
+Example routing rule with persistence:
 ```python
-# In ksi_daemon/core/state.py
-
-class AsyncPushData(TypedDict):
-    """Push data to an async queue."""
-    namespace: str  # Queue namespace (e.g., "completion", "subscription")
-    key: str  # Queue key (e.g., session_id, agent_id)
-    data: Dict[str, Any]  # Data to queue
-    ttl_seconds: NotRequired[int]  # Queue expiration (default: 3600)
-
-@event_handler("async_state:push")
-async def handle_async_push(data: AsyncPushData, context) -> Dict[str, Any]:
-    """Push data to an async queue for later retrieval."""
-    namespace = data["namespace"]
-    key = data["key"]
-    queue_data = data["data"]
-    ttl_seconds = data.get("ttl_seconds", 3600)
-    
-    # Create queue entity with items array
-    queue_id = f"queue:{namespace}:{key}"
-    queue_entity = await state_manager.get_entity(queue_id)
-    
-    if not queue_entity:
-        # Create new queue
-        await state_manager.create_entity(
-            entity_id=queue_id,
-            entity_type="async_queue",
-            properties={
-                "namespace": namespace,
-                "key": key,
-                "items": [],
-                "created_at": time.time()
-            }
-        )
-    
-    # Append to queue
-    current_items = queue_entity["properties"].get("items", []) if queue_entity else []
-    current_items.append({
-        "data": queue_data,
-        "pushed_at": time.time()
-    })
-    
-    await state_manager.update_entity(queue_id, {"items": current_items})
-    
-    # Schedule cleanup
-    if ttl_seconds > 0:
-        await emit_event("scheduler:schedule_once", {
-            "event_time": time.time() + ttl_seconds,
-            "event": "async_state:expire_queue",
-            "data": {"queue_id": queue_id}
-        })
-    
-    return {"status": "pushed", "queue_size": len(current_items)}
-
-@event_handler("async_state:pop")
-async def handle_async_pop(data: AsyncPopData, context) -> Dict[str, Any]:
-    """Pop items from queue (FIFO)."""
-    namespace = data["namespace"]
-    key = data["key"]
-    count = data.get("count", 1)
-    
-    queue_id = f"queue:{namespace}:{key}"
-    queue_entity = await state_manager.get_entity(queue_id)
-    
-    if not queue_entity:
-        return {"items": [], "remaining": 0}
-    
-    items = queue_entity["properties"].get("items", [])
-    popped = items[:count]
-    remaining = items[count:]
-    
-    # Update queue
-    if remaining:
-        await state_manager.update_entity(queue_id, {"items": remaining})
-    else:
-        # Delete empty queue
-        await state_manager.delete_entity(queue_id)
-    
-    return {
-        "items": [item["data"] for item in popped],
-        "remaining": len(remaining)
-    }
-
-@event_handler("async_state:get_queue")
-async def handle_get_queue(data: AsyncGetQueueData, context) -> Dict[str, Any]:
-    """Get all items from queue without removing them."""
-    namespace = data["namespace"]
-    key = data["key"]
-    
-    queue_id = f"queue:{namespace}:{key}"
-    queue_entity = await state_manager.get_entity(queue_id)
-    
-    if not queue_entity:
-        return {"items": [], "exists": False}
-    
-    items = queue_entity["properties"].get("items", [])
-    return {
-        "items": [item["data"] for item in items],
-        "exists": True,
-        "queue_size": len(items)
-    }
-
-@event_handler("async_state:expire_queue")
-async def handle_expire_queue(data: ExpireQueueData, context) -> Dict[str, Any]:
-    """Expire a queue (called by scheduler)."""
-    queue_id = data["queue_id"]
-    
-    # Log expiration for debugging
-    queue_entity = await state_manager.get_entity(queue_id)
-    if queue_entity:
-        logger.info(f"Expiring queue {queue_id} with {len(queue_entity['properties'].get('items', []))} items")
-    
-    await state_manager.delete_entity(queue_id)
-    return {"status": "expired", "queue_id": queue_id}
-```
-
-### 2. Persistence Enhancements - Hybrid Approach
-
-#### Intelligent Routing Rule Persistence
-
-**Three Categories of Routes:**
-1. **System Routes** - Permanent, in YAML transformers (already done)
-2. **Dynamic Agent Routes** - Runtime ephemeral, state with TTL
-3. **Persistent User Routes** - Configured, hybrid state + YAML
-
-**Directory Structure:**
-```
-var/lib/routes/
-├── persistent/      # Survives daemon restarts
-│   ├── subscriptions/
-│   ├── integrations/
-│   └── user_configured/
-├── ephemeral/       # Optional debugging/audit
-│   └── .gitignore   # Never commit these
-└── system/          # Managed by transformers
-```
-
-#### Enhanced Routing Rule Handler
-```python
-@event_handler("routing:add_rule")
-async def handle_add_rule_enhanced(data: AddRuleData, context):
-    """Add routing rule with intelligent persistence."""
-    rule_id = data["rule_id"]
-    persistence_class = data.get("persistence_class", "ephemeral")
-    
-    # Always create in state for runtime efficiency
-    await emit_event("state:entity:create", {
-        "type": "routing_rule",
-        "id": f"rule_{rule_id}",
-        "properties": {
-            "source_pattern": data["source_pattern"],
-            "target": data["target"],
-            "priority": data.get("priority", 100),
-            "condition": data.get("condition"),
-            "mapping": data.get("mapping", {}),
-            "created_at": time.time(),
-            "expires_at": time.time() + data["ttl"] if "ttl" in data else None,
-            "parent_type": data.get("parent_scope", {}).get("type"),
-            "parent_id": data.get("parent_scope", {}).get("id"),
-            "persistence_class": persistence_class,
-            "rule_config": data  # Full config for restoration
-        }
-    })
-    
-    # Register with routing engine
-    routing_engine.add_rule(data)
-    
-    # Persist to YAML if marked persistent
-    if persistence_class == "persistent":
-        namespace = data.get("namespace", "default")
-        yaml_path = f"var/lib/routes/persistent/{namespace}/{rule_id}.yaml"
-        
-        # Ensure directory exists
-        os.makedirs(os.path.dirname(yaml_path), exist_ok=True)
-        
-        # Write YAML with metadata
-        await emit_event("file:write", {
-            "path": yaml_path,
-            "content": yaml.dump({
-                "rule": data,
-                "metadata": {
-                    "created_at": datetime.utcnow().isoformat(),
-                    "created_by": context.get("client_id", "system"),
-                    "description": data.get("description", "")
-                }
-            })
-        })
-    
-    # Optional: Log ephemeral rules for debugging
-    elif data.get("debug_log", False):
-        debug_path = f"var/lib/routes/ephemeral/{rule_id}_{int(time.time())}.yaml"
-        os.makedirs(os.path.dirname(debug_path), exist_ok=True)
-        await emit_event("file:write", {
-            "path": debug_path,
-            "content": yaml.dump({"rule": data, "timestamp": time.time()})
-        })
-    
-    return {"status": "created", "persistence": persistence_class}
-
-# Comprehensive restoration on startup
-async def restore_routing_rules():
-    """Restore routing rules from both YAML and state."""
-    restored_count = 0
-    
-    # 1. Load persistent YAML rules (source of truth)
-    persistent_dir = "var/lib/routes/persistent"
-    if os.path.exists(persistent_dir):
-        for root, dirs, files in os.walk(persistent_dir):
-            for file in files:
-                if file.endswith('.yaml'):
-                    path = os.path.join(root, file)
-                    with open(path, 'r') as f:
-                        config = yaml.safe_load(f)
-                        rule = config["rule"]
-                        
-                        # Re-register with routing engine
-                        routing_engine.add_rule(rule)
-                        
-                        # Ensure in state for runtime queries
-                        await emit_event("state:entity:create", {
-                            "type": "routing_rule",
-                            "id": f"rule_{rule['rule_id']}",
-                            "properties": {
-                                **rule,
-                                "persistence_class": "persistent",
-                                "restored_at": time.time()
-                            }
-                        })
-                        restored_count += 1
-    
-    # 2. Query ephemeral rules from state (check TTL)
-    ephemeral_rules = await emit_event("state:entity:query", {
-        "type": "routing_rule",
-        "where": {
-            "persistence_class": "ephemeral",
-            "expires_at": {">=": time.time()}  # Not expired
-        }
-    })
-    
-    for entity in ephemeral_rules:
-        rule_config = entity["properties"]["rule_config"]
-        routing_engine.add_rule(rule_config)
-        restored_count += 1
-    
-    logger.info(f"Restored {restored_count} routing rules")
-    return {"restored": restored_count}
-```
-
-#### Query Patterns for Routing Rules
-```python
-# Find all rules for a parent entity
-rules = await emit_event("state:entity:query", {
-    "type": "routing_rule",
-    "where": {"parent_id": "workflow_123"}
-})
-
-# Find expiring rules for cleanup
-expiring = await emit_event("state:entity:query", {
-    "type": "routing_rule",
-    "where": {"expires_at": {"<": time.time() + 300}}
-})
-
-# Find rules by pattern
-pattern_rules = await emit_event("state:entity:query", {
-    "type": "routing_rule",
-    "where": {"source_pattern": {"LIKE": "completion:%"}}
-})
-
-# Find persistent rules for backup
-persistent = await emit_event("state:entity:query", {
-    "type": "routing_rule",
-    "where": {"persistence_class": "persistent"}
+await emit_event("routing:add_rule", {
+    "rule_id": f"watch_{request_id}",
+    "source_pattern": "completion:result",
+    "condition": f"data.request_id == '{request_id}'",
+    "target": "my_service:handle_result",
+    "ttl": 300,  # 5 minute timeout
+    "persistence_class": "ephemeral",  # or "persistent" 
+    "parent_scope": {"type": "agent", "id": agent_id}  # Cleanup with parent
 })
 ```
 
@@ -537,67 +262,150 @@ async def complete_operation(operation_id: str):
     })
 ```
 
-## Migration Plan
+## Next Steps
 
-### Phase 1: Core Infrastructure (Week 1)
+### Phase 2: Agent-Ready Evaluation Pattern
 
-1. **Implement async_state handlers**
-   - ✅ Queue operations in state service (COMPLETE - lines 1277-1580)
-   - ✅ TTL-based cleanup via scheduler (IMPLEMENTED)
-   - Test async_state queue persistence
-   - Verify persistence across restarts
+**Goal**: Make evaluation service the first consumer of async patterns, building vocabulary for future agent orchestration.
 
-2. **Add persistence layer**
-   - Dynamic routing rule persistence and restoration
-   - Dynamic transformer file generation
-   - State-based recovery on startup
+#### Key Insight: Services as Pattern Libraries
 
-3. **Create pubsub handlers**
-   - Common subscribe endpoint
-   - Queue and retrieval operations
-   - Routing rule generation with persistence
+The evaluation service is **temporary scaffolding** - we're establishing **event-driven patterns** that agents will eventually use directly. Every service handler we write is teaching agents how to coordinate.
 
-### Phase 2: Evaluation Service First (Week 2)
-
-**Goal**: Make evaluation service the first consumer of the new architecture.
+#### Agent-Ready Async Pattern
 
 ```python
-# Evaluation service using completion:inject priority pattern
-async def evaluate_optimization_async(optimization_id: str):
-    judge_agent_id = f"judge_{optimization_id}"
+# PATTERN: Async evaluation with routing-based result delivery
+# This will eventually be replaced by agents creating these routing rules directly
+
+@event_handler("evaluation:async")
+async def handle_evaluation_async(data, context):
+    """Non-blocking evaluation - returns immediately."""
+    optimization_id = data["optimization_id"]
+    optimization_result = data["optimization_result"]
     
-    # Spawn judge agent
-    await emit_event("agent:spawn", {
-        "agent_id": judge_agent_id,
-        "component": "evaluations/judges/optimization_judge",
-        "capabilities": ["completion"]
-    })
+    # Generate tracking IDs
+    evaluation_id = f"eval_{optimization_id}_{uuid.uuid4().hex[:8]}"
+    judge_agent_id = f"judge_{evaluation_id}"
     
-    # Send evaluation request with priority via completion:inject
-    # Priority queue ensures immediate processing
-    await emit_event("completion:inject", {
-        "agent_id": judge_agent_id,
-        "messages": [{"role": "user", "content": build_evaluation_prompt(optimization_id)}],
-        "priority": "high",  # Always high for inject
-        "originator_id": f"evaluation_{optimization_id}"
-    })
-    
-    # Also setup routing for result capture
+    # Create routing rule for result capture (will be YAML template)
     await emit_event("routing:add_rule", {
-        "rule_id": f"eval_result_{optimization_id}",
-        "source_pattern": "agent:result",
+        "rule_id": f"judge_complete_{evaluation_id}",
+        "source_pattern": "completion:result",
         "condition": f"data.agent_id == '{judge_agent_id}'",
-        "target": "evaluation:process_result",
+        "target": "evaluation:judge_completed",
         "mapping": {
+            "evaluation_id": evaluation_id,
             "optimization_id": optimization_id,
-            "judgment": "{{data.result}}"
+            "judge_response": "{{data.response}}",
+            "optimization_result": optimization_result
         },
-        "ttl": 600,
+        "ttl": 600,  # 10 minute timeout
+        "persistence_class": "ephemeral",  # Or "persistent" for debugging
         "parent_scope": {"type": "agent", "id": judge_agent_id}
     })
     
-    return {"status": "evaluation_started", "judge_agent_id": judge_agent_id}
+    # Spawn judge (agents will learn this pattern)
+    await emit_event("agent:spawn", {
+        "agent_id": judge_agent_id,
+        "component": "evaluations/judges/optimization_judge",
+        "metadata": {"evaluation_id": evaluation_id}
+    })
+    
+    # Send prompt (using regular async, not inject)
+    await emit_event("completion:async", {
+        "agent_id": judge_agent_id,
+        "prompt": build_evaluation_prompt(optimization_result)
+    })
+    
+    # Return immediately - caller listens for evaluation:result
+    return {
+        "status": "evaluation_started",
+        "evaluation_id": evaluation_id,
+        "judge_agent_id": judge_agent_id
+    }
+
+@event_handler("evaluation:judge_completed")
+async def handle_judge_completed(data, context):
+    """Process routed judge results."""
+    # Extract and process evaluation
+    evaluation = extract_evaluation(data["judge_response"])
+    
+    # Emit result event for listeners
+    await emit_event("evaluation:result", {
+        "evaluation_id": data["evaluation_id"],
+        "optimization_id": data["optimization_id"],
+        "recommendation": evaluation["recommendation"],
+        "evaluation": evaluation
+    })
+    
+    # Trigger downstream actions if accepted
+    if evaluation["recommendation"] == "accept":
+        await emit_event("composition:update_component", {...})
 ```
+
+#### YAML Routing Templates
+
+Instead of hardcoding routing rules, we'll use loadable templates:
+
+```yaml
+# var/lib/transformers/evaluation/judge_result_routing.yaml
+name: judge_result_routing
+description: Routes judge completion results back to evaluation service
+version: 1.0.0
+transformers:
+  - name: judge_completion_to_evaluation
+    source_pattern: "completion:result"
+    target: "evaluation:judge_completed"
+    condition: |
+      data.agent_id and data.agent_id.startswith('judge_')
+    mapping:
+      evaluation_id: "{{data.metadata.evaluation_id}}"
+      judge_response: "{{data.response}}"
+    enabled: true
+```
+
+#### Future Agent Composition Pattern
+
+Agents will eventually compose these patterns directly:
+
+```python
+# Future agent internal reasoning (not code):
+"""
+To evaluate an optimization:
+1. Create routing rule: completion:result → evaluation:judge_completed
+2. Spawn judge agent with evaluation component
+3. Send evaluation prompt via completion:async
+4. Listen for evaluation:result event
+5. Act on recommendation (accept/reject/revise)
+"""
+
+# Agent might emit this pattern:
+await emit_event("workflow:create", {
+    "workflow_id": "evaluate_optimization",
+    "agents": [
+        {
+            "id": "judge",
+            "component": "evaluations/judges/optimization_judge",
+            "routing_rules": [
+                {
+                    "source": "completion:result",
+                    "target": "evaluation:judge_completed",
+                    "condition": "data.agent_id == '{{agent.id}}'"
+                }
+            ]
+        }
+    ]
+})
+```
+
+#### Why This Pattern is Agent-Ready
+
+1. **No Hidden State** - Everything flows through observable events
+2. **Composable Primitives** - Routing rules, agent spawning, event emission
+3. **Pattern Recognition** - Agents can learn by observing event sequences
+4. **No Blocking** - Fully async enables parallel agent coordination
+5. **YAML Templates** - Routing patterns as data, not code
 
 ### Phase 3: Service Migration (Week 3-4)
 
@@ -681,49 +489,20 @@ await emit_event("routing:add_rule", {
 4. **Automatic Cleanup** - TTL and parent-scoping prevent leaks
 5. **Unified Interface** - Single pubsub API for all use cases
 
-## Implementation Checklist
+### Evaluation Service Refactoring
+1. Implement `evaluation:async` handler for non-blocking evaluation
+2. Add `evaluation:judge_completed` handler for routed results
+3. Create YAML routing templates for common patterns
+4. Test async flow with dynamic routing rules
 
-### Phase 1: Core Infrastructure ✅ COMPLETE
-- [x] Implement async_state handlers in state service ✅ COMPLETE
-- [x] Test async_state queue persistence across restarts ✅ COMPLETE
-- [x] Implement hybrid routing persistence (state + selective YAML) ✅ COMPLETE
-- [x] Create directory structure for persistent/ephemeral routes ✅ COMPLETE
-- [x] Add query patterns for routing rule introspection ✅ COMPLETE
-- [x] Implement TTL-based cleanup for ephemeral rules ✅ COMPLETE
-- [x] Add persistence_class field to routing rules ✅ COMPLETE
+### Service Migrations
+- Monitor service to use pubsub patterns
+- Message bus to use async state queues
+- Completion service documentation updates
 
-### Phase 2: Evaluation Service
-- [ ] Update evaluation service to use async patterns
-- [ ] Test with completion:inject priority system
-- [ ] Verify persistence across daemon restarts
-- [ ] Add timeout handling via routing TTL
+## Key Insights
 
-### Phase 3: Service Migration
-- [ ] Migrate monitor service (breaking change)
-- [ ] Migrate message bus (breaking change)
-- [ ] Update completion priority queue documentation
-- [ ] Test all services with persistence
-
-### Phase 4: Enhancement
-- [ ] Add introspection for routing rules by parent
-- [ ] Implement queue overflow policies
-- [ ] Add performance metrics
-- [ ] Create migration guide
-
-## Key Design Decisions
-
-1. **Build on Working Infrastructure** - The async_state handlers are fully implemented and operational
-2. **Persistence Where Needed** - Queues, routing rules, and transformers survive restarts
-3. **Breaking Changes Are OK** - Clean migration without compatibility debt
-4. **Evaluation Service First** - Perfect test case for async patterns
-5. **Introspection Over Limits** - Rich observability instead of hard constraints
-
-## Conclusion
-
-This architecture achieves all the goals of the original WatchService design while maintaining KSI's event-driven philosophy. By composing existing services and adding minimal new functionality, we create a powerful pub/sub infrastructure without architectural debt.
-
-The key insights:
-- "Watching" is just routing with lifecycle management
-- "Pub/Sub" is just routing with queuing
-- The completion:inject and dynamic routing patterns leverage async_state for coordination
-- Persistence enables reliability for autonomous agent coordination
+- **"Watching" is just routing with lifecycle management** - Create routing rules with TTL to watch for events
+- **Services are pattern libraries for agents** - We're teaching coordination patterns, not building permanent services
+- **Everything async, everything events** - No blocking operations enable parallel agent coordination
+- **Routing patterns as YAML** - Configuration as data enables agent learning and composition

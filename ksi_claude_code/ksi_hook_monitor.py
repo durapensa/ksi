@@ -771,7 +771,7 @@ class KSIHookMonitor:
             
             # Agents with A:
             if agent_count > 0:
-                parts.append(f"A:{agent_count}")
+                parts.append(f"AGENTS:{agent_count}")
             
             # Optimization with O:
             if optimization_status:
@@ -784,7 +784,7 @@ class KSIHookMonitor:
             
             # Format message
             if parts:
-                message = f"KSI {' '.join(parts)}"
+                message = f"System message: KSI: {' '.join(parts)}"
             else:
                 message = "KSI"  # Minimal output to confirm hook is active
             

@@ -269,7 +269,7 @@ class EventRouter:
             
         logger.info(f"Registered dynamic transformer: {source} -> {transformer_def.get('target')}")
     
-    def unregister_transformer(self, source: str):
+    def unregister_transformer_by_source(self, source: str):
         """Remove all transformers for a source."""
         if source in self._transformers:
             count = len(self._transformers[source])
@@ -282,6 +282,30 @@ class EventRouter:
                     del self._pattern_transformers[i]
                     logger.info(f"Unregistered pattern transformer: {source}")
                     break
+    
+    def unregister_transformer_by_name(self, transformer_name: str):
+        """Remove a specific transformer by name."""
+        # Search direct event transformers
+        for source, transformers in self._transformers.items():
+            for i, transformer_def in enumerate(transformers):
+                if transformer_def.get('name') == transformer_name:
+                    # Remove this specific transformer
+                    del transformers[i]
+                    # If no transformers left for this source, clean up the key
+                    if not transformers:
+                        del self._transformers[source]
+                    logger.info(f"Unregistered transformer by name: {transformer_name}")
+                    return True
+        
+        # Search pattern transformers
+        for i, (pattern, transformer_def) in enumerate(self._pattern_transformers):
+            if transformer_def.get('name') == transformer_name:
+                del self._pattern_transformers[i]
+                logger.info(f"Unregistered pattern transformer by name: {transformer_name}")
+                return True
+        
+        logger.warning(f"Transformer not found: {transformer_name}")
+        return False
     
     def register_shutdown_handler(self, service_name: str, handler: EventHandler):
         """Register a critical shutdown handler that must complete before daemon exits.
@@ -351,6 +375,16 @@ class EventRouter:
         else:
             logger.debug(f"No transformers found for {event}")
         
+        # Filter out universal broadcast transformer for events with no actual event processing
+        if transformers:
+            from ksi_common.event_validation import is_event_handled, is_universal_broadcast_transformer  
+            if not is_event_handled(event, router=self):
+                # Event has no actual processing - filter out universal broadcast transformer
+                original_count = len(transformers)
+                transformers = [t for t in transformers if not is_universal_broadcast_transformer(t)]
+                if len(transformers) < original_count:
+                    logger.debug(f"Filtered out universal broadcast transformer for event with no processing: {event}")
+        
         # Collect transformer tasks to await their completion
         transformer_tasks = []
         
@@ -363,9 +397,21 @@ class EventRouter:
             should_transform = True
             if 'condition' in transformer:
                 # Evaluate condition with proper context
-                if not self._evaluate_condition(transformer['condition'], data):
+                condition_result = self._evaluate_condition(transformer['condition'], data)
+                if not condition_result:
                     # Condition not met, skip transformation
-                    logger.debug(f"Transformer condition not met for {event}")
+                    # Log at INFO level for dynamic routing rules (critical for debugging)
+                    if transformer.get('dynamic'):
+                        logger.info(f"Dynamic routing condition not met for {event} -> {target}")
+                        logger.info(f"  Condition: {transformer['condition']}")
+                        logger.info(f"  Data keys: {list(data.keys())}")
+                        # Log specific fields if they exist
+                        if 'agent_id' in data:
+                            logger.info(f"  agent_id: {data.get('agent_id')}")
+                        if 'result_type' in data:
+                            logger.info(f"  result_type: {data.get('result_type')}")
+                    else:
+                        logger.debug(f"Transformer condition not met for {event}")
                     should_transform = False
             
             # Transform the data if no condition or condition passed
@@ -630,7 +676,15 @@ class EventRouter:
             enhanced_data = data
             
         # Log event to reference-based event log AFTER enrichment (only if not silent)
-        if not silent and hasattr(self, 'reference_event_log') and self.reference_event_log:
+        # BUT skip logging events that only have universal broadcast transformer (prevents bogus events in monitoring)
+        should_log = not silent and hasattr(self, 'reference_event_log') and self.reference_event_log
+        if should_log:
+            from ksi_common.event_validation import is_event_handled
+            if not is_event_handled(event, router=self):
+                logger.debug(f"Skipping event log for event with no processing: {event}")
+                should_log = False
+        
+        if should_log:
             # Extract metadata for logging from enhanced_data
             log_data = enhanced_data if isinstance(enhanced_data, dict) else data
             
@@ -687,8 +741,9 @@ class EventRouter:
                 await notify_observers_async(matching_subscriptions, "end", event, 
                                            {"status": "no_handlers"}, source_agent)
             
-            # Check if transformers processed this event
-            if transformers:
+            # Check if transformers processed this event - but exclude universal broadcast
+            from ksi_common.event_validation import is_event_handled
+            if transformers and is_event_handled(event, router=self):
                 # Wait for transformer tasks to complete before returning
                 if transformer_tasks:
                     logger.debug(f"Awaiting {len(transformer_tasks)} transformer tasks for {event}")
@@ -1391,29 +1446,35 @@ async def handle_register_transformer(data: Dict[str, Any], context: Optional[Di
         )
 
 class RouterUnregisterTransformerData(TypedDict):
-    """Unregister a dynamic transformer."""
-    source: Required[str]  # Source event pattern to unregister
+    """Unregister a dynamic transformer by name."""
+    name: Required[str]  # Transformer name to unregister
 
 
 @event_handler("router:unregister_transformer")
 async def handle_unregister_transformer(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Unregister a dynamic transformer."""
-    # BREAKING CHANGE: Direct data access, _ksi_context contains system metadata
+    """Unregister a specific transformer by name."""
     from ksi_common.event_response_builder import event_response_builder, error_response
     
-    source = data.get('source')
-    if not source:
+    transformer_name = data.get('name')
+    if not transformer_name:
         return error_response(
-            "Missing source event",
+            "Missing transformer name",
             context=context
         )
     
     router = get_router()
-    router.unregister_transformer(source)
-    return event_response_builder(
-        {"status": "unregistered", "source": source},
-        context=context
-    )
+    success = router.unregister_transformer_by_name(transformer_name)
+    
+    if success:
+        return event_response_builder(
+            {"status": "unregistered", "name": transformer_name},
+            context=context
+        )
+    else:
+        return error_response(
+            f"Transformer not found: {transformer_name}",
+            context=context
+        )
 
 class RouterListTransformersData(TypedDict):
     """List all registered transformers."""

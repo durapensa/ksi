@@ -9,7 +9,6 @@ from ksi_common.logging import get_bound_logger
 from ksi_daemon.event_system import event_handler, get_router
 from ksi_common.config import config
 from ksi_common.event_utils import extract_single_response
-from ksi_daemon.optimization.evaluation_service import evaluation_service
 
 logger = get_bound_logger("integrated_optimization")
 
@@ -248,18 +247,21 @@ async def handle_optimization_completed_with_evaluation(data: Dict[str, Any], co
             }
         }
         
-        # Trigger LLM-as-Judge evaluation
+        # Trigger LLM-as-Judge evaluation via async pattern
         logger.info(f"Starting LLM-as-Judge evaluation for optimization {optimization_id}")
         
-        # Ensure evaluation service is initialized
-        if evaluation_service.router is None:
-            await evaluation_service.initialize(context)
-        
-        eval_result = await evaluation_service.process_optimization_completion(
-            optimization_id=optimization_id,
-            optimization_result=evaluation_data,
-            skip_git=skip_git
+        # Use the new async evaluation handler
+        eval_result = await router.emit(
+            "evaluation:async",
+            {
+                "optimization_id": optimization_id,
+                "optimization_result": evaluation_data,
+                "skip_git": skip_git
+            }
         )
+        
+        if isinstance(eval_result, list):
+            eval_result = extract_single_response(eval_result) or {}
         
         return {
             "status": "success",
