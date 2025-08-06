@@ -1,0 +1,8 @@
+transformers:
+  - name: test_fail_fast_transformer
+    source: test:trigger_error
+    target: test:process_error
+    mapping:
+      result: "{{missing_variable}}"
+      agent_id: "{{agent_id}}"
+    context_preservation: true

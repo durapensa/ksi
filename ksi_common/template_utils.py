@@ -29,6 +29,17 @@ import json
 from typing import Any, Dict, List, Union, Optional, Callable
 from datetime import datetime, timezone
 
+
+class TemplateResolutionError(Exception):
+    """Raised when a template variable cannot be resolved in strict mode."""
+    
+    def __init__(self, message: str, template: str = None, missing_variable: str = None, 
+                 available_variables: List[str] = None):
+        super().__init__(message)
+        self.template = template
+        self.missing_variable = missing_variable
+        self.available_variables = available_variables or []
+
 # Try to import KSI utilities, fallback for standalone usage
 try:
     from ksi_common.json_utils import dumps as json_dumps
@@ -88,6 +99,7 @@ def substitute_template(template: Any, context: Dict[str, Any],
     
     This function processes strings, dictionaries, and lists, replacing
     {{variable}} patterns with values from the provided context.
+    BREAKING CHANGE: Always raises exception on missing variables (fail-fast).
     
     Args:
         template: The template to process (string, dict, list, or any value)
@@ -97,6 +109,9 @@ def substitute_template(template: Any, context: Dict[str, Any],
         
     Returns:
         The processed template with all variables substituted
+        
+    Raises:
+        TemplateResolutionError: When a variable cannot be resolved
         
     Examples:
         >>> substitute_template("Hello {{name}}", {"name": "World"})
@@ -110,6 +125,9 @@ def substitute_template(template: Any, context: Dict[str, Any],
         
         >>> substitute_template("{{upper(name)}}", {"name": "alice"})
         'ALICE'
+        
+        >>> substitute_template("{{missing}}", {})
+        TemplateResolutionError: Cannot resolve variable 'missing'
     """
     if isinstance(template, str):
         return _substitute_string(template, context, ksi_context, functions)
@@ -138,6 +156,9 @@ def _substitute_string(template: str, context: Dict[str, Any],
         
     Returns:
         Processed template (string or original data for {{$}})
+        
+    Raises:
+        TemplateResolutionError: When a variable cannot be resolved
     """
     # Special case: {{$}} for entire data
     if template == "{{$}}":
@@ -181,8 +202,16 @@ def _substitute_string(template: str, context: Dict[str, Any],
             if default_value is not None:
                 return default_value
             else:
-                # Return original template if no default and not found
-                return match.group(0)
+                # ALWAYS raise exception for missing variables (fail-fast)
+                available_vars = list(context.keys())
+                if ksi_context:
+                    available_vars.extend([f"_ksi_context.{k}" for k in ksi_context.keys()])
+                raise TemplateResolutionError(
+                    f"Cannot resolve variable '{var_name}' in template",
+                    template=template,
+                    missing_variable=var_name,
+                    available_variables=available_vars
+                )
         elif isinstance(value, (dict, list)):
             return json_dumps(value)
         else:
@@ -434,6 +463,7 @@ def validate_template(template: Any, required_vars: List[str] = None,
     Enhanced to:
     - Check if all template variables can be resolved
     - Validate function calls are valid
+    - Properly detect unresolvable variables
     
     Args:
         template: The template to validate
@@ -441,13 +471,17 @@ def validate_template(template: Any, required_vars: List[str] = None,
         available_vars: Dict of available variables to check against
         
     Returns:
-        True if template is valid
+        True if template is valid, False if it contains unresolvable variables
         
     Examples:
-        >>> validate_template("Hello {{name}}", ["name"])
+        >>> validate_template("Hello {{name}}", required_vars=["name"])
         True
-        >>> validate_template("Hello {{name}}", ["name", "id"])
+        >>> validate_template("Hello {{name}}", required_vars=["name", "id"])
         False
+        >>> validate_template("{{missing}}", available_vars={"present": "value"})
+        False
+        >>> validate_template("{{present}}", available_vars={"present": "value"})
+        True
     """
     if required_vars is not None:
         found_vars = extract_variables(template)
@@ -456,10 +490,14 @@ def validate_template(template: Any, required_vars: List[str] = None,
     
     if available_vars is not None:
         # Check if all template variables can be resolved
+        # Since strict mode is now the default, this will raise if unresolvable
         try:
             substitute_template(template, available_vars)
             return True
+        except TemplateResolutionError:
+            return False
         except Exception:
+            # Other exceptions might indicate malformed templates
             return False
     
     return True
@@ -532,11 +570,10 @@ if __name__ == "__main__":
     tests = [
         # Basic substitution
         ("Hello {{name}}", test_data, None, "Hello Alice"),
-        ("{{missing}}", test_data, None, "{{missing}}"),
         
         # Default values
         ("{{name|Bob}}", test_data, None, "Alice"),
-        ("{{missing|default}}", test_data, None, "default"),
+        ("{{missing|default}}", test_data, None, "default"),  # Default prevents error
         
         # Nested access
         ("User: {{user.role}}", test_data, None, "User: admin"),
@@ -557,12 +594,16 @@ if __name__ == "__main__":
     ]
     
     for template, data, context, expected in tests:
-        result = substitute_template(template, data, context)
-        status = "✓" if result == expected else "✗"
-        print(f"{status} {template}")
-        print(f"  Result: {result}")
-        if result != expected:
-            print(f"  Expected: {expected}")
+        try:
+            result = substitute_template(template, data, context)
+            status = "✓" if result == expected else "✗"
+            print(f"{status} {template}")
+            print(f"  Result: {result}")
+            if result != expected:
+                print(f"  Expected: {expected}")
+        except TemplateResolutionError as e:
+            print(f"✗ {template}")
+            print(f"  Error: {e}")
         print()
     
     # Test apply_mapping
@@ -590,3 +631,19 @@ if __name__ == "__main__":
     vars = extract_variables(template)
     print(f"Template: {template}")
     print(f"Variables: {vars}")
+    
+    # Test strict mode validation
+    print("\n=== Strict Mode Validation ===\n")
+    print("Testing with missing variable:")
+    try:
+        substitute_template("{{missing_var}}", {"existing_var": "value"})
+        print("ERROR: Should have raised TemplateResolutionError")
+    except TemplateResolutionError as e:
+        print(f"✓ Correctly raised: {e}")
+    
+    print("\nTesting validate_template():")
+    result = validate_template("{{missing_var}}", available_vars={"existing_var": "value"})
+    print(f"validate_template('{{{{missing_var}}}}') = {result} (expected: False)")
+    
+    result = validate_template("{{existing_var}}", available_vars={"existing_var": "value"})
+    print(f"validate_template('{{{{existing_var}}}}') = {result} (expected: True)")

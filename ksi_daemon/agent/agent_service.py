@@ -199,6 +199,17 @@ class AgentRestartData(TypedDict):
     _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
 
 
+class AgentErrorData(TypedDict):
+    """Error information for an agent."""
+    agent_id: Required[str]  # Agent ID that encountered the error
+    error_type: Required[str]  # Type of error (e.g., "template_resolution", "validation")
+    error: Required[Dict[str, Any]]  # Error details including message and context
+    failed_operation: NotRequired[str]  # Original operation that failed
+    processing_depth: NotRequired[int]  # How deep in processing the error occurred
+    timestamp: NotRequired[str]  # When the error occurred
+    _ksi_context: NotRequired[Dict[str, Any]]  # System metadata
+
+
 class AgentRegisterData(TypedDict):
     """Register an external agent."""
     agent_id: Required[str]  # Agent ID to register
@@ -1328,6 +1339,127 @@ async def handle_restart_agent(data: AgentRestartData, context: Optional[Dict[st
     }
     
     return await handle_spawn_agent(spawn_data, context)
+
+
+@event_handler("agent:error", schema=AgentErrorData)
+async def handle_agent_error(data: AgentErrorData, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Handle error events routed to agents.
+    
+    This handler receives errors that occurred during processing of agent-initiated operations,
+    allowing agents to handle failures appropriately.
+    """
+    agent_id = data["agent_id"]
+    error_type = data["error_type"]
+    error = data["error"]
+    
+    # Check if agent exists
+    if agent_id not in agents:
+        logger.warning(f"Received error for non-existent agent {agent_id}: {error_type}")
+        return {
+            "status": "error",
+            "error": f"Agent {agent_id} not found",
+            "original_error": error
+        }
+    
+    agent_info = agents[agent_id]
+    
+    # Log the error for the agent
+    logger.error(f"Agent {agent_id} received error: {error_type}", extra={
+        "agent_id": agent_id,
+        "error_type": error_type,
+        "failed_operation": data.get("failed_operation"),
+        "processing_depth": data.get("processing_depth", 0)
+    })
+    
+    # Store error in agent state for later retrieval
+    if "errors" not in agent_info:
+        agent_info["errors"] = []
+    
+    agent_info["errors"].append({
+        "error_type": error_type,
+        "error": error,
+        "failed_operation": data.get("failed_operation"),
+        "processing_depth": data.get("processing_depth", 0),
+        "timestamp": data.get("timestamp", datetime.now(timezone.utc).isoformat())
+    })
+    
+    # Limit error history to last 100 errors
+    if len(agent_info["errors"]) > 100:
+        agent_info["errors"] = agent_info["errors"][-100:]
+    
+    # Update agent state to indicate error condition
+    agent_info["last_error"] = error_type
+    agent_info["error_count"] = agent_info.get("error_count", 0) + 1
+    
+    # Emit state update to track error in persistent state
+    if emit:
+        await emit("state:entity:update", {
+            "type": "agent",
+            "id": agent_id,
+            "properties": {
+                "last_error": error_type,
+                "error_count": agent_info["error_count"],
+                "status": "error"
+            }
+        })
+    
+    # Inject error into agent's conversation using completion:inject
+    # This delivers the error naturally within the agent's conversation flow
+    if emit:
+        error_message = (
+            f"ERROR: {error_type}\n"
+            f"{error.get('error_message', 'Unknown error')}\n"
+        )
+        
+        if data.get("failed_operation"):
+            error_message += f"Failed operation: {data['failed_operation']}\n"
+        
+        if error.get("details"):
+            details = error.get("details", {})
+            if details.get("template"):
+                error_message += f"Template: {details['template']}\n"
+            if details.get("missing_variable"):
+                error_message += f"Missing variable: {details['missing_variable']}\n"
+            if details.get("available_variables"):
+                error_message += f"Available variables: {', '.join(details['available_variables'])}\n"
+        
+        await emit("completion:inject", {
+            "agent_id": agent_id,
+            "messages": [{
+                "role": "system",
+                "content": error_message
+            }]
+        })
+        logger.debug(f"Injected error into agent {agent_id} conversation via completion:inject")
+    
+    # Legacy: If agent has a message queue, also send error notification there
+    # (kept for backwards compatibility with older agent implementations)
+    message_queue = agent_info.get("message_queue")
+    if message_queue:
+        try:
+            await message_queue.put({
+                "type": "error",
+                "error_type": error_type,
+                "error": error,
+                "failed_operation": data.get("failed_operation"),
+                "timestamp": data.get("timestamp")
+            })
+            logger.debug(f"Also delivered error to agent {agent_id} message queue (legacy)")
+        except Exception as e:
+            logger.error(f"Failed to deliver error to agent {agent_id} queue: {e}")
+    
+    # Check if this is a recoverable error
+    from ksi_daemon.error_propagation import ERROR_TYPES
+    error_info = ERROR_TYPES.get(error_type, {})
+    recoverable = error_info.get("recoverable", False)
+    
+    return {
+        "status": "error_delivered",
+        "agent_id": agent_id,
+        "error_type": error_type,
+        "recoverable": recoverable,
+        "error_count": agent_info["error_count"]
+    }
 
 
 async def run_agent_thread(agent_id: str):

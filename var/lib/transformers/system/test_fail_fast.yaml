@@ -1,0 +1,23 @@
+---
+# Test transformers for fail-fast error propagation
+transformers:
+  # Test transformer with missing template variable to trigger error
+  - name: "test_fail_fast_missing_variable"
+    source: "test:trigger_template_error"
+    target: "test:should_not_reach"
+    mapping:
+      # This will fail because missing_variable doesn't exist
+      result: "{{missing_variable}}"
+      agent_id: "{{agent_id}}"
+      existing: "{{existing_value}}"
+    description: "Test transformer that should fail on missing template variable"
+  
+  # Test transformer for successful template resolution
+  - name: "test_fail_fast_success"
+    source: "test:trigger_success"
+    target: "test:process_success"
+    mapping:
+      result: "{{existing_value}}"
+      agent_id: "{{agent_id}}"
+      timestamp: "{{timestamp_utc()}}"
+    description: "Test transformer that should succeed"

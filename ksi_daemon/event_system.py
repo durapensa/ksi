@@ -517,6 +517,36 @@ class EventRouter:
                         transformer_tasks.append(task)
                 except Exception as e:
                     logger.error(f"Dynamic transformer failed for {event}: {e}")
+                    
+                    # Emit error event for fail-fast propagation to originating agent
+                    if context and isinstance(data, dict):
+                        # Extract context to preserve error propagation chain
+                        error_context = data.get('_ksi_context', {})
+                        
+                        # Emit transformer error event
+                        error_event = {
+                            "error_type": "transformer_failure",
+                            "error_message": str(e),
+                            "source_event": event,
+                            "target_event": target,
+                            "transformer_name": transformer.get('name', 'unknown'),
+                            "details": {
+                                "exception_type": type(e).__name__,
+                                "mapping": transformer.get('mapping', {})
+                            },
+                            "_ksi_context": error_context  # Preserve context for routing
+                        }
+                        
+                        # Use create_tracked_task to emit error asynchronously
+                        async def emit_transformer_error():
+                            try:
+                                await self.emit("error:transformer", error_event, context)
+                            except Exception as err_e:
+                                logger.error(f"Failed to emit transformer error: {err_e}")
+                        
+                        error_task = create_tracked_task("event_system", emit_transformer_error(), task_name="emit_error")
+                        transformer_tasks.append(error_task)
+                    
                     # Fall through to normal handling
         
         # Check for async transformer response routing
@@ -672,8 +702,59 @@ class EventRouter:
             })
                 
         else:
-            # Non-dict data or no context - use as-is
-            enhanced_data = data
+            # Non-dict data or no context - try to enhance helpfully
+            if isinstance(data, dict):
+                enhanced_data = data.copy()
+                # Create minimal context if not provided
+                cm = get_context_manager()
+                
+                # Check if _ksi_context already exists
+                if "_ksi_context" not in enhanced_data:
+                    # Try to derive helpful context from data fields
+                    context_params = {
+                        "event_id": f"evt_{uuid.uuid4().hex[:8]}",
+                        "timestamp": time.time()
+                    }
+                    
+                    # If agent_id is present, derive _client_id from it
+                    # This helps maintain error propagation chains for agent-initiated events
+                    if "agent_id" in enhanced_data:
+                        context_params["client_id"] = f"agent_{enhanced_data['agent_id']}"
+                        logger.debug(f"Derived _client_id from agent_id for event {event}")
+                    
+                    # If _agent_id is present in data, use it
+                    elif "_agent_id" in enhanced_data:
+                        context_params["client_id"] = f"agent_{enhanced_data['_agent_id']}"
+                        logger.debug(f"Derived _client_id from _agent_id for event {event}")
+                    
+                    # If it's a CLI-originated event, mark it as such
+                    elif event.startswith("cli:") or enhanced_data.get("_from_cli"):
+                        context_params["client_id"] = "cli"
+                    
+                    # Create context using context manager
+                    ksi_context = await cm.create_context(**context_params)
+                    
+                    # Store the event with context and get back a reference
+                    event_for_storage = {
+                        "event_id": context_params["event_id"],
+                        "event_name": event,
+                        "timestamp": context_params["timestamp"],
+                        "data": enhanced_data
+                    }
+                    
+                    context_ref = await cm.store_event_with_context(event_for_storage)
+                    enhanced_data["_ksi_context"] = context_ref
+                    
+                    # Only warn if we couldn't derive any helpful context
+                    if "client_id" not in context_params:
+                        logger.warning(f"No originator context for event {event} - "
+                                     f"error propagation may not work correctly. "
+                                     f"Consider providing _ksi_context or agent_id.")
+            else:
+                # Non-dict data - use as-is but log warning
+                enhanced_data = data
+                logger.warning(f"Event {event} emitted with non-dict data, "
+                             f"cannot add _ksi_context. Error propagation will not work.")
             
         # Log event to reference-based event log AFTER enrichment (only if not silent)
         # BUT skip logging events that only have universal broadcast transformer (prevents bogus events in monitoring)

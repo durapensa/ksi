@@ -153,6 +153,10 @@ class EventDaemonCore:
         import ksi_daemon.core.checkpoint   # Dev mode checkpoint/restore
         import ksi_daemon.core.event_log_handlers  # Event log query handlers
         
+        # Error handling modules
+        import ksi_daemon.system_error_handler  # Universal error propagation
+        import ksi_daemon.error_propagation     # Error routing infrastructure
+        
         # Transport modules - import all available transports
         import ksi_daemon.transport.unix_socket
         import ksi_daemon.transport.websocket
@@ -213,6 +217,14 @@ class EventDaemonCore:
         import ksi_daemon.routing.routing_service
         import ksi_daemon.routing.routing_events
         import ksi_daemon.routing.parent_cleanup_handlers
+        
+        # Test modules (for error propagation testing)
+        try:
+            import ksi_daemon.test_error_handlers
+            import ksi_daemon.test_simple_handler
+            logger.debug("Test handlers loaded")
+        except ImportError:
+            pass  # Test handlers are optional
         
         logger.info("All modules imported and auto-registered")
     
