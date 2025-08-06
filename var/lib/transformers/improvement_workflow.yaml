@@ -1,0 +1,120 @@
+name: improvement_workflow_transformers
+description: Event chains for autonomous component improvement
+version: 1.0.0
+metadata:
+  author: improvement_system
+  purpose: Enable self-improving agent workflows
+  pattern_type: workflow_orchestration
+
+transformers:
+  # 1. Baseline evaluation triggers optimization
+  - name: baseline_triggers_optimization
+    description: After baseline evaluation, start optimization if improvement needed
+    source_pattern: "evaluation:result"
+    target: "optimization:async"
+    condition: |
+      workflow_type == 'improvement' and 
+      phase == 'baseline' and
+      recommendation == 'optimize'
+    mapping:
+      component: "{{component_path}}"
+      baseline_scores: "{{scores}}"
+      optimization_goals:
+        strategy: "comparative"  # Not fixed percentages
+        improve_on: "{{scores}}"
+        maintain_dimensions: ["instruction_fidelity", "behavioral_consistency"]
+        trade_offs_allowed: true
+    enabled: true
+    priority: 100
+
+  # 2. Optimization completion triggers validation
+  - name: optimization_triggers_validation
+    description: After optimization, validate the improved component
+    source_pattern: "optimization:result"
+    target: "evaluation:async"
+    condition: |
+      workflow_type == 'improvement' and
+      status == 'completed'
+    mapping:
+      component_path: "{{optimized_component_path}}"
+      phase: "validation"
+      workflow_type: "improvement"
+      baseline_scores: "{{baseline_scores}}"
+      test_suite: "comprehensive_quality_suite"
+    enabled: true
+    priority: 100
+
+  # 3. Validation triggers comparison
+  - name: validation_triggers_comparison
+    description: Compare new version with baseline
+    source_pattern: "evaluation:result"
+    target: "agent:spawn"
+    condition: |
+      workflow_type == 'improvement' and
+      phase == 'validation'
+    mapping:
+      agent_id: "comparator_{{workflow_id}}"
+      component: "evaluations/judges/comparative_judge"
+      prompt: |
+        Compare these two versions:
+        Baseline: {{baseline_scores}}
+        Optimized: {{scores}}
+        
+        Consider trade-offs. More tokens may be acceptable for better capabilities.
+        Emit recommendation: deploy|iterate|reject
+    enabled: true
+    priority: 100
+
+  # 4. Comparison triggers deployment decision
+  - name: comparison_triggers_decision
+    description: Based on comparison, decide on deployment
+    source_pattern: "completion:result"
+    target: "routing:add_rule"
+    condition: |
+      agent_id.startswith('comparator_') and
+      'recommendation' in extracted_json
+    mapping:
+      rule_id: "deploy_decision_{{workflow_id}}"
+      source_pattern: "decision:deploy"
+      target: "composition:update_component"
+      condition: "recommendation == 'deploy'"
+      ttl: 300  # 5 minute decision window
+    enabled: true
+    priority: 100
+
+  # 5. Track improvement iterations
+  - name: track_improvement_progress
+    description: Maintain state of improvement cycles
+    source_pattern: "evaluation:result"
+    target: "state:entity:update"
+    condition: |
+      workflow_type == 'improvement'
+    mapping:
+      entity_type: "improvement_workflow"
+      entity_id: "{{workflow_id}}"
+      properties:
+        iteration: "{{iteration_count + 1}}"
+        current_scores: "{{scores}}"
+        improvement_trajectory: "{{append(improvement_history, scores)}}"
+    enabled: true
+    priority: 50
+
+  # 6. Enable continuous improvement
+  - name: continuous_improvement_check
+    description: After deployment, schedule next improvement cycle
+    source_pattern: "composition:updated"
+    target: "agent:spawn"
+    condition: |
+      workflow_type == 'improvement' and
+      continuous_mode == true
+    mapping:
+      agent_id: "improvement_scheduler_{{component_name}}"
+      component: "agents/improvement_orchestrator"
+      prompt: |
+        Component {{component_name}} was just improved.
+        Current scores: {{scores}}
+        
+        Wait for usage data, then initiate next improvement cycle.
+        Focus on dimensions with lowest scores.
+    enabled: true
+    priority: 75
