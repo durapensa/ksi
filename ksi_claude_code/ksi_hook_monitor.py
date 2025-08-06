@@ -16,7 +16,7 @@ import asyncio
 from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any, Tuple, Set
 
 # Suppress ALL logging before imports
 os.environ['KSI_LOG_LEVEL'] = 'ERROR'
@@ -235,7 +235,7 @@ class KSIHookMonitor:
         try:
             if self.mode_file.exists():
                 mode = self.mode_file.read_text().strip()
-                if mode in ["summary", "verbose", "errors", "silent", "orchestration"]:
+                if mode in ["summary", "verbose", "errors", "silent", "orchestration", "improvement", "tree", "routing"]:
                     return mode
         except Exception as e:
             self.logger.log_debug(f"Failed to load mode: {e}")
@@ -342,6 +342,109 @@ class KSIHookMonitor:
         except Exception as e:
             self.logger.log_debug(f"Error extracting agent status from events: {e}")
             return "No active agents."
+    
+    def _get_event_tree(self, correlation_id: str = None, event_id: str = None) -> Optional[Dict]:
+        """Get hierarchical event tree using introspection."""
+        # Prevent recursion - don't call introspection if we're already processing introspection
+        if hasattr(self, '_in_introspection'):
+            return None
+            
+        try:
+            self._in_introspection = True
+            data = {
+                "_silent": True,
+                "max_depth": 3,  # Reduced depth to prevent recursion
+                "include_data": False  # Keep compact
+            }
+            if correlation_id:
+                data["correlation_id"] = correlation_id
+            if event_id:
+                data["event_id"] = event_id
+                
+            result = self._send_event("introspection:event_tree", data)
+            return result.get("tree")
+        except Exception as e:
+            self.logger.log_debug(f"Event tree error: {e}")
+            return None
+        finally:
+            self._in_introspection = False
+    
+    def _get_routing_decisions(self, limit: int = 10) -> List[Dict]:
+        """Get recent routing decisions using introspection."""
+        # Prevent recursion
+        if hasattr(self, '_in_introspection'):
+            return []
+            
+        try:
+            self._in_introspection = True
+            result = self._send_event("introspection:routing_decisions", {
+                "_silent": True,
+                "limit": limit,
+                "include_transformations": True
+            })
+            return result.get("decisions", [])
+        except Exception as e:
+            self.logger.log_debug(f"Routing decisions error: {e}")
+            return []
+        finally:
+            self._in_introspection = False
+    
+    def _detect_workflow_type(self, events: List[Dict[str, Any]]) -> Tuple[str, Optional[str]]:
+        """Detect the type of workflow from events and return (type, correlation_id)."""
+        # Group events by correlation_id
+        correlations: Dict[str, Set[str]] = {}
+        for event in events:
+            corr_id = event.get("correlation_id")
+            if corr_id:
+                if corr_id not in correlations:
+                    correlations[corr_id] = set()
+                correlations[corr_id].add(event.get("event_name", ""))
+        
+        # Check each correlation for workflow patterns
+        for corr_id, event_names in correlations.items():
+            # Self-improvement workflow
+            if any("evaluation" in n for n in event_names) and any("optimization" in n for n in event_names):
+                return "improvement", corr_id
+            # Agent coordination workflow
+            elif any("agent:spawn" in n for n in event_names) and any("routing:add" in n for n in event_names):
+                return "coordination", corr_id
+            # Test workflow
+            elif any("test" in n for n in event_names):
+                return "testing", corr_id
+            # Evaluation workflow
+            elif any("evaluation" in n for n in event_names):
+                return "evaluation", corr_id
+        
+        return "general", None
+    
+    def _format_workflow_tree(self, tree: Dict) -> str:
+        """Format event tree for compact display."""
+        if not tree:
+            return ""
+            
+        # Extract key workflow phases from tree
+        phases = []
+        
+        def traverse(node, depth=0):
+            event_name = node.get("event_name", "")
+            if "evaluation" in event_name:
+                phases.append("📊Eval")
+            elif "optimization" in event_name:
+                phases.append("⚙️Opt")
+            elif "agent:spawn" in event_name:
+                phases.append("🤖Spawn")
+            elif "routing:add" in event_name:
+                phases.append("🛣️Route")
+            elif "judge" in event_name:
+                phases.append("⚖️Judge")
+            elif "composition" in event_name:
+                phases.append("📦Comp")
+                
+            for child in node.get("children", []):
+                traverse(child, depth + 1)
+        
+        traverse(tree)
+        return "→".join(phases[:5])  # First 5 phases
     
     def get_detailed_agent_info(self, agent_ids: List[str]) -> Dict[str, Dict[str, Any]]:
         """Get detailed agent information using agent:info event."""
@@ -588,6 +691,9 @@ class KSIHookMonitor:
             "echo ksi_errors": "errors",
             "echo ksi_silent": "silent",
             "echo ksi_orchestration": "orchestration",
+            "echo ksi_improvement": "improvement",  # Self-improvement tracking
+            "echo ksi_tree": "tree",  # Event tree visualization
+            "echo ksi_routing": "routing",  # Routing decision tracking
             "echo ksi_status": None  # Special case - just show status
         }
         
@@ -605,7 +711,10 @@ class KSIHookMonitor:
                     "summary": "KSI Mode: summary",
                     "errors": "KSI Mode: errors only",
                     "silent": "KSI Mode: silent",
-                    "orchestration": "KSI Mode: orchestration debug"
+                    "orchestration": "KSI Mode: orchestration debug",
+                    "improvement": "KSI Mode: self-improvement tracking",
+                    "tree": "KSI Mode: event tree visualization",
+                    "routing": "KSI Mode: routing decision tracking"
                 }
                 ExitStrategy.exit_with_feedback(mode_messages[new_mode])
             
@@ -623,9 +732,27 @@ class KSIHookMonitor:
         if mode == "silent":
             return None
         
+        # Detect workflow type for enhanced modes
+        workflow_type, correlation_id = self._detect_workflow_type(new_events)
+        
         # Determine if we have errors or significant events
         has_errors = any("error" in e.get("event_name", "").lower() for e in new_events)
         has_significant = any(e.get("event_name", "") in ["agent:spawned", "completion:result"] for e in new_events)
+        
+        # Extract errors with agent context for ALL modes
+        error_events = []
+        if has_errors:
+            for event in new_events:
+                if "error" in event.get("event_name", "").lower():
+                    error_data = {
+                        "event": event.get("event_name"),
+                        "error": event.get("data", {}).get("error", "Unknown error"),
+                        "agent_id": event.get("data", {}).get("agent_id") or 
+                                   event.get("data", {}).get("_agent_id") or
+                                   event.get("data", {}).get("originator_id", "unknown"),
+                        "time": event.get("timestamp")
+                    }
+                    error_events.append(error_data)
         
         # Check for active agents
         agent_count = len(agent_status.split(": ")[1].split(", ")) if "Agents[" in agent_status else 0
@@ -651,9 +778,20 @@ class KSIHookMonitor:
             else:
                 return None  # No errors, no output in errors mode
         
-        # Verbose mode - show event details with enhanced agent info
+        # Verbose mode - show event details with mini event tree
         elif mode == "verbose":
             parts = []
+            
+            # Add workflow type if detected
+            if workflow_type != "general":
+                workflow_emojis = {
+                    "improvement": "🔄",
+                    "coordination": "🤝",
+                    "testing": "🧪",
+                    "evaluation": "📊"
+                }
+                if workflow_type in workflow_emojis:
+                    parts.append(f"{workflow_emojis[workflow_type]}{workflow_type.upper()}")
             
             # Compact status line
             if new_events:
@@ -665,43 +803,90 @@ class KSIHookMonitor:
             
             if parts:
                 message = f"KSI {' '.join(parts)}"
-                # Add the most recent significant event on next line
-                if event_summary and event_summary.strip():
-                    # Extract just the latest event line
+                
+                # Add error details if present
+                if error_events:
+                    for err in error_events[:2]:  # Show first 2 errors
+                        from datetime import datetime
+                        time_str = datetime.fromtimestamp(err["time"]).strftime("%H:%M:%S") if err.get("time") else "?"
+                        message += f"\n⚠️ {time_str} {err['agent_id']}: {err['error'][:80]}"
+                
+                # Add the most recent significant event
+                elif event_summary and event_summary.strip():
                     latest_event = event_summary.strip().split('\n')[0]
                     message += f"\n{latest_event}"
-                
-                # Add agent capabilities summary if agents present
-                if agent_ids and len(agent_ids) <= 2:  # Only for small numbers
-                    try:
-                        detailed_info = self.get_detailed_agent_info(agent_ids[:2])
-                        for agent_id in agent_ids[:2]:
-                            if agent_id in detailed_info:
-                                info = detailed_info[agent_id]
-                                capabilities = info.get("capabilities", {})
-                                active_caps = [k for k, v in capabilities.items() if v]
-                                if active_caps:
-                                    caps_str = ", ".join(active_caps[:3])
-                                    if len(active_caps) > 3:
-                                        caps_str += f" +{len(active_caps)-3}"
-                                    message += f"\n🔧 {agent_id[:12]}: {caps_str}"
-                    except Exception as e:
-                        self.logger.log_debug(f"Failed to get detailed agent info in verbose mode: {e}")
             else:
                 message = "KSI"
                 
             return message
         
-        # Orchestration mode - detailed view for debugging with full agent info
+        # Orchestration mode - detailed view with full introspection
         elif mode == "orchestration":
-            message = f"KSI: {len(new_events)} events"
-            if new_events:
-                message += f"\n{event_summary}"
-            if agent_count > 0:
-                message += f"\nAgents: {agent_count}"
+            message = f"KSI Orchestration: {len(new_events)} events [{workflow_type}]"
             
-            if optimization_status:
-                message += f"\nOptimization: {optimization_status}"
+            # Show full event tree if available
+            if correlation_id:
+                tree = self._get_event_tree(correlation_id=correlation_id)
+                if tree:
+                    # Format full tree structure (simplified)
+                    def format_tree_node(node, indent=0):
+                        lines = []
+                        prefix = "  " * indent + ("└─ " if indent > 0 else "")
+                        event_name = node.get("event_name", "unknown")
+                        event_id = node.get("event_id", "")[:8]
+                        lines.append(f"{prefix}{event_name} ({event_id})")
+                        
+                        for child in node.get("children", [])[:3]:  # Limit children
+                            lines.extend(format_tree_node(child, indent + 1))
+                        
+                        if len(node.get("children", [])) > 3:
+                            lines.append(f"{'  ' * (indent + 1)}... +{len(node['children']) - 3} more")
+                        
+                        return lines
+                    
+                    tree_lines = format_tree_node(tree)
+                    if tree_lines:
+                        message += "\n\nEvent Tree:"
+                        for line in tree_lines[:10]:  # Limit output
+                            message += f"\n{line}"
+            else:
+                # Fallback to event summary
+                if new_events:
+                    message += f"\n{event_summary}"
+            
+            # Show routing decisions
+            decisions = self._get_routing_decisions(5)
+            if decisions:
+                message += "\n\nRouting Decisions:"
+                for d in decisions[:3]:
+                    source = d.get("source_event", "unknown")
+                    targets = d.get("targets", [])
+                    transformer = d.get("transformer", "")
+                    if targets:
+                        message += f"\n  {source} → {', '.join(targets[:2])} (via {transformer})"
+            
+            # Show agents with hierarchy
+            if agent_count > 0:
+                message += f"\n\nAgents: {agent_count}"
+                
+                # Try to get agent hierarchy via state:graph:traverse
+                if agent_ids:
+                    try:
+                        # Get graph for first agent
+                        graph_result = self._send_event("state:graph:traverse", {
+                            "_silent": True,
+                            "entity_type": "agent",
+                            "entity_id": agent_ids[0],
+                            "traverse_depth": 2,
+                            "include_relationships": ["spawned_by", "spawned"]
+                        })
+                        
+                        if graph_result.get("success") and graph_result.get("graph"):
+                            graph = graph_result["graph"]
+                            message += " (hierarchy detected)"
+                            # Could format the graph here if needed
+                    except Exception:
+                        pass
                 
                 # Add detailed agent information
                 if agent_ids:
@@ -714,56 +899,135 @@ class KSIHookMonitor:
                                 # Format agent details
                                 agent_line = f"\n  {agent_id}"
                                 
-                                # Add identity if available
-                                identity = info.get("identity", {})
-                                if identity.get("role"):
-                                    agent_line += f" ({identity['role']})"
+                                # Add component/role
+                                component = info.get("component", "")
+                                if component:
+                                    component_name = component.split("/")[-1].replace(".md", "")
+                                    agent_line += f" [{component_name}]"
                                 
-                                # Add status
-                                status = info.get("status", {})
-                                if status.get("state"):
-                                    agent_line += f" [{status['state']}]"
-                                
-                                # Add key capabilities
+                                # Add capabilities
                                 capabilities = info.get("capabilities", {})
                                 active_caps = [k for k, v in capabilities.items() if v]
                                 if active_caps:
-                                    caps_preview = ", ".join(active_caps[:2])
-                                    if len(active_caps) > 2:
-                                        caps_preview += f" +{len(active_caps)-2}"
-                                    agent_line += f" - {caps_preview}"
+                                    caps_preview = ", ".join(active_caps[:3])
+                                    agent_line += f" caps: {caps_preview}"
                                 
                                 message += agent_line
                     except Exception as e:
-                        self.logger.log_debug(f"Failed to get detailed agent info in orchestration mode: {e}")
+                        self.logger.log_debug(f"Failed to get detailed agent info: {e}")
+            
+            # Show optimization details
+            if optimization_status:
+                message += f"\n\nOptimization: {optimization_status}"
             
             # Check for active claude processes
             claude_processes = self.check_claude_processes()
             if claude_processes:
-                message += f"\nClaude processes: {len(claude_processes)}"
+                message += f"\n\nClaude processes: {len(claude_processes)}"
                 for proc in claude_processes[:2]:  # Show first 2
                     message += f"\n  PID {proc['pid']}: {proc['runtime']} (started {proc['start_time']})"
             
-            # Try to detect active pattern from recent events
-            pattern_events = [e for e in new_events if any(p in e.get("event_name", "") for p in ["orchestration:load_pattern", "pattern:", "tournament:", "swarm:", "discovery:"])]
-            if pattern_events:
-                # Try to identify the pattern
-                for event in pattern_events:
-                    if "load_pattern" in event.get("event_name", ""):
-                        data = event.get("data", {})
-                        if isinstance(data.get("pattern"), dict):
-                            pattern_name = data["pattern"].get("name", "unknown")
-                            message += f"\n📋 Pattern: {pattern_name}"
-                        elif isinstance(data.get("pattern"), str):
-                            message += f"\n📋 Pattern: {data.get('pattern')}"
-                        break
-            
             return message
         
-        # Summary mode (default) - ultra-concise
+        # New specialized modes
+        elif mode == "improvement":
+            # Self-improvement tracking mode - simplified without introspection for now
+            if workflow_type == "improvement":
+                parts = []
+                
+                # Add workflow indicator
+                parts.append("🔄IMP")
+                
+                # Add agent info
+                if agent_count > 0:
+                    parts.append(f"Agents:{agent_count}")
+                
+                # Add optimization status
+                if optimization_status:
+                    parts.append(f"Opt:{optimization_status}")
+                
+                # Check for evaluation/optimization events
+                eval_events = [e for e in new_events if "evaluation" in e.get("event_name", "")]
+                opt_events = [e for e in new_events if "optimization" in e.get("event_name", "")]
+                
+                if eval_events:
+                    phase = "baseline" if any("baseline" in str(e) for e in eval_events) else "validation"
+                    parts.append(f"Phase:{phase}")
+                elif opt_events:
+                    parts.append("Phase:optimizing")
+                
+                # Add event count
+                parts.append(f"Events:{len(new_events)}")
+                
+                if parts:
+                    return f"KSI Improvement: {' '.join(parts)}"
+            
+            # Fallback for non-improvement workflows
+            parts = [f"EVENTS:{len(new_events)}"]
+            if agent_count > 0:
+                parts.append(f"AGENTS:{agent_count}")
+            return f"KSI: {' '.join(parts)}"
+        
+        elif mode == "tree":
+            # Event tree visualization mode - simplified to avoid recursion
+            # Just show workflow phases from event names
+            phases = []
+            for event in new_events[:10]:
+                event_name = event.get("event_name", "")
+                if "evaluation" in event_name and "📊Eval" not in phases:
+                    phases.append("📊Eval")
+                elif "optimization" in event_name and "⚙️Opt" not in phases:
+                    phases.append("⚙️Opt")
+                elif "agent:spawn" in event_name and "🤖Spawn" not in phases:
+                    phases.append("🤖Spawn")
+                elif "routing" in event_name and "🛣️Route" not in phases:
+                    phases.append("🛣️Route")
+                elif "judge" in event_name and "⚖️Judge" not in phases:
+                    phases.append("⚖️Judge")
+            
+            if phases:
+                return f"KSI 🌳 Flow: {' → '.join(phases)} [{workflow_type}]"
+            
+            return f"KSI: EVENTS:{len(new_events)} [{workflow_type}]"
+        
+        elif mode == "routing":
+            # Routing decision tracking mode - simplified
+            # Check for routing events in current batch
+            routing_events = [e for e in new_events if "routing" in e.get("event_name", "")]
+            
+            if routing_events:
+                # Extract routing patterns from events
+                routes = []
+                for event in routing_events[:3]:
+                    event_name = event.get("event_name", "")
+                    if "routing:add_rule" in event_name:
+                        data = event.get("data", {})
+                        source = data.get("source_pattern", "?").split(":")[-1][:4]
+                        target = data.get("target", "?").split(":")[-1][:4]
+                        routes.append(f"{source}→{target}")
+                
+                if routes:
+                    return f"KSI 🛣️ Routes: {' '.join(routes)}"
+                else:
+                    return f"KSI: {len(routing_events)} routing events"
+            
+            return f"KSI: EVENTS:{len(new_events)}"
+        
+        # Summary mode (default) - enhanced with workflow awareness
         else:
-            # Build compact status with emojis
+            # Build compact status with workflow type
             parts = []
+            
+            # Add workflow type indicator if significant
+            if workflow_type != "general":
+                workflow_indicators = {
+                    "improvement": "🔄IMP",
+                    "coordination": "🤝COORD",
+                    "testing": "🧪TEST",
+                    "evaluation": "📊EVAL"
+                }
+                if workflow_type in workflow_indicators:
+                    parts.append(workflow_indicators[workflow_type])
             
             # Events with EVENTS:
             if new_events:
@@ -775,7 +1039,12 @@ class KSIHookMonitor:
             
             # Optimization with O:
             if optimization_status:
-                parts.append(f"O:{optimization_status.split('(')[0].strip()}")  # Just the component name
+                parts.append(f"OPT:{optimization_status.split('(')[0].strip()}")  # Just the component name
+            
+            # Check for routing activity
+            routing_count = len([e for e in new_events if "routing" in e.get("event_name", "")])
+            if routing_count > 0:
+                parts.append(f"ROUTES:{routing_count}")
                 
             # Errors with ERR:
             if has_errors:

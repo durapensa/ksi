@@ -1,0 +1,20 @@
+name: extracted_spawn_processor
+description: Process agent:spawn events extracted from agent responses
+version: 1.0.0
+enabled: true
+transformers:
+  - name: process_extracted_spawn
+    source_pattern: "agent:spawn"
+    target: "agent:spawn_internal"
+    condition: |
+      _extracted_from_response == true
+    mapping: |
+      {
+        "agent_id": agent_id,
+        "profile": profile if profile else "simple_analyst",
+        "prompt": prompt,
+        "spawned_by": _agent_id,
+        "_from_extracted": true
+      }
+    priority: 50
+    description: Process spawn events extracted from agent responses

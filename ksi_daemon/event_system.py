@@ -125,7 +125,7 @@ class EventHandler:
         logger.debug(f"EventHandler {self.name} for {self.event} - JSON params: {self.json_params}")
         
     async def __call__(self, data: Any, context: Optional[Dict[str, Any]] = None) -> Any:
-        """Execute the handler."""
+        """Execute the handler with universal response handling."""
         # Apply filter if present
         if self.filter_func and not self.filter_func(self.event, data, context):
             return None
@@ -142,19 +142,115 @@ class EventHandler:
         sig = inspect.signature(self.func)
         params = list(sig.parameters.keys())
         
-        # Execute handler with correct signature
-        if self.is_async:
-            if len(params) >= 2 and context is not None:
-                return await self.func(data, context)
+        # Get router for event emission (get_router is defined later in this module)
+        try:
+            router = get_router()
+        except NameError:
+            # During initial module loading, get_router might not be defined yet
+            router = None
+        
+        # Extract context for result/error routing
+        ksi_context_ref = None
+        if isinstance(data, dict):
+            ksi_context_ref = data.get("_ksi_context")
+        if not ksi_context_ref and context:
+            ksi_context_ref = context.get("_ksi_context")
+        
+        try:
+            # Execute handler with correct signature
+            if self.is_async:
+                if len(params) >= 2 and context is not None:
+                    result = await self.func(data, context)
+                else:
+                    result = await self.func(data)
             else:
-                return await self.func(data)
-        else:
-            # Run sync handlers in thread pool
-            loop = asyncio.get_event_loop()
-            if len(params) >= 2 and context is not None:
-                return await loop.run_in_executor(None, self.func, data, context)
-            else:
-                return await loop.run_in_executor(None, self.func, data)
+                # Run sync handlers in thread pool
+                loop = asyncio.get_event_loop()
+                if len(params) >= 2 and context is not None:
+                    result = await loop.run_in_executor(None, self.func, data, context)
+                else:
+                    result = await loop.run_in_executor(None, self.func, data)
+            
+            # Emit system:result for successful operations (if router available)
+            # IMPORTANT: Exclude system events and monitoring to prevent infinite loops
+            excluded_patterns = [
+                "system:",     # All system events
+                "monitor:",    # All monitoring events  
+                "introspection:",  # Introspection events
+                "routing:",    # Routing introspection
+                "event_log:",  # Event logging
+                "checkpoint:", # Checkpoint events
+            ]
+            
+            should_emit_result = (
+                router and 
+                isinstance(result, dict) and 
+                result.get("status") in ["success", "completed", None] and
+                not any(self.event.startswith(pattern) for pattern in excluded_patterns)
+            )
+            
+            if should_emit_result:
+                try:
+                    success_event = {
+                        "result_type": "handler_success",
+                        "result_data": result,
+                        "source": {
+                            "operation": self.func.__name__,
+                            "module": self.func.__module__,
+                            "operation_type": "handler",
+                            "event": self.event
+                        },
+                        "_ksi_context": ksi_context_ref
+                    }
+                    # Fire and forget - don't wait for result routing
+                    asyncio.create_task(router.emit("system:result", success_event))
+                except Exception as emit_error:
+                    logger.debug(f"Could not emit system:result: {emit_error}")
+            
+            return result
+            
+        except Exception as e:
+            # Log the error
+            logger.error(f"Error in handler {self.func.__name__}: {e}", exc_info=True)
+            
+            # Emit system:error for propagation (if router available)
+            # Use same exclusion list to prevent error loops
+            excluded_patterns = [
+                "system:",     # All system events
+                "monitor:",    # All monitoring events  
+                "introspection:",  # Introspection events
+                "routing:",    # Routing introspection
+                "event_log:",  # Event logging
+                "checkpoint:", # Checkpoint events
+            ]
+            
+            should_emit_error = (
+                router and 
+                not any(self.event.startswith(pattern) for pattern in excluded_patterns)
+            )
+            
+            if should_emit_error:
+                try:
+                    error_event = {
+                        "error_type": "handler_failure",
+                        "error_class": type(e).__name__,
+                        "error_message": str(e),
+                        "source": {
+                            "operation": self.func.__name__,
+                            "module": self.func.__module__,
+                            "operation_type": "handler",
+                            "event": self.event
+                        },
+                        "original_data": data if isinstance(data, dict) else {"data": str(data)},
+                        "_ksi_context": ksi_context_ref
+                    }
+                    # Fire and forget - don't block on error routing
+                    asyncio.create_task(router.emit("system:error", error_event))
+                except Exception as emit_error:
+                    logger.error(f"Failed to emit system:error: {emit_error}")
+            
+            # Re-raise to maintain existing behavior
+            raise
 
 
 class EventRouter:

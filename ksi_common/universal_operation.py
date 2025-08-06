@@ -96,6 +96,35 @@ def ksi_operation(operation_type: str = "handler", async_pattern: Optional[str] 
                 elif not isinstance(result, dict) or "_ksi_context" not in result:
                     result = event_response_builder(result, context)
                 
+                # NEW: Emit success result for routing back to originator
+                if emit and isinstance(result, dict) and result.get("status") in ["success", "completed", None]:
+                    # Extract context for success routing
+                    ksi_context_ref = None
+                    if isinstance(data, dict):
+                        ksi_context_ref = data.get("_ksi_context")
+                    if not ksi_context_ref and context:
+                        ksi_context_ref = context.get("_ksi_context")
+                    if not ksi_context_ref:
+                        ksi_context_ref = ""
+                    
+                    # Build success event for routing
+                    success_event = {
+                        "result_type": f"{operation_type}_success",
+                        "result_data": result,
+                        "source": {
+                            "operation": func.__name__,
+                            "module": func.__module__,
+                            "operation_type": operation_type
+                        },
+                        "_ksi_context": ksi_context_ref
+                    }
+                    
+                    # Emit to universal success handler for propagation
+                    try:
+                        await emit("system:result", success_event)
+                    except Exception as emit_error:
+                        logger.debug(f"Could not emit system:result: {emit_error}")
+                
                 return result
                 
             except Exception as e:

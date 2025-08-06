@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-Universal error handler for KSI system.
+Universal response handler for KSI system.
 
-This module provides the system:error handler that:
-1. Routes all errors to their originators based on context
+This module provides both system:error and system:result handlers that:
+1. Routes all errors AND success results to their originators based on context
 2. Stores errors for debugging and monitoring
 3. Handles critical error escalation
 4. Manages error recovery for recoverable errors
 5. Provides informative error messages to agents
+6. Delivers success feedback to agents for learning
 """
 
 import logging
@@ -139,6 +140,63 @@ async def propagate_error_hierarchically(
     return propagation_results
 
 
+def format_agent_success(success_data: Dict[str, Any]) -> str:
+    """
+    Format success result data into informative message for agent consumption.
+    
+    Provides context about what succeeded and the results.
+    
+    Args:
+        success_data: The system:result event data
+        
+    Returns:
+        Formatted success message for agent
+    """
+    result_type = success_data.get("result_type", "operation_success")
+    result_data = success_data.get("result_data", {})
+    source = success_data.get("source", {})
+    operation = source.get("operation", "unknown operation")
+    
+    # Extract the actual result from the nested structure
+    actual_result = result_data.get("result", result_data)
+    status = result_data.get("status", "success")
+    
+    # Build informative success message
+    message_parts = [
+        f"✅ SUCCESS: Operation '{operation}' completed",
+        f"Type: {result_type}",
+        f"Status: {status}",
+    ]
+    
+    # Add result details if present
+    if actual_result and actual_result != result_data:
+        import json
+        try:
+            result_str = json.dumps(actual_result, indent=2)
+            # Limit result display to reasonable size
+            if len(result_str) > 500:
+                result_str = result_str[:500] + "\n... (truncated)"
+            message_parts.append(f"Result:\n{result_str}")
+        except (TypeError, ValueError):
+            message_parts.append(f"Result: {str(actual_result)[:500]}")
+    
+    # Add context-specific information
+    if result_type == "handler_success":
+        module = source.get("module", "unknown module")
+        message_parts.append(f"Handler module: {module}")
+    elif result_type == "transformation_success":
+        transformer = source.get("transformer", "unknown")
+        message_parts.append(f"Transformer: {transformer}")
+    
+    # Add timestamp if present
+    if "timestamp" in result_data:
+        message_parts.append(f"Completed at: {result_data['timestamp']}")
+    
+    message_parts.append("\nYour operation completed successfully.")
+    
+    return "\n".join(message_parts)
+
+
 def format_agent_error(error_data: Dict[str, Any]) -> str:
     """
     Format error data into informative message for agent consumption.
@@ -202,6 +260,144 @@ def generate_error_id() -> str:
     """Generate unique error ID for tracking."""
     import uuid
     return f"err_{uuid.uuid4().hex[:12]}"
+
+
+@event_handler("system:result")
+async def universal_success_handler(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Universal success handler - routes ALL success results based on context.
+    
+    This provides the success feedback loop, allowing agents to learn from successful operations.
+    
+    Returns an informative response about how the result was handled.
+    """
+    # Extract routing context (same pattern as error handler)
+    ksi_context_ref = data.get("_ksi_context", "")
+    
+    # Resolve the context reference to get actual context data
+    if isinstance(ksi_context_ref, str) and ksi_context_ref.startswith("ctx_"):
+        from ksi_daemon.core.context_manager import get_context_manager
+        cm = get_context_manager()
+        ksi_context = await cm.get_context(ksi_context_ref) or {}
+    elif isinstance(ksi_context_ref, dict):
+        ksi_context = ksi_context_ref
+    else:
+        ksi_context = {}
+    
+    client_id = ksi_context.get("_client_id", "") if isinstance(ksi_context, dict) else ""
+    correlation_id = ksi_context.get("_correlation_id", "") if isinstance(ksi_context, dict) else ""
+    
+    result_id = f"res_{generate_error_id()[4:]}"  # Reuse ID generator
+    result_type = data.get("result_type", "unknown")
+    
+    router = get_router()
+    routing_results = []
+    
+    # Route to originator based on client type
+    if client_id.startswith("agent_"):
+        # Deliver success to agent via completion:inject
+        agent_id = client_id[6:]
+        
+        # Format informative success message
+        success_message = format_agent_success(data)
+        
+        inject_result = await router.emit("completion:inject", {
+            "agent_id": agent_id,
+            "messages": [{
+                "role": "system",
+                "content": success_message
+            }]
+        })
+        
+        routing_results.append({
+            "destination": "agent",
+            "agent_id": agent_id,
+            "delivered": inject_result is not None
+        })
+        
+        logger.info(f"Routed success result {result_id} to agent {agent_id}")
+        
+        # Check if we should bubble to parent (success propagation)
+        agent_state = await router.emit_first("state:entity:get", {
+            "type": "agent",
+            "id": agent_id
+        })
+        
+        if agent_state and isinstance(agent_state, dict) and agent_state.get("properties"):
+            # Use same propagation level for success as errors
+            propagation_level = agent_state["properties"].get("success_propagation_level",
+                                                              agent_state["properties"].get("error_propagation_level", 0))
+            
+            if propagation_level != 0:
+                parent_agents = await find_parent_agents(agent_id, propagation_level)
+                for parent_id in parent_agents:
+                    parent_message = f"[Success from child agent '{agent_id}']\n{success_message}"
+                    
+                    parent_inject = await router.emit("completion:inject", {
+                        "agent_id": parent_id,
+                        "messages": [{
+                            "role": "system",
+                            "content": parent_message,
+                            "metadata": {
+                                "success_source": agent_id,
+                                "result_id": result_id,
+                                "propagation_type": "hierarchical"
+                            }
+                        }]
+                    })
+                    
+                    routing_results.append({
+                        "destination": "parent_agent",
+                        "parent_id": parent_id,
+                        "delivered": parent_inject is not None
+                    })
+                    
+                logger.info(f"Propagated success hierarchically to {len(parent_agents)} parents")
+        
+    elif client_id.startswith("workflow_"):
+        # Route to workflow success handler
+        workflow_id = client_id[9:]
+        
+        workflow_result = await router.emit("workflow:result", {
+            "workflow_id": workflow_id,
+            "result_id": result_id,
+            "result": data
+        })
+        
+        routing_results.append({
+            "destination": "workflow",
+            "workflow_id": workflow_id,
+            "delivered": workflow_result is not None
+        })
+        
+        logger.info(f"Routed success result {result_id} to workflow {workflow_id}")
+        
+    elif client_id == "cli":
+        # CLI already gets result via return path
+        routing_results.append({
+            "destination": "cli",
+            "delivered": True,
+            "note": "CLI receives result via direct response"
+        })
+        
+    else:
+        # No specific routing
+        routing_results.append({
+            "destination": "none",
+            "reason": "No client_id in context for routing"
+        })
+        logger.debug(f"Success result {result_id} has no routing destination (client_id: {client_id})")
+    
+    # Return informative response about result handling
+    return success_response({
+        "result_id": result_id,
+        "result_type": result_type,
+        "handled": True,
+        "routing": routing_results,
+        "client_id": client_id,
+        "correlation_id": correlation_id,
+        "message": f"Success result {result_id} processed and routed to {len(routing_results)} destination(s)"
+    })
 
 
 @event_handler("system:error")
@@ -437,14 +633,31 @@ async def handle_error_recovery(data: Dict[str, Any], context: Optional[Dict[str
     return error_response(f"Unknown recovery strategy: {strategy}", context)
 
 
+# Unified response handler that dispatches to error or success handlers
+@event_handler("system:response")
+async def universal_response_handler(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Universal response handler - routes both errors and success results.
+    
+    This is the unified handler that ensures all operations provide feedback.
+    """
+    # Determine if this is an error or success
+    if data.get("error_type") or data.get("error_message") or data.get("error_class"):
+        # Route to error handler
+        return await universal_error_handler(data, context)
+    else:
+        # Route to success handler
+        return await universal_success_handler(data, context)
+
+
 # Register handlers when module is imported
-def register_system_error_handlers():
-    """Register system error handlers with the event system."""
-    logger.info("System error handlers registered")
+def register_system_response_handlers():
+    """Register system response handlers with the event system."""
+    logger.info("System response handlers registered (error, result, and unified response)")
 
 
 # Auto-register when imported
 try:
-    register_system_error_handlers()
+    register_system_response_handlers()
 except Exception as e:
-    logger.warning(f"Could not auto-register system error handlers: {e}")
+    logger.warning(f"Could not auto-register system response handlers: {e}")
