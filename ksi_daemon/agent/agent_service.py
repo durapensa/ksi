@@ -899,6 +899,14 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
     if "config" in data:
         agent_config.update(data["config"])
     
+    # Override individual config fields from spawn data
+    if data.get("model"):
+        agent_config["model"] = data["model"]
+        logger.info(f"Using model {data['model']} from spawn request (overriding component default)")
+    if "enable_tools" in data:
+        agent_config["enable_tools"] = data["enable_tools"]
+        logger.info(f"Setting enable_tools={data['enable_tools']} from spawn request")
+    
     # Set up permissions and sandbox
     permission_profile = requested_permission_profile
     sandbox_config = data.get("sandbox_config", {})
@@ -1537,10 +1545,14 @@ async def handle_agent_message(agent_id: str, message: Dict[str, Any]):
                 "agent_id": agent_id,
                 "originator_id": agent_id,  # Use agent_id as originator_id
                 # session_id removed - completion system tracks this
-                # model removed - agent session already has model from spawn
                 "priority": "normal",
                 "request_id": f"{agent_id}_{message.get('request_id', uuid.uuid4().hex[:8])}"
             }
+            
+            # Include model if specified in agent config (needed for ollama and other non-default models)
+            if agent_config.get("model"):
+                completion_data["model"] = agent_config["model"]
+                logger.debug(f"Including model {agent_config['model']} in completion request for agent {agent_id}")
             
             # Always add KSI parameters via extra_body for LiteLLM
             # This ensures all agent-specific context is passed through

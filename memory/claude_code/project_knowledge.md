@@ -411,6 +411,23 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 - Added required dependencies to behavioral components
 - Further investigation needed for timeout root cause
 
+## GitHub Issues Tracking
+
+**Active critical issues being tracked on GitHub:**
+
+### Issue #9: Conversation continuity broken for stateless providers (2025-08-07)
+**Status**: Open
+**Severity**: High - Makes agents unusable for multi-turn conversations with non-Claude models
+**Link**: https://github.com/durapensa/ksi/issues/9
+
+**Description**: Agents using stateless providers (ollama, openai, anthropic-api, etc.) cannot maintain conversation continuity. Each completion request creates a new session instead of reusing the agent's existing session.
+
+**Root Cause**: The conversation tracker's `update_request_session()` method fails to properly map agent→session for litellm providers.
+
+**Evidence**: Agent sessions get new IDs on each request instead of reusing existing sessions, causing complete memory loss between interactions.
+
+**Impact**: All non-Claude providers cannot maintain conversation context.
+
 ## Current Development Focus (2025-01-27)
 
 ### Phase 1: Component Foundation ✅

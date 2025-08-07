@@ -435,11 +435,15 @@ async def _handle_completion_core(data: Dict[str, Any], context: Optional[Dict[s
                         f"Agent {agent_id} not found",
                         context=context
                     )
-                # Extract model from agent config
+                # Extract model from agent config and set it in data if not already provided
                 if agent_info:
                     if agent_info.get("config", {}).get("model"):
                         agent_model = agent_info["config"]["model"]
                         logger.debug(f"Using model {agent_model} from agent {agent_id} config")
+                        # Set model in data if not explicitly provided
+                        if not data.get("model"):
+                            data["model"] = agent_model
+                            logger.info(f"New conversation for agent {agent_id} using model {agent_model} from config")
             else:
                 logger.warning("No event emitter available for agent validation")
         except Exception as e:
@@ -657,10 +661,8 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
             # New conversation - no lock needed
             logger.debug(f"New conversation (session_id=None) - skipping conversation lock")
         
-        # Select provider - use agent model if available, otherwise request model, otherwise config default
+        # Select provider - use request model or config default
         model = data.get("model", config.completion_default_model)
-        if agent_id and 'agent_model' in locals() and agent_model:
-            model = agent_model
         require_mcp = bool(data.get("extra_body", {}).get("ksi", {}).get("mcp_config_path"))
         provider_name, provider_config = provider_manager.select_provider(
             model, 
@@ -863,21 +865,22 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
                 # Create task but don't await - non-blocking!
                 create_tracked_task("completion_service", extract_and_send_feedback(), task_name="extract_json_feedback")
         
-        # CRITICAL: Update session tracking with the NEW session_id from claude-cli
-        if provider == "claude-cli":
-            response_session_id = get_response_session_id(standardized_response)
-            if response_session_id:
-                # Update ConversationTracker for automatic session continuity with model info
-                # Use the resolved model (agent model if available, otherwise request model, otherwise default)
-                conversation_tracker.update_request_session(request_id, response_session_id, model)
-                
-                logger.info(
-                    f"Updated session tracking: request {request_id} -> session {response_session_id}",
-                    original_session_id=data.get("session_id"),
-                    agent_id=data.get("agent_id"),
-                    model=model,
-                    automatic_continuity=True
-                )
+        # CRITICAL: Update session tracking with session_id from response
+        # This includes both claude-cli native sessions and generated sessions for litellm providers
+        response_session_id = get_response_session_id(standardized_response)
+        if response_session_id:
+            # Update ConversationTracker for automatic session continuity with model info
+            # Use the resolved model (agent model if available, otherwise request model, otherwise default)
+            conversation_tracker.update_request_session(request_id, response_session_id, model)
+            
+            logger.info(
+                f"Updated session tracking: request {request_id} -> session {response_session_id}",
+                original_session_id=data.get("session_id"),
+                agent_id=data.get("agent_id"),
+                model=model,
+                provider=provider,
+                automatic_continuity=True
+            )
         
         # Track token usage
         if provider == "claude-cli" and "response" in standardized_response:

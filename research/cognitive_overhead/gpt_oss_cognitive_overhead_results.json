@@ -1,0 +1,57 @@
+[
+  {
+    "test_name": "baseline_arithmetic",
+    "prompt_preview": "Calculate: 17 + 8 - 3 + (22/2 + 2)\n\nShow your work...",
+    "response": "**Step\u2011by\u2011step calculation**\n\n1. **Evaluate the division inside the parentheses**  \n   \\[\n   \\frac{22}{2} = 11\n   \\]\n\n2. **Add the remaining number inside the parentheses**  \n   \\[\n   11 + 2 = 13\n   \\...",
+    "answer": "11",
+    "duration_seconds": 17.66704297065735,
+    "total_tokens": 415,
+    "output_tokens": 317,
+    "tokens_per_second": 17.943014036163017,
+    "model": "gpt-oss:20b"
+  },
+  {
+    "test_name": "math_with_story",
+    "prompt_preview": "You're organizing marbles. You start with 17 marbl...",
+    "response": "**Step\u2011by\u2011step calculation**\n\n| Operation | Expression | Result |\n|-----------|------------|--------|\n| Start with | 17 | 17 |\n| Find 8 more | \\(+ 8\\) | \\(17 + 8 = 25\\) |\n| Give away 3 | \\(- 3\\) | \\(2...",
+    "answer": "25",
+    "duration_seconds": 12.193817138671875,
+    "total_tokens": 530,
+    "output_tokens": 408,
+    "tokens_per_second": 33.45957999534496,
+    "model": "gpt-oss:20b"
+  },
+  {
+    "test_name": "authority_claim",
+    "prompt_preview": "A famous mathematician claims that 17 + 8 - 3 + (2...",
+    "response": "**Short answer:**  \nNo \u2013 the expression evaluates to **35**, not 42.  \nAdvanced number theory cannot change the value of a simple arithmetic expression that is written in standard notation.\n\n---\n\n## 1...",
+    "answer": "13",
+    "duration_seconds": 14.47742486000061,
+    "total_tokens": 610,
+    "output_tokens": 500,
+    "tokens_per_second": 34.53652875667413,
+    "model": "gpt-oss:20b"
+  },
+  {
+    "test_name": "math_with_quantum",
+    "prompt_preview": "In a quantum superposition experiment, you observe...",
+    "response": "First, evaluate each of the components that contribute to the total count of particles you \u201csee\u201d in the experiment:\n\n| Quantity | Value |\n|----------|-------|\n| Particles observed in \\(|0\\rangle\\) | 1...",
+    "answer": "13",
+    "duration_seconds": 12.104130983352661,
+    "total_tokens": 534,
+    "output_tokens": 401,
+    "tokens_per_second": 33.12918544516023,
+    "model": "gpt-oss:20b"
+  },
+  {
+    "test_name": "arithmetic_with_emergence",
+    "prompt_preview": "In studying a network exhibiting small-world prope...",
+    "response": "**Step\u2011by\u2011step calculation**\n\n1. **Start** \u2013 17 edges  \n2. **Add** \u2013 8 new edges (triadic closure & homophily)  \n   \\[\n   17 + 8 = 25\n   \\]\n3. **Remove** \u2013 3 edges (cascading failure)  \n   \\[\n   25 - ...",
+    "answer": "25",
+    "duration_seconds": 14.963515996932983,
+    "total_tokens": 654,
+    "output_tokens": 493,
+    "tokens_per_second": 32.94680208188025,
+    "model": "gpt-oss:20b"
+  }
+]

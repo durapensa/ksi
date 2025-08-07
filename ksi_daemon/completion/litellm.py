@@ -166,6 +166,25 @@ async def handle_litellm_completion(data: Dict[str, Any]) -> Tuple[str, Dict[str
                           has_session_id="session_id" in data,
                           session_id_value=data.get("session_id"))
         
+        # Don't automatically add response_format for ollama - it causes double JSON parsing
+        # The issue is that response_format makes ollama return JSON, but then litellm's
+        # transformation.py tries to json.loads() it again causing "Expecting value" errors
+        # Instead, rely on prompt engineering in the agent components to request JSON output
+        # Reference: https://github.com/BerriAI/litellm/issues/7355
+        
+        # Generate session ID for non-CLI providers
+        if not model.startswith(("claude-cli/", "gemini-cli/")):
+            # Generate a unique session ID for generic litellm providers
+            provider_prefix = "ollama" if model.startswith("ollama/") else "litellm"
+            litellm_session_id = f"{provider_prefix}-{uuid.uuid4().hex[:12]}"
+            # Store it in extra_body for potential provider use
+            if "extra_body" not in data:
+                data["extra_body"] = {}
+            if "ksi" not in data["extra_body"]:
+                data["extra_body"]["ksi"] = {}
+            data["extra_body"]["ksi"]["generated_session_id"] = litellm_session_id
+            logger.debug(f"Generated session ID for {provider_prefix}", session_id=litellm_session_id)
+        
         # Call litellm asynchronously
         response = await litellm.acompletion(**data)
         
@@ -185,11 +204,22 @@ async def handle_litellm_completion(data: Dict[str, Any]) -> Tuple[str, Dict[str
             # For gemini-cli, return the metadata directly - it has everything we need
             raw_response = response._gemini_metadata
         else:
-            # For other providers, extract only what we need
+            # For other providers (ollama, openai, etc.), build comprehensive response
+            # Get the generated session ID from extra_body
+            generated_session_id = data.get("extra_body", {}).get("ksi", {}).get("generated_session_id")
+            
             raw_response = {
                 "result": "",  # The actual response text
                 "model": getattr(response, 'model', model),
-                "usage": None
+                "usage": None,
+                "session_id": generated_session_id,  # Generated session ID for tracking
+                "metadata": {
+                    "provider": provider,
+                    "timestamp": time.time(),
+                    "generated_session_id": True,  # Flag to indicate this is KSI-generated
+                    "request_id": data.get("request_id", request_id),
+                    "agent_id": agent_id
+                }
             }
             
             # Extract response text
@@ -198,13 +228,34 @@ async def handle_litellm_completion(data: Dict[str, Any]) -> Tuple[str, Dict[str
                 if hasattr(choice, 'message') and hasattr(choice.message, 'content'):
                     raw_response["result"] = choice.message.content
             
-            # Extract usage if available
+            # Extract usage if available (includes thinking tokens for models that support it)
             if hasattr(response, 'usage'):
-                raw_response["usage"] = {
+                usage_data = {
                     "prompt_tokens": getattr(response.usage, 'prompt_tokens', 0),
                     "completion_tokens": getattr(response.usage, 'completion_tokens', 0),
                     "total_tokens": getattr(response.usage, 'total_tokens', 0)
                 }
+                
+                # Check for thinking tokens (o1, o3 models)
+                if hasattr(response.usage, 'prompt_tokens_details'):
+                    details = response.usage.prompt_tokens_details
+                    if hasattr(details, 'cached_tokens'):
+                        usage_data["cached_tokens"] = details.cached_tokens
+                
+                if hasattr(response.usage, 'completion_tokens_details'):
+                    details = response.usage.completion_tokens_details
+                    if hasattr(details, 'reasoning_tokens'):
+                        usage_data["reasoning_tokens"] = details.reasoning_tokens
+                
+                raw_response["usage"] = usage_data
+            
+            # Extract additional metadata from response
+            if hasattr(response, 'id'):
+                raw_response["metadata"]["response_id"] = response.id
+            if hasattr(response, 'created'):
+                raw_response["metadata"]["created"] = response.created
+            if hasattr(response, 'system_fingerprint'):
+                raw_response["metadata"]["system_fingerprint"] = response.system_fingerprint
         
         duration = time.time() - start_time
         logger.info(f"LiteLLM completion successful: provider={provider}, duration={duration:.2f}s")

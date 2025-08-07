@@ -226,17 +226,28 @@ def extract_session_id(provider: str, response: Union[Dict[str, Any], Any]) -> O
             return response.get("session_id")
         return None
     
-    elif provider == "litellm":
-        # LiteLLM response object should have session_id as attribute (snake_case)
-        if hasattr(response, "session_id"):
-            return response.session_id
-        # Check if it's a dict-like response
+    elif provider == "gemini-cli":
+        # Gemini CLI provider adds session_id to response metadata
         if isinstance(response, dict):
             return response.get("session_id")
         return None
     
+    elif provider == "litellm":
+        # LiteLLM generic providers have session_id in the response dict
+        # This includes ollama and other litellm-supported providers
+        if isinstance(response, dict):
+            # For our enhanced litellm response structure
+            session_id = response.get("session_id")
+            if session_id:
+                return session_id
+        # LiteLLM response object might have session_id as attribute
+        if hasattr(response, "session_id"):
+            return response.session_id
+        return None
+    
     elif provider in ["openai", "anthropic-api"]:
         # These providers typically don't have built-in session tracking
+        # We could generate one if needed
         return None
     
     else:
