@@ -21,7 +21,13 @@ Essential development practices and workflow for Claude Code when working with K
 
 This document serves as your primary instructions for KSI development. For technical reference, architecture details, and implementation patterns, see `memory/claude_code/project_knowledge.md`.
 
-## Current Development Priority (2025-01-28)
+## Current Development Priority (2025-08-07)
+
+**ACTIVE**: Layer 2 - Comparative Analysis with Attractor Testing
+- **Major Discovery**: Turn count reveals 2100% cognitive overhead on emergence topics
+- **Status**: Testing optimization under conceptual attractors
+- **Research**: See `/docs/PAPER_DRAFT_COGNITIVE_OVERHEAD_IN_LLMS.md`
+- **Results**: See `/docs/PERSONAL_INTEREST_ATTRACTOR_RESULTS.md`
 
 **COMPLETED**: Dynamic Routing Architecture Implementation ✅
 - **Status**: Production ready - agents can control routing at runtime

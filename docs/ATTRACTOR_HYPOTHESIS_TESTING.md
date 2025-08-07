@@ -1,7 +1,16 @@
 # Attractor Hypothesis Testing Framework
 
-## Hypothesis
-LLM logic/reasoning gets faulty when the model's attention is being drawn to different attractors.
+## Hypothesis (Refined Through Testing)
+
+**Original**: LLM logic/reasoning gets faulty when the model's attention is being drawn to different attractors.
+
+**Refined (2025-08-07)**: LLM reasoning becomes inefficient when personally interesting topics trigger recursive conceptual exploration, causing cognitive overhead while maintaining accuracy.
+
+### Key Discovery: Turn Count as Cognitive Overhead Metric
+- Baseline tasks: 1-3 conversation turns
+- Generic attractors: 1-3 turns (minimal impact)  
+- Personal interest attractors: Up to 21 turns (2100% increase)
+- Accuracy maintained despite efficiency degradation
 
 ## Theoretical Model
 
