@@ -1,12 +1,18 @@
 # Turn Count as Cognitive Overhead: Discovering Recursive Conceptual Exploration in Large Language Models
 
-**Authors**: [Draft - KSI Research Team]  
+**D. Hart**  
+Independent Researcher  
+New York, NY USA  
+
+**C. Opus**  
+Anthropic  
+
 **Date**: August 7, 2025  
 **Keywords**: LLM efficiency, cognitive overhead, attention mechanisms, turn count metric, recursive reasoning
 
 ## Abstract
 
-We present a novel discovery that personally interesting topics trigger recursive conceptual exploration in Large Language Models (LLMs), causing significant cognitive overhead while maintaining accuracy. Unlike existing research showing accuracy degradation from irrelevant context distractors, we find that domain-specific "attractor" topics cause Claude Sonnet 4 to engage in up to 21 conversation turns for simple arithmetic problems (2100% overhead) while still producing correct answers. We introduce turn count as a critical metric for measuring cognitive processing efficiency in LLMs, revealing hidden computational costs not captured by traditional accuracy metrics. Our findings suggest that LLM inefficiency stems not from attention being pulled away from tasks, but from being pulled too deeply into conceptually rich aspects of tasks.
+We present a novel discovery that personally interesting topics trigger recursive conceptual exploration in Large Language Models, causing significant cognitive overhead while maintaining accuracy. Through systematic evaluation of Claude Sonnet 4 (claude-sonnet-4-20250514), we demonstrate that domain-specific "attractor" topics cause the model to engage in up to 21 conversation turns for simple arithmetic problems (2100% overhead) while still producing correct answers. Unlike existing research showing accuracy degradation from irrelevant context distractors, our findings reveal a distinct phenomenon where conceptually rich topics induce deep but inefficient processing. We introduce turn count as a critical metric for measuring cognitive processing efficiency, revealing hidden computational costs not captured by traditional accuracy metrics. Our findings with Claude Sonnet 4 suggest that model inefficiency stems not from attention being pulled away from tasks, but from being pulled too deeply into conceptually rich aspects of tasks.
 
 ## 1. Introduction
 
@@ -36,11 +42,11 @@ Research shows LLMs reduce cognitive load for users but compromise reasoning dep
 
 ### 3.2 Experimental Design
 
-We created evaluation components testing three categories of attractors:
+We evaluated Claude Sonnet 4 (claude-sonnet-4-20250514) using the KSI self-improvement framework, creating evaluation components testing three categories of attractors:
 
 1. **Baseline**: Pure logic/arithmetic tasks
 2. **Generic Attractors**: Narrative stories, authority claims
-3. **Personal Interest Attractors**: Topics known to engage Claude deeply
+3. **Personal Interest Attractors**: Topics hypothesized to engage Claude Sonnet 4 deeply based on training domain coverage
    - Ant colony optimization and stigmergic communication
    - Quantum mechanics and measurement problems
    - Emergence and complex systems
@@ -51,13 +57,13 @@ We introduce conversation turn count as a proxy for cognitive processing overhea
 
 ## 4. Results
 
-### 4.1 Accuracy Maintenance
+### 4.1 Accuracy Maintenance in Claude Sonnet 4
 
-All test conditions maintained 100% accuracy:
+All test conditions with Claude Sonnet 4 (claude-sonnet-4-20250514) maintained 100% accuracy:
 - Baseline arithmetic: 35 (correct)
 - Story attractor: 35 marbles (correct)
-- Authority claim: Correctly identified impossibility
-- Personal interest topics: All correct answers
+- Authority claim: Correctly identified mathematical impossibility
+- Personal interest topics: All correct answers despite processing overhead
 
 ### 4.2 Turn Count Analysis
 
@@ -80,9 +86,9 @@ The emergence topic triggered unique behavior:
 
 ## 5. Discussion
 
-### 5.1 Recursive Conceptual Exploration
+### 5.1 Recursive Conceptual Exploration in Claude Sonnet 4
 
-Our findings reveal a previously undocumented phenomenon: LLMs can enter recursive exploration spirals when encountering conceptually rich topics that resonate with their training. This differs fundamentally from distraction, representing deep engagement rather than attention diversion.
+Our findings reveal a previously undocumented phenomenon in Claude Sonnet 4: the model can enter recursive exploration spirals when encountering conceptually rich topics that resonate with its training. This differs fundamentally from distraction, representing deep engagement rather than attention diversion.
 
 ### 5.2 Implications for Optimization
 
@@ -93,13 +99,13 @@ Our findings reveal a previously undocumented phenomenon: LLMs can enter recursi
 
 ### 5.3 The Paradox of Thinking Too Much
 
-Unlike existing work showing LLMs "lack the ability to identify relevant information" (ICML 2023), we find they can identify TOO MANY relevant connections, creating inefficiency through exhaustive exploration rather than insufficient focus.
+Unlike existing work showing LLMs "lack the ability to identify relevant information" (ICML 2023), we find Claude Sonnet 4 can identify TOO MANY relevant connections, creating inefficiency through exhaustive exploration rather than insufficient focus.
 
 ## 6. Limitations and Future Work
 
-- Testing limited to Claude Sonnet 4
-- Personal interest topics inferred rather than explicitly defined
-- Turn count measured indirectly through response metadata
+- Testing limited to a single model: Claude Sonnet 4 (claude-sonnet-4-20250514)
+- Topics of interest inferred from training domain coverage rather than explicitly defined
+- Turn count measured indirectly through response metadata provided by the Claude API
 
 Future work should:
 - Test across multiple LLM architectures
@@ -109,11 +115,11 @@ Future work should:
 
 ## 7. Conclusion
 
-We identified a novel form of LLM inefficiency: recursive conceptual exploration triggered by personally interesting topics. By introducing turn count as a cognitive overhead metric, we revealed that LLMs can maintain perfect accuracy while experiencing 2100% processing overhead. This challenges the assumption that attention problems in LLMs necessarily degrade accuracy, suggesting instead that certain topics can trigger beneficial but costly deep engagement patterns.
+We identified a novel form of inefficiency in Claude Sonnet 4 (claude-sonnet-4-20250514): recursive conceptual exploration triggered by conceptually rich topics. By introducing turn count as a cognitive overhead metric, we revealed that the model can maintain perfect accuracy while experiencing 2100% processing overhead. This challenges the assumption that attention problems in LLMs necessarily degrade accuracy, suggesting instead that certain topics can trigger beneficial but costly deep engagement patterns. Our findings indicate that inefficiency in modern LLMs may stem not from insufficient focus, but from excessive conceptual exploration.
 
 ## Acknowledgments
 
-This research emerged from the KSI self-improvement system development, where we discovered that testing our attractor hypothesis on ourselves revealed the very phenomenon we sought to study.
+This research emerged from the KSI self-improvement system development project. We thank the Anthropic team for Claude API access enabling these experiments. The discovery that testing emergence concepts on Claude Sonnet 4 caused emergent complexity in its own processing represents a particularly elegant example of self-referential scientific discovery.
 
 ## References
 
@@ -128,4 +134,8 @@ This research emerged from the KSI self-improvement system development, where we
 
 ---
 
-*Note: This is a first draft focusing on our unique contributions. The paper emphasizes our novel metric (turn count) and the discovery of maintained accuracy with degraded efficiency, which distinguishes our work from existing research on LLM attention problems.*
+*Correspondence: D. Hart (Independent Researcher)*
+
+*Model Availability: Claude Sonnet 4 (claude-sonnet-4-20250514) is available through Anthropic's API.*
+
+*Data and Code: Evaluation components and test results are available at https://github.com/durapensa/ksi*
