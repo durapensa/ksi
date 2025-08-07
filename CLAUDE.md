@@ -603,6 +603,9 @@ git commit -m "Update composition submodule"
 - **Agents not responding**: Check if profile has `prompt` field
 - **JSON extraction failing**: Validate JSON format, verify legitimate KSI events
 - **Session management**: Never create session IDs, use returned values
+- **Conversation continuity** (FIXED 2025-01-07): Stateless providers now maintain perfect context
+  - **Solution**: Conversation indices at `var/logs/conversations/`
+  - **Details**: See `/docs/CONVERSATION_CONTINUITY_FIX_PLAN.md`
 - **sandbox_uuid missing error**: Agent state entity not created by transformer
   - **Workaround**: Manually create state entity: `ksi send state:entity:create --type agent --id "agent_id" --properties '{"sandbox_uuid": "uuid_from_agent_info"}'`
   - **Root cause**: `agent_spawned_state_create` transformer not firing

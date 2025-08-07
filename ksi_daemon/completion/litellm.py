@@ -12,6 +12,7 @@ from ksi_common.logging import get_bound_logger
 import time
 import uuid
 from typing import Dict, Any, Optional, Tuple
+from pathlib import Path
 
 # Disable LiteLLM's HTTP request for model pricing on startup
 os.environ['LITELLM_LOCAL_MODEL_COST_MAP'] = 'true'
@@ -44,6 +45,34 @@ active_completions = {}
 sandbox_manager = None  # Initialized on first use
 
 
+def append_to_conversation_index(conversation_id: str, response_id: str) -> None:
+    """Append a response_id to the conversation index (append-only log).
+    
+    The conversation index is a simple newline-delimited file containing
+    response_ids in chronological order. This allows fast reconstruction
+    of conversation history without scanning directories.
+    
+    Args:
+        conversation_id: The conversation identifier (typically agent_id)
+        response_id: The response identifier to append
+    """
+    if not conversation_id or not response_id:
+        return
+    
+    try:
+        # Create conversations directory if needed
+        config.conversation_log_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Append response_id to conversation index
+        index_file = config.conversation_log_dir / f"{conversation_id}.jsonl"
+        with open(index_file, 'a') as f:
+            f.write(f"{response_id}\n")
+        
+        logger.debug(f"Appended {response_id} to conversation {conversation_id}")
+    except Exception as e:
+        logger.error(f"Failed to append to conversation index: {e}", exc_info=True)
+
+
 async def handle_litellm_completion(data: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
     """
     Handle a completion request using LiteLLM.
@@ -61,9 +90,15 @@ async def handle_litellm_completion(data: Dict[str, Any]) -> Tuple[str, Dict[str
     if not model:
         raise ValueError("No model specified")
     
-    session_id = data.get("session_id")
+    session_id = data.get("session_id")  # For claude-cli, this is the actual session
     request_id = data.get("request_id", str(uuid.uuid4()))
     agent_id = data.get("agent_id")
+    
+    # For stateless providers, determine conversation_id from agent_id
+    conversation_id = None
+    if agent_id and not model.startswith("claude-cli/"):
+        # Use agent_id as conversation_id for simplicity
+        conversation_id = agent_id
     
     logger.info(
         f"Starting LiteLLM completion: model={model}, session_id={session_id}",
@@ -74,7 +109,17 @@ async def handle_litellm_completion(data: Dict[str, Any]) -> Tuple[str, Dict[str
     try:
         # Convert prompt to messages if needed
         if "prompt" in data and "messages" not in data:
+            logger.debug(f"Converting prompt to messages for agent {agent_id}")
             data["messages"] = [{"role": "user", "content": data.pop("prompt")}]
+        elif "prompt" in data and "messages" in data:
+            logger.warning(f"Both prompt and messages present for agent {agent_id}, using messages")
+        
+        # Debug: log the messages being sent to litellm
+        if "messages" in data:
+            logger.info(f"Sending {len(data['messages'])} messages to litellm for agent {agent_id}",
+                       first_msg=data["messages"][0] if data["messages"] else None,
+                       last_msg=data["messages"][-1] if data["messages"] else None,
+                       has_prompt="prompt" in data)
         
         # Handle sandbox directory for CLI providers
         if model.startswith(("claude-cli/", "gemini-cli/")):
@@ -172,18 +217,27 @@ async def handle_litellm_completion(data: Dict[str, Any]) -> Tuple[str, Dict[str
         # Instead, rely on prompt engineering in the agent components to request JSON output
         # Reference: https://github.com/BerriAI/litellm/issues/7355
         
-        # Generate session ID for non-CLI providers
+        # Generate response ID for non-CLI providers
+        # CRITICAL: For claude-cli, session_id IS the response_id (server manages conversation)
+        # For stateless providers, we generate a response_id per request
+        response_id = None
         if not model.startswith(("claude-cli/", "gemini-cli/")):
-            # Generate a unique session ID for generic litellm providers
-            provider_prefix = "ollama" if model.startswith("ollama/") else "litellm"
-            litellm_session_id = f"{provider_prefix}-{uuid.uuid4().hex[:12]}"
-            # Store it in extra_body for potential provider use
+            # Generate response_id with model info for better debugging/analysis
+            # Convert model name to filesystem-safe format
+            model_slug = model.replace("/", "-").replace(":", "-").replace(".", "-")
+            response_id = f"{model_slug}-{uuid.uuid4().hex[:12]}"
+            # Examples:
+            # ollama-phi4-mini-abc123def456
+            # openai-gpt-4-1-789xyz123456
+            
+            # Store in extra_body for downstream use
             if "extra_body" not in data:
                 data["extra_body"] = {}
             if "ksi" not in data["extra_body"]:
                 data["extra_body"]["ksi"] = {}
-            data["extra_body"]["ksi"]["generated_session_id"] = litellm_session_id
-            logger.debug(f"Generated session ID for {provider_prefix}", session_id=litellm_session_id)
+            data["extra_body"]["ksi"]["response_id"] = response_id
+            data["extra_body"]["ksi"]["conversation_id"] = conversation_id
+            logger.debug(f"Generated response_id for {model}", response_id=response_id, conversation_id=conversation_id)
         
         # Call litellm asynchronously
         response = await litellm.acompletion(**data)
@@ -199,24 +253,38 @@ async def handle_litellm_completion(data: Dict[str, Any]) -> Tuple[str, Dict[str
         # Extract appropriate response data based on provider
         if provider == "claude-cli" and hasattr(response, '_claude_metadata'):
             # For claude-cli, return the metadata directly - it has everything we need
+            # CRITICAL: claude-cli calls it 'session_id' but we treat it as response_id
             raw_response = response._claude_metadata
+            # Ensure we have response_id in metadata for consistency
+            if "metadata" not in raw_response:
+                raw_response["metadata"] = {}
+            raw_response["metadata"]["response_id"] = raw_response.get("session_id")
+            # Note: session_id field preserved for backward compatibility
         elif provider == "gemini-cli" and hasattr(response, '_gemini_metadata'):
             # For gemini-cli, return the metadata directly - it has everything we need
             raw_response = response._gemini_metadata
+            # Gemini-cli also might have session_id that's really a response_id
+            if "metadata" not in raw_response:
+                raw_response["metadata"] = {}
+            raw_response["metadata"]["response_id"] = raw_response.get("session_id")
         else:
             # For other providers (ollama, openai, etc.), build comprehensive response
-            # Get the generated session ID from extra_body
-            generated_session_id = data.get("extra_body", {}).get("ksi", {}).get("generated_session_id")
+            # Get the response_id and conversation_id from extra_body
+            ksi_data = data.get("extra_body", {}).get("ksi", {})
+            response_id_to_use = ksi_data.get("response_id")
+            conversation_id_to_use = ksi_data.get("conversation_id")
             
             raw_response = {
                 "result": "",  # The actual response text
                 "model": getattr(response, 'model', model),
                 "usage": None,
-                "session_id": generated_session_id,  # Generated session ID for tracking
+                "session_id": response_id_to_use,  # CRITICAL: session_id field = response_id for compatibility
                 "metadata": {
                     "provider": provider,
                     "timestamp": time.time(),
-                    "generated_session_id": True,  # Flag to indicate this is KSI-generated
+                    "response_id": response_id_to_use,  # Explicit response_id in metadata
+                    "conversation_id": conversation_id_to_use,  # Track conversation
+                    "generated_response_id": True,  # Flag to indicate this is KSI-generated
                     "request_id": data.get("request_id", request_id),
                     "agent_id": agent_id
                 }
@@ -256,6 +324,10 @@ async def handle_litellm_completion(data: Dict[str, Any]) -> Tuple[str, Dict[str
                 raw_response["metadata"]["created"] = response.created
             if hasattr(response, 'system_fingerprint'):
                 raw_response["metadata"]["system_fingerprint"] = response.system_fingerprint
+        
+        # Append to conversation index for stateless providers
+        if provider == "litellm" and conversation_id and response_id:
+            append_to_conversation_index(conversation_id, response_id)
         
         duration = time.time() - start_time
         logger.info(f"LiteLLM completion successful: provider={provider}, duration={duration:.2f}s")

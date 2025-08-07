@@ -27,6 +27,7 @@ DEFAULT_MAX_CONCURRENT_COMPLETIONS = 4  # Maximum concurrent completion requests
 DEFAULT_VAR_DIR = "var"
 DEFAULT_LOG_DIR = "var/logs"
 DEFAULT_RESPONSE_LOG_DIR = "var/logs/responses"
+DEFAULT_CONVERSATION_LOG_DIR = "var/logs/conversations"
 DEFAULT_DAEMON_LOG_DIR = "var/logs/daemon"
 DEFAULT_STATE_DIR = "var/state"
 DEFAULT_DB_DIR = "var/db"

@@ -61,6 +61,7 @@ from .constants import (
     DEFAULT_VAR_DIR,
     DEFAULT_LOG_DIR,
     DEFAULT_RESPONSE_LOG_DIR,
+    DEFAULT_CONVERSATION_LOG_DIR,
     DEFAULT_DAEMON_LOG_DIR,
     DEFAULT_STATE_DIR,
     DEFAULT_DB_DIR,
@@ -101,6 +102,7 @@ class KSIBaseConfig(BaseSettings):
     # Logging configuration
     log_dir: Path = Path(DEFAULT_LOG_DIR)
     response_log_dir: Path = Path(DEFAULT_RESPONSE_LOG_DIR)  # Provider-agnostic completion responses
+    conversation_log_dir: Path = Path(DEFAULT_CONVERSATION_LOG_DIR)  # Conversation indices for stateless providers
     log_level: str = DEFAULT_LOG_LEVEL
     log_format: Literal["json", "console"] = "console"
     

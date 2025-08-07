@@ -88,17 +88,22 @@ def save_completion_response(response_data: Dict[str, Any]) -> None:
         logger.error(f"Failed to save completion response: {e}", exc_info=True)
 
 
-def save_completion_request(request_data: Dict[str, Any], session_id: str) -> None:
-    """Save user request to session file for conversation reconstruction."""
+def save_completion_request(request_data: Dict[str, Any], response_id: str) -> None:
+    """Save user request to response file for conversation reconstruction.
+    
+    Args:
+        request_data: The completion request data
+        response_id: The response identifier (session_id for claude-cli, generated for others)
+    """
     try:
-        if not session_id:
-            logger.warning("No session_id provided, cannot save request to session file")
+        if not response_id:
+            logger.warning("No response_id provided, cannot save request to response file")
             return
             
         responses_dir = config.response_log_dir
         responses_dir.mkdir(parents=True, exist_ok=True)
         
-        session_file = responses_dir / f"{session_id}.jsonl"
+        response_file = responses_dir / f"{response_id}.jsonl"
         
         # Extract the user message content
         content = ""
@@ -109,9 +114,10 @@ def save_completion_request(request_data: Dict[str, Any], session_id: str) -> No
             last_msg = request_data["messages"][-1]
             content = last_msg.get("content", "")
         
-        # Create a user message entry
+        # Create a message entry - mark feedback messages differently
+        entry_type = "feedback" if request_data.get("is_feedback") else "user"
         user_entry = {
-            "type": "user",
+            "type": entry_type,
             "timestamp": timestamp_utc(),
             "content": content,
             "request_id": request_data.get("request_id"),
@@ -119,63 +125,85 @@ def save_completion_request(request_data: Dict[str, Any], session_id: str) -> No
             "agent_id": request_data.get("agent_id")
         }
         
-        with open(session_file, 'a', encoding='utf-8') as f:
+        with open(response_file, 'a', encoding='utf-8') as f:
             f.write(json.dumps(user_entry) + '\n')
             
-        logger.debug(f"Saved completion request to {session_file}")
+        logger.debug(f"Saved completion request to {response_file}")
         
     except Exception as e:
         logger.error(f"Failed to save completion request: {e}", exc_info=True)
 
 
-async def load_conversation_for_provider(session_id: str, model: str) -> List[Dict[str, str]]:
-    """Load conversation history for stateless providers from JSONL logs."""
-    # Provider-aware: stateful providers maintain their own history
-    if model.startswith("claude-cli/"):
-        # Stateful provider - return empty, let provider handle it
-        logger.debug(f"Model {model} uses stateful provider, not loading conversation history")
-        return []
+async def load_conversation_for_provider(conversation_id: str, model: str) -> List[Dict[str, str]]:
+    """Load conversation history from ALL response fragments.
     
-    # For stateless providers, reconstruct from logs
-    session_file = config.response_log_dir / f"{session_id}.jsonl"
-    if not session_file.exists():
-        logger.debug(f"No session file found for {session_id}")
+    This function reconstructs conversation history by loading all response
+    fragments in order from the conversation index. Works for all providers,
+    including claude-cli (useful for analysis/debugging).
+    
+    Args:
+        conversation_id: The conversation identifier (typically agent_id)
+        model: Model name (kept for compatibility, but not used for logic)
+    
+    Returns:
+        List of messages in chronological order
+    """
+    # Load from conversation index (works for ALL providers now)
+    index_file = config.conversation_log_dir / f"{conversation_id}.jsonl"
+    if not index_file.exists():
+        logger.debug(f"No conversation index found for {conversation_id}")
         return []
     
     messages = []
     try:
-        with open(session_file, 'r') as f:
-            for line in f:
-                try:
-                    entry = json.loads(line.strip())
-                    
-                    if entry.get("type") == "user":
-                        # User message entry
-                        messages.append({
-                            "role": "user",
-                            "content": entry.get("content", "")
-                        })
-                    elif entry.get("type") == "claude":
-                        # Assistant response entry (legacy format)
-                        content = entry.get("result", entry.get("content", ""))
-                        messages.append({
-                            "role": "assistant",
-                            "content": content
-                        })
-                    else:
-                        # Standardized response format
-                        response_text = get_response_text(entry)
-                        if response_text:
+        # Read all response_ids from the conversation index
+        with open(index_file, 'r') as f:
+            response_ids = [line.strip() for line in f if line.strip()]
+        
+        logger.debug(f"Loading {len(response_ids)} response fragments for conversation {conversation_id}")
+        
+        # Load messages from each response file
+        for response_id in response_ids:
+            response_file = config.response_log_dir / f"{response_id}.jsonl"
+            if not response_file.exists():
+                logger.warning(f"Missing response file: {response_id}.jsonl")
+                continue
+            
+            with open(response_file, 'r') as f:
+                for line in f:
+                    try:
+                        entry = json.loads(line.strip())
+                        
+                        if entry.get("type") == "user":
+                            # User message entry (not feedback)
+                            messages.append({
+                                "role": "user",
+                                "content": entry.get("content", "")
+                            })
+                        elif entry.get("type") == "feedback":
+                            # Skip feedback messages - they're internal system messages
+                            continue
+                        elif entry.get("type") == "claude" or entry.get("type") == "assistant":
+                            # Assistant response entry (legacy format)
+                            content = entry.get("result", entry.get("content", ""))
                             messages.append({
                                 "role": "assistant",
-                                "content": response_text
+                                "content": content
                             })
-                        
-                except json.JSONDecodeError:
-                    logger.warning(f"Skipping malformed JSON line in {session_file}")
-                    continue
+                        else:
+                            # Standardized response format
+                            response_text = get_response_text(entry)
+                            if response_text:
+                                messages.append({
+                                    "role": "assistant",
+                                    "content": response_text
+                                })
+                            
+                    except json.JSONDecodeError:
+                        logger.warning(f"Skipping malformed JSON line in {response_file}")
+                        continue
                     
-        logger.info(f"Loaded {len(messages)} messages for session {session_id}")
+        logger.info(f"Loaded {len(messages)} messages for conversation {conversation_id} from {len(response_ids)} fragments")
         return messages
         
     except Exception as e:
@@ -699,21 +727,43 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
         if model.startswith("claude-cli/"):
             stateless_provider = False
         
-        # For stateless providers, save the request and load conversation history
-        if stateless_provider and session_id:
-            # Save the user request for future reconstruction
-            save_completion_request(data, session_id)
+        # For stateless providers, load conversation history using agent_id as conversation_id
+        # Note: We'll save the request AFTER getting response_id from provider
+        if stateless_provider and agent_id:
+            conversation_id_for_loading = agent_id  # Use agent_id as conversation_id
+            logger.info(f"Loading conversation history for stateless provider", 
+                       agent_id=agent_id, 
+                       model=model,
+                       conversation_id=conversation_id_for_loading)
             
-            # Load conversation history for stateless providers
-            history = await load_conversation_for_provider(session_id, model)
+            # Load conversation history for stateless providers using conversation_id
+            history = await load_conversation_for_provider(conversation_id_for_loading, model)
             if history:
+                # Convert prompt to message if needed (before merging with history)
+                if "prompt" in data and "messages" not in data:
+                    data["messages"] = [{"role": "user", "content": data["prompt"]}]
+                    # Remove prompt to avoid confusion
+                    del data["prompt"]
+                
                 # Merge history with current message
                 current_messages = data.get("messages", [])
                 if current_messages:
                     # Current messages should just be the new user message
                     # Replace with full history + new message
                     data["messages"] = history + current_messages
-                    logger.info(f"Loaded {len(history)} historical messages for session {session_id}")
+                    logger.info(f"Loaded {len(history)} historical messages for agent {agent_id}",
+                              history_sample=history[0] if history else None,
+                              current_message=current_messages[0] if current_messages else None,
+                              total_messages=len(data["messages"]))
+                    # Debug: log all messages being sent
+                    for i, msg in enumerate(data["messages"]):
+                        logger.debug(f"Message {i}: role={msg.get('role')}, content_preview={msg.get('content', '')[:100]}")
+                else:
+                    # No current messages, just use history
+                    data["messages"] = history
+                    logger.warning(f"No current messages to merge with history for agent {agent_id}")
+            else:
+                logger.info(f"No conversation history found for agent {agent_id}")
         
         # For agent requests, ensure sandbox_uuid is available for CLI providers
         agent_id = data.get("agent_id")
@@ -771,6 +821,14 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
         
         # Save to session log
         save_completion_response(standardized_response)
+        
+        # For stateless providers, NOW save the request with the response_id we got back
+        if stateless_provider and agent_id:
+            # Get the response_id from the standardized response
+            response_id = get_response_session_id(standardized_response)
+            if response_id:
+                # Save the original request to the response file
+                save_completion_request(data, response_id)
         
         # Extract and emit JSON events from response (non-blocking)
         if event_emitter:
