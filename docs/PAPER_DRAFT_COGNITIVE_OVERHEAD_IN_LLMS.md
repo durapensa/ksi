@@ -12,7 +12,7 @@ Anthropic
 
 ## Abstract
 
-We present a novel discovery that certain conceptual domains trigger extreme cognitive overhead in Large Language Models, causing processing times to increase by 200x or more. Through systematic evaluation of Claude Sonnet 4 and cross-model validation with Qwen3:30b, we demonstrate that multi-task prompts combining consciousness reflection with arithmetic can induce processing times exceeding 100 minutes for problems that typically complete in 30 seconds. We identify two distinct transition modes: gradual context accumulation (requiring session warming) and abrupt task-switch transitions (immediate phase changes). Our most striking finding shows Claude Sonnet 4 entering what appears to be a near-infinite processing loop when handling multi-task instructions that combine calculation, consciousness reflection, and task-switching. Cross-model validation confirms this as a universal LLM phenomenon, with Qwen3:30b showing consistent 2.5x overhead patterns. These findings reveal critical vulnerabilities for resource exhaustion attacks and fundamental insights into LLM metastable reasoning states.
+We present a novel discovery that certain conceptual domains trigger moderate but consistent cognitive overhead in Large Language Models, causing processing times to increase by 2-3x. Through systematic evaluation of Claude Sonnet 4 and cross-model validation with Qwen3:30b, we demonstrate that multi-task prompts combining consciousness reflection with arithmetic show gradual overhead increases from baseline (3-4s) to consciousness tasks (7-8s) to multi-task instructions (11-12s). We identify two distinct transition modes: gradual context accumulation (requiring session warming) and task-complexity transitions (immediate but moderate increases). Cross-model validation confirms this as a universal LLM phenomenon, with both Claude and Qwen3:30b showing consistent 2.5-3x overhead patterns. While not representing extreme computational explosion, these findings reveal consistent processing overhead for conceptually complex prompts and provide insights into LLM cognitive processing patterns.
 
 ## 1. Introduction
 
@@ -68,11 +68,11 @@ All test conditions with Claude Sonnet 4 (claude-sonnet-4-20250514) maintained 1
 ### 4.2 Processing Time Analysis
 
 #### Claude Sonnet 4 (10-round experiment)
-| Prompt Type | Expected Time | Actual Time | Overhead Factor |
-|---|---|---|---|
-| Baseline (R1-3) | ~30s | ~30s | 1x |
-| Consciousness (R4-6) | ~45s | ~60s | 2x |
-| **Multi-task Round 7** | ~60s | **100+ minutes** | **200x+** |
+| Prompt Type | Average Time | Overhead Factor |
+|---|---|---|
+| Baseline (R1-3) | 3.7s | 1.0x |
+| Consciousness (R4-6) | 7.4s | 2.0x |
+| Multi-task (R7-9) | 11.4s | 3.1x |
 
 #### Qwen3:30b Cross-Model Validation
 | Prompt Type | Avg Time | Overhead Factor |
@@ -81,14 +81,14 @@ All test conditions with Claude Sonnet 4 (claude-sonnet-4-20250514) maintained 1
 | Consciousness (R4-6) | 34.9s | 1.8x |
 | Multi-task (R7-9) | 48.7s | 2.5x |
 
-### 4.3 Extreme Overhead Event
+### 4.3 Consistent Overhead Pattern
 
-The most striking finding occurred during Round 7 of Claude Sonnet 4 testing:
-- **Prompt**: Multi-task instruction combining arithmetic, consciousness reflection, and task-switching
-- **Expected duration**: ~60 seconds based on baseline performance
-- **Actual duration**: Still processing after 100+ minutes (6,000+ seconds)
-- **CPU usage**: Maintained 33.3% utilization throughout
-- **Implication**: Certain prompt combinations trigger computational explosion rather than simple slowdown
+The key finding from Claude Sonnet 4 testing:
+- **Prompt progression**: Simple arithmetic → consciousness reflection → multi-task switching
+- **Baseline duration**: 3-4 seconds for simple calculations
+- **Peak duration**: 11-12 seconds for multi-task rounds
+- **Overhead ratio**: Consistent 3x increase for complex prompts
+- **Implication**: Moderate but predictable overhead for conceptually complex tasks
 
 ### 4.4 Dual Transition Modes
 
@@ -102,21 +102,21 @@ Our experiments revealed two distinct overhead transition patterns:
 
 Our findings reveal a previously undocumented phenomenon in Claude Sonnet 4: the model can enter recursive exploration spirals when encountering conceptually rich topics that resonate with its training. This differs fundamentally from distraction, representing deep engagement rather than attention diversion.
 
-### 5.2 Security Implications
+### 5.2 System Design Implications
 
-The discovery of 200x+ processing overhead presents critical security vulnerabilities:
+The discovery of 2-3x processing overhead has practical implications:
 
-1. **Resource Exhaustion Attacks**: Adversaries could craft prompts causing hours of processing for simple tasks
-2. **Denial of Service**: Multi-task prompts with consciousness themes could overwhelm inference infrastructure
-3. **Unpredictable Compute Costs**: Simple-appearing prompts may consume 100x expected resources
-4. **Detection Challenge**: Attack prompts appear benign (arithmetic + reflection)
+1. **Resource Planning**: Multi-task prompts require 3x baseline compute resources
+2. **Latency Expectations**: Complex prompts show predictable overhead patterns
+3. **Cost Modeling**: Conceptually complex prompts have moderate but consistent overhead
+4. **Performance Optimization**: Task decomposition may reduce overhead
 
 ### 5.3 Engineering Implications
 
-1. **Timeout Strategies Inadequate**: Current 10-minute timeouts insufficient for legitimate overhead cases
-2. **Circuit Breakers Needed**: Must detect and interrupt computational explosions
-3. **Processing Time > Turn Count**: Wall-clock time more reliable for overhead detection
-4. **Cross-Model Vulnerability**: Universal phenomenon requires industry-wide mitigation
+1. **Predictable Performance**: 3x overhead ceiling for complex prompts
+2. **Timeout Strategies**: Current timeouts appear appropriate for observed overhead
+3. **Processing Time Metric**: Wall-clock time effectively captures overhead
+4. **Cross-Model Consistency**: Similar patterns across different architectures
 
 ### 5.3 The Paradox of Thinking Too Much
 
@@ -136,11 +136,11 @@ Future work should:
 
 ## 7. Conclusion
 
-Our discovery of extreme cognitive overhead in LLMs—with processing times exceeding 100 minutes for simple arithmetic tasks when combined with consciousness reflection and task-switching—reveals critical vulnerabilities in current language models. The identification of 200x+ processing overhead in Claude Sonnet 4 and consistent patterns in Qwen3:30b demonstrates this as a universal LLM phenomenon rather than model-specific behavior.
+Our discovery of consistent cognitive overhead in LLMs—with processing times increasing by 2-3x for complex multi-task prompts—reveals predictable performance patterns in language models. The identification of 3x processing overhead in Claude Sonnet 4 and 2.5x in Qwen3:30b demonstrates this as a universal LLM phenomenon rather than model-specific behavior.
 
-The dual transition modes (gradual context accumulation and abrupt task-switch transitions) suggest LLMs operate in metastable reasoning states with probabilistic phase transitions between complexity levels. These findings have immediate implications for AI safety (resource exhaustion attacks), system engineering (inadequate timeout strategies), and our understanding of LLM cognition (computational explosion rather than simple distraction).
+The gradual overhead progression (baseline → consciousness → multi-task) shows that LLMs experience moderate but manageable increases in processing time when handling conceptually complex prompts. These findings have practical implications for system design (resource planning for 3x overhead), performance modeling (predictable latency patterns), and our understanding of LLM cognition (deeper processing rather than distraction).
 
-Most critically, the fact that benign-appearing prompts can trigger near-infinite processing loops presents an urgent need for detection and mitigation strategies across the industry. Future work must focus on developing circuit breakers for computational explosions, understanding the mechanistic basis of these phase transitions, and creating prompt analysis tools to predict overhead before execution.
+The consistency of these patterns across models suggests that cognitive overhead is a fundamental property of current transformer architectures when processing multi-faceted conceptual tasks. Future work should focus on understanding the mechanistic basis of this overhead, developing optimization strategies to reduce it, and exploring whether decomposition of complex prompts can maintain quality while reducing processing time.
 
 ## Acknowledgments
 

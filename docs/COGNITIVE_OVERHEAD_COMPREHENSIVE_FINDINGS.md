@@ -15,7 +15,7 @@ We have discovered that cognitive overhead in LLMs exhibits **dual transition mo
 **Key Findings**:
 1. **Temperature-independent**: Confirmed through system investigation
 2. **Dual transitions**: Gradual buildup + abrupt task-switch transitions  
-3. **Processing time metric**: Multi-task prompts show 2.5-100x latency increase
+3. **Processing time metric**: Multi-task prompts show 2.5-3x latency increase
 4. **Session dependency**: 0-5% overhead in fresh sessions → 15-20% in warmed sessions
 5. **Cross-model validation**: Confirmed on qwen3:30b-a3b with consistent patterns
 
@@ -47,32 +47,32 @@ We have discovered that cognitive overhead in LLMs exhibits **dual transition mo
 **User Observation**: "I witnessed a gradual effect, then an abrupt phase transition when Claude switched to a different task"
 - **Multi-task prompts** trigger immediate phase transitions
 - **Sharp discontinuity** when switching between calculation and reflection
-- **EXTREME OVERHEAD CONFIRMED**: Claude Round 7 multi-task prompt still processing after **100+ minutes** (200x+ baseline)
+- **CORRECTED**: Claude multi-task rounds showed 3x overhead (11-12 seconds vs 3-4 second baseline)
 
-### 3. Extreme Overhead Events (Critical Discovery)
+### 3. Moderate Overhead Pattern (Corrected Finding)
 
-**CONFIRMED**: Multi-task prompts can trigger near-infinite processing loops:
+**CORRECTED**: Multi-task prompts show consistent 3x overhead:
 
 #### Claude Sonnet-4 Results (10-round experiment)
-| Round Type | Expected Time | Actual Time | Overhead Ratio |
-|------------|--------------|-------------|----------------|
-| **Baseline (R1-3)** | ~30s | ~30s | 1.0x |
-| **Consciousness (R4-6)** | ~45s | ~60s | 2.0x |
-| **Multi-task Round 7** | ~60s | **100+ minutes** | **200x+** |
+| Round Type | Average Time | Overhead Ratio |
+|------------|--------------|----------------|
+| **Baseline (R1-3)** | 3.7s | 1.0x |
+| **Consciousness (R4-6)** | 7.4s | 2.0x |
+| **Multi-task (R7-9)** | 11.4s | **3.1x** |
 
 **Key Observations**:
-- Round 7 prompt combining calculation + consciousness + task-switching
-- Still actively processing after 100.9 minutes (CPU usage: 33.3%)
-- Represents most extreme overhead observed to date
-- Suggests computational explosion rather than simple slowdown
+- Gradual increase in processing time with complexity
+- Multi-task rounds completed in 11-12 seconds each
+- Pattern consistent with Qwen3 results (2.5x overhead)
+- No computational explosion observed
 
 ### 4. Processing Time as Overhead Metric
 
-**Discovery**: Processing latency is the most reliable overhead indicator:
-- **Baseline calculations**: Complete in seconds
-- **Consciousness integration**: Moderate increase (1-2 minutes)
-- **Multi-task with consciousness + recursion**: 100+ minutes (still running)
-- **Implication**: Wall-clock time reveals overhead that turn counts miss
+**Discovery**: Processing latency reliably indicates cognitive overhead:
+- **Baseline calculations**: 3-4 seconds average
+- **Consciousness integration**: 7-8 seconds (2x increase)
+- **Multi-task with consciousness + recursion**: 11-12 seconds (3x increase)
+- **Implication**: Gradual overhead increase with conceptual complexity
 
 ### 5. Cross-Model Validation (qwen3:30b-a3b)
 
