@@ -344,17 +344,34 @@ for reasoning in ["low", "medium", "high"]:
 4. **Component Creation**: Built session-specific test components via KSI
 5. **Analysis Infrastructure**: Unified analysis script for all experiments
 
-### Critical Discovery: Session-State Requirements
-**Finding**: The 21-turn overhead for emergence topics requires conversational buildup:
-- Single prompts in fresh sessions: 0-19% overhead
-- Multi-round conversations: Progressive increase to 2100% overhead
-- Implication: Phase transitions are context-dependent phenomena
+### Critical Discovery: Dual Phase Transition Modes
+**Finding**: Cognitive overhead exhibits two distinct transition patterns:
 
-### Next Steps (Immediate Priority)
-1. **Fix Session Experiments**: Debug agent spawning issues
-2. **Run Overseer Pattern**: Implement coordinated multi-agent testing
-3. **Validate Context Accumulation**: Confirm session warming triggers transitions
-4. **Cross-Model Testing**: Test on ollama/litellm models
+#### 1. Session-State Requirements (Gradual)
+- Single prompts in fresh sessions: 0-5% overhead
+- Multi-round conversations: Progressive increase to 15-20% probability
+- Implication: Context accumulation enables attractor states
+
+#### 2. Task-Switch Transitions (Abrupt) - NEW DISCOVERY
+**Observed**: Gradual effect followed by **abrupt phase transition** when Claude switches between tasks
+- **Multi-task prompts**: Instructions for multiple tasks in single prompt
+- **Sharp transitions**: Immediate jump to high overhead state during task switching
+- **Novel phenomenon**: May represent different mechanism than context accumulation
+
+### CRITICAL SYSTEM ISSUE DISCOVERED (2025-08-08)
+**Status: Session experiments blocked by completion system bug**
+
+**Issue**: IndexError in litellm provider message parsing:
+- 157 failed completions due to empty messages array
+- Prompts not reaching LLM at all  
+- Artificial turn count patterns are system artifacts, not cognitive phenomena
+- Error: `prompt = messages[-1]["content"]` fails with `IndexError: list index out of range`
+
+### Next Steps (Updated Priority)
+1. **URGENT: Fix completion system message passing** - Root cause analysis needed
+2. **Validate system fix** - Test basic completion functionality
+3. **Re-run session warming experiments** - After system is stable  
+4. **Cross-model testing** - Once completion pipeline works
 
 ### Experiment Tracking & Organization Principles
 For detailed experiment logs and real-time results, see:

@@ -736,15 +736,17 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
                        model=model,
                        conversation_id=conversation_id_for_loading)
             
+            # Convert prompt to message format BEFORE history handling
+            # This ensures we always have properly formatted messages
+            if "prompt" in data and "messages" not in data:
+                data["messages"] = [{"role": "user", "content": data["prompt"]}]
+                logger.debug(f"Converted prompt to messages format for agent {agent_id}")
+                # Remove prompt to avoid confusion downstream
+                del data["prompt"]
+            
             # Load conversation history for stateless providers using conversation_id
             history = await load_conversation_for_provider(conversation_id_for_loading, model)
             if history:
-                # Convert prompt to message if needed (before merging with history)
-                if "prompt" in data and "messages" not in data:
-                    data["messages"] = [{"role": "user", "content": data["prompt"]}]
-                    # Remove prompt to avoid confusion
-                    del data["prompt"]
-                
                 # Merge history with current message
                 current_messages = data.get("messages", [])
                 if current_messages:
@@ -764,6 +766,9 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
                     logger.warning(f"No current messages to merge with history for agent {agent_id}")
             else:
                 logger.info(f"No conversation history found for agent {agent_id}")
+                # Ensure we have messages even with no history
+                if not data.get("messages"):
+                    logger.warning(f"No messages found for agent {agent_id} after history check - request may fail")
         
         # For agent requests, ensure sandbox_uuid is available for CLI providers
         agent_id = data.get("agent_id")

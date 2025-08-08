@@ -722,6 +722,14 @@ class ClaudeCLIProvider(CustomLLM):
 
     def _extract_prompt_and_model(self, messages, *args, **kwargs):
         """Extract prompt and model from LiteLLM kwargs"""
+        # Defensive check for empty messages
+        if not messages:
+            raise BadRequestError(
+                message="No messages provided. The messages array is empty.",
+                model=kwargs.get("model", "unknown"),
+                llm_provider="claude-cli"
+            )
+        
         prompt = messages[-1]["content"]
         
         # Get model name and strip claude-cli/ prefix if present

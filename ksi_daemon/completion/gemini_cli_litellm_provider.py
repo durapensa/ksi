@@ -621,6 +621,14 @@ class GeminiCLIProvider(CustomLLM):
 
     def _extract_prompt_and_model(self, messages, *args, **kwargs):
         """Extract prompt and model from LiteLLM kwargs - receives pure model name"""
+        # Defensive check for empty messages
+        if not messages:
+            raise BadRequestError(
+                message="No messages provided. The messages array is empty.",
+                model=kwargs.get("model", "unknown"),
+                llm_provider="gemini-cli"
+            )
+        
         prompt = messages[-1]["content"]
         
         # LiteLLM strips the "gemini-cli/" prefix before calling this provider
