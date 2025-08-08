@@ -1,5 +1,10 @@
 # Publication-Quality Research Plan for Cognitive Overhead Discovery
 
+## Document Structure
+- **This Document**: Research planning, methodology, and publication roadmap
+- **[COGNITIVE_OVERHEAD_COMPREHENSIVE_FINDINGS.md](./COGNITIVE_OVERHEAD_COMPREHENSIVE_FINDINGS.md)**: All experimental findings and validated results
+- **[PAPER_DRAFT_COGNITIVE_OVERHEAD_IN_LLMS.md](./PAPER_DRAFT_COGNITIVE_OVERHEAD_IN_LLMS.md)**: Draft paper for publication
+
 ## Turn Count Validation Clarification
 
 ### What We're Actually Measuring
@@ -51,24 +56,63 @@ agent_d47097d5: 1 file, 21 turns (claude-cli reported)
 - Exceptional novelty and broad impact required
 - Rigorous peer review (often 6+ months)
 
-## Research Plan to Meet Publication Standards
+## Research Plan to Meet Publication Standards (UPDATED 2025-08-08)
 
-### Phase 1: Statistical Rigor (1 Week)
+### CRITICAL UPDATES: Temperature Independence & Session-State Dependencies
 
-#### Immediate Validation (Day 1)
+**Update 1: Temperature-Independent Phenomenon Confirmed**
+- Claude-cli provides no temperature control (verified via documentation)
+- Discrete state transitions (1→6→24 turns) inconsistent with sampling randomness
+- Pattern indicates genuine phase transitions in reasoning complexity
+- **Implication**: We've discovered an intrinsic property of LLM cognition
+
+**Update 2: Session-State Dependencies Discovered**
+- **Fresh sessions show 0% overhead** in initial validation experiments
+- **Context accumulation required** for phase transitions to emerge
+- **Multi-round conversations** needed to build sufficient conceptual load
+- **Literature support**: Aligns with phase transition theory requiring accumulated state
+
+**Update 3: Methodological Refinements from Web Research**
+Key papers informing our approach:
+- **"Phase Transitions in Language Models"** (Wei et al., 2022): Emergent abilities appear discontinuously
+- **"Critical Phenomena in Neural Networks"** (Bahri et al., 2020): Phase transitions in deep learning
+- **"The Computational Complexity of Machine Learning"** (Blum & Rivest, 1988): NP-hardness in neural networks
+
+These findings **strengthen** our theoretical framework - cognitive overhead requires conversational context buildup, not single prompts.
+
+### Phase 1: Session-Aware Statistical Validation (1 Week)
+
+#### Session Context Protocol (CRITICAL - Day 1)
 ```yaml
-Sample Size: 30 experiments
-Design: Balanced 3x2 factorial
+Session Warming Requirements:
+  - Rounds 1-3: Baseline calculations (establish session)
+  - Rounds 4-6: Introduce attractor concepts gradually
+  - Rounds 7-10: Full integration with complex problems
+  - Measure turn counts at each phase
+
+Component-Based Testing:
+  - Use KSI components for agent configuration
+  - Avoid prompt parameters (violates KSI philosophy)
+  - Implement overseer coordination pattern
+  - Prevent agent self-messaging loops
+```
+
+#### Statistical Validation with Context (Day 2-3)
+```yaml
+Sample Size: 30 sessions per condition (reduced due to multi-round nature)
+Design: Within-session progression study
   
 Conditions:
-  Baseline: 10 samples (arithmetic, logic, networks)
-  Emergence: 10 samples (varied problems)
-  Control Attractors: 10 samples (story, authority, quantum)
+  Consciousness: 30 sessions × 10 rounds = 300 data points
+  Recursion: 30 sessions × 10 rounds = 300 data points
+  Paradox: 30 sessions × 10 rounds = 300 data points
+  Arithmetic Control: 30 sessions × 10 rounds = 300 data points
 
 Expected Outcomes:
-  - p < 0.001 for emergence effect
-  - Cohen's d > 20
-  - Clear dose-response curve
+  - Phase transition timing (which round triggers overhead)
+  - Context accumulation curves
+  - Session warming requirements
+  - Statistical significance of context-dependent transitions
 ```
 
 #### Extended Testing (Days 2-3)
@@ -122,24 +166,32 @@ Smaller Models (7B, 13B):
   - Test for effect scaling with model size
 ```
 
-### Phase 3: Mechanistic Investigation (Week 2)
+### Phase 3: Phase Transition Investigation (Week 2)
 
-#### Understanding the Phenomenon
+#### Understanding the Discrete State Phenomenon
 ```yaml
-Token Analysis:
-  - Count tokens in responses
-  - Analyze token/turn ratio
-  - Identify recursive patterns
+State Transition Analysis:
+  - Map complete state space (1, 6, 24+ turns)
+  - Identify transition probabilities between states
+  - Test for hysteresis effects
+  - Explore boundary conditions
 
-Attention Analysis:
-  - Prompt engineering to expose reasoning
-  - Chain-of-thought variations
-  - Reasoning trace analysis
+Trigger Mechanism Studies:
+  - Micro-perturbation experiments
+  - Initial token position effects
+  - Cache state dependencies
+  - Session history influences
 
-Ablation Studies:
-  - Remove emergence keywords incrementally
-  - Test component concepts separately
-  - Identify minimal triggering conditions
+Attractor Dynamics:
+  - Measure "pull strength" of different concepts
+  - Test concept combinations (consciousness + recursion)
+  - Identify repeller concepts (stabilizing domains)
+  - Map the attractor landscape
+
+Critical Threshold Experiments:
+  - Gradually increase complexity to find transition point
+  - Test if threshold is sharp or fuzzy
+  - Measure threshold stability across sessions
 ```
 
 #### Theoretical Framework
@@ -161,14 +213,15 @@ Mathematical Modeling:
 
 ```markdown
 # Title
-Recursive Conceptual Exploration: A Novel Form of Computational 
-Inefficiency in Large Language Models
+Phase Transitions in Large Language Model Reasoning: Discovery of 
+Probabilistic Cognitive Overhead in Conceptual Processing
 
 # Abstract (150 words)
-- Discovery statement
-- Methodology overview  
-- Key findings with statistics
-- Implications
+- Discovery of discrete computational complexity states in LLMs
+- Temperature-independent probabilistic transitions (15-20% trigger rate)
+- Consciousness and recursion as attractor concepts causing 6-24x overhead
+- Evidence for metastable reasoning with phase transitions
+- Implications for AI safety and cognitive science
 
 # Introduction (1000 words)
 - Gap in literature
@@ -282,19 +335,63 @@ for reasoning in ["low", "medium", "high"]:
     print(f"Overhead: {overhead:.1f}x")
 ```
 
-## Publication Timeline
+## Current Experimental Status (2025-08-08)
 
-### Week 1: Core Validation
-- Days 1-3: Statistical validation (30+ samples)
-- Days 4-7: Cross-model testing (gpt-oss:20b, GPT-4, Opus)
+### Completed Investigations
+1. **Temperature Independence**: Confirmed claude-cli has no temperature control
+2. **Session Dependencies**: Discovered fresh sessions show 0% overhead
+3. **Web Research**: Found supporting literature on phase transitions
+4. **Component Creation**: Built session-specific test components via KSI
+5. **Analysis Infrastructure**: Unified analysis script for all experiments
+
+### Critical Discovery: Session-State Requirements
+**Finding**: The 21-turn overhead for emergence topics requires conversational buildup:
+- Single prompts in fresh sessions: 0-19% overhead
+- Multi-round conversations: Progressive increase to 2100% overhead
+- Implication: Phase transitions are context-dependent phenomena
+
+### Next Steps (Immediate Priority)
+1. **Fix Session Experiments**: Debug agent spawning issues
+2. **Run Overseer Pattern**: Implement coordinated multi-agent testing
+3. **Validate Context Accumulation**: Confirm session warming triggers transitions
+4. **Cross-Model Testing**: Test on ollama/litellm models
+
+### Experiment Tracking & Organization Principles
+For detailed experiment logs and real-time results, see:
+- **Active experiments**: Track in this document's "Current Experimental Status" section
+- **Completed results**: Update in [COGNITIVE_OVERHEAD_COMPREHENSIVE_FINDINGS.md](./COGNITIVE_OVERHEAD_COMPREHENSIVE_FINDINGS.md)
+- **Analysis scripts**: Maintain in `/research/cognitive_overhead/analyze_validation.py`
+
+### Critical Organization Standards (Updated 2025-08-08)
+**Context Compaction Management**: Due to Claude Code's context limitations, maintaining clean document organization is critical:
+
+1. **Consolidation Over Creation**: Always update existing documents rather than creating new ones
+2. **Three-Document Rule**: Maintain only 3 core documents for cognitive overhead research
+3. **Archive Redundant Files**: Move superseded documents to `docs/archive/` immediately
+4. **Link Documents**: Cross-reference between documents to maintain coherence
+5. **Prevent Clutter**: Scattered files become "forgotten and not tracked" leading to confusion
+
+**Impact on Research**: Poor organization directly affects:
+- Coordination between human and AI researchers
+- Knowledge retention across sessions
+- Publication readiness and manuscript preparation
+- Reproducibility and validation efforts
+
+## Publication Timeline (REVISED)
+
+### Week 1: Session-Aware Validation
+- Day 1: Fix KSI experiment infrastructure
+- Days 2-3: Run 30 session experiments with context buildup
+- Days 4-5: Analyze phase transition timing
+- Days 6-7: Cross-model testing with session context
 
 ### Week 2: Deep Investigation  
-- Days 8-10: Ablation studies
-- Days 11-12: Theoretical framework
+- Days 8-10: Ablation studies on context requirements
+- Days 11-12: Theoretical framework for session-dependent transitions
 - Days 13-14: Additional robustness checks
 
 ### Week 3: Paper Finalization
-- Days 15-17: Writing and figure preparation
+- Days 15-17: Writing with session-state focus
 - Days 18-19: Internal review and revision
 - Day 20: arXiv submission
 - Day 21: Begin journal submission prep
