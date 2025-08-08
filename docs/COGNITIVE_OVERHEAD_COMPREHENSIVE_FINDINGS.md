@@ -279,6 +279,15 @@ This research reveals that cognitive overhead in LLMs is:
 
 These findings fundamentally change our understanding of LLM computation, suggesting models exhibit **metastable reasoning** with probabilistic transitions between complexity states - a discovery with profound implications for AI safety, cognitive science, and system engineering.
 
+## Technical Notes
+
+### Process Identification for Claude
+When monitoring Claude processes during experiments:
+- **Claude Code**: Shows tty like `tty001` (interactive terminal session)
+- **litellm-spawned Claude**: Shows tty as `??` (non-interactive subprocess)
+
+This distinction helps identify which Claude processes are actively running experiments vs. Claude Code itself.
+
 ## Research Status
 
 - ✅ Statistical Replication: Complete (160 tests)
