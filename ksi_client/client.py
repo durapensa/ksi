@@ -174,8 +174,10 @@ class EventClient:
             return
         
         try:
+            # Increase buffer limit to handle large responses (e.g., agent:list with 1000+ agents)
+            # Default is 64KB which is too small for large agent lists
             self.reader, self.writer = await asyncio.wait_for(
-                asyncio.open_unix_connection(str(self.socket_path)),
+                asyncio.open_unix_connection(str(self.socket_path), limit=10*1024*1024),  # 10MB limit
                 timeout=BOOTSTRAP_TIMEOUT
             )
             self.connected = True
