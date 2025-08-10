@@ -1,0 +1,16 @@
+# LaTeX generated files
+paper.pdf
+paper.tex
+paper.aux
+paper.log
+paper.bbl
+paper.blg
+paper.out
+paper.toc
+
+# Backup files
+*.backup
+*~
+
+# MacOS
+.DS_Store
