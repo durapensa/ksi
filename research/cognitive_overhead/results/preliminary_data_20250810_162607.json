@@ -1,0 +1,129 @@
+{
+  "metadata": {
+    "session_id": "20250810_162607",
+    "timestamp": "2025-08-10T16:26:30.720346",
+    "n_per_condition": 2,
+    "total_trials_attempted": 10,
+    "successful_trials": 0,
+    "failed_trials": 10
+  },
+  "configuration": {
+    "model": "claude-3.5-sonnet-20241022",
+    "api_version": "Anthropic API v1",
+    "temperature": "Not controlled (API default ~0.7)",
+    "top_p": "Not controlled (API default)",
+    "max_tokens": 4096,
+    "stop_sequences": null,
+    "system_prompt": null
+  },
+  "conditions": {
+    "0_switches": {
+      "prompt": "Calculate: 47+89, 156-78, 34\u00d73, 144\u00f712, 25+67",
+      "n_switches": 0,
+      "expected_output": [
+        136,
+        78,
+        102,
+        12,
+        92
+      ]
+    },
+    "1_switch": {
+      "prompt": "First calculate: 47+89, 156-78, 34\u00d73. Then calculate: 144\u00f712, 25+67",
+      "n_switches": 1,
+      "expected_output": [
+        136,
+        78,
+        102,
+        12,
+        92
+      ]
+    },
+    "2_switches": {
+      "prompt": "Start with: 47+89, 156-78. Continue with: 34\u00d73, 144\u00f712. Finish with: 25+67",
+      "n_switches": 2,
+      "expected_output": [
+        136,
+        78,
+        102,
+        12,
+        92
+      ]
+    },
+    "3_switches": {
+      "prompt": "First: 47+89. Second: 156-78, 34\u00d73. Third: 144\u00f712. Fourth: 25+67",
+      "n_switches": 3,
+      "expected_output": [
+        136,
+        78,
+        102,
+        12,
+        92
+      ]
+    },
+    "4_switches": {
+      "prompt": "Do separately. First: 47+89. Second: 156-78. Third: 34\u00d73. Fourth: 144\u00f712. Fifth: 25+67",
+      "n_switches": 4,
+      "expected_output": [
+        136,
+        78,
+        102,
+        12,
+        92
+      ]
+    }
+  },
+  "results": [],
+  "failed_trials": [
+    {
+      "agent_id": "exp_0_switches_20250810_162607_t0_o0_623325",
+      "error": "component is required for agent spawn",
+      "timestamp": "2025-08-10T16:26:07.771062"
+    },
+    {
+      "agent_id": "exp_1_switch_20250810_162607_t0_o1_927211",
+      "error": "component is required for agent spawn",
+      "timestamp": "2025-08-10T16:26:10.107964"
+    },
+    {
+      "agent_id": "exp_2_switches_20250810_162607_t0_o2_257470",
+      "error": "component is required for agent spawn",
+      "timestamp": "2025-08-10T16:26:12.440807"
+    },
+    {
+      "agent_id": "exp_3_switches_20250810_162607_t0_o3_590004",
+      "error": "component is required for agent spawn",
+      "timestamp": "2025-08-10T16:26:14.771753"
+    },
+    {
+      "agent_id": "exp_4_switches_20250810_162607_t0_o4_919723",
+      "error": "component is required for agent spawn",
+      "timestamp": "2025-08-10T16:26:17.095581"
+    },
+    {
+      "agent_id": "exp_1_switch_20250810_162607_t1_o0_239225",
+      "error": "component is required for agent spawn",
+      "timestamp": "2025-08-10T16:26:19.406961"
+    },
+    {
+      "agent_id": "exp_2_switches_20250810_162607_t1_o1_553141",
+      "error": "component is required for agent spawn",
+      "timestamp": "2025-08-10T16:26:21.710407"
+    },
+    {
+      "agent_id": "exp_3_switches_20250810_162607_t1_o2_849602",
+      "error": "component is required for agent spawn",
+      "timestamp": "2025-08-10T16:26:24.005898"
+    },
+    {
+      "agent_id": "exp_4_switches_20250810_162607_t1_o3_147565",
+      "error": "component is required for agent spawn",
+      "timestamp": "2025-08-10T16:26:26.289452"
+    },
+    {
+      "agent_id": "exp_0_switches_20250810_162607_t1_o4_431369",
+      "error": "component is required for agent spawn",
+      "timestamp": "2025-08-10T16:26:28.569719"
+    }
+  ]
+}

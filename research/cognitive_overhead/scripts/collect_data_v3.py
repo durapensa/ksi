@@ -138,19 +138,27 @@ class DataCollectorV3:
         # Start timing
         start_time = time.time()
         
-        # First spawn agent to ensure clean sandbox
-        spawn_cmd = [
-            "ksi", "send", "agent:spawn",
-            "--agent-id", agent_id,
-            "--profile", "base_single_agent",
+        # Use completion directly without agent to ensure clean sessions
+        # Each completion gets a fresh temporary sandbox
+        completion_cmd = [
+            "ksi", "send", "completion:async",
             "--prompt", condition_data['prompt']
         ]
         
         try:
-            result = subprocess.run(spawn_cmd, capture_output=True, text=True, check=False)
+            result = subprocess.run(completion_cmd, capture_output=True, text=True, check=False)
             
-            # Parse spawn result to get session_id if needed
-            # The spawn will handle the completion synchronously with the prompt
+            # Parse the async response to get request_id
+            try:
+                async_response = json.loads(result.stdout) if result.stdout else {}
+                request_id = async_response.get('request_id')
+                
+                if not request_id:
+                    print(f" ✗ No request_id in response")
+                    return None
+            except json.JSONDecodeError:
+                print(f" ✗ Failed to parse async response")
+                return None
         except Exception as e:
             print(f" ✗ Failed to start: {e}")
             self.failed_trials.append({
@@ -160,71 +168,70 @@ class DataCollectorV3:
             })
             return None
         
-        # No need to wait - agent:spawn is synchronous when given a prompt
-        # Parse the spawn result directly
+        # Wait for completion to finish
+        time.sleep(20)
+        
+        # Get completion result
         try:
-            spawn_data = json.loads(result.stdout) if result.stdout else {}
+            monitor_cmd = [
+                "ksi", "send", "monitor:get_events",
+                "--limit", "20",
+                "--event-patterns", "completion:result"
+            ]
             
-            # Check if spawn succeeded
-            if "error" in spawn_data:
-                print(f" ✗ Spawn error: {spawn_data['error']}")
-                self.failed_trials.append({
-                    'agent_id': agent_id,
-                    'error': spawn_data['error'],
-                    'timestamp': datetime.now().isoformat()
-                })
-                self.terminate_agent(agent_id)
-                return None
+            monitor_result = subprocess.run(monitor_cmd, capture_output=True, text=True, check=False)
+            monitor_data = json.loads(monitor_result.stdout) if monitor_result.stdout else {}
+            events = monitor_data.get('events', [])
             
-            # Extract completion result from spawn response
-            if "completion" in spawn_data and "response" in spawn_data["completion"]:
-                response_data = spawn_data["completion"]["response"]
+            # Find our completion by request_id
+            for event in events:
+                event_data = event.get('data', {})
+                result_data = event_data.get('result', {})
+                ksi_info = result_data.get('ksi', {})
                 
-                # Extract all metrics
-                usage = response_data.get('usage', {})
-                output_tokens = usage.get('output_tokens', 0)
-                input_tokens = usage.get('input_tokens', 0)
-                cost = response_data.get('total_cost_usd', 0)
-                response_text = response_data.get('result', '')
-                duration_ms = response_data.get('duration_ms', 0)
-                
-                # Calculate TPOT (Time Per Output Token)
-                tpot_ms = duration_ms / output_tokens if output_tokens > 0 else None
-                
-                # TTFT would require streaming API (not available)
-                ttft_ms = None
-                
-                # Verify arithmetic accuracy
-                accuracy = self.verify_arithmetic_accuracy(response_text, condition_data['expected_output'])
-                
-                trial = ExperimentalTrial(
-                    trial_id=agent_id,
-                    condition=condition,
-                    n_switches=condition_data['n_switches'],
-                    prompt=condition_data['prompt'],
-                    response=response_text,
-                    output_tokens=output_tokens,
-                    input_tokens=input_tokens,
-                    cost_usd=cost,
-                    duration_ms=duration_ms,
-                    ttft_ms=ttft_ms,
-                    tpot_ms=tpot_ms,
-                    timestamp=datetime.now().isoformat(),
-                    seed=seed,
-                    order_in_sequence=order_in_sequence,
-                    api_version=self.api_config['api_version']
-                )
-                
-                print(f" ✓ {output_tokens} tokens, ${cost:.6f}, {accuracy}")
-                
-                # CRITICAL: Terminate agent to prevent context contamination
-                self.terminate_agent(agent_id)
-                
-                return trial
+                if ksi_info.get('request_id') == request_id:
+                    response_data = result_data.get('response', {})
+                    
+                    # Extract all metrics
+                    usage = response_data.get('usage', {})
+                    output_tokens = usage.get('output_tokens', 0)
+                    input_tokens = usage.get('input_tokens', 0)
+                    cost = response_data.get('total_cost_usd', 0)
+                    response_text = response_data.get('result', '')
+                    duration_ms = response_data.get('duration_ms', 0)
+                    
+                    # Calculate TPOT (Time Per Output Token)
+                    tpot_ms = duration_ms / output_tokens if output_tokens > 0 else None
+                    
+                    # TTFT would require streaming API (not available)
+                    ttft_ms = None
+                    
+                    # Verify arithmetic accuracy
+                    accuracy = self.verify_arithmetic_accuracy(response_text, condition_data['expected_output'])
+                    
+                    trial = ExperimentalTrial(
+                        trial_id=agent_id,
+                        condition=condition,
+                        n_switches=condition_data['n_switches'],
+                        prompt=condition_data['prompt'],
+                        response=response_text,
+                        output_tokens=output_tokens,
+                        input_tokens=input_tokens,
+                        cost_usd=cost,
+                        duration_ms=duration_ms,
+                        ttft_ms=ttft_ms,
+                        tpot_ms=tpot_ms,
+                        timestamp=datetime.now().isoformat(),
+                        seed=seed,
+                        order_in_sequence=order_in_sequence,
+                        api_version=self.api_config['api_version']
+                    )
+                    
+                    print(f" ✓ {output_tokens} tokens, ${cost:.6f}, {accuracy}")
+                    
+                    return trial
             
-            print(" ⏳ No result found in spawn response")
-            # Still terminate agent even if no result found
-            self.terminate_agent(agent_id)
+            print(" ⏳ No result found")
             return None
             
         except Exception as e:
@@ -234,18 +241,7 @@ class DataCollectorV3:
                 'error': str(e),
                 'timestamp': datetime.now().isoformat()
             })
-            # Terminate agent on error too
-            self.terminate_agent(agent_id)
             return None
-    
-    def terminate_agent(self, agent_id: str):
-        """Terminate an agent to ensure clean state for next trial"""
-        try:
-            cmd = ["ksi", "send", "agent:terminate", "--agent-id", agent_id]
-            subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=5)
-        except Exception:
-            # Silent fail - agent may not exist or already terminated
-            pass
     
     def verify_arithmetic_accuracy(self, response: str, expected: List[int]) -> str:
         """Verify arithmetic accuracy of response"""
