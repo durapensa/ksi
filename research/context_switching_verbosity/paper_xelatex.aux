@@ -1,0 +1,245 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand*\HyPL@Entry[1]{}
+\HyPL@Entry{0<</S/D>>}
+\@writefile{toc}{\contentsline {section}{Quantifying Context-Switching Verbosity in Large Language Models: A \textasciitilde 5× Token Amplification Under \textless 1K-Token Contexts}{1}{section*.1}\protected@file@percent }
+\newlabel{quantifying-context-switching-verbosity-in-large-language-models-a-5-token-amplification-under-1k-token-contexts}{{}{1}{Quantifying Context-Switching Verbosity in Large Language Models: A \textasciitilde 5× Token Amplification Under \textless 1K-Token Contexts}{section*.1}{}}
+\@writefile{toc}{\contentsline {subsection}{Abstract}{1}{section*.2}\protected@file@percent }
+\newlabel{abstract}{{}{1}{Abstract}{section*.2}{}}
+\@writefile{toc}{\contentsline {subsection}{1. Introduction}{2}{section*.3}\protected@file@percent }
+\newlabel{introduction}{{}{2}{1. Introduction}{section*.3}{}}
+\@writefile{toc}{\contentsline {subsection}{2. Background and Related Work}{3}{section*.4}\protected@file@percent }
+\newlabel{background-and-related-work}{{}{3}{2. Background and Related Work}{section*.4}{}}
+\@writefile{toc}{\contentsline {subsubsection}{2.1 Verbosity Bias from Reinforcement Learning}{3}{section*.5}\protected@file@percent }
+\newlabel{verbosity-bias-from-reinforcement-learning}{{}{3}{2.1 Verbosity Bias from Reinforcement Learning}{section*.5}{}}
+\@writefile{toc}{\contentsline {subsubsection}{2.2 Chain-of-Thought and Deliberate Reasoning Strategies}{3}{section*.6}\protected@file@percent }
+\newlabel{chain-of-thought-and-deliberate-reasoning-strategies}{{}{3}{2.2 Chain-of-Thought and Deliberate Reasoning Strategies}{section*.6}{}}
+\@writefile{toc}{\contentsline {subsubsection}{2.3 Serving Systems and Inference Optimization}{3}{section*.7}\protected@file@percent }
+\newlabel{serving-systems-and-inference-optimization}{{}{3}{2.3 Serving Systems and Inference Optimization}{section*.7}{}}
+\@writefile{toc}{\contentsline {subsubsection}{2.4 Long-Context Behavior and Attention Degradation}{4}{section*.8}\protected@file@percent }
+\newlabel{long-context-behavior-and-attention-degradation}{{}{4}{2.4 Long-Context Behavior and Attention Degradation}{section*.8}{}}
+\@writefile{toc}{\contentsline {subsubsection}{2.5 Cognitive Modeling and Task Switching}{4}{section*.9}\protected@file@percent }
+\newlabel{cognitive-modeling-and-task-switching}{{}{4}{2.5 Cognitive Modeling and Task Switching}{section*.9}{}}
+\@writefile{toc}{\contentsline {subsection}{3. Methodology}{4}{section*.10}\protected@file@percent }
+\newlabel{methodology}{{}{4}{3. Methodology}{section*.10}{}}
+\@writefile{toc}{\contentsline {subsubsection}{3.1 Operational Definitions}{4}{section*.11}\protected@file@percent }
+\newlabel{operational-definitions}{{}{4}{3.1 Operational Definitions}{section*.11}{}}
+\@writefile{toc}{\contentsline {subsubsection}{3.2 Experimental Design}{5}{section*.12}\protected@file@percent }
+\newlabel{experimental-design}{{}{5}{3.2 Experimental Design}{section*.12}{}}
+\newlabel{baseline-conditions}{{}{5}{3.2.1 Baseline Conditions}{section*.13}{}}
+\@writefile{toc}{\contentsline {paragraph}{3.2.1 Baseline Conditions}{5}{section*.13}\protected@file@percent }
+\newlabel{test-conditions}{{}{5}{3.2.2 Test Conditions}{section*.14}{}}
+\@writefile{toc}{\contentsline {paragraph}{3.2.2 Test Conditions}{5}{section*.14}\protected@file@percent }
+\newlabel{control-variables}{{}{5}{3.2.3 Control Variables}{section*.15}{}}
+\@writefile{toc}{\contentsline {paragraph}{3.2.3 Control Variables}{5}{section*.15}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{3.3 Sampling Methodology}{5}{section*.16}\protected@file@percent }
+\newlabel{sampling-methodology}{{}{5}{3.3 Sampling Methodology}{section*.16}{}}
+\@writefile{toc}{\contentsline {subsubsection}{3.4 Measurement Framework}{6}{section*.17}\protected@file@percent }
+\newlabel{measurement-framework}{{}{6}{3.4 Measurement Framework}{section*.17}{}}
+\newlabel{primary-metrics}{{}{6}{3.4.1 Primary Metrics}{section*.18}{}}
+\@writefile{toc}{\contentsline {paragraph}{3.4.1 Primary Metrics}{6}{section*.18}\protected@file@percent }
+\newlabel{derived-metrics}{{}{6}{3.4.2 Derived Metrics}{section*.19}{}}
+\@writefile{toc}{\contentsline {paragraph}{3.4.2 Derived Metrics}{6}{section*.19}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{3.5 Statistical Methods}{6}{section*.20}\protected@file@percent }
+\newlabel{statistical-methods}{{}{6}{3.5 Statistical Methods}{section*.20}{}}
+\newlabel{primary-analysis}{{}{6}{3.5.1 Primary Analysis}{section*.21}{}}
+\@writefile{toc}{\contentsline {paragraph}{3.5.1 Primary Analysis}{6}{section*.21}\protected@file@percent }
+\newlabel{assumption-verification}{{}{6}{3.5.2 Assumption Verification}{section*.22}{}}
+\@writefile{toc}{\contentsline {paragraph}{3.5.2 Assumption Verification}{6}{section*.22}\protected@file@percent }
+\newlabel{robust-inference}{{}{6}{3.5.3 Robust Inference}{section*.23}{}}
+\@writefile{toc}{\contentsline {paragraph}{3.5.3 Robust Inference}{6}{section*.23}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{3.6 Component Analysis Methodology}{6}{section*.24}\protected@file@percent }
+\newlabel{component-analysis-methodology}{{}{6}{3.6 Component Analysis Methodology}{section*.24}{}}
+\gdef \LT@i {\LT@entry 
+    {1}{56.87253pt}\LT@entry 
+    {1}{76.75293pt}\LT@entry 
+    {1}{81.36557pt}\LT@entry 
+    {1}{62.87253pt}\LT@entry 
+    {1}{62.87253pt}\LT@entry 
+    {1}{81.36557pt}\LT@entry 
+    {1}{47.64725pt}}
+\newlabel{automated-classification}{{}{7}{3.6.1 Automated Classification}{section*.25}{}}
+\@writefile{toc}{\contentsline {paragraph}{3.6.1 Automated Classification}{7}{section*.25}\protected@file@percent }
+\newlabel{manual-validation}{{}{7}{3.6.2 Manual Validation}{section*.26}{}}
+\@writefile{toc}{\contentsline {paragraph}{3.6.2 Manual Validation}{7}{section*.26}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{4. Results}{7}{section*.27}\protected@file@percent }
+\newlabel{results}{{}{7}{4. Results}{section*.27}{}}
+\@writefile{toc}{\contentsline {subsubsection}{4.1 Primary Finding: 5-6× Token Amplification}{7}{section*.28}\protected@file@percent }
+\newlabel{primary-finding-5-6-token-amplification}{{}{7}{4.1 Primary Finding: 5-6× Token Amplification}{section*.28}{}}
+\gdef \LT@ii {\LT@entry 
+    {1}{55.59816pt}\LT@entry 
+    {1}{74.03793pt}\LT@entry 
+    {1}{179.47668pt}\LT@entry 
+    {1}{55.4008pt}\LT@entry 
+    {1}{105.2414pt}}
+\gdef \LT@iii {\LT@entry 
+    {1}{84.2051pt}\LT@entry 
+    {1}{182.64012pt}\LT@entry 
+    {1}{75.98177pt}\LT@entry 
+    {1}{126.88829pt}}
+\@writefile{toc}{\contentsline {subsubsection}{4.2 Context Establishment Cost Quantification}{8}{section*.29}\protected@file@percent }
+\newlabel{context-establishment-cost-quantification}{{}{8}{4.2 Context Establishment Cost Quantification}{section*.29}{}}
+\@writefile{toc}{\contentsline {subsubsection}{4.3 No Additional Compute Beyond Length Effects}{8}{section*.30}\protected@file@percent }
+\newlabel{no-additional-compute-beyond-length-effects}{{}{8}{4.3 No Additional Compute Beyond Length Effects}{section*.30}{}}
+\@writefile{toc}{\contentsline {subsubsection}{4.4 Component Analysis of Verbosity}{8}{section*.31}\protected@file@percent }
+\newlabel{component-analysis-of-verbosity}{{}{8}{4.4 Component Analysis of Verbosity}{section*.31}{}}
+\gdef \LT@iv {\LT@entry 
+    {1}{71.33289pt}\LT@entry 
+    {1}{59.53238pt}\LT@entry 
+    {1}{71.38008pt}\LT@entry 
+    {1}{160.49849pt}\LT@entry 
+    {1}{106.9661pt}}
+\gdef \LT@v {\LT@entry 
+    {1}{42.15457pt}\LT@entry 
+    {1}{84.30916pt}\LT@entry 
+    {1}{73.9732pt}\LT@entry 
+    {1}{63.6676pt}\LT@entry 
+    {1}{84.30916pt}\LT@entry 
+    {1}{89.48016pt}\LT@entry 
+    {1}{31.81256pt}}
+\@writefile{toc}{\contentsline {subsubsection}{4.5 Comparison to Chain-of-Thought Baseline}{9}{section*.32}\protected@file@percent }
+\newlabel{comparison-to-chain-of-thought-baseline}{{}{9}{4.5 Comparison to Chain-of-Thought Baseline}{section*.32}{}}
+\@writefile{toc}{\contentsline {subsubsection}{4.6 Cross-Model Validation}{9}{section*.33}\protected@file@percent }
+\newlabel{cross-model-validation}{{}{9}{4.6 Cross-Model Validation}{section*.33}{}}
+\@writefile{toc}{\contentsline {subsection}{5. Mechanisms and Analysis}{9}{section*.34}\protected@file@percent }
+\newlabel{mechanisms-and-analysis}{{}{9}{5. Mechanisms and Analysis}{section*.34}{}}
+\@writefile{toc}{\contentsline {subsubsection}{5.1 Linguistic Patterns in Context Switching}{9}{section*.35}\protected@file@percent }
+\newlabel{linguistic-patterns-in-context-switching}{{}{9}{5.1 Linguistic Patterns in Context Switching}{section*.35}{}}
+\newlabel{surface-level-markers}{{}{9}{5.1.1 Surface-Level Markers}{section*.36}{}}
+\@writefile{toc}{\contentsline {paragraph}{5.1.1 Surface-Level Markers}{9}{section*.36}\protected@file@percent }
+\newlabel{structural-elaboration}{{}{9}{5.1.2 Structural Elaboration}{section*.37}{}}
+\@writefile{toc}{\contentsline {paragraph}{5.1.2 Structural Elaboration}{9}{section*.37}\protected@file@percent }
+\gdef \LT@vi {\LT@entry 
+    {1}{73.0359pt}\LT@entry 
+    {3}{112.25818pt}\LT@entry 
+    {1}{143.58673pt}}
+\newlabel{semantic-integration}{{}{10}{5.1.3 Semantic Integration}{section*.38}{}}
+\@writefile{toc}{\contentsline {paragraph}{5.1.3 Semantic Integration}{10}{section*.38}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{5.2 Relationship to Training Data Patterns}{10}{section*.39}\protected@file@percent }
+\newlabel{relationship-to-training-data-patterns}{{}{10}{5.2 Relationship to Training Data Patterns}{section*.39}{}}
+\newlabel{educational-content}{{}{10}{5.2.1 Educational Content}{section*.40}{}}
+\@writefile{toc}{\contentsline {paragraph}{5.2.1 Educational Content}{10}{section*.40}\protected@file@percent }
+\newlabel{academic-writing}{{}{10}{5.2.2 Academic Writing}{section*.41}{}}
+\@writefile{toc}{\contentsline {paragraph}{5.2.2 Academic Writing}{10}{section*.41}\protected@file@percent }
+\newlabel{qa-platforms}{{}{10}{5.2.3 Q\&A Platforms}{section*.42}{}}
+\@writefile{toc}{\contentsline {paragraph}{5.2.3 Q\&A Platforms}{10}{section*.42}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{5.3 Distinction from RLHF Effects}{10}{section*.43}\protected@file@percent }
+\newlabel{distinction-from-rlhf-effects}{{}{10}{5.3 Distinction from RLHF Effects}{section*.43}{}}
+\@writefile{toc}{\contentsline {subsubsection}{5.4 Computational Implications}{10}{section*.44}\protected@file@percent }
+\newlabel{computational-implications}{{}{10}{5.4 Computational Implications}{section*.44}{}}
+\gdef \LT@vii {\LT@entry 
+    {1}{62.22026pt}\LT@entry 
+    {1}{85.08763pt}\LT@entry 
+    {1}{107.61179pt}\LT@entry 
+    {1}{101.96144pt}\LT@entry 
+    {1}{112.82881pt}}
+\newlabel{memory-pressure}{{}{11}{5.4.1 Memory Pressure}{section*.45}{}}
+\@writefile{toc}{\contentsline {paragraph}{5.4.1 Memory Pressure}{11}{section*.45}\protected@file@percent }
+\newlabel{serving-capacity}{{}{11}{5.4.2 Serving Capacity}{section*.46}{}}
+\@writefile{toc}{\contentsline {paragraph}{5.4.2 Serving Capacity}{11}{section*.46}\protected@file@percent }
+\newlabel{cost-implications}{{}{11}{5.4.3 Cost Implications}{section*.47}{}}
+\@writefile{toc}{\contentsline {paragraph}{5.4.3 Cost Implications}{11}{section*.47}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{6. Mitigation Strategies}{11}{section*.48}\protected@file@percent }
+\newlabel{mitigation-strategies}{{}{11}{6. Mitigation Strategies}{section*.48}{}}
+\@writefile{toc}{\contentsline {subsubsection}{6.1 Systematic Evaluation of Interventions}{11}{section*.49}\protected@file@percent }
+\newlabel{systematic-evaluation-of-interventions}{{}{11}{6.1 Systematic Evaluation of Interventions}{section*.49}{}}
+\@writefile{toc}{\contentsline {subsubsection}{6.2 Structured Output as Optimal Strategy}{11}{section*.50}\protected@file@percent }
+\newlabel{structured-output-as-optimal-strategy}{{}{11}{6.2 Structured Output as Optimal Strategy}{section*.50}{}}
+\gdef \LT@viii {\LT@entry 
+    {3}{108.45914pt}\LT@entry 
+    {1}{96.47925pt}\LT@entry 
+    {1}{91.83644pt}\LT@entry 
+    {3}{66.2469pt}}
+\@writefile{toc}{\contentsline {subsubsection}{6.3 Combining Strategies}{12}{section*.51}\protected@file@percent }
+\newlabel{combining-strategies}{{}{12}{6.3 Combining Strategies}{section*.51}{}}
+\@writefile{toc}{\contentsline {subsubsection}{6.4 Quality-Preserving Guidelines}{12}{section*.52}\protected@file@percent }
+\newlabel{quality-preserving-guidelines}{{}{12}{6.4 Quality-Preserving Guidelines}{section*.52}{}}
+\@writefile{toc}{\contentsline {subsection}{7. Discussion}{12}{section*.53}\protected@file@percent }
+\newlabel{discussion}{{}{12}{7. Discussion}{section*.53}{}}
+\@writefile{toc}{\contentsline {subsubsection}{7.1 Theoretical Implications}{12}{section*.54}\protected@file@percent }
+\newlabel{theoretical-implications}{{}{12}{7.1 Theoretical Implications}{section*.54}{}}
+\@writefile{toc}{\contentsline {subsubsection}{7.2 Practical Applications}{13}{section*.55}\protected@file@percent }
+\newlabel{practical-applications}{{}{13}{7.2 Practical Applications}{section*.55}{}}
+\newlabel{api-cost-optimization}{{}{13}{7.2.1 API Cost Optimization}{section*.56}{}}
+\@writefile{toc}{\contentsline {paragraph}{7.2.1 API Cost Optimization}{13}{section*.56}\protected@file@percent }
+\newlabel{serving-infrastructure-design}{{}{13}{7.2.2 Serving Infrastructure Design}{section*.57}{}}
+\@writefile{toc}{\contentsline {paragraph}{7.2.2 Serving Infrastructure Design}{13}{section*.57}\protected@file@percent }
+\newlabel{prompt-engineering-best-practices}{{}{13}{7.2.3 Prompt Engineering Best Practices}{section*.58}{}}
+\@writefile{toc}{\contentsline {paragraph}{7.2.3 Prompt Engineering Best Practices}{13}{section*.58}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{7.3 Limitations and Threats to Validity}{13}{section*.59}\protected@file@percent }
+\newlabel{limitations-and-threats-to-validity}{{}{13}{7.3 Limitations and Threats to Validity}{section*.59}{}}
+\newlabel{scope-constraints}{{}{13}{7.3.1 Scope Constraints}{section*.60}{}}
+\@writefile{toc}{\contentsline {paragraph}{7.3.1 Scope Constraints}{13}{section*.60}\protected@file@percent }
+\newlabel{task-domain-limitations}{{}{13}{7.3.2 Task Domain Limitations}{section*.61}{}}
+\@writefile{toc}{\contentsline {paragraph}{7.3.2 Task Domain Limitations}{13}{section*.61}\protected@file@percent }
+\newlabel{model-coverage}{{}{13}{7.3.3 Model Coverage}{section*.62}{}}
+\@writefile{toc}{\contentsline {paragraph}{7.3.3 Model Coverage}{13}{section*.62}\protected@file@percent }
+\newlabel{measurement-challenges}{{}{13}{7.3.4 Measurement Challenges}{section*.63}{}}
+\@writefile{toc}{\contentsline {paragraph}{7.3.4 Measurement Challenges}{13}{section*.63}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{7.4 Future Directions}{13}{section*.64}\protected@file@percent }
+\newlabel{future-directions}{{}{13}{7.4 Future Directions}{section*.64}{}}
+\newlabel{training-time-interventions}{{}{14}{7.4.1 Training-Time Interventions}{section*.65}{}}
+\@writefile{toc}{\contentsline {paragraph}{7.4.1 Training-Time Interventions}{14}{section*.65}\protected@file@percent }
+\newlabel{inference-time-control}{{}{14}{7.4.2 Inference-Time Control}{section*.66}{}}
+\@writefile{toc}{\contentsline {paragraph}{7.4.2 Inference-Time Control}{14}{section*.66}\protected@file@percent }
+\newlabel{cross-linguistic-analysis}{{}{14}{7.4.3 Cross-Linguistic Analysis}{section*.67}{}}
+\@writefile{toc}{\contentsline {paragraph}{7.4.3 Cross-Linguistic Analysis}{14}{section*.67}\protected@file@percent }
+\newlabel{human-ai-interaction-studies}{{}{14}{7.4.4 Human-AI Interaction Studies}{section*.68}{}}
+\@writefile{toc}{\contentsline {paragraph}{7.4.4 Human-AI Interaction Studies}{14}{section*.68}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{8. Conclusion}{14}{section*.69}\protected@file@percent }
+\newlabel{conclusion}{{}{14}{8. Conclusion}{section*.69}{}}
+\@writefile{toc}{\contentsline {subsection}{References}{15}{section*.70}\protected@file@percent }
+\newlabel{references}{{}{15}{References}{section*.70}{}}
+\@writefile{toc}{\contentsline {subsection}{Appendix A: Complete Experimental Prompts}{15}{section*.71}\protected@file@percent }
+\newlabel{appendix-a-complete-experimental-prompts}{{}{15}{Appendix A: Complete Experimental Prompts}{section*.71}{}}
+\@writefile{toc}{\contentsline {subsubsection}{Baseline Conditions (0 switches)}{15}{section*.72}\protected@file@percent }
+\newlabel{baseline-conditions-0-switches}{{}{15}{Baseline Conditions (0 switches)}{section*.72}{}}
+\@writefile{toc}{\contentsline {subsubsection}{Test Conditions with Varying Switches}{15}{section*.73}\protected@file@percent }
+\newlabel{test-conditions-with-varying-switches}{{}{15}{Test Conditions with Varying Switches}{section*.73}{}}
+\@writefile{toc}{\contentsline {subsubsection}{Multi-Domain Test Prompts}{15}{section*.74}\protected@file@percent }
+\newlabel{multi-domain-test-prompts}{{}{15}{Multi-Domain Test Prompts}{section*.74}{}}
+\@writefile{toc}{\contentsline {subsection}{Appendix B: Model Configuration and Parameters}{16}{section*.75}\protected@file@percent }
+\newlabel{appendix-b-model-configuration-and-parameters}{{}{16}{Appendix B: Model Configuration and Parameters}{section*.75}{}}
+\@writefile{toc}{\contentsline {subsubsection}{Primary Model: Claude 3.5 Sonnet}{16}{section*.76}\protected@file@percent }
+\newlabel{primary-model-claude-3.5-sonnet}{{}{16}{Primary Model: Claude 3.5 Sonnet}{section*.76}{}}
+\@writefile{toc}{\contentsline {subsubsection}{Validation Model: Qwen3:30B}{16}{section*.77}\protected@file@percent }
+\newlabel{validation-model-qwen330b}{{}{16}{Validation Model: Qwen3:30B}{section*.77}{}}
+\@writefile{toc}{\contentsline {subsubsection}{Data Collection Environment}{16}{section*.78}\protected@file@percent }
+\newlabel{data-collection-environment}{{}{16}{Data Collection Environment}{section*.78}{}}
+\@writefile{toc}{\contentsline {subsection}{Appendix C: Statistical Methods Detail}{17}{section*.79}\protected@file@percent }
+\newlabel{appendix-c-statistical-methods-detail}{{}{17}{Appendix C: Statistical Methods Detail}{section*.79}{}}
+\@writefile{toc}{\contentsline {subsubsection}{Primary Analysis: Context Establishment Cost (CEC)}{17}{section*.80}\protected@file@percent }
+\newlabel{primary-analysis-context-establishment-cost-cec}{{}{17}{Primary Analysis: Context Establishment Cost (CEC)}{section*.80}{}}
+\@writefile{toc}{\contentsline {subsubsection}{Bootstrap Confidence Intervals}{18}{section*.81}\protected@file@percent }
+\newlabel{bootstrap-confidence-intervals}{{}{18}{Bootstrap Confidence Intervals}{section*.81}{}}
+\@writefile{toc}{\contentsline {subsubsection}{Multiple Comparisons Correction}{18}{section*.82}\protected@file@percent }
+\newlabel{multiple-comparisons-correction}{{}{18}{Multiple Comparisons Correction}{section*.82}{}}
+\@writefile{toc}{\contentsline {subsubsection}{Effect Size Calculations}{19}{section*.83}\protected@file@percent }
+\newlabel{effect-size-calculations}{{}{19}{Effect Size Calculations}{section*.83}{}}
+\@writefile{toc}{\contentsline {subsection}{Appendix D: Component Analysis Methodology}{19}{section*.84}\protected@file@percent }
+\newlabel{appendix-d-component-analysis-methodology}{{}{19}{Appendix D: Component Analysis Methodology}{section*.84}{}}
+\@writefile{toc}{\contentsline {subsubsection}{Automated Categorization Implementation}{19}{section*.85}\protected@file@percent }
+\newlabel{automated-categorization-implementation}{{}{19}{Automated Categorization Implementation}{section*.85}{}}
+\@writefile{toc}{\contentsline {subsubsection}{Manual Validation Protocol}{20}{section*.86}\protected@file@percent }
+\newlabel{manual-validation-protocol}{{}{20}{Manual Validation Protocol}{section*.86}{}}
+\@writefile{toc}{\contentsline {subsection}{Appendix E: Reproduction Instructions}{21}{section*.87}\protected@file@percent }
+\newlabel{appendix-e-reproduction-instructions}{{}{21}{Appendix E: Reproduction Instructions}{section*.87}{}}
+\@writefile{toc}{\contentsline {subsubsection}{Quick Start (Minimal Reproduction)}{21}{section*.88}\protected@file@percent }
+\newlabel{quick-start-minimal-reproduction}{{}{21}{Quick Start (Minimal Reproduction)}{section*.88}{}}
+\@writefile{toc}{\contentsline {subsubsection}{Full Reproduction Protocol}{21}{section*.89}\protected@file@percent }
+\newlabel{full-reproduction-protocol}{{}{21}{Full Reproduction Protocol}{section*.89}{}}
+\@writefile{toc}{\contentsline {subsubsection}{Expected Outputs and Validation}{22}{section*.90}\protected@file@percent }
+\newlabel{expected-outputs-and-validation}{{}{22}{Expected Outputs and Validation}{section*.90}{}}
+\@writefile{toc}{\contentsline {subsubsection}{Troubleshooting Guide}{23}{section*.91}\protected@file@percent }
+\newlabel{troubleshooting-guide}{{}{23}{Troubleshooting Guide}{section*.91}{}}
+\@writefile{toc}{\contentsline {subsection}{Appendix F: Data and Code Availability}{23}{section*.92}\protected@file@percent }
+\newlabel{appendix-f-data-and-code-availability}{{}{23}{Appendix F: Data and Code Availability}{section*.92}{}}
+\@writefile{toc}{\contentsline {subsubsection}{Repository Structure}{23}{section*.93}\protected@file@percent }
+\newlabel{repository-structure}{{}{23}{Repository Structure}{section*.93}{}}
+\@writefile{toc}{\contentsline {subsubsection}{File Checksums (SHA-256)}{24}{section*.94}\protected@file@percent }
+\newlabel{file-checksums-sha-256}{{}{24}{File Checksums (SHA-256)}{section*.94}{}}
+\@writefile{toc}{\contentsline {subsubsection}{Zenodo Archive}{24}{section*.95}\protected@file@percent }
+\newlabel{zenodo-archive}{{}{24}{Zenodo Archive}{section*.95}{}}
+\@writefile{toc}{\contentsline {subsubsection}{Contact Information}{24}{section*.96}\protected@file@percent }
+\newlabel{contact-information}{{}{24}{Contact Information}{section*.96}{}}
+\gdef \@abspage@last{24}

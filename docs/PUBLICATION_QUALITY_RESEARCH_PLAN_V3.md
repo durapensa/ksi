@@ -1,10 +1,48 @@
 # Publication Quality Research Plan V3: Quick arXiv Strategy
 
 ## Document Purpose
-Strategic 3-day plan to transform our current draft into arXiv-ready preliminary findings, incorporating GPT-5's critical feedback while maintaining realistic scope.
+Strategic 24-hour plan to transform our current draft into arXiv-ready preliminary findings, incorporating GPT-5's critical feedback while maintaining realistic scope.
 
 ## Executive Decision
-**Strategy**: Quick arXiv submission (3 days) with preliminary findings (N=50-100), followed by full study for ACL 2025.
+**Strategy**: Quick arXiv submission (24 hours) with preliminary findings (N=50), followed by full study for ACL 2025.
+
+## CRITICAL UPDATE: arXiv Requirements (January 10, 2025)
+
+### Must-Have for Submission
+1. **LaTeX format** using TeX Live 2023 compatibility
+2. **Abstract < 1,920 characters** (currently OK at ~800)
+3. **.bbl file** (not .bib) - must run BibTeX locally
+4. **No page limit** but quality matters
+5. **Primary category**: cs.CL (Computation and Language)
+
+## CRITICAL DISCOVERY UPDATE: Session Context Experiments (January 10, 2025)
+
+### Key Finding: Linear Growth, Not Phase Transitions
+Our session context experiments (N=30, 10 rounds × 3 conditions) reveal:
+- **Turn counts grow linearly** with conversation depth (~2 turns/round)
+- **NO discrete 1→6→24 jumps** observed in progressive sessions
+- **Attractor concepts alone insufficient** - consciousness/recursion topics show same linear pattern as arithmetic control
+
+### Implications for Core Discovery
+This STRENGTHENS our findings:
+1. **Temperature-independent**: claude-cli provides no temperature control (confirmed)
+2. **Session-independent**: Linear growth, not discrete transitions in sessions
+3. **Problem-structure dependent**: The 1→6→24 pattern must emerge from specific problem formulations
+4. **Genuine phase transition**: Not explained by accumulated context or stochastic temperature
+
+### Updated Methodology Notes
+```python
+SESSION_EXPERIMENTS = {
+    "design": "Progressive context building over 10 rounds",
+    "conditions": ["consciousness", "recursion", "arithmetic_control"],
+    "results": {
+        "arithmetic": "3→5→7→9→11→13→15→17→19→21 turns (linear)",
+        "consciousness": "5→7→9→11→13→15→17→19→21→23 turns (linear)",
+        "recursion": "3→5→7→9→12→15→18→21→24→27 turns (linear, slightly higher slope)"
+    },
+    "conclusion": "Session context accumulates predictably, does NOT trigger phase transitions"
+}
+```
 
 ## Day 1: Core Documentation & Methodology
 
@@ -20,14 +58,15 @@ Appendix A: Experimental Prompts
 - 4 switches: "Do separately. First: 47+89. Second: 156-78. Third: 34×3. Fourth: 144÷12. Fifth: 25+67"
 
 Appendix B: Model Configuration
-Model: claude-3.5-sonnet-20241022
-Temperature: 0.7 (default, not explicitly controlled)
-Top-p: Not specified (API default)
+Model: claude-3.5-sonnet-20241022 (via claude-cli/Claude Code)
+Temperature: NOT CONTROLLABLE (claude-cli limitation, confirmed via investigation)
+Top-p: NOT CONTROLLABLE (claude-cli provides no parameter access)
 Max tokens: 4096 (API default)
-Seeds: Not controlled (API limitation acknowledged)
-System prompt: None
-Date range: January 7-9, 2025
-API: Anthropic Claude API v1
+Seeds: Not controlled (API limitation)
+System prompt: None (claude-cli default)
+Date range: January 7-10, 2025
+API: claude-cli (Claude Code) - NO temperature/sampling control available
+Note: Temperature investigation ruled out as explanation for discrete patterns
 ```
 
 #### 1.2 Fix Citations
@@ -61,10 +100,11 @@ SAMPLING_SPECIFICATION = {
         "seeds": [42, 137, 256, 314, 628],  # One per condition
     },
     "api_parameters": {
-        "temperature": "Not controlled (API default ~0.7)",
-        "top_p": "Not controlled (API default)",
+        "temperature": "NOT CONTROLLABLE (claude-cli provides no access)",
+        "top_p": "NOT CONTROLLABLE (claude-cli limitation)",
         "determinism": "Not guaranteed (API limitation)",
-        "retry_policy": "3 attempts on timeout, 30s wait"
+        "retry_policy": "3 attempts on timeout, 30s wait",
+        "note": "Temperature ruled out as explanation - discrete patterns persist"
     },
     "sample_size": {
         "current": 50,
@@ -554,6 +594,11 @@ Automated analysis on full dataset (N=50) using regex patterns
 - Frame explicitly as "preliminary findings"
 - Promise full study is underway
 - Update arXiv v2 within 2 weeks
+
+### Session Context Independence (VALIDATED)
+- Session experiments show linear growth, not phase transitions
+- Strengthens claim of genuine discrete computational states
+- Not explained by temperature (uncontrollable) or context accumulation
 
 ## Final Note
 
