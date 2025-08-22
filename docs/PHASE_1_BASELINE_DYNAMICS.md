@@ -12,12 +12,12 @@ Phase 1 establishes the empirical foundation for understanding agent dynamics in
 1. **Fix Capability Restrictions**
    - Resolve agents spawned with "base" capability unable to emit critical events
    - Add missing `state:entity:update` to capability mappings
-   - Ensure DSL interpreters can emit required events
+   - Ensure agents with llanguage comprehension can emit required events (agents ARE the interpreters)
    
-2. **Session Management Improvements**
-   - Fix sandbox_uuid state entity creation in transformers
-   - Ensure agent_spawned_state_create transformer fires reliably
-   - Validate conversation continuity across all agent types
+2. **State Entity Management**
+   - Ensure agent_spawned_state_create transformer fires reliably (needed for routing capability checks)
+   - Add verification after spawn to create state entity if transformer fails
+   - Validate state entities contain all required properties for capability enforcement
 
 3. **Event System Robustness**
    - Fix timestamp attribute errors in optimization service
@@ -31,6 +31,17 @@ Phase 1 establishes the empirical foundation for understanding agent dynamics in
 /beacon/events         # Access event logs
 /beacon/attestation    # Generate behavioral attestation
 /beacon/ready          # Federation readiness status
+```
+
+### llanguage v1 Bootstrap
+```yaml
+# Initialize llanguage for agent communication
+components/llanguage/bootstrap/v1.yaml:
+  primitives: [GET, SET, CALL, EVAL, SPAWN, FLOW]
+  principle: "LLMs interpret llanguage through comprehension, not code"
+  examples:
+    - "GET component | EVAL performance | CALL optimize"
+    - "SPAWN analyzer | GET data | SET insights"
 ```
 
 ## Week 3-4: Measurement Framework
