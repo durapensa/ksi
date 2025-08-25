@@ -869,6 +869,81 @@ async def handle_format_examples(data: Dict[str, Any], context: Optional[Dict[st
     }, context=context)
 
 
+@event_handler("optimization:metrics")
+async def handle_optimization_metrics(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Quick performance assessment for component without full optimization."""
+    try:
+        component = data.get("component")
+        content = data.get("content", "")
+        method = data.get("method", "quick_assessment")
+        
+        if not component:
+            return error_response("component path required", context=context)
+        
+        # Quick metrics collection
+        metrics = {}
+        
+        # Basic token count estimation
+        if content:
+            # Simple word count as token approximation
+            word_count = len(content.split())
+            metrics['estimated_tokens'] = int(word_count * 1.3)  # Rough token estimate
+            metrics['word_count'] = word_count
+            metrics['character_count'] = len(content)
+            
+            # Count lines and sections
+            lines = content.split('\n')
+            metrics['line_count'] = len(lines)
+            
+            # Count YAML frontmatter size if present
+            if content.startswith('---'):
+                parts = content.split('---', 2)
+                if len(parts) >= 3:
+                    import yaml
+                    try:
+                        fm = yaml.safe_load(parts[1])
+                        metrics['frontmatter_fields'] = len(fm) if isinstance(fm, dict) else 0
+                    except:
+                        metrics['frontmatter_fields'] = 0
+            
+            # Count template variables
+            import re
+            template_vars = re.findall(r'\{\{(\w+)\}\}', content)
+            metrics['template_variables'] = len(set(template_vars))
+            
+            # Estimate complexity based on structural patterns
+            complexity_score = 0
+            if 'dependencies' in content:
+                complexity_score += 1
+            if 'mixins' in content:
+                complexity_score += 1
+            if 'extends' in content:
+                complexity_score += 1
+            if 'orchestration_logic' in content:
+                complexity_score += 2
+            metrics['complexity_score'] = complexity_score
+            
+            # Performance class estimation
+            if metrics['estimated_tokens'] < 500:
+                performance_class = 'fast'
+            elif metrics['estimated_tokens'] < 1500:
+                performance_class = 'standard'
+            else:
+                performance_class = 'slow'
+            metrics['performance_class'] = performance_class
+        
+        return event_response_builder({
+            "status": "success",
+            "component": component,
+            "metrics": metrics,
+            "method": method
+        }, context=context)
+        
+    except Exception as e:
+        logger.error(f"Metrics collection failed: {e}")
+        return error_response(str(e), context=context)
+
+
 @event_handler("optimization:get_git_info")
 async def handle_get_git_info(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Get git-based optimization tracking information."""

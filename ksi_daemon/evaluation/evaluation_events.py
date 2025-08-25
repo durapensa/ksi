@@ -17,6 +17,7 @@ from ksi_common.config import config
 from ksi_daemon.event_system import event_handler, get_router
 from ksi_daemon.composition.composition_index import rebuild as rebuild_composition_index
 from .component_hasher import hash_component_at_path
+from .pre_certification_validator import pre_certification_validator
 
 logger = get_bound_logger("evaluation_events")
 
@@ -63,7 +64,8 @@ def generate_certificate(
     model: str,
     model_version_date: str = "2025-05-14",
     notes: Optional[List[str]] = None,
-    dependency_hashes: Optional[List[Dict[str, str]]] = None
+    dependency_hashes: Optional[List[Dict[str, str]]] = None,
+    validation_result: Optional[Dict[str, Any]] = None
 ) -> Dict:
     """Generate evaluation certificate for a component."""
     
@@ -113,6 +115,20 @@ def generate_certificate(
     
     if notes:
         certificate["results"]["notes"] = notes
+    
+    # Add validation results if provided
+    if validation_result:
+        certificate["validation"] = {
+            "structural_issues": validation_result.get('structural_issues', []),
+            "adaptations": validation_result.get('adaptations', []),
+            "performance_metrics": validation_result.get('performance_metrics', {}),
+            "git_version": validation_result.get('git_version'),
+            "requires_human_validation": validation_result.get('requires_human_validation', False)
+        }
+        
+        # Add performance metrics to results if collected from optimization
+        if validation_result.get('performance_metrics'):
+            certificate["results"]["performance_metrics"] = validation_result['performance_metrics']
     
     return certificate
 
@@ -203,7 +219,50 @@ async def handle_evaluation_run(data: EvaluationRunData, context: Optional[Dict[
             logger.error(f"Component not found at path: {component_path}, error: {e}")
             raise ValueError(f"Component not found: {component_path}")
         
-        # Extract dependencies from component metadata
+        # Run pre-certification validation BEFORE dependency checking (non-blocking per requirements)
+        logger.info(f"Running pre-certification validation for {component_path}")
+        try:
+            validation_result = await pre_certification_validator.validate_component(component_path, content)
+            logger.info(f"Pre-certification validation completed for {component_path}: adaptations={len(validation_result.get('adaptations', []))}")
+        except Exception as e:
+            logger.error(f"Pre-certification validation failed: {e}")
+            # Continue with original content if validation fails
+            validation_result = {
+                'structural_issues': [],
+                'adaptations': [],
+                'performance_metrics': {},
+                'git_version': None,
+                'requires_human_validation': False,
+                'validation_passed': True,
+                'optimization_run': False
+            }
+        
+        # Log validation results
+        if validation_result['structural_issues']:
+            logger.warning(f"Component {component_path} has {len(validation_result['structural_issues'])} structural issues")
+            for issue in validation_result['structural_issues']:
+                logger.warning(f"  - {issue['type']}: {issue['message']}")
+        
+        if validation_result['adaptations']:
+            logger.info(f"Component {component_path} had {len(validation_result['adaptations'])} adaptations applied")
+            for adaptation in validation_result['adaptations']:
+                logger.info(f"  - {adaptation['type']}: {adaptation.get('old', '')} → {adaptation.get('new', '')}")
+        
+        # If adaptations were made, update the content and metadata BEFORE dependency checking
+        if validation_result['adaptations']:
+            # Re-parse the adapted content
+            adapted_content = validation_result.get('adapted_content', content)
+            if adapted_content and adapted_content != content:
+                logger.info(f"Using adapted content for evaluation of {component_path}")
+                content = adapted_content
+                # Re-extract metadata from adapted content for dependency checking
+                if content.startswith('---'):
+                    parts = content.split('---', 2)
+                    if len(parts) >= 3:
+                        metadata = yaml.safe_load(parts[1]) or metadata
+                        logger.info(f"Re-parsed metadata after adaptations: dependencies={metadata.get('dependencies', [])}")
+        
+        # NOW extract dependencies from corrected metadata
         dependencies = metadata.get('dependencies', [])
         dependency_hashes = []
         
@@ -312,7 +371,8 @@ async def handle_evaluation_run(data: EvaluationRunData, context: Optional[Dict[
             model=data['model'],
             model_version_date=model_version_date,
             notes=data.get('notes'),
-            dependency_hashes=dependency_hashes
+            dependency_hashes=dependency_hashes,
+            validation_result=validation_result
         )
         
         # Save certificate using the migrated function

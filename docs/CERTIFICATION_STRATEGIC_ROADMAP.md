@@ -102,6 +102,46 @@ certification_requirements:
     - certification_cascade: true
 ```
 
+## Pre-Certification Validation Workflow (Implemented)
+
+The pre-certification validation layer runs before certification attempts to:
+
+1. **Structural Validation**
+   - Check required frontmatter fields (component_type, name, version)
+   - Validate component types against standard types
+   - Detect template variables and ensure defaults
+   - Identify deprecated patterns
+
+2. **Dependency Validation**
+   - Verify all dependencies exist
+   - Check for incorrect path prefixes
+   - Validate extends and mixins paths
+   - Ensure dependency components are certified
+
+3. **Pattern Adaptation**
+   - Automatically fix "components/" prefix in dependencies
+   - Add missing component_type field (inferred from path)
+   - Update extends and mixins paths
+   - Apply other structural corrections
+
+4. **Performance Metrics Collection**
+   - Token count estimation
+   - Complexity scoring
+   - Performance class assignment
+   - Optional integration with optimization service
+
+5. **Git Version Tracking**
+   - Capture component version from git
+   - Track last modification date
+   - Include commit hash in certificates
+   - Enable version-specific certification
+
+6. **Human Validation Flagging**
+   - Identify components requiring manual review
+   - Flag security-critical components
+   - Mark compliance-related agents
+   - Track unresolved structural issues
+
 ## Integration with Optimization Service
 
 ### DSPy GEPA Addition
@@ -132,17 +172,19 @@ graph LR
 
 ## Technical Implementation Priorities
 
-### Phase 1: Foundation (Current)
+### Phase 1: Foundation (Complete)
 - ✅ Basic certification system
 - ✅ Automated workflow transformer
-- ⬜ Fix dependency path issues
-- ⬜ Add warnings to agent spawn
+- ✅ Fix dependency path issues
+- ✅ Add warnings to agent spawn
+- ✅ Add certification to discovery
+- ✅ Implement pre-certification validation
 
-### Phase 2: Enhancement (Next Week)
-- ⬜ Add certification to discovery
-- ⬜ Implement pre-certification validation
-- ⬜ Add DSPy GEPA support
+### Phase 2: Enhancement (Current)
+- ✅ Basic optimization metrics collection
+- ⬜ Full DSPy GEPA support
 - ⬜ Create optimization pipeline
+- ⬜ Automatic component adaptation during certification
 
 ### Phase 3: Advanced Features (Q2 2025)
 - ⬜ Certification levels (bronze/silver/gold)
@@ -196,3 +238,17 @@ graph LR
 *Document Status: Living Document*  
 *Last Updated: 2025-08-25*  
 *Next Review: 2025-09-01*
+
+## Implementation Notes (2025-08-25)
+
+**Pre-Certification Validation Implemented**:
+- Module: `ksi_daemon/evaluation/pre_certification_validator.py`
+- Integration: Runs automatically in `evaluation:run` event handler
+- Status: Non-blocking validation with warnings and adaptations
+- Performance metrics: Basic token counting and complexity scoring via `optimization:metrics` event
+
+**Key Implementation Details**:
+- Git version tracking captures component commit history
+- Pattern adaptation fixes common structural issues automatically
+- Certificates include validation results and performance metrics
+- Human validation flagging based on unresolved critical issues
