@@ -26,7 +26,7 @@ certify_component() {
     result=$(ksi send evaluation:run \
         --component_path "$component_path" \
         --test_suite "$test_suite" \
-        --model "claude-sonnet-4-20250514" 2>/dev/null || echo '{"status":"simulated"}')
+        --model "claude-cli/sonnet" 2>/dev/null || echo '{"status":"simulated"}')
     
     # For now, simulate certification since evaluation system may not be fully connected
     if [[ "$result" == *"simulated"* ]]; then

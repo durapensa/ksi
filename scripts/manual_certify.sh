@@ -65,7 +65,7 @@ EOF
     result=$(ksi send evaluation:run \
         --component_path "$component_path" \
         --test_suite "$test_suite" \
-        --model "claude-sonnet-4-20250514" \
+        --model "claude-cli/sonnet" \
         --test_results "$test_results" 2>&1 || echo "failed")
     
     if [[ "$result" == *"success"* ]] || [[ "$result" == *"certificate"* ]]; then
