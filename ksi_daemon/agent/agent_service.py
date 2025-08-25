@@ -1149,6 +1149,10 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
         
         await agent_emit_event(agent_id, "agent:spawned", spawn_data, propagate_agent_context(context))
         logger.info(f"Emitted agent:spawned event for {agent_id}")
+        
+        # Verify state entity was created by transformer, create if missing
+        # This is critical for routing capability checks
+        await verify_agent_state_entity(agent_id, spawn_data, context)
     
     return event_response_builder(
         {
@@ -1216,6 +1220,61 @@ async def handle_terminate_agent(data: Dict[str, Any], context: Optional[Dict[st
         context,
         errors=failed_errors if failed_errors else None
     )
+
+
+async def verify_agent_state_entity(agent_id: str, spawn_data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> bool:
+    """
+    Verify agent state entity was created, create if missing.
+    Critical for routing capability checks.
+    """
+    if not event_emitter:
+        return False
+        
+    # Check if state entity exists
+    result_list = await event_emitter("state:entity:get", {
+        "type": "agent",
+        "id": agent_id
+    }, propagate_agent_context(context))
+    
+    result = extract_single_response(result_list)
+    
+    if not result or result.get("status") != "success":
+        # State entity missing - create it directly
+        logger.warning(f"Agent {agent_id} missing state entity, creating...")
+        
+        # Create state entity with all spawn data
+        entity_data = {
+            "type": "agent",
+            "id": agent_id,
+            "properties": {
+                "agent_id": agent_id,
+                "sandbox_uuid": spawn_data.get("sandbox_uuid"),
+                "capabilities": spawn_data.get("capabilities", []),
+                "permission_profile": spawn_data.get("permission_profile", "standard"),
+                "status": "active",
+                "created_at": spawn_data.get("created_at"),
+                "spawned_by": spawn_data.get("spawned_by", "system"),
+                "model": spawn_data.get("model"),
+                "enable_tools": spawn_data.get("enable_tools", False),
+                "allowed_events": spawn_data.get("allowed_events", []),
+                "allowed_claude_tools": spawn_data.get("allowed_claude_tools", []),
+                "mcp_config_path": spawn_data.get("mcp_config_path"),
+                "component": spawn_data.get("component"),
+                "composition": spawn_data.get("composition")
+            }
+        }
+        
+        create_result_list = await event_emitter("state:entity:create", entity_data, propagate_agent_context(context))
+        create_result = extract_single_response(create_result_list)
+        
+        if create_result and create_result.get("status") == "success":
+            logger.info(f"Successfully created state entity for agent {agent_id}")
+            return True
+        else:
+            logger.error(f"Failed to create state entity for agent {agent_id}: {create_result}")
+            return False
+    
+    return True
 
 
 async def _resolve_target_agents(data: AgentTerminateData) -> List[str]:

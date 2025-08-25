@@ -339,7 +339,8 @@ class DSPyMIPROAdapter(BaseOptimizer):
         # Update frontmatter with optimization metadata
         frontmatter["optimization"] = {
             "optimizer": self.get_optimizer_name(),
-            "timestamp": timestamp_utc(),
+            "timestamp": time.time(),  # Numeric for processing
+            "timestamp_iso": timestamp_utc(),  # ISO for display
             "auto_mode": self.mipro_init_config.get("auto"),
             "num_trials": self.mipro_compile_config.get("num_trials", "auto"),
             "trainset_size": len(dspy_trainset),

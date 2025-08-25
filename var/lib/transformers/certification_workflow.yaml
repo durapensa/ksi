@@ -1,0 +1,176 @@
+name: certification_workflow
+version: 1.0.0
+description: Automated component certification workflow transformer
+author: ksi-certification
+created: 2025-01-28
+
+# Triggers certification when components are created or updated
+triggers:
+  - event: composition:create_component
+  - event: composition:update_component
+  - event: certification:request
+
+transformers:
+  # 1. Determine component type and select appropriate test suite
+  - name: select_test_suite
+    condition: |
+      event_name in ["composition:create_component", "composition:update_component", "certification:request"]
+    mapping:
+      component_type: |
+        data.get("component_type") or "persona"
+      test_suite: |
+        {
+          "persona": "persona_effectiveness",
+          "behavior": "behavior_certification",
+          "core": "core_functionality",
+          "workflow": "workflow_orchestration",
+          "tool": "tool_integration",
+          "evaluation": "evaluation_accuracy"
+        }.get(data.get("component_type", "persona"), "basic_effectiveness")
+    emit:
+      event: certification:suite_selected
+      data:
+        component_path: "{{data.name}}"
+        component_type: "{{component_type}}"
+        test_suite: "{{test_suite}}"
+        auto_certify: true
+
+  # 2. Initiate evaluation run
+  - name: run_evaluation
+    condition: |
+      event_name == "certification:suite_selected"
+    emit:
+      event: evaluation:run
+      data:
+        component_path: "{{data.component_path}}"
+        test_suite: "{{data.test_suite}}"
+        model: "claude-sonnet-4-20250514"
+        certification_mode: true
+
+  # 3. Process evaluation results
+  - name: process_results
+    condition: |
+      event_name == "evaluation:complete" and data.get("certification_mode")
+    mapping:
+      certification_status: |
+        score = data.get("score", 0)
+        if score >= 0.90:
+          "certified"
+        elif score >= 0.85:
+          "certified" if data.get("component_type") != "core" else "provisional"
+        elif score >= 0.75:
+          "provisional"
+        else:
+          "uncertified"
+      certificate_id: "{{data.certificate_id}}"
+      score: "{{data.score}}"
+    emit:
+      event: certification:complete
+      data:
+        component_path: "{{data.component_path}}"
+        status: "{{certification_status}}"
+        certificate_id: "{{certificate_id}}"
+        score: "{{score}}"
+        test_suite: "{{data.test_suite}}"
+        model: "{{data.model}}"
+        timestamp: "{{_timestamp_iso}}"
+
+  # 4. Update component metadata with certification
+  - name: update_component_metadata
+    condition: |
+      event_name == "certification:complete"
+    emit:
+      event: composition:update_metadata
+      data:
+        component_path: "{{data.component_path}}"
+        metadata:
+          certification:
+            status: "{{data.status}}"
+            certificate_id: "{{data.certificate_id}}"
+            tested_on: "{{data.model}}"
+            test_date: "{{data.timestamp[:10]}}"
+            score: "{{data.score}}"
+            expires: "{{_future_date_90}}"
+            test_suite: "{{data.test_suite}}"
+
+  # 5. Log certification status
+  - name: log_certification
+    condition: |
+      event_name == "certification:complete"
+    mapping:
+      status_emoji: |
+        {
+          "certified": "🟢",
+          "provisional": "🟡",
+          "uncertified": "🔴"
+        }.get(data.get("status"), "⚫")
+    emit:
+      event: monitor:log
+      data:
+        level: "{{data.status == 'certified' and 'info' or 'warning'}}"
+        message: "{{status_emoji}} Component {{data.component_path}} certification: {{data.status}} (score: {{data.score}})"
+        component: "{{data.component_path}}"
+        certificate_id: "{{data.certificate_id}}"
+
+  # 6. Handle certification failures
+  - name: handle_failure
+    condition: |
+      event_name == "certification:complete" and data.get("status") == "uncertified"
+    emit:
+      event: certification:failure_alert
+      data:
+        component_path: "{{data.component_path}}"
+        score: "{{data.score}}"
+        message: "Component failed certification. Consider deprecation if not fixable."
+        deprecation_candidate: true
+
+# Batch certification transformer
+batch_certification:
+  - name: batch_certify_request
+    condition: |
+      event_name == "certification:batch"
+    emit:
+      event: composition:query
+      data:
+        component_type: "{{data.component_type}}"
+        certification_status: "{{data.filter_status or 'all'}}"
+        _certification_batch: true
+
+  - name: process_batch_components
+    condition: |
+      event_name == "composition:query_result" and data.get("_certification_batch")
+    iterate: data.components
+    emit:
+      event: certification:request
+      data:
+        name: "{{item.name}}"
+        component_type: "{{item.component_type}}"
+        batch_id: "{{data._batch_id}}"
+
+# Recertification check
+recertification:
+  - name: check_expiration
+    schedule: "0 0 * * *"  # Daily at midnight
+    emit:
+      event: certification:check_expirations
+      
+  - name: process_expirations
+    condition: |
+      event_name == "certification:check_expirations"
+    emit:
+      event: composition:query
+      data:
+        certification_expires_before: "{{_future_date_7}}"  # 7 days warning
+        _recertification_check: true
+        
+  - name: trigger_recertification
+    condition: |
+      event_name == "composition:query_result" and data.get("_recertification_check")
+    iterate: data.components
+    emit:
+      event: certification:request
+      data:
+        name: "{{item.name}}"
+        component_type: "{{item.component_type}}"
+        reason: "recertification"
+        previous_certificate: "{{item.certification.certificate_id}}"

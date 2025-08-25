@@ -260,7 +260,8 @@ class DSPySIMBAAdapter(BaseOptimizer):
         # Update frontmatter with optimization metadata
         frontmatter["optimization"] = frontmatter.get("optimization", {})
         frontmatter["optimization"]["last_simba_update"] = {
-            "timestamp": timestamp_utc(),
+            "timestamp": time.time(),  # Numeric for processing
+            "timestamp_iso": timestamp_utc(),  # ISO for display
             "mini_batch_size": len(mini_batch),
             "steps": self.simba_config["max_steps"],
             "score_improvement": optimized_score - original_score

@@ -46,7 +46,7 @@ async def _capture_optimization_state(opt_id: str, state: str, data: Dict[str, A
         cm = get_context_manager()
         
         # Create a context for this optimization state
-        # timestamp_utc() returns a string, convert to timestamp for event_id
+        # Use numeric timestamp for event_id and internal processing
         current_time = time.time()
         optimization_context = await cm.create_context(
             event_id=f"optimization_state_{opt_id}_{state}_{int(current_time)}",
@@ -64,7 +64,8 @@ async def _capture_optimization_state(opt_id: str, state: str, data: Dict[str, A
             "signature": data.get("signature"),
             "metric": data.get("metric"),
             "config": data.get("config", {}),
-            "timestamp": timestamp_utc(),
+            "timestamp": current_time,  # Use numeric timestamp
+            "timestamp_iso": timestamp_utc(),  # Add ISO string for display
             "metadata": metadata or {}
         }
         
@@ -527,7 +528,8 @@ async def run_optimization_subprocess(opt_id: str, data: Dict[str, Any], context
         # Emit cancellation event
         await router.emit("optimization:cancelled", {
             "optimization_id": opt_id,
-            "timestamp": timestamp_utc()
+            "timestamp": time.time(),  # Numeric for processing
+            "timestamp_iso": timestamp_utc()  # ISO for display
         })
         
         raise
