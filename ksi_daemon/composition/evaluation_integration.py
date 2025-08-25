@@ -105,7 +105,8 @@ class EvaluationIntegration:
                 placeholders = ','.join(['?' for _ in file_paths])
                 
                 eval_sql = f"""
-                    SELECT component_path, status, model, performance_class, evaluation_date
+                    SELECT component_path, status, model, performance_class, evaluation_date,
+                           certificate_id, tests_passed, tests_total, test_suite
                     FROM evaluations
                     WHERE component_path IN ({placeholders})
                     AND (component_path, evaluation_date) IN (
@@ -117,12 +118,48 @@ class EvaluationIntegration:
                 """
                 
                 eval_cursor = conn.execute(eval_sql, file_paths + file_paths)
-                eval_data = {row[0]: {
-                    'tested': True,
-                    'latest_status': row[1],
-                    'model': row[2],
-                    'performance_class': row[3] or 'standard'
-                } for row in eval_cursor}
+                eval_data = {}
+                for row in eval_cursor:
+                    # Calculate if certification is expired (1 year validity)
+                    from datetime import datetime, timedelta, timezone
+                    try:
+                        if row[4]:
+                            # Handle both timezone-aware and naive datetime strings
+                            eval_date_str = row[4]
+                            if 'Z' in eval_date_str:
+                                eval_date = datetime.fromisoformat(eval_date_str.replace('Z', '+00:00'))
+                            elif '+' in eval_date_str or '-' in eval_date_str[-6:]:
+                                eval_date = datetime.fromisoformat(eval_date_str)
+                            else:
+                                # Naive datetime - assume UTC
+                                eval_date = datetime.fromisoformat(eval_date_str).replace(tzinfo=timezone.utc)
+                            
+                            expires_at = eval_date + timedelta(days=365)
+                            is_expired = datetime.now(timezone.utc) > expires_at
+                            expires_at_str = expires_at.isoformat()
+                        else:
+                            eval_date = None
+                            expires_at_str = None
+                            is_expired = False
+                    except Exception as e:
+                        logger.debug(f"Error processing evaluation date: {e}")
+                        eval_date = None
+                        expires_at_str = None
+                        is_expired = False
+                    
+                    eval_data[row[0]] = {
+                        'tested': True,
+                        'status': row[1],
+                        'model': row[2],
+                        'performance_class': row[3] or 'standard',
+                        'certificate_id': row[5],
+                        'tests_passed': row[6],
+                        'tests_total': row[7],
+                        'test_suite': row[8],
+                        'evaluation_date': row[4],
+                        'expires_at': expires_at_str,
+                        'expired': is_expired
+                    }
                 
                 # Merge evaluation data into compositions
                 for comp in compositions:

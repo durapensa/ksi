@@ -1154,18 +1154,61 @@ async def handle_spawn_agent(data: Dict[str, Any], context: Optional[Dict[str, A
         # This is critical for routing capability checks
         await verify_agent_state_entity(agent_id, spawn_data, context)
     
-    return event_response_builder(
-        {
-            "agent_id": agent_id,
-            "status": "created",
-            "component": compose_name,
-            "composition": compose_name,
-            # session_id intentionally omitted - managed by completion system
-            "config": agent_config,
-            "metadata_namespace": f"metadata:agent:{agent_id}"
-        },
-        context=context
-    )
+    # Check component certification status
+    warnings = []
+    if compose_name:
+        # For now, check if certification file exists
+        # This is more efficient than doing a full discovery during spawn
+        import os
+        from pathlib import Path
+        
+        cert_dir = Path(config.evaluations_dir) / "certificates" / "latest"
+        
+        # Extract component name for certificate check
+        comp_name = Path(compose_name).stem
+        logger.debug(f"Checking certification for component: {compose_name}, stem: {comp_name}, cert_dir: {cert_dir}")
+        
+        # Look for any certificate file for this component
+        has_cert = False
+        if cert_dir.exists():
+            cert_pattern = f"{comp_name}_*.yaml"
+            logger.debug(f"Looking for certificates matching: {cert_pattern}")
+            cert_files = list(cert_dir.glob(cert_pattern))
+            if cert_files:
+                has_cert = True
+                logger.debug(f"Found {len(cert_files)} certificate(s) for {comp_name}")
+            else:
+                logger.debug(f"No certificates found matching pattern {cert_pattern}")
+        else:
+            logger.debug(f"Certificate directory does not exist: {cert_dir}")
+        
+        if not has_cert:
+            warnings.append({
+                "type": "certification",
+                "message": f"Component '{compose_name}' is not certified",
+                "severity": "medium"
+            })
+            logger.info(f"Component {compose_name} is not certified (no certificate found)")
+        else:
+            logger.info(f"Component {compose_name} has certification")
+    
+    # Build response with warnings if present
+    response_data = {
+        "agent_id": agent_id,
+        "status": "created",
+        "component": compose_name,
+        "composition": compose_name,
+        # session_id intentionally omitted - managed by completion system
+        "config": agent_config,
+        "metadata_namespace": f"metadata:agent:{agent_id}"
+    }
+    
+    # Add warnings if any exist
+    if warnings:
+        response_data["warnings"] = warnings
+        logger.info(f"Adding {len(warnings)} warning(s) to agent spawn response for {agent_id}")
+    
+    return event_response_builder(response_data, context=context)
 
 
 @event_handler("agent:terminate", schema=AgentTerminateData)
