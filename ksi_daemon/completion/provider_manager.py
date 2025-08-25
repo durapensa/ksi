@@ -161,6 +161,11 @@ class ProviderManager:
             # Check model support
             if "*" in config["models"] or model in config["models"]:
                 candidates.append((name, config))
+            # Special handling for Claude models that should use CLI
+            elif name == "claude-cli" and model.startswith("claude-"):
+                # Map claude-* models to claude-cli/sonnet
+                # This ensures evaluation with claude-sonnet-4-20250514 uses CLI
+                candidates.append((name, config))
         
         if not candidates:
             # Check if any circuits are open

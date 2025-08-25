@@ -714,7 +714,12 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
             data["conversation_id"] = f"ksi-{request_id}"
         
         # Ensure model is set in data for litellm
-        if "model" not in data:
+        # If claude-cli provider was selected, transform model name to use the custom provider
+        if provider_name == "claude-cli" and not model.startswith("claude-cli/"):
+            # Map claude models to claude-cli/sonnet for the custom provider
+            logger.info(f"Transforming model {model} to claude-cli/sonnet for claude-cli provider")
+            data["model"] = "claude-cli/sonnet"
+        elif "model" not in data:
             data["model"] = model
         
         # Provider-aware conversation management
@@ -724,7 +729,9 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
         # Stateful providers: claude-cli only
         # Stateless providers: everything else (openai, anthropic, gemini-cli, etc via litellm)
         stateless_provider = True
-        if model.startswith("claude-cli/"):
+        # Check the actual model in data (which may have been transformed)
+        actual_model = data.get("model", model)
+        if actual_model.startswith("claude-cli/") or provider_name == "claude-cli":
             stateless_provider = False
         
         # For stateless providers, load conversation history using agent_id as conversation_id
@@ -772,7 +779,8 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
         
         # For agent requests, ensure sandbox_uuid is available for CLI providers
         agent_id = data.get("agent_id")
-        if agent_id and model.startswith(("claude-cli/", "gemini-cli/")):
+        # Check both model prefix and provider_name to catch transformed models
+        if agent_id and (model.startswith(("claude-cli/", "gemini-cli/")) or provider_name == "claude-cli"):
             # Retrieve sandbox_uuid from agent state entity
             try:
                 logger.debug(f"Attempting to query state entity for agent {agent_id}")
