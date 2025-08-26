@@ -204,6 +204,10 @@ class EventDaemonCore:
         # Optimization modules
         import ksi_daemon.optimization.optimization_service
         
+        # Metrics modules (empirical laboratory)
+        import ksi_daemon.metrics.fairness_service
+        import ksi_daemon.metrics.hierarchy_service
+        
         # Scheduler module (event scheduling and TTL)
         import ksi_daemon.scheduler.scheduler_events
         

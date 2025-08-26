@@ -11,12 +11,12 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from ksi_common.sync_client import SyncClient
+from ksi_common.sync_client import MinimalSyncClient
 
 
 async def setup_metric_routing():
     """Setup routing rules to capture agent interactions."""
-    client = SyncClient()
+    client = MinimalSyncClient()
     
     print("🔧 Setting up routing rules for metric collection...")
     
@@ -75,7 +75,7 @@ async def setup_metric_routing():
 
 async def test_fairness_calculation():
     """Test fairness metric calculations."""
-    client = SyncClient()
+    client = MinimalSyncClient()
     
     print("\n📊 Testing fairness calculations...")
     
@@ -138,7 +138,7 @@ async def test_fairness_calculation():
 
 async def test_hierarchy_detection():
     """Test hierarchy detection."""
-    client = SyncClient()
+    client = MinimalSyncClient()
     
     print("\n👑 Testing hierarchy detection...")
     
@@ -174,7 +174,7 @@ async def test_hierarchy_detection():
 
 async def test_agency_measurement():
     """Test agency preservation metrics."""
-    client = SyncClient()
+    client = MinimalSyncClient()
     
     print("\n🤖 Testing agency preservation...")
     
@@ -205,7 +205,7 @@ async def test_agency_measurement():
 
 async def test_exploitation_detection():
     """Test exploitation pattern detection."""
-    client = SyncClient()
+    client = MinimalSyncClient()
     
     print("\n⚠️ Testing exploitation detection...")
     
