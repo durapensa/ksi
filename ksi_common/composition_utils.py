@@ -61,16 +61,19 @@ def resolve_composition_path(name: str, comp_type: str = 'component') -> Optiona
     return find_component_file(base_path, name)
 
 
-def load_composition_with_metadata(name: str, comp_type: str = 'component') -> Tuple[Dict[str, Any], str, Path]:
+def load_composition_with_metadata(name: str, comp_type: str = 'component', preserve_raw: bool = False) -> Tuple[Dict[str, Any], str, Path]:
     """
     Load a composition file with its metadata.
     
     Args:
         name: The composition name
         comp_type: The composition type
+        preserve_raw: If True, content will be raw file content with frontmatter
         
     Returns:
         Tuple of (metadata, content, file_path)
+        - If preserve_raw=False: (metadata, body_content, file_path)
+        - If preserve_raw=True: (metadata, raw_content, file_path)
         
     Raises:
         FileNotFoundError: If composition not found
@@ -81,10 +84,16 @@ def load_composition_with_metadata(name: str, comp_type: str = 'component') -> T
     if not file_path:
         raise FileNotFoundError(f"Composition '{name}' of type '{comp_type}' not found")
     
-    # Load using shared loader
-    metadata, content = load_component_file(file_path)
-    
-    return metadata, content, file_path
+    if preserve_raw:
+        # Get raw content for validation purposes
+        raw_content = load_component_file(file_path, preserve_raw=True)
+        # Still need metadata, so load normally too
+        metadata, _ = load_component_file(file_path, preserve_raw=False)
+        return metadata, raw_content, file_path
+    else:
+        # Load using shared loader normally
+        metadata, content = load_component_file(file_path)
+        return metadata, content, file_path
 
 
 def normalize_composition_name(name: str) -> str:

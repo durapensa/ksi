@@ -65,7 +65,8 @@ def generate_certificate(
     model_version_date: str = "2025-05-14",
     notes: Optional[List[str]] = None,
     dependency_hashes: Optional[List[Dict[str, str]]] = None,
-    validation_result: Optional[Dict[str, Any]] = None
+    validation_result: Optional[Dict[str, Any]] = None,
+    validation_warnings: Optional[List[str]] = None
 ) -> Dict:
     """Generate evaluation certificate for a component."""
     
@@ -125,6 +126,10 @@ def generate_certificate(
             "git_version": validation_result.get('git_version'),
             "requires_human_validation": validation_result.get('requires_human_validation', False)
         }
+    
+    # Add validation warnings if provided
+    if validation_warnings:
+        certificate["validation_warnings"] = validation_warnings
         
         # Add performance metrics to results if collected from optimization
         if validation_result.get('performance_metrics'):
@@ -213,16 +218,62 @@ async def handle_evaluation_run(data: EvaluationRunData, context: Optional[Dict[
         
         try:
             logger.info(f"Attempting to load component: {component_path} (type: {comp_type})")
-            metadata, content, full_path = load_composition_with_metadata(component_path, comp_type)
-            logger.info(f"Successfully loaded component from: {full_path}")
+            # Load both parsed and raw content cleanly
+            metadata, content, full_path = load_composition_with_metadata(component_path, comp_type, preserve_raw=False)
+            _, raw_content, _ = load_composition_with_metadata(component_path, comp_type, preserve_raw=True)
+            logger.info(f"Successfully loaded component from: {full_path} (raw content: {len(raw_content)} chars)")
         except FileNotFoundError as e:
             logger.error(f"Component not found at path: {component_path}, error: {e}")
             raise ValueError(f"Component not found: {component_path}")
         
+        # Initialize validation warnings list for non-blocking issues
+        validation_warnings = []
+        
+        # Check if this component version is already validated/certified
+        component_hash_info = hash_component_at_path(str(full_path))
+        component_hash = component_hash_info['hash']
+        
+        # Load registry once for both version checking and dependency validation
+        registry_path = config.evaluations_dir / "registry.yaml"
+        registry = {}
+        if registry_path.exists():
+            with open(registry_path, 'r') as f:
+                registry = yaml.safe_load(f) or {}
+        
+        components_registry = registry.get('components', {})
+        registered_hashes = set(components_registry.keys())
+        
+        # Check if this exact version is already validated
+        if component_hash in components_registry:
+            existing_evals = components_registry[component_hash].get('evaluations', [])
+            # Check if already has passing evaluation for this test suite
+            has_passing = any(
+                eval.get('status') == 'passing' and 
+                eval.get('test_suite') == data['test_suite'] and
+                eval.get('model') == data['model']
+                for eval in existing_evals
+            )
+            
+            if has_passing:
+                logger.info(f"Component {component_path} (hash: {component_hash}) already has passing evaluation, skipping re-validation")
+                # Return the existing certificate info
+                matching_cert = next(
+                    eval for eval in existing_evals 
+                    if eval.get('status') == 'passing' and 
+                    eval.get('test_suite') == data['test_suite'] and
+                    eval.get('model') == data['model']
+                )
+                return event_response_builder({
+                    'status': 'already_validated',
+                    'certificate_id': matching_cert['certificate_id'],
+                    'component_hash': component_hash,
+                    'message': f"Component already validated with certificate {matching_cert['certificate_id']}"
+                }, context)
+        
         # Run pre-certification validation BEFORE dependency checking (non-blocking per requirements)
         logger.info(f"Running pre-certification validation for {component_path}")
         try:
-            validation_result = await pre_certification_validator.validate_component(component_path, content)
+            validation_result = await pre_certification_validator.validate_component(component_path, raw_content)
             logger.info(f"Pre-certification validation completed for {component_path}: adaptations={len(validation_result.get('adaptations', []))}")
         except Exception as e:
             logger.error(f"Pre-certification validation failed: {e}")
@@ -251,16 +302,23 @@ async def handle_evaluation_run(data: EvaluationRunData, context: Optional[Dict[
         # If adaptations were made, update the content and metadata BEFORE dependency checking
         if validation_result['adaptations']:
             # Re-parse the adapted content
-            adapted_content = validation_result.get('adapted_content', content)
-            if adapted_content and adapted_content != content:
+            adapted_content = validation_result.get('adapted_content', raw_content)
+            if adapted_content and adapted_content != raw_content:
                 logger.info(f"Using adapted content for evaluation of {component_path}")
                 content = adapted_content
                 # Re-extract metadata from adapted content for dependency checking
-                if content.startswith('---'):
-                    parts = content.split('---', 2)
+                if adapted_content.startswith('---'):
+                    parts = adapted_content.split('---', 2)
                     if len(parts) >= 3:
                         metadata = yaml.safe_load(parts[1]) or metadata
+                        # Update content to just the body part (without frontmatter) for consistency
+                        content = parts[2].strip()
                         logger.info(f"Re-parsed metadata after adaptations: dependencies={metadata.get('dependencies', [])}")
+        
+        # Add structural issues to validation warnings
+        if validation_result.get('structural_issues'):
+            for issue in validation_result['structural_issues']:
+                validation_warnings.append(f"Structural issue: {issue.get('message', str(issue))}")
         
         # NOW extract dependencies from corrected metadata
         dependencies = metadata.get('dependencies', [])
@@ -270,15 +328,7 @@ async def handle_evaluation_run(data: EvaluationRunData, context: Optional[Dict[
         if dependencies:
             logger.info(f"Component {component_path} has {len(dependencies)} dependencies to verify")
             
-            # Load registry to check tested components
-            registry_path = config.evaluations_dir / "registry.yaml"
-            registry = {}
-            if registry_path.exists():
-                with open(registry_path, 'r') as f:
-                    registry = yaml.safe_load(f) or {}
-            
-            components_registry = registry.get('components', {})
-            registered_hashes = set(components_registry.keys())
+            # Registry already loaded above for version checking, reuse it
             
             for dep in dependencies:
                 # Resolve dependency path and hash
@@ -289,16 +339,18 @@ async def handle_evaluation_run(data: EvaluationRunData, context: Optional[Dict[
                     
                     logger.info(f"Checking dependency {dep}: hash={dep_hash}, in_registry={dep_hash in registered_hashes}")
                     
-                    # Check if dependency is tested
+                    # Check if dependency is tested - STRICT validation
                     if dep_hash not in registered_hashes:
+                        logger.error(f"Dependency {dep} (hash: {dep_hash}) must be evaluated before testing {component_path}")
                         return error_response(
                             f"Dependency {dep} (hash: {dep_hash}) must be evaluated before testing {component_path}",
                             context
                         )
                     
-                    # Check if dependency has passing evaluations
+                    # Check if dependency has passing evaluations - STRICT validation
                     dep_evaluations = components_registry[dep_hash].get('evaluations', [])
                     if not dep_evaluations:
+                        logger.error(f"Dependency {dep} has no evaluations recorded")
                         return error_response(
                             f"Dependency {dep} has no evaluations recorded",
                             context
@@ -312,6 +364,7 @@ async def handle_evaluation_run(data: EvaluationRunData, context: Optional[Dict[
                     
                     if not has_passing:
                         failed_statuses = list(set(eval.get('status', 'unknown') for eval in dep_evaluations))
+                        logger.error(f"Dependency {dep} must have at least one passing evaluation")
                         return error_response(
                             f"Dependency {dep} must have at least one passing evaluation (current statuses: {', '.join(failed_statuses)})",
                             context
@@ -372,7 +425,8 @@ async def handle_evaluation_run(data: EvaluationRunData, context: Optional[Dict[
             model_version_date=model_version_date,
             notes=data.get('notes'),
             dependency_hashes=dependency_hashes,
-            validation_result=validation_result
+            validation_result=validation_result,
+            validation_warnings=validation_warnings
         )
         
         # Save certificate using the migrated function

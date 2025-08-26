@@ -137,17 +137,19 @@ def extract_file_type(file_path: Path) -> str:
         return 'unknown'
 
 
-def load_component_file(file_path: Path) -> Tuple[Dict[str, Any], str]:
+def load_component_file(file_path: Path, preserve_raw: bool = False) -> Union[Tuple[Dict[str, Any], str], str]:
     """
     Load a component from YAML, Markdown, or JSON file.
     
     Args:
         file_path: Path to component file
+        preserve_raw: If True, return raw file content instead of parsed
         
     Returns:
-        Tuple of (metadata dict, content string)
-        - For YAML/JSON files: (data, '')
-        - For MD files: (frontmatter, content)
+        If preserve_raw=False: Tuple of (metadata dict, content string)
+            - For YAML/JSON files: (data, '')
+            - For MD files: (frontmatter, content)
+        If preserve_raw=True: Raw file content as string
         
     Raises:
         FileNotFoundError: If file doesn't exist
@@ -155,6 +157,10 @@ def load_component_file(file_path: Path) -> Tuple[Dict[str, Any], str]:
     """
     if not file_path.exists():
         raise FileNotFoundError(f"Component file not found: {file_path}")
+    
+    # If preserve_raw is True, return the raw content immediately
+    if preserve_raw:
+        return file_path.read_text(encoding='utf-8')
     
     file_type = extract_file_type(file_path)
     

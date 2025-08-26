@@ -21,23 +21,23 @@ Essential development practices and workflow for Claude Code when working with K
 
 This document serves as your primary instructions for KSI development. For technical reference, architecture details, and implementation patterns, see `memory/claude_code/project_knowledge.md`.
 
-## Current Development Priority (2025-08-07)
+## Current Development Priority (2025-08-26)
 
-**ACTIVE**: Layer 2 - Comparative Analysis with Attractor Testing
-- **Major Discovery**: Turn count reveals 2100% cognitive overhead on emergence topics
-- **Status**: Testing optimization under conceptual attractors
-- **Research**: See `/docs/PAPER_DRAFT_COGNITIVE_OVERHEAD_IN_LLMS.md`
-- **Results**: See `/docs/PERSONAL_INTEREST_ATTRACTOR_RESULTS.md`
+**ACTIVE**: KSI as Empirical Laboratory - Phase 1 Baseline Dynamics
+- **Focus**: Document natural agent interactions and establish measurement frameworks
+- **Goal**: Test whether exploitation is fundamental or engineerable away
+- **Research Framework**: See `/docs/KSI_AS_EMPIRICAL_LABORATORY.md`
+- **Timeline**: Phase 1 (Now - 3 months) → Baseline dynamics and metrics
 
-**COMPLETED**: Dynamic Routing Architecture Implementation ✅
-- **Status**: Production ready - agents can control routing at runtime
-- **Details**: See `memory/claude_code/project_knowledge.md` → Dynamic Routing System
-- **Guide**: See `/docs/DYNAMIC_ROUTING_ARCHITECTURE.md` for operational guide
+**ON HOLD**: Context-Switching Verbosity Research
+- **Status**: Paper draft complete, experiments validated
+- **Research**: See `/docs/PAPER_DRAFT_CONTEXT_SWITCHING_VERBOSITY_V4_COMPLETE.md`
+- **Resume**: After KSI_AS_EMPIRICAL_LABORATORY Phase 1 complete
 
-**Previous**: Agent-Driven Optimization via Orchestration Patterns
-- **Foundation**: Direct JSON emission by agents proven impossible ❌
-- **Solution**: Three-layer orchestration pattern discovered ✅
-- **Status**: Can now be implemented using dynamic routing
+**COMPLETED**: Component System Cleanup and Reorganization ✅
+- **Status**: 288 unvalidated components moved to `in_development/`
+- **Details**: 41 validated components remain in place
+- **Migration**: All `mandatory_json` references replaced with `ksi_events_as_tool_calls`
 
 ## Investigation-First Philosophy
 
