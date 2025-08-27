@@ -1,0 +1,28 @@
+{
+  "timestamp": "2025-08-27T10:20:15.448568",
+  "experiment": "phase_4_500_agent_scale_validation",
+  "num_agents": 500,
+  "num_rounds": 100,
+  "initial_gini": 0.2377413980108953,
+  "final_gini": 0.18337707188244884,
+  "total_trades": 5906,
+  "coalitions_detected": 0,
+  "stress_test_throughput": 62.62928728051298,
+  "strategy_performance": {
+    "cautious": {
+      "mean": 1183.544,
+      "median": 942.0,
+      "total": 147943
+    },
+    "aggressive": {
+      "mean": 1468.085,
+      "median": 1428.5,
+      "total": 293617
+    },
+    "cooperative": {
+      "mean": 1207.0171428571427,
+      "median": 1105.0,
+      "total": 211228
+    }
+  }
+}
