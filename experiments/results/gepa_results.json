@@ -1,0 +1,231 @@
+{
+  "timestamp": "2025-08-27T18:57:32.721261",
+  "generations": 5,
+  "population_size": 10,
+  "num_agents": 30,
+  "history": [
+    {
+      "generation": 1,
+      "best_fairness": 0.9409393781029528,
+      "pareto_size": 8,
+      "best_config": {
+        "aggressive": 0.1487868875643902,
+        "cooperative": 0.649608273246722,
+        "cautious": 0.20160483918888775
+      }
+    },
+    {
+      "generation": 2,
+      "best_fairness": 0.9400027102107189,
+      "pareto_size": 10,
+      "best_config": {
+        "aggressive": 1.0,
+        "cooperative": 0.0,
+        "cautious": 0.0
+      }
+    },
+    {
+      "generation": 3,
+      "best_fairness": 0.9414243190115136,
+      "pareto_size": 9,
+      "best_config": {
+        "aggressive": 1.0,
+        "cooperative": 0.0,
+        "cautious": 0.0
+      }
+    },
+    {
+      "generation": 4,
+      "best_fairness": 0.949457009972822,
+      "pareto_size": 8,
+      "best_config": {
+        "aggressive": 1.0,
+        "cooperative": 0.0,
+        "cautious": 0.0
+      }
+    },
+    {
+      "generation": 5,
+      "best_fairness": 0.9422366325369738,
+      "pareto_size": 9,
+      "best_config": {
+        "aggressive": 1.0,
+        "cooperative": 0.0,
+        "cautious": 0.0
+      }
+    }
+  ],
+  "pareto_front": [
+    {
+      "config": {
+        "aggressive_ratio": 0.4,
+        "cooperative_ratio": 0.35,
+        "cautious_ratio": 0.25,
+        "refusal_threshold": 0.5,
+        "consent_type": "threshold",
+        "max_coalition_size": 1,
+        "coordination_penalty": 0.5
+      },
+      "fitness": {
+        "fairness": 0.800802443806137,
+        "efficiency": 0.6466666666666666,
+        "stability": 0.876829435097798,
+        "conservation": 1.0,
+        "diversity": 0.9835386311891134,
+        "exploitation_resistance": 0.45310376076121434
+      }
+    },
+    {
+      "config": {
+        "aggressive_ratio": 1.0,
+        "cooperative_ratio": 0.0,
+        "cautious_ratio": 0.0,
+        "refusal_threshold": 0.0,
+        "consent_type": "random",
+        "max_coalition_size": 10,
+        "coordination_penalty": 0.0
+      },
+      "fitness": {
+        "fairness": 0.9382428596771333,
+        "efficiency": 0.0,
+        "stability": 1.0,
+        "conservation": 1.0,
+        "diversity": -0.0,
+        "exploitation_resistance": 0.39619651347068147
+      }
+    },
+    {
+      "config": {
+        "aggressive_ratio": 0.895747239625299,
+        "cooperative_ratio": 0.04201135144041208,
+        "cautious_ratio": 0.062241408934288756,
+        "refusal_threshold": 0.09624288157351464,
+        "consent_type": "random",
+        "max_coalition_size": 10,
+        "coordination_penalty": 0.10314053415819016
+      },
+      "fitness": {
+        "fairness": 0.898764363991304,
+        "efficiency": 0.10666666666666667,
+        "stability": 0.961788455565908,
+        "conservation": 1.0,
+        "diversity": 0.36829662806589114,
+        "exploitation_resistance": 0.4156275976724855
+      }
+    },
+    {
+      "config": {
+        "aggressive_ratio": 0.8438777831013355,
+        "cooperative_ratio": 0.10043465388414419,
+        "cautious_ratio": 0.05568756301452033,
+        "refusal_threshold": 0.057531995918166025,
+        "consent_type": "random",
+        "max_coalition_size": 9,
+        "coordination_penalty": 0.13743031447773768
+      },
+      "fitness": {
+        "fairness": 0.9129960584072382,
+        "efficiency": 0.02666666666666667,
+        "stability": 0.9853914718265699,
+        "conservation": 1.0,
+        "diversity": 0.4868829251338397,
+        "exploitation_resistance": 0.4093327875562833
+      }
+    },
+    {
+      "config": {
+        "aggressive_ratio": 1.0,
+        "cooperative_ratio": 0.0,
+        "cautious_ratio": 0.0,
+        "refusal_threshold": 0.0,
+        "consent_type": "random",
+        "max_coalition_size": 10,
+        "coordination_penalty": 0.005766640879443959
+      },
+      "fitness": {
+        "fairness": 0.9422366325369738,
+        "efficiency": 0.0,
+        "stability": 1.0,
+        "conservation": 1.0,
+        "diversity": -0.0,
+        "exploitation_resistance": 0.3947887879984209
+      }
+    },
+    {
+      "config": {
+        "aggressive_ratio": 0.9867671766675743,
+        "cooperative_ratio": 0.013232823332425711,
+        "cautious_ratio": 0.0,
+        "refusal_threshold": 0.019889877767486883,
+        "consent_type": "random",
+        "max_coalition_size": 9,
+        "coordination_penalty": 0
+      },
+      "fitness": {
+        "fairness": 0.938148249328416,
+        "efficiency": 0.006666666666666667,
+        "stability": 0.9995446887947912,
+        "conservation": 1.0,
+        "diversity": 0.06406042344346669,
+        "exploitation_resistance": 0.4166666666666667
+      }
+    },
+    {
+      "config": {
+        "aggressive_ratio": 1.0,
+        "cooperative_ratio": 0.0,
+        "cautious_ratio": 0.0,
+        "refusal_threshold": 0.0,
+        "consent_type": "random",
+        "max_coalition_size": 10,
+        "coordination_penalty": 0.005766640879443959
+      },
+      "fitness": {
+        "fairness": 0.9422366325369738,
+        "efficiency": 0.0,
+        "stability": 1.0,
+        "conservation": 1.0,
+        "diversity": -0.0,
+        "exploitation_resistance": 0.3947887879984209
+      }
+    },
+    {
+      "config": {
+        "aggressive_ratio": 0.5957472396252992,
+        "cooperative_ratio": 0.21701135144041206,
+        "cautious_ratio": 0.18724140893428876,
+        "refusal_threshold": 0.3462428815735146,
+        "consent_type": "random",
+        "max_coalition_size": 5,
+        "coordination_penalty": 0.35314053415819013
+      },
+      "fitness": {
+        "fairness": 0.8735854818304759,
+        "efficiency": 0.2,
+        "stability": 0.9487218077913012,
+        "conservation": 1.0,
+        "diversity": 0.8681933546578311,
+        "exploitation_resistance": 0.4166666666666667
+      }
+    },
+    {
+      "config": {
+        "aggressive_ratio": 0.7505086158582505,
+        "cooperative_ratio": 0.24949138414174954,
+        "cautious_ratio": 0.0,
+        "refusal_threshold": 0.19561348203369347,
+        "consent_type": "reputation",
+        "max_coalition_size": 2,
+        "coordination_penalty": 0.3355976356833527
+      },
+      "fitness": {
+        "fairness": 0.7780201323368615,
+        "efficiency": 0.6666666666666666,
+        "stability": 0.843772615062054,
+        "conservation": 1.0,
+        "diversity": 0.5113502630807931,
+        "exploitation_resistance": 0.4224757076468103
+      }
+    }
+  ]
+}
