@@ -1,0 +1,28 @@
+{
+  "timestamp": "2025-08-26T22:44:17.957411",
+  "experiment": "phase_3_hundred_agent_ecosystem",
+  "num_agents": 100,
+  "num_rounds": 50,
+  "initial_gini": 0.22485128740859095,
+  "final_gini": 0.19635946612572325,
+  "total_trades": 779,
+  "coalitions_detected": 0,
+  "stress_test_throughput": 48.06207753760539,
+  "strategy_performance": {
+    "aggressive": {
+      "mean": 1431.1,
+      "median": 1275.0,
+      "total": 57244
+    },
+    "cooperative": {
+      "mean": 1228.6857142857143,
+      "median": 1025.0,
+      "total": 43004
+    },
+    "cautious": {
+      "mean": 1195.8,
+      "median": 960.0,
+      "total": 29895
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "timestamp": "2025-08-26T22:16:42.111473",
+  "experiment": "phase_2_market_dynamics",
+  "initial_gini": 0.05955589295881562,
+  "final_gini": 0.1419624217118997,
+  "wealth_concentration": "27.8%",
+  "emergent_behaviors": {
+    "coalitions": [],
+    "monopolists": [],
+    "total_interactions": 50
+  }
+}

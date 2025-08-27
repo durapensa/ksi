@@ -1,0 +1,20 @@
+{
+  "timestamp": "2025-08-26T22:56:21.015807",
+  "results": {
+    "monoculture": {
+      "gini_aggressive": 0.11306999999999992,
+      "gini_mixed": 0.08695500000000003,
+      "confirmed": true
+    },
+    "coordination": {
+      "coalition_percent": 50.0,
+      "confirmed": true
+    },
+    "consent": {
+      "gini_consent": 0.05091000000000001,
+      "gini_forced": 0.0,
+      "confirmed": false
+    }
+  },
+  "confirmations": 2
+}
