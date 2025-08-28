@@ -3,6 +3,8 @@
 Essential technical reference for developing with KSI (Knowledge System Infrastructure) - an event-driven system for autonomous AI agents with dynamic routing architecture.
 
 **Related Documents**: 
+- [Documentation Index](../../docs/DOCUMENTATION_INDEX.md) - Complete navigation for 200+ documents
+- [Empirical Laboratory](../../docs/KSI_AS_EMPIRICAL_LABORATORY.md) - Revolutionary finding: Intelligence naturally promotes fairness
 - [CLAUDE.md](../../CLAUDE.md) - Development workflow guide
 - [Context Reference Architecture](../../docs/CONTEXT_REFERENCE_ARCHITECTURE.md) - Dual-Path Context Architecture details
 - [KSI Transparency & Alignment Enhancements](../../docs/KSI_TRANSPARENCY_ALIGNMENT_ENHANCEMENTS.md) - AI safety research platform initiative

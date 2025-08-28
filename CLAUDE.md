@@ -19,25 +19,25 @@ Essential development practices and workflow for Claude Code when working with K
 
 **MANDATORY**: You MUST run `ksi discover` to understand system capabilities BEFORE attempting any development tasks.
 
-This document serves as your primary instructions for KSI development. For technical reference, architecture details, and implementation patterns, see `memory/claude_code/project_knowledge.md`.
+This document serves as your primary instructions for KSI development. For technical reference, architecture details, and implementation patterns, see `memory/claude_code/project_knowledge.md`. For complete documentation navigation and empirical findings, see `/docs/DOCUMENTATION_INDEX.md`.
 
-## Current Development Priority (2025-08-26)
+## Current Development Priority (2025-01-27)
 
-**ACTIVE**: KSI as Empirical Laboratory - Phase 1 Baseline Dynamics
-- **Focus**: Document natural agent interactions and establish measurement frameworks
-- **Goal**: Test whether exploitation is fundamental or engineerable away
-- **Research Framework**: See `/docs/KSI_AS_EMPIRICAL_LABORATORY.md`
-- **Timeline**: Phase 1 (Now - 3 months) → Baseline dynamics and metrics
+**REVOLUTIONARY DISCOVERY COMPLETE**: Intelligence Naturally Promotes Fairness ✅
+- **Finding**: Exploitation is NOT inherent to intelligence - it's a failure mode
+- **Evidence**: Strategic intelligence reduces inequality by 13-23% at scale
+- **Documentation**: See `/docs/DOCUMENTATION_INDEX.md` for complete findings
+- **Experimental Results**: See `/experiments/` for all data and analysis
 
-**ON HOLD**: Context-Switching Verbosity Research
-- **Status**: Paper draft complete, experiments validated
-- **Research**: See `/docs/PAPER_DRAFT_CONTEXT_SWITCHING_VERBOSITY_V4_COMPLETE.md`
-- **Resume**: After KSI_AS_EMPIRICAL_LABORATORY Phase 1 complete
+**READY FOR PUBLICATION**: Empirical Laboratory Findings
+- **Status**: Validated at 10, 100, and 500 agent scales
+- **Next**: Prepare for Nature Machine Intelligence submission
+- **Research Plan**: See `/docs/EMPIRICAL_FAIRNESS_RESEARCH_PLAN.md`
 
-**COMPLETED**: Component System Cleanup and Reorganization ✅
-- **Status**: 288 unvalidated components moved to `in_development/`
-- **Details**: 41 validated components remain in place
-- **Migration**: All `mandatory_json` references replaced with `ksi_events_as_tool_calls`
+**ENGINEERING TOOL BUILT**: GEPA (Genetic-Evolutionary Pareto Adapter) ✅
+- **Purpose**: Evolve fair ecosystem configurations
+- **Status**: Multi-objective optimization across 6 fitness functions
+- **Implementation**: See `/experiments/gepa_fairness_optimizer.py`
 
 ## Investigation-First Philosophy
 

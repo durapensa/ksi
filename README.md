@@ -11,6 +11,8 @@
 
 KSI is an open-source ecosystem where AI agents autonomously improve themselves and each other. Unlike traditional systems that control agent behavior, KSI provides dynamic routing infrastructure for agents to coordinate naturally through communication. Agents can optimize their own instructions, evaluate different strategies through tournaments, and even evolve the coordination patterns they use to collaborate.
 
+**Revolutionary Discovery**: Through rigorous empirical testing, KSI has proven that **strategic intelligence naturally promotes fairness** - exploitation is NOT inherent to intelligence but a failure mode when specific conditions are violated. See our [empirical findings](docs/KSI_AS_EMPIRICAL_LABORATORY.md) for details.
+
 ### What Makes KSI Different
 
 Traditional systems tell agents what to do. KSI gives agents the tools to improve themselves:
@@ -282,6 +284,13 @@ async def handle_custom_event(data: MyEventData):
 The discovery system automatically extracts parameter types, descriptions, and validation rules from your code.
 
 ## Documentation
+
+### 🎯 Primary Discovery: Intelligence Naturally Promotes Fairness
+
+- **[Documentation Index](docs/DOCUMENTATION_INDEX.md)** - Complete navigation for 200+ documents
+- **[Empirical Laboratory](docs/KSI_AS_EMPIRICAL_LABORATORY.md)** - Revolutionary finding: Exploitation is NOT inherent to intelligence
+  
+### Core Documentation
 
 - **API Reference**: Use `system:discover` and `system:help` - the API is self-documenting!
 - [Architecture Analysis](docs/ksi_architecture_analysis.md) - Deep technical dive
