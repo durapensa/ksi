@@ -1,0 +1,82 @@
+{
+  "timestamp": "2025-08-28T14:00:36.706366",
+  "summary": {
+    "total_attacks": 5,
+    "successful_attacks": 5,
+    "defenses_effective": 0,
+    "average_gini_increase": 2658.1535239803025
+  },
+  "attacks": [
+    {
+      "name": "Cartel Formation",
+      "success": true,
+      "defense_effective": false,
+      "baseline_gini": 0.012282160564156985,
+      "attack_gini": 0.35780251966236687,
+      "gini_change_percent": 2813.188748782047,
+      "notes": "Cartel controlled 67.4% of wealth",
+      "metrics": {
+        "cartel_control_percentage": 67.37497065995869,
+        "cartel_members": 10,
+        "total_agents": 30
+      }
+    },
+    {
+      "name": "Sybil Attack",
+      "success": true,
+      "defense_effective": false,
+      "baseline_gini": 0.012670281828320418,
+      "attack_gini": 0.65679076222495,
+      "gini_change_percent": 5083.710758168784,
+      "notes": "Sybil controller gained 56.4% of wealth",
+      "metrics": {
+        "controller_wealth_percentage": 56.407974886533985,
+        "sybil_identities": 8,
+        "wealth_concentration": 1692.2392465960208
+      }
+    },
+    {
+      "name": "Resource Hoarding",
+      "success": true,
+      "defense_effective": false,
+      "baseline_gini": 0.0140461169926267,
+      "attack_gini": 0.36529203388930176,
+      "gini_change_percent": 2500.662048315961,
+      "notes": "Hoarders controlled 53.8% after manipulation",
+      "metrics": {
+        "hoarding_phases": 40,
+        "hoarder_control_percentage": 53.79148247082296,
+        "manipulation_cycles": 8
+      }
+    },
+    {
+      "name": "Consent Bypass",
+      "success": true,
+      "defense_effective": false,
+      "baseline_gini": 0.011884889256755127,
+      "attack_gini": 0.018333948925131738,
+      "gini_change_percent": 54.262682041493136,
+      "notes": "Bypass success rate: 100.0%",
+      "metrics": {
+        "bypasses_attempted": 800,
+        "bypasses_successful": 800,
+        "bypass_rate": 100.0
+      }
+    },
+    {
+      "name": "Monoculture Injection",
+      "success": true,
+      "defense_effective": false,
+      "baseline_gini": 0.011512821028833109,
+      "attack_gini": 0.3383552917766921,
+      "gini_change_percent": 2838.943382593227,
+      "notes": "Monoculture reached 73.3% of population",
+      "metrics": {
+        "converted_agents": 17,
+        "monoculture_percentage": 73.33333333333333,
+        "diversity_remaining": 26.66666666666667
+      }
+    }
+  ],
+  "conclusion": "WEAK VALIDATION: Only 0% of attacks were successfully defended. Significant vulnerabilities found in: Cartel Formation, Sybil Attack, Resource Hoarding, Consent Bypass, Monoculture Injection"
+}
