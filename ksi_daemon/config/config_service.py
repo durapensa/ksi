@@ -71,8 +71,8 @@ CONFIG_BACKUP_DIR = config.daemon_tmp_dir / "backups" / "config"
 CONFIG_TYPES = {
     'daemon': {
         'base_dir': Path.cwd(),
-        'files': ['logging.yaml'],
         'format': 'yaml'
+        # No default files - daemon uses env vars and state DB
     },
     'composition': {
         'base_dir': config.compositions_dir,
