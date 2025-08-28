@@ -21,23 +21,14 @@ Essential development practices and workflow for Claude Code when working with K
 
 This document serves as your primary instructions for KSI development. For technical reference, architecture details, and implementation patterns, see `memory/claude_code/project_knowledge.md`. For complete documentation navigation and empirical findings, see `/docs/DOCUMENTATION_INDEX.md`.
 
-## Current Development Priority (2025-01-27)
+## Current Work Focus
 
-**REVOLUTIONARY DISCOVERY COMPLETE**: Intelligence Naturally Promotes Fairness ✅
-- **Finding**: Exploitation is NOT inherent to intelligence - it's a failure mode
-- **Evidence**: Strategic intelligence reduces inequality by 13-23% at scale
-- **Documentation**: See `/docs/DOCUMENTATION_INDEX.md` for complete findings
-- **Experimental Results**: See `/experiments/` for all data and analysis
+For current research priorities and roadmap, see:
+- **Research Roadmap**: `/docs/KSI_FUTURE_ROADMAP_V2.md` - Phases and priorities
+- **Documentation Hub**: `/docs/DOCUMENTATION_INDEX.md` - Complete navigation
+- **Research Plans**: `/docs/EMPIRICAL_FAIRNESS_RESEARCH_PLAN.md` - Publication strategy
 
-**READY FOR PUBLICATION**: Empirical Laboratory Findings
-- **Status**: Validated at 10, 100, and 500 agent scales
-- **Next**: Prepare for Nature Machine Intelligence submission
-- **Research Plan**: See `/docs/EMPIRICAL_FAIRNESS_RESEARCH_PLAN.md`
-
-**ENGINEERING TOOL BUILT**: GEPA (Genetic-Evolutionary Pareto Adapter) ✅
-- **Purpose**: Evolve fair ecosystem configurations
-- **Status**: Multi-objective optimization across 6 fitness functions
-- **Implementation**: See `/experiments/gepa_fairness_optimizer.py`
+Always check these documents for the latest priorities before starting new work.
 
 ## Investigation-First Philosophy
 
@@ -172,8 +163,8 @@ components/agents/ksi_aware_analyst.md
 {"event": "completion:async", "data": {"agent_id": "researcher", "prompt": "ANALYSIS: [analysis results]. Communication complete."}}
 ```
 
-**Critical Limitation Discovered (2025-01-27)**:
-- **Agents cannot reliably emit JSON directly** - Claude's default behavior overrides all prompt engineering attempts
+**Critical Limitation**:
+- **Agents cannot reliably emit JSON directly** - Claude's default behavior overrides prompt engineering attempts
 - **Solution**: Use dynamic routing patterns where agents analyze and routing transformers emit JSON
 
 **Working Pattern for Agent-Driven Optimization**:
@@ -182,11 +173,11 @@ components/agents/ksi_aware_analyst.md
 3. **Execution Layer**: System processes the JSON events
 4. See `components/workflows/agent_optimization_flow` for implementation
 
-### JSON Emission Patterns (VALIDATED 2025-01-27)
+### JSON Emission Patterns
 
-**PRODUCTION STATUS**: ✅ KSI tool use pattern validated and production-ready
+**PRODUCTION STATUS**: KSI tool use pattern is production-ready
 
-#### KSI Tool Use Pattern (PRODUCTION VALIDATED) ✅
+#### KSI Tool Use Pattern
 ```json
 {
   "type": "ksi_tool_use",
@@ -198,12 +189,6 @@ components/agents/ksi_aware_analyst.md
   }
 }
 ```
-
-**Validation Results**:
-- ✅ **100% success rate** in comprehensive agent testing
-- ✅ **4/4 event types** successfully extracted and processed
-- ✅ **End-to-end workflow** validation with state management
-- ✅ **Component integration** with base_agent.md v2.0.0
 
 **Implementation**:
 - **Use** `behaviors/communication/ksi_events_as_tool_calls` component
@@ -323,12 +308,12 @@ dependencies:
 - **Test suite definitions** → `components/evaluations/suites/`
 - **Runtime results** → `var/lib/evaluations/` (separate from components)
 
-### Self-Improving Agent Components (BOOTSTRAP COMPLETE) ✅
+### Self-Improving Agent Components
 
 **Foundation for Autonomous Improvement**:
-Agents can now optimize their own and other agents' instructions using KSI's optimization tools.
+Agents can optimize their own and other agents' instructions using KSI's optimization tools.
 
-**Bootstrap Components Created**:
+**Core Components**:
 ```bash
 # Core self-improvement personas
 personas/optimizers/self_improving_agent      # Optimizes any component
@@ -552,22 +537,18 @@ ksi send completion:async --agent-id my_agent --prompt "..."
 ksi send completion:async --session-id 943a3864-d5bb... --prompt "..."
 ```
 
-**Implementation Notes** (2025-01-05):
-- The `session_id` parameter still exists internally for completion system operations
+**Implementation Notes**:
+- The `session_id` parameter exists internally for completion system operations
 - Discovery filtering removes parameters with `cli_hidden=True` from public visibility
 - Agent_id provides automatic session continuity without exposing internal details
 
-### Session Continuity (FIXED 2025) ✅
+### Session Continuity
 
-**Problem Solved**: Claude CLI stores sessions by working directory
-- Root cause: Each request created new sandbox → Claude couldn't find previous sessions
-- Solution: Agent-based persistent sandboxes using UUIDs
-- Result: Agents maintain conversation continuity across requests
-
-**How it works**:
+**How it works**: Agent-based persistent sandboxes ensure conversation continuity
 1. Each agent gets a `sandbox_uuid` at spawn time
 2. All agent requests use same sandbox: `var/sandbox/agents/{uuid}/`
 3. Claude CLI finds all sessions for that agent in one location
+4. Conversation state persists across requests
 
 ## Git Workflow
 
@@ -603,8 +584,8 @@ git commit -m "Update composition submodule"
 - **Agents not responding**: Check if profile has `prompt` field
 - **JSON extraction failing**: Validate JSON format, verify legitimate KSI events
 - **Session management**: Never create session IDs, use returned values
-- **Conversation continuity** (FIXED 2025-01-07): Stateless providers now maintain perfect context
-  - **Solution**: Conversation indices at `var/logs/conversations/`
+- **Conversation continuity**: Stateless providers maintain context through indices
+  - **Location**: Conversation indices at `var/logs/conversations/`
   - **Details**: See `/docs/CONVERSATION_CONTINUITY_FIX_PLAN.md`
 - **sandbox_uuid missing error**: Agent state entity not created by transformer
   - **Workaround**: Manually create state entity: `ksi send state:entity:create --type agent --id "agent_id" --properties '{"sandbox_uuid": "uuid_from_agent_info"}'`
@@ -655,7 +636,7 @@ git commit -m "Update composition submodule"
 - **Then** use routing transformers for system integration (JSON events)
 - **Then** test each layer independently before integration
 
-**Proven Dynamic Routing Pattern** (2025-07-28):
+**Dynamic Routing Pattern**:
 1. **Analysis Layer**: Domain expert agents that understand the problem
 2. **Translation Layer**: JSON transformers that convert intent to events
 3. **Execution Layer**: System handlers that process the events
@@ -747,4 +728,4 @@ This pattern enables agents to effectively "optimize" components without fightin
 
 **Remember**: This is your workflow guide. For technical details, implementation patterns, and architecture, always refer to `memory/claude_code/project_knowledge.md`. For AI safety research initiatives and transparency enhancements, see `docs/KSI_TRANSPARENCY_ALIGNMENT_ENHANCEMENTS.md`.
 
-*Last updated: 2025-01-27*
+*See git log for update history*

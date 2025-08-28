@@ -33,8 +33,8 @@ Essential technical reference for developing with KSI (Knowledge System Infrastr
 - **Graph-based**: Entities form directed graphs with event routing
 - **Universal spawn**: Component type determines what gets created
 
-### Dynamic Routing Architecture (2025) ✅ PRODUCTION
-- **Orchestration system deprecated**: Completely removed (July 2025) - NO backward compatibility
+### Dynamic Routing Architecture (PRODUCTION)
+- **Orchestration system deprecated**: Completely removed - NO backward compatibility
 - **Two-layer architecture**: Agents control routing, Infrastructure (transformers + foreach) executes
 - **Runtime routing control**: Agents create/modify/delete routing rules via `routing:*` events
 - **Foreach transformers**: Multi-target emission replaces static orchestration patterns
@@ -42,7 +42,7 @@ Essential technical reference for developing with KSI (Knowledge System Infrastr
 - **Hierarchical routing**: Events bubble up based on subscription levels (0, 1, N, -1)
 - **Full implementation**: See `/docs/DYNAMIC_ROUTING_ARCHITECTURE.md` for complete technical details
 
-### Orchestration System Migration (2025-07-28) ✅ COMPLETED
+### Orchestration System Migration
 **BREAKING CHANGE - NO BACKWARD COMPATIBILITY**
 
 Technical changes implemented:
@@ -140,7 +140,7 @@ You are not Claude Assistant. You execute tasks directly and efficiently.
 
 ### Event Emission Patterns
 
-#### Tool Use Pattern (Production Validated) ✅
+#### Tool Use Pattern (Production)
 ```json
 {
   "type": "ksi_tool_use",
@@ -152,7 +152,7 @@ You are not Claude Assistant. You execute tasks directly and efficiently.
   }
 }
 ```
-- **Production Status**: Validated 2025-01-27 with 100% success rate
+- **Production Status**: Validated with 100% success rate
 - **Component**: `behaviors/communication/ksi_events_as_tool_calls` 
 - **Architecture**: Dual-path extraction engine in `ksi_common/tool_use_adapter.py`
 - **Validation**: 4/4 event types (agent:status, state:entity:create/update) successfully extracted
@@ -215,17 +215,17 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 - **Dynamic CLI**: Parameters discovered from handlers, not hardcoded
 - **Caching**: SQLite cache for expensive TypedDict analysis
 - **UX Enhancement**: Automatic namespace level when filtering by namespace
-- **Dual-Path JSON Output** (2025-01-28):
+- **Dual-Path JSON Output**:
   - CLI tools receive standard JSON format
   - Agents receive ksi_tool_use format
   - Context detection via `_agent_id` presence
   - Errors remain standard format for all consumers
 
-### Path Resolution System (Fixed 2025-01-27)
+### Path Resolution System
 - **KSI root detection**: Consistent `find_ksi_root()` logic across all components
 - **Centralized config**: All paths resolved via `ksi_common/config.py` properties
 - **Subdirectory compatibility**: ksi wrapper and daemon work from any project subdirectory
-- **Fixed components**: `daemon_control.py`, `ksi_client/`, `ksi_common/config.py`
+- **Key components**: `daemon_control.py`, `ksi_client/`, `ksi_common/config.py`
 
 ### State Management
 - **Entity system**: Agents, workflows, routing rules tracked as entities
@@ -249,7 +249,7 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 - **Foreach Transformers**: Multi-target emission via iteration (Stage 2.0 complete)
 - **See**: `/docs/DYNAMIC_ROUTING_ARCHITECTURE.md` for operational guide and architecture details
 
-### Optimization System (Multi-Dimensional Framework Complete)
+### Optimization System (Multi-Dimensional Framework)
 
 #### Core Infrastructure
 - **Framework Integration**: MIPRO and SIMBA optimizers operational via subprocess architecture
@@ -257,7 +257,7 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 - **Context Tracking**: Full optimization lineage through context system
 - **Subprocess Architecture**: Long-running optimizations (5-15 min) via detached processes
 
-#### Multi-Dimensional Quality Framework (2025-08-06)
+#### Multi-Dimensional Quality Framework
 **Five Quality Dimensions** - Beyond simple token reduction:
 
 1. **Instruction Following Fidelity (IFF)** - 40% weight
@@ -319,7 +319,7 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
    - `comprehensive_quality_suite` - All 5 dimensions
    - `ksi_tool_use_validation` - JSON emission patterns
 
-- **Dependency Validation** (Enhanced 2025-08-06)
+- **Dependency Validation** (Enhanced)
    - Components must have passing dependencies
    - Registry tracks evaluation status per component
    - Certification requires all dependencies passing
@@ -402,8 +402,8 @@ ksi send evaluation:run --component_path "behaviors/core/claude_code_override" \
 ### Timeouts
 **Fix**: Check logs, look for serialization errors
 
-### Evaluation System Issues (2025-08-04)
-**Issue**: `evaluation:run` times out even though agent tests complete
+### Evaluation System Issues
+**Common Issue**: `evaluation:run` times out even though agent tests complete
 **Cause**: Multiple issues discovered:
 1. `monitor:get_events` doesn't support field filtering - must fetch and filter manually
 2. Behavioral components need `ksi_events_as_tool_calls` dependency to emit events
