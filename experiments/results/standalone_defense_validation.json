@@ -1,0 +1,47 @@
+{
+  "timestamp": "2025-08-28T14:44:57.541788",
+  "best_defense_rate": 0.0,
+  "claim_validated": false,
+  "configurations": {
+    "No Defense": {
+      "defense_rate": 0.0,
+      "avg_gini_change": 3657.010394451541,
+      "avg_cartel_control": 77.01062513847744
+    },
+    "Diversity Only": {
+      "defense_rate": 0.0,
+      "avg_gini_change": 3583.1400241601623,
+      "avg_cartel_control": 77.17055778217926
+    },
+    "Consent Only": {
+      "defense_rate": 0.0,
+      "avg_gini_change": 1614.2847244266638,
+      "avg_cartel_control": 45.36631132709617
+    },
+    "Coalition Limit Only": {
+      "defense_rate": 0.0,
+      "avg_gini_change": 607.987196929628,
+      "avg_cartel_control": 10.099086628632165
+    },
+    "All Three (Weak)": {
+      "defense_rate": 0.0,
+      "avg_gini_change": 3177.126057781629,
+      "avg_cartel_control": 70.75001302956255
+    },
+    "All Three (Moderate)": {
+      "defense_rate": 0.0,
+      "avg_gini_change": 236.76525694400607,
+      "avg_cartel_control": 15.557212041423876
+    },
+    "All Three (Strong)": {
+      "defense_rate": 0.0,
+      "avg_gini_change": 379.7127720902796,
+      "avg_cartel_control": 13.156272968313127
+    },
+    "Optimized Config": {
+      "defense_rate": 0.0,
+      "avg_gini_change": 581.673260326203,
+      "avg_cartel_control": 10.081874065102564
+    }
+  }
+}

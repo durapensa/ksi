@@ -1,0 +1,150 @@
+{
+  "timestamp": "2025-08-28T14:36:46.440182",
+  "summary": {
+    "configurations_tested": 5,
+    "attacks_per_config": 3,
+    "total_tests": 15
+  },
+  "by_fairness_level": {
+    "No Fairness": {
+      "attack_success_rate": 100.0,
+      "defense_success_rate": 0.0,
+      "average_gini_change": 1247.0537012448397,
+      "attacks": [
+        {
+          "name": "Cartel Formation (Defended)",
+          "success": true,
+          "defense_effective": false,
+          "gini_change": 1007.2515891076705,
+          "notes": "Cartel controlled 64.0%, blocked 0 times, diversity=0.00"
+        },
+        {
+          "name": "Sybil Attack (Defended)",
+          "success": true,
+          "defense_effective": false,
+          "gini_change": 2314.1942081212355,
+          "notes": "Sybil controller gained 38.0%, 0 transfers blocked"
+        },
+        {
+          "name": "Monoculture Injection (Defended)",
+          "success": true,
+          "defense_effective": false,
+          "gini_change": 419.7153065056132,
+          "notes": "Monoculture reached 86.7%, diversity: 0.00\u21920.43"
+        }
+      ]
+    },
+    "Weak": {
+      "attack_success_rate": 66.66666666666666,
+      "defense_success_rate": 0.0,
+      "average_gini_change": 1210.9069964671073,
+      "attacks": [
+        {
+          "name": "Cartel Formation (Defended)",
+          "success": false,
+          "defense_effective": false,
+          "gini_change": 581.8563715899224,
+          "notes": "Cartel controlled 44.4%, blocked 0 times, diversity=0.82"
+        },
+        {
+          "name": "Sybil Attack (Defended)",
+          "success": true,
+          "defense_effective": false,
+          "gini_change": 2693.220176432962,
+          "notes": "Sybil controller gained 34.4%, 125 transfers blocked"
+        },
+        {
+          "name": "Monoculture Injection (Defended)",
+          "success": true,
+          "defense_effective": false,
+          "gini_change": 357.64444137843736,
+          "notes": "Monoculture reached 63.3%, diversity: 0.82\u21920.79"
+        }
+      ]
+    },
+    "Moderate": {
+      "attack_success_rate": 0.0,
+      "defense_success_rate": 0.0,
+      "average_gini_change": 266.0791937243089,
+      "attacks": [
+        {
+          "name": "Cartel Formation (Defended)",
+          "success": false,
+          "defense_effective": false,
+          "gini_change": 261.1430746756666,
+          "notes": "Cartel controlled 35.6%, blocked 80 times, diversity=0.99"
+        },
+        {
+          "name": "Sybil Attack (Defended)",
+          "success": false,
+          "defense_effective": false,
+          "gini_change": 347.4042173700681,
+          "notes": "Sybil controller gained 3.0%, 560 transfers blocked"
+        },
+        {
+          "name": "Monoculture Injection (Defended)",
+          "success": false,
+          "defense_effective": false,
+          "gini_change": 189.6902891271919,
+          "notes": "Monoculture reached 36.7%, diversity: 0.99\u21921.00"
+        }
+      ]
+    },
+    "Strong": {
+      "attack_success_rate": 0.0,
+      "defense_success_rate": 0.0,
+      "average_gini_change": 593.7461266665515,
+      "attacks": [
+        {
+          "name": "Cartel Formation (Defended)",
+          "success": false,
+          "defense_effective": false,
+          "gini_change": 755.7120418495406,
+          "notes": "Cartel controlled 38.2%, blocked 80 times, diversity=1.00"
+        },
+        {
+          "name": "Sybil Attack (Defended)",
+          "success": false,
+          "defense_effective": false,
+          "gini_change": 812.4488422236102,
+          "notes": "Sybil controller gained 1.2%, 560 transfers blocked"
+        },
+        {
+          "name": "Monoculture Injection (Defended)",
+          "success": false,
+          "defense_effective": false,
+          "gini_change": 213.0774959265039,
+          "notes": "Monoculture reached 40.0%, diversity: 1.00\u21920.99"
+        }
+      ]
+    },
+    "Maximum": {
+      "attack_success_rate": 0.0,
+      "defense_success_rate": 0.0,
+      "average_gini_change": 1064.0579575201195,
+      "attacks": [
+        {
+          "name": "Cartel Formation (Defended)",
+          "success": false,
+          "defense_effective": false,
+          "gini_change": 1364.9651123739523,
+          "notes": "Cartel controlled 27.8%, blocked 80 times, diversity=1.00"
+        },
+        {
+          "name": "Sybil Attack (Defended)",
+          "success": false,
+          "defense_effective": false,
+          "gini_change": 1337.479742926762,
+          "notes": "Sybil controller gained 1.6%, 560 transfers blocked"
+        },
+        {
+          "name": "Monoculture Injection (Defended)",
+          "success": false,
+          "defense_effective": false,
+          "gini_change": 489.7290172596443,
+          "notes": "Monoculture reached 40.0%, diversity: 1.00\u21920.99"
+        }
+      ]
+    }
+  }
+}

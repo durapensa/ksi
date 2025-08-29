@@ -47,6 +47,10 @@ dependencies = [
     "mlflow>=2.21.1",  # For DSPy optimization tracking and observability
     "websockets>=12.0",  # For WebSocket bridge
     "nest_asyncio>=1.5.0",  # For DSPy async compatibility
+    "scipy>=1.11.0",  # For statistical analysis in A/B testing
+    "matplotlib>=3.7.0",  # For plotting test results
+    "seaborn>=0.12.0",  # For enhanced statistical visualizations
+    "numpy>=1.24.0",  # For numerical operations
 ]
 
 [project.optional-dependencies]
