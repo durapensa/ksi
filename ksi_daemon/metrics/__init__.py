@@ -6,6 +6,7 @@ Provides fairness, hierarchy, and exploitation detection metrics.
 from .fairness_calculator import FairnessCalculator
 from .fairness_service import calculate_fairness_metrics, track_interaction, monitor_resource_distribution
 from .hierarchy_service import detect_hierarchy, track_dominance_interaction, measure_agency_preservation
+from .metrics_service import calculate_metrics, log_interaction, update_resources
 
 __all__ = [
     "FairnessCalculator",
@@ -14,5 +15,8 @@ __all__ = [
     "monitor_resource_distribution",
     "detect_hierarchy",
     "track_dominance_interaction", 
-    "measure_agency_preservation"
+    "measure_agency_preservation",
+    "calculate_metrics",
+    "log_interaction",
+    "update_resources"
 ]

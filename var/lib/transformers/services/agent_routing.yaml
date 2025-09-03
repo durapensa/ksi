@@ -47,7 +47,7 @@ transformers:
     target: "monitor:agent_created"
     mapping:
       agent_id: "{{agent_id}}"
-      profile: "{{profile}}"
+      profile: "{{profile|component}}"
       composition: "{{composition}}"
       timestamp: "{{timestamp_utc()}}"
       spawned_by: "{{_ksi_context._agent_id|system}}"
@@ -55,13 +55,12 @@ transformers:
   - name: "agent_spawned_state_create"
     source: "agent:spawned" 
     target: "state:entity:create"
-    async: true
     mapping:
       type: '"agent"'
       id: "{{agent_id}}"
       properties:
         agent_id: "{{agent_id}}"
-        profile: "{{profile}}"
+        profile: "{{profile|component}}"
         composition: "{{composition}}"
         status: '"active"'
         created_at: "{{_ksi_context._timestamp|now}}"
@@ -84,7 +83,7 @@ transformers:
     mapping:
       agent_id: "{{agent_id}}"
       status: "{{status}}"
-      phase: "{{phase}}"
+      phase: "{{phase|active}}"
       timestamp: "{{timestamp_utc()}}"
       metadata: "{{metadata}}"
   

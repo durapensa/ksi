@@ -1,0 +1,107 @@
+---
+component_type: workflow
+name: melting_pot_test_orchestrator
+version: 1.0.0
+description: Orchestrates complete Melting Pot validator testing through KSI agents
+dependencies:
+  - tests/validators/movement_validator_test
+  - tests/validators/resource_validator_test
+  - tests/validators/interaction_validator_test
+  - tests/statistical/ab_fairness_test
+---
+
+agents:
+  orchestrator:
+    component: "components/core/base_agent"
+    capabilities:
+      - testing
+      - state
+      - agent
+    vars:
+      initial_prompt: |
+        You are the test orchestrator for the Melting Pot integration framework.
+        
+        Your responsibilities:
+        1. Create test suites using testing:suite:create
+        2. Spawn test agents for each validator
+        3. Collect and aggregate results
+        4. Generate comprehensive report
+        
+        Start by creating the main test suite:
+        {"event": "testing:suite:create", "data": {"suite_name": "Melting Pot Validators", "metadata": {"version": "1.0.0", "framework": "melting_pot"}}}
+        
+        Then spawn the movement validator test agent:
+        {"event": "agent:spawn", "data": {"profile": "movement_validator_tester", "prompt": "Run all movement validator tests in suite {{suite_id}}"}}
+        
+        Monitor progress using:
+        {"event": "testing:report:get", "data": {"suite_id": "{{suite_id}}"}}
+  
+  movement_tester:
+    component: "components/tests/validators/movement_validator_test"
+    capabilities:
+      - validator
+      - testing
+    vars:
+      initial_prompt: |
+        Run all movement validator tests and report results.
+        Use the current test suite for all assertions.
+  
+  resource_tester:
+    component: "components/tests/validators/resource_validator_test"
+    capabilities:
+      - validator
+      - testing
+      - state
+    vars:
+      initial_prompt: |
+        Run all resource validator tests including fairness checks.
+        Set up proper ownership distributions first.
+  
+  statistical_analyzer:
+    component: "components/core/base_agent"
+    capabilities:
+      - testing
+      - metrics
+    vars:
+      initial_prompt: |
+        You perform A/B statistical analysis on fairness mechanisms.
+        
+        Compare scenarios with and without fairness:
+        1. Generate random transfers with fairness enabled
+        2. Generate same transfers with fairness disabled
+        3. Use testing:statistics:compare_groups to analyze
+        4. Report effect sizes and significance
+  
+  report_generator:
+    component: "components/core/base_agent"
+    capabilities:
+      - testing
+      - state
+    vars:
+      initial_prompt: |
+        Generate comprehensive test report.
+        
+        Use: {"event": "testing:report:generate", "data": {"save_to_file": true}}
+        
+        Then create summary with:
+        - Overall pass rate
+        - Failed tests with reasons
+        - Performance metrics
+        - Recommendations
+
+orchestration_logic:
+  sequence:
+    - CREATE suite
+    - PARALLEL:
+        - RUN movement_tester
+        - RUN resource_tester  
+        - RUN interaction_tester
+    - AWAIT all_validators_complete
+    - RUN statistical_analyzer
+    - RUN report_generator
+    - FINISH suite
+
+success_criteria:
+  - validators.pass_rate >= 0.9
+  - fairness.effect_size > 0.5
+  - no_critical_failures

@@ -1,0 +1,201 @@
+{
+  "timestamp": "2025-08-29T16:08:12.863552",
+  "summary": {
+    "total_suites": 2,
+    "total_tests": 10,
+    "total_passed": 8,
+    "total_failed": 2,
+    "overall_pass_rate": 0.8,
+    "total_duration": 0.003317117691040039
+  },
+  "suites": [
+    {
+      "name": "Validators",
+      "passed": 7,
+      "failed": 2,
+      "pass_rate": 0.7777777777777778,
+      "duration": 0.0002560615539550781,
+      "tests": [
+        {
+          "name": "movement_valid_walk",
+          "passed": true,
+          "duration": 4.00543212890625e-05,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "distance": 5.0,
+            "max_distance": 5.0
+          }
+        },
+        {
+          "name": "movement_invalid_distance",
+          "passed": true,
+          "duration": 6.9141387939453125e-06,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "distance": 14.14,
+            "max_distance": 5.0
+          }
+        },
+        {
+          "name": "movement_pathfinding",
+          "passed": true,
+          "duration": 6.604194641113281e-05,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "path_length": 6
+          }
+        },
+        {
+          "name": "resource_valid_transfer",
+          "passed": true,
+          "duration": 6.29425048828125e-05,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "amount": 20,
+            "sender_balance": 100
+          }
+        },
+        {
+          "name": "resource_insufficient_funds",
+          "passed": true,
+          "duration": 3.0994415283203125e-06,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "requested": 100,
+            "available": 50
+          }
+        },
+        {
+          "name": "resource_fairness_check",
+          "passed": null,
+          "duration": 5.9604644775390625e-06,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "gini_impact": 0,
+            "exploitation": false
+          }
+        },
+        {
+          "name": "interaction_valid_trade",
+          "passed": false,
+          "duration": 7.867813110351562e-06,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "distance": 1.41,
+            "max_range": 2.0
+          }
+        },
+        {
+          "name": "interaction_out_of_range",
+          "passed": true,
+          "duration": 6.9141387939453125e-06,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "distance": 14.14,
+            "max_range": 2.0
+          }
+        },
+        {
+          "name": "interaction_cooperation",
+          "passed": true,
+          "duration": 1.2159347534179688e-05,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "participants": 3,
+            "required": 3
+          }
+        }
+      ]
+    },
+    {
+      "name": "Service Health",
+      "passed": 1,
+      "failed": 0,
+      "pass_rate": 1.0,
+      "duration": 0.003061056137084961,
+      "tests": [
+        {
+          "name": "daemon_health",
+          "passed": true,
+          "duration": 0.0030417442321777344,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "status": "healthy",
+            "uptime": 95040.77647399902,
+            "version": "3.0.0",
+            "modules_loaded": 45,
+            "services_registered": 0,
+            "events_registered": 265,
+            "background_tasks": 2,
+            "modules": [
+              "ksi_daemon.event_system",
+              "ksi_daemon.core.state",
+              "ksi_daemon.daemon_core",
+              "ksi_daemon.core.health",
+              "ksi_daemon.core.correlation",
+              "ksi_daemon.core.discovery",
+              "ksi_daemon.core.monitor",
+              "ksi_daemon.core.checkpoint",
+              "ksi_daemon.core.event_log_handlers",
+              "ksi_daemon.system_error_handler",
+              "ksi_daemon.transport.unix_socket",
+              "ksi_daemon.transport.websocket",
+              "ksi_daemon.completion.litellm",
+              "ksi_daemon.completion.completion_service",
+              "ksi_daemon.permissions.permission_service",
+              "ksi_daemon.agent.agent_service",
+              "ksi_daemon.observation.observation_manager",
+              "ksi_daemon.observation.replay",
+              "ksi_daemon.observation.historical",
+              "ksi_daemon.messaging.message_bus",
+              "ksi_daemon.transformer.checkpoint_handlers",
+              "ksi_daemon.transformer.transformer_service",
+              "ksi_daemon.composition.composition_service",
+              "ksi_daemon.conversation.conversation_service",
+              "ksi_daemon.conversation.conversation_lock",
+              "ksi_daemon.config.config_service",
+              "ksi_daemon.config.runtime_config",
+              "ksi_daemon.mcp.mcp_service",
+              "ksi_daemon.evaluation.evaluation_events",
+              "ksi_daemon.evaluation.evaluation_async",
+              "ksi_daemon.optimization.integrated_optimization_events",
+              "ksi_daemon.optimization.optimization_service",
+              "ksi_daemon.metrics.fairness_service",
+              "ksi_daemon.metrics.hierarchy_service",
+              "ksi_daemon.metrics.atomic_transfer_service",
+              "ksi_daemon.scheduler.scheduler_service",
+              "ksi_daemon.core.context_service",
+              "ksi_daemon.introspection.event_genealogy",
+              "ksi_daemon.routing.routing_service",
+              "ksi_daemon.routing.routing_events",
+              "ksi_daemon.routing.parent_cleanup_handlers",
+              "ksi_daemon.test_error_handlers",
+              "ksi_daemon.test_simple_handler",
+              "ksi_common.checkpoint_participation",
+              "ksi_daemon.routing.routing_introspection"
+            ],
+            "_ksi_context": {
+              "_timestamp": 1756498092.8623831,
+              "_response_id": "resp_1dbf3362",
+              "_event_id": "evt_5db7c8b7",
+              "_correlation_id": "corr_55362ba3",
+              "_parent_event_id": "evt_5db7c8b7",
+              "_root_event_id": "evt_5ec86009",
+              "_event_depth": 3
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,200 @@
+{
+  "timestamp": "2025-08-29T17:35:04.865816",
+  "summary": {
+    "total_suites": 1,
+    "total_tests": 9,
+    "total_passed": 2,
+    "total_failed": 7,
+    "overall_pass_rate": 0.2222222222222222,
+    "total_duration": 0.03476095199584961
+  },
+  "suites": [
+    {
+      "suite_name": "Comprehensive Validator Tests",
+      "suite_id": "suite_1756503304814",
+      "passed": 2,
+      "failed": 7,
+      "pass_rate": 0.2222222222222222,
+      "duration": 0.03476095199584961,
+      "start_time": 1756503304.814889,
+      "end_time": 1756503304.84965,
+      "metadata": {
+        "test_type": "internal",
+        "framework": "melting_pot",
+        "version": "1.0.0"
+      },
+      "tests": [
+        {
+          "test_name": "Movement - Valid Walk",
+          "passed": false,
+          "duration": 0.002579927444458008,
+          "error": "Test failed",
+          "details": {
+            "result": [
+              {
+                "valid": false,
+                "reason": "Distance 7.1 exceeds max 5 for walk",
+                "warnings": [],
+                "path_cost": 0.0,
+                "actual_distance": 7.0710678118654755
+              }
+            ]
+          },
+          "warnings": []
+        },
+        {
+          "test_name": "Movement - Invalid Run Distance",
+          "passed": false,
+          "duration": 0.002630949020385742,
+          "error": "Test failed",
+          "details": {
+            "result": [
+              {
+                "valid": false,
+                "reason": "Distance 70.7 exceeds max 5 for run",
+                "warnings": [],
+                "path_cost": 0.0,
+                "actual_distance": 70.71067811865476
+              }
+            ]
+          },
+          "warnings": []
+        },
+        {
+          "test_name": "Resource - Setup Initial Ownership",
+          "passed": false,
+          "duration": 0.0021119117736816406,
+          "error": "Test failed",
+          "details": {
+            "result": [
+              {
+                "status": "success",
+                "entity": "agent_1",
+                "resource_type": "gold",
+                "new_amount": 100.0,
+                "total_wealth": 100.0
+              }
+            ]
+          },
+          "warnings": []
+        },
+        {
+          "test_name": "Resource - Valid Trade",
+          "passed": false,
+          "duration": 0.0021178722381591797,
+          "error": "Test failed",
+          "details": {
+            "result": [
+              {
+                "valid": false,
+                "reason": "Transfer violates fairness principles",
+                "suggested_amount": null,
+                "alternative_transfers": [
+                  {
+                    "type": "reduced_amount",
+                    "amount": 12.5,
+                    "reason": "Reduces inequality impact"
+                  }
+                ],
+                "fairness": {
+                  "fair": false,
+                  "gini_impact": 0.25,
+                  "monopoly_risk": false,
+                  "exploitation_risk": false,
+                  "sustainability_impact": 0.0,
+                  "warnings": [
+                    "Gini increase 0.25 exceeds threshold"
+                  ]
+                }
+              }
+            ]
+          },
+          "warnings": []
+        },
+        {
+          "test_name": "Resource - Invalid Transfer (Insufficient)",
+          "passed": false,
+          "duration": 0.0029172897338867188,
+          "error": "Test failed",
+          "details": {
+            "result": [
+              {
+                "valid": false,
+                "reason": "agent_2 doesn't have 200.0 gold",
+                "suggested_amount": null,
+                "alternative_transfers": []
+              }
+            ]
+          },
+          "warnings": []
+        },
+        {
+          "test_name": "Interaction - Valid Cooperation",
+          "passed": false,
+          "duration": 0.0017538070678710938,
+          "error": "Test failed",
+          "details": {
+            "result": [
+              {
+                "valid": true,
+                "reason": "",
+                "required_participants": [],
+                "missing_capabilities": [],
+                "suggested_position": null,
+                "cooperation_score": 1.0,
+                "warnings": []
+              }
+            ]
+          },
+          "warnings": []
+        },
+        {
+          "test_name": "Interaction - Invalid (Out of Range)",
+          "passed": false,
+          "duration": 0.0019168853759765625,
+          "error": "Test failed",
+          "details": {
+            "result": [
+              {
+                "valid": false,
+                "reason": "Distance 141.4 exceeds max range 5.0",
+                "required_participants": [],
+                "missing_capabilities": [],
+                "suggested_position": [
+                  96.81801948466054,
+                  96.81801948466054
+                ],
+                "cooperation_score": 0.0,
+                "warnings": []
+              }
+            ]
+          },
+          "warnings": []
+        },
+        {
+          "test_name": "Assert Equals - Same Values",
+          "passed": true,
+          "duration": 9.5367431640625e-07,
+          "error": null,
+          "details": {
+            "expected": 5.0,
+            "actual": 5.0
+          },
+          "warnings": []
+        },
+        {
+          "test_name": "Assert In Range - Valid",
+          "passed": true,
+          "duration": 9.5367431640625e-07,
+          "error": null,
+          "details": {
+            "value": 7.5,
+            "min": 5.0,
+            "max": 10.0
+          },
+          "warnings": []
+        }
+      ]
+    }
+  ]
+}

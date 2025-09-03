@@ -223,6 +223,14 @@ class EventDaemonCore:
         import ksi_daemon.routing.routing_events
         import ksi_daemon.routing.parent_cleanup_handlers
         
+        # Melting Pot validators
+        import ksi_daemon.validators.validator_service
+        logger.debug("Validator service loaded")
+        
+        # Testing framework
+        import ksi_daemon.testing.testing_service
+        logger.debug("Testing service loaded")
+        
         # Test modules (for error propagation testing)
         try:
             import ksi_daemon.test_error_handlers

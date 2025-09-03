@@ -1,0 +1,53 @@
+{
+  "results": {
+    "Aggressive Exploiter": {
+      "wins": 4,
+      "losses": 0,
+      "draws": 0,
+      "total_score": 1318,
+      "games_played": 4
+    },
+    "Generous Tit-for-Tat": {
+      "wins": 1,
+      "losses": 3,
+      "draws": 0,
+      "total_score": 814,
+      "games_played": 4
+    },
+    "Adaptive Tit-for-Tat": {
+      "wins": 1,
+      "losses": 3,
+      "draws": 0,
+      "total_score": 1017,
+      "games_played": 4
+    }
+  },
+  "analysis": {
+    "Aggressive Exploiter": {
+      "average_score": 329.5,
+      "win_rate": 1.0,
+      "total_wins": 4,
+      "total_losses": 0,
+      "total_draws": 0
+    },
+    "Generous Tit-for-Tat": {
+      "average_score": 203.5,
+      "win_rate": 0.25,
+      "total_wins": 1,
+      "total_losses": 3,
+      "total_draws": 0
+    },
+    "Adaptive Tit-for-Tat": {
+      "average_score": 254.25,
+      "win_rate": 0.25,
+      "total_wins": 1,
+      "total_losses": 3,
+      "total_draws": 0
+    }
+  },
+  "attitude_comparison": {
+    "aggressive": 329.5,
+    "cooperative": 203.5,
+    "neutral": 254.25
+  }
+}

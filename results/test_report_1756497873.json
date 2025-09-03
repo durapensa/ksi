@@ -1,0 +1,179 @@
+{
+  "timestamp": "2025-08-29T16:04:33.312768",
+  "summary": {
+    "total_suites": 2,
+    "total_tests": 14,
+    "total_passed": 4,
+    "total_failed": 10,
+    "overall_pass_rate": 0.2857142857142857,
+    "total_duration": 0.0002837181091308594
+  },
+  "suites": [
+    {
+      "name": "Validators",
+      "passed": 4,
+      "failed": 5,
+      "pass_rate": 0.4444444444444444,
+      "duration": 0.00021696090698242188,
+      "tests": [
+        {
+          "name": "movement_valid_walk",
+          "passed": false,
+          "duration": 7.700920104980469e-05,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "distance": 5.0,
+            "max_distance": 5.0
+          }
+        },
+        {
+          "name": "movement_invalid_distance",
+          "passed": true,
+          "duration": 3.814697265625e-06,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "distance": 14.14,
+            "max_distance": 5.0
+          }
+        },
+        {
+          "name": "movement_pathfinding",
+          "passed": false,
+          "duration": 4.0531158447265625e-06,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "path_length": 0
+          }
+        },
+        {
+          "name": "resource_valid_transfer",
+          "passed": false,
+          "duration": 6.508827209472656e-05,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "amount": 20,
+            "sender_balance": 100
+          }
+        },
+        {
+          "name": "resource_insufficient_funds",
+          "passed": true,
+          "duration": 2.1457672119140625e-06,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "requested": 100,
+            "available": 50
+          }
+        },
+        {
+          "name": "resource_fairness_check",
+          "passed": null,
+          "duration": 5.245208740234375e-06,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "gini_impact": 0,
+            "exploitation": false
+          }
+        },
+        {
+          "name": "interaction_valid_trade",
+          "passed": false,
+          "duration": 7.152557373046875e-06,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "distance": 1.41,
+            "max_range": 2.0
+          }
+        },
+        {
+          "name": "interaction_out_of_range",
+          "passed": true,
+          "duration": 6.198883056640625e-06,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "distance": 14.14,
+            "max_range": 2.0
+          }
+        },
+        {
+          "name": "interaction_cooperation",
+          "passed": true,
+          "duration": 1.0967254638671875e-05,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "participants": 3,
+            "required": 3
+          }
+        }
+      ]
+    },
+    {
+      "name": "Service Health",
+      "passed": 0,
+      "failed": 5,
+      "pass_rate": 0.0,
+      "duration": 6.67572021484375e-05,
+      "tests": [
+        {
+          "name": "health_spatial",
+          "passed": false,
+          "duration": 2.7894973754882812e-05,
+          "error": "Cannot connect to daemon at /tmp/ksi.sock: [Errno 2] No such file or directory",
+          "warnings": [
+            "Service may not be registered"
+          ],
+          "details": {}
+        },
+        {
+          "name": "health_resource",
+          "passed": false,
+          "duration": 8.344650268554688e-06,
+          "error": "Cannot connect to daemon at /tmp/ksi.sock: [Errno 2] No such file or directory",
+          "warnings": [
+            "Service may not be registered"
+          ],
+          "details": {}
+        },
+        {
+          "name": "health_episode",
+          "passed": false,
+          "duration": 5.9604644775390625e-06,
+          "error": "Cannot connect to daemon at /tmp/ksi.sock: [Errno 2] No such file or directory",
+          "warnings": [
+            "Service may not be registered"
+          ],
+          "details": {}
+        },
+        {
+          "name": "health_metrics",
+          "passed": false,
+          "duration": 3.814697265625e-06,
+          "error": "Cannot connect to daemon at /tmp/ksi.sock: [Errno 2] No such file or directory",
+          "warnings": [
+            "Service may not be registered"
+          ],
+          "details": {}
+        },
+        {
+          "name": "health_scheduler",
+          "passed": false,
+          "duration": 4.0531158447265625e-06,
+          "error": "Cannot connect to daemon at /tmp/ksi.sock: [Errno 2] No such file or directory",
+          "warnings": [
+            "Service may not be registered"
+          ],
+          "details": {}
+        }
+      ]
+    }
+  ]
+}

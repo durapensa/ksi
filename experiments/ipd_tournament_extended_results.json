@@ -1,0 +1,183 @@
+{
+  "single_tournament": {
+    "results": {
+      "Aggressive Exploiter": {
+        "wins": 12,
+        "losses": 4,
+        "draws": 0,
+        "total_score": 3796,
+        "games_played": 16
+      },
+      "Generous Tit-for-Tat": {
+        "wins": 1,
+        "losses": 12,
+        "draws": 3,
+        "total_score": 3159,
+        "games_played": 16
+      },
+      "Adaptive Tit-for-Tat": {
+        "wins": 0,
+        "losses": 12,
+        "draws": 4,
+        "total_score": 3334,
+        "games_played": 16
+      },
+      "Always Cooperate": {
+        "wins": 1,
+        "losses": 12,
+        "draws": 3,
+        "total_score": 3025,
+        "games_played": 16
+      },
+      "Always Defect": {
+        "wins": 15,
+        "losses": 1,
+        "draws": 0,
+        "total_score": 4038,
+        "games_played": 16
+      },
+      "Random": {
+        "wins": 8,
+        "losses": 7,
+        "draws": 1,
+        "total_score": 3387,
+        "games_played": 16
+      },
+      "Tit-for-Tat": {
+        "wins": 5,
+        "losses": 7,
+        "draws": 4,
+        "total_score": 3382,
+        "games_played": 16
+      },
+      "Pavlov": {
+        "wins": 7,
+        "losses": 8,
+        "draws": 1,
+        "total_score": 3192,
+        "games_played": 16
+      },
+      "Grim Trigger": {
+        "wins": 15,
+        "losses": 1,
+        "draws": 0,
+        "total_score": 4096,
+        "games_played": 16
+      }
+    },
+    "analysis": {
+      "Aggressive Exploiter": {
+        "average_score": 237.25,
+        "win_rate": 0.75,
+        "total_wins": 12,
+        "total_losses": 4,
+        "total_draws": 0
+      },
+      "Generous Tit-for-Tat": {
+        "average_score": 197.4375,
+        "win_rate": 0.0625,
+        "total_wins": 1,
+        "total_losses": 12,
+        "total_draws": 3
+      },
+      "Adaptive Tit-for-Tat": {
+        "average_score": 208.375,
+        "win_rate": 0.0,
+        "total_wins": 0,
+        "total_losses": 12,
+        "total_draws": 4
+      },
+      "Always Cooperate": {
+        "average_score": 189.0625,
+        "win_rate": 0.0625,
+        "total_wins": 1,
+        "total_losses": 12,
+        "total_draws": 3
+      },
+      "Always Defect": {
+        "average_score": 252.375,
+        "win_rate": 0.9375,
+        "total_wins": 15,
+        "total_losses": 1,
+        "total_draws": 0
+      },
+      "Random": {
+        "average_score": 211.6875,
+        "win_rate": 0.5,
+        "total_wins": 8,
+        "total_losses": 7,
+        "total_draws": 1
+      },
+      "Tit-for-Tat": {
+        "average_score": 211.375,
+        "win_rate": 0.3125,
+        "total_wins": 5,
+        "total_losses": 7,
+        "total_draws": 4
+      },
+      "Pavlov": {
+        "average_score": 199.5,
+        "win_rate": 0.4375,
+        "total_wins": 7,
+        "total_losses": 8,
+        "total_draws": 1
+      },
+      "Grim Trigger": {
+        "average_score": 256.0,
+        "win_rate": 0.9375,
+        "total_wins": 15,
+        "total_losses": 1,
+        "total_draws": 0
+      }
+    }
+  },
+  "statistical_validation": {
+    "Aggressive Exploiter": {
+      "mean_score": 313.2583333333333,
+      "std_score": 13.968787130201708,
+      "mean_win_rate": 1.0,
+      "std_win_rate": 0.0,
+      "confidence_interval_95": [
+        280.5625,
+        330.31875
+      ]
+    },
+    "Generous Tit-for-Tat": {
+      "mean_score": 200.3,
+      "std_score": 6.548982109203435,
+      "mean_win_rate": 0.19166666666666668,
+      "std_win_rate": 0.16687486995417322,
+      "confidence_interval_95": [
+        186.81875,
+        207.8875
+      ]
+    },
+    "Adaptive Tit-for-Tat": {
+      "mean_score": 229.575,
+      "std_score": 21.803779297788417,
+      "mean_win_rate": 0.15833333333333333,
+      "std_win_rate": 0.1366768288904727,
+      "confidence_interval_95": [
+        184.25,
+        255.45625
+      ]
+    }
+  },
+  "evolutionary_dynamics": {
+    "equal_start": {
+      "generation": 990,
+      "composition": {
+        "Aggressive Exploiter": 0.24,
+        "Generous Tit-for-Tat": 0.21,
+        "Adaptive Tit-for-Tat": 0.55
+      }
+    },
+    "weighted_start": {
+      "generation": 990,
+      "composition": {
+        "Generous Tit-for-Tat": 0.35,
+        "Aggressive Exploiter": 0.65
+      }
+    }
+  }
+}

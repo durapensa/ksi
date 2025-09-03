@@ -18,6 +18,11 @@
 
 ## 📊 Experimental Results & Analysis
 
+### Latest Results
+- [Melting Pot Session Results Aug 2025](MELTING_POT_SESSION_RESULTS_AUG2025.md) ⭐ - **Agents choose cooperation over exploitation**
+- [Agent-Directed Architecture Fixes](AGENT_DIRECTED_ARCHITECTURE_FIXES.md) - Critical session & transformer fixes
+
+### Historical Results
 All detailed experimental results are in [`/experiments/`](../experiments/):
 - Scale Validation Analysis (500 agents)
 - Final Laboratory Report
@@ -30,6 +35,7 @@ All detailed experimental results are in [`/experiments/`](../experiments/):
 - [`architecture/`](architecture/) - Federated, Progressive, and Unified systems
 - [Dynamic Routing Architecture](DYNAMIC_ROUTING_ARCHITECTURE.md) - Agent coordination
 - [Discovery System Architecture](DISCOVERY_SYSTEM_ARCHITECTURE.md) - Event discovery
+- [Agent-Directed Architecture Fixes](AGENT_DIRECTED_ARCHITECTURE_FIXES.md) ⚡ - Critical session & transformer fixes
 
 ### Philosophy & Principles
 - [KSI Philosophy: Elegant Architecture](KSI_PHILOSOPHY_ELEGANT_ARCHITECTURE.md)

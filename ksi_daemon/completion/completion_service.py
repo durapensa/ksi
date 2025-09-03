@@ -1064,6 +1064,20 @@ async def process_completion_request(request_id: str, data: Dict[str, Any]):
         if 'provider_name' in locals():
             provider_manager.record_failure(provider_name, str(e))
         
+        # Log session tracking issues for investigation (DO NOT clear sessions as workaround)
+        agent_id = data.get("agent_id")
+        if agent_id and "No conversation found with session ID" in str(e):
+            session_id = data.get("session_id")
+            tracked_session = conversation_tracker.get_agent_session(agent_id) if conversation_tracker else None
+            logger.error(
+                f"Session tracking mismatch detected - Claude CLI cannot find session",
+                agent_id=agent_id,
+                requested_session_id=session_id,
+                tracked_session_id=tracked_session,
+                error=str(e)
+            )
+            # DO NOT clear the session - we need to fix the root cause
+        
         # Emit error event
         await emit_event("completion:error", {
             "request_id": request_id,

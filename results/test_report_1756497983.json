@@ -1,0 +1,420 @@
+{
+  "timestamp": "2025-08-29T16:06:23.229328",
+  "summary": {
+    "total_suites": 2,
+    "total_tests": 14,
+    "total_passed": 6,
+    "total_failed": 8,
+    "overall_pass_rate": 0.42857142857142855,
+    "total_duration": 0.006939888000488281
+  },
+  "suites": [
+    {
+      "name": "Validators",
+      "passed": 6,
+      "failed": 3,
+      "pass_rate": 0.6666666666666666,
+      "duration": 0.00020003318786621094,
+      "tests": [
+        {
+          "name": "movement_valid_walk",
+          "passed": true,
+          "duration": 4.076957702636719e-05,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "distance": 5.0,
+            "max_distance": 5.0
+          }
+        },
+        {
+          "name": "movement_invalid_distance",
+          "passed": true,
+          "duration": 5.9604644775390625e-06,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "distance": 14.14,
+            "max_distance": 5.0
+          }
+        },
+        {
+          "name": "movement_pathfinding",
+          "passed": false,
+          "duration": 3.0994415283203125e-06,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "path_length": 0
+          }
+        },
+        {
+          "name": "resource_valid_transfer",
+          "passed": false,
+          "duration": 6.175041198730469e-05,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "amount": 20,
+            "sender_balance": 100
+          }
+        },
+        {
+          "name": "resource_insufficient_funds",
+          "passed": true,
+          "duration": 3.0994415283203125e-06,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "requested": 100,
+            "available": 50
+          }
+        },
+        {
+          "name": "resource_fairness_check",
+          "passed": true,
+          "duration": 2.193450927734375e-05,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "gini_impact": 0.03603603603603611,
+            "exploitation": true
+          }
+        },
+        {
+          "name": "interaction_valid_trade",
+          "passed": false,
+          "duration": 6.9141387939453125e-06,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "distance": 1.41,
+            "max_range": 2.0
+          }
+        },
+        {
+          "name": "interaction_out_of_range",
+          "passed": true,
+          "duration": 5.7220458984375e-06,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "distance": 14.14,
+            "max_range": 2.0
+          }
+        },
+        {
+          "name": "interaction_cooperation",
+          "passed": true,
+          "duration": 1.1920928955078125e-05,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "participants": 3,
+            "required": 3
+          }
+        }
+      ]
+    },
+    {
+      "name": "Service Health",
+      "passed": 0,
+      "failed": 5,
+      "pass_rate": 0.0,
+      "duration": 0.00673985481262207,
+      "tests": [
+        {
+          "name": "health_spatial",
+          "passed": false,
+          "duration": 0.0008788108825683594,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "status": "error",
+            "error": "Unknown event: spatial:health",
+            "details": {
+              "similar": [
+                "system:health"
+              ],
+              "namespaces": [
+                "agent",
+                "async_state",
+                "checkpoint",
+                "comparison",
+                "completion",
+                "composition",
+                "config",
+                "context",
+                "conversation",
+                "correlation",
+                "dev",
+                "error",
+                "evaluation",
+                "event",
+                "event_log",
+                "introspection",
+                "mcp",
+                "message",
+                "message_bus",
+                "metrics",
+                "module",
+                "monitor",
+                "observation",
+                "observe",
+                "optimization",
+                "permission",
+                "resource",
+                "router",
+                "routing",
+                "runtime",
+                "sandbox",
+                "scheduler",
+                "shutdown",
+                "state",
+                "system",
+                "test",
+                "transformer",
+                "transport",
+                "workflow"
+              ]
+            }
+          }
+        },
+        {
+          "name": "health_resource",
+          "passed": false,
+          "duration": 0.0020890235900878906,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "status": "error",
+            "error": "Unknown event: resource:health",
+            "details": {
+              "similar": [
+                "system:health",
+                "resource:transfer",
+                "context:health"
+              ],
+              "namespaces": [
+                "agent",
+                "async_state",
+                "checkpoint",
+                "comparison",
+                "completion",
+                "composition",
+                "config",
+                "context",
+                "conversation",
+                "correlation",
+                "dev",
+                "error",
+                "evaluation",
+                "event",
+                "event_log",
+                "introspection",
+                "mcp",
+                "message",
+                "message_bus",
+                "metrics",
+                "module",
+                "monitor",
+                "observation",
+                "observe",
+                "optimization",
+                "permission",
+                "resource",
+                "router",
+                "routing",
+                "runtime",
+                "sandbox",
+                "scheduler",
+                "shutdown",
+                "state",
+                "system",
+                "test",
+                "transformer",
+                "transport",
+                "workflow"
+              ]
+            }
+          }
+        },
+        {
+          "name": "health_episode",
+          "passed": false,
+          "duration": 0.0011448860168457031,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "status": "error",
+            "error": "Unknown event: episode:health",
+            "details": {
+              "similar": [
+                "system:health",
+                "context:health"
+              ],
+              "namespaces": [
+                "agent",
+                "async_state",
+                "checkpoint",
+                "comparison",
+                "completion",
+                "composition",
+                "config",
+                "context",
+                "conversation",
+                "correlation",
+                "dev",
+                "error",
+                "evaluation",
+                "event",
+                "event_log",
+                "introspection",
+                "mcp",
+                "message",
+                "message_bus",
+                "metrics",
+                "module",
+                "monitor",
+                "observation",
+                "observe",
+                "optimization",
+                "permission",
+                "resource",
+                "router",
+                "routing",
+                "runtime",
+                "sandbox",
+                "scheduler",
+                "shutdown",
+                "state",
+                "system",
+                "test",
+                "transformer",
+                "transport",
+                "workflow"
+              ]
+            }
+          }
+        },
+        {
+          "name": "health_metrics",
+          "passed": false,
+          "duration": 0.001644134521484375,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "status": "error",
+            "error": "Unknown event: metrics:health",
+            "details": {
+              "similar": [
+                "metrics:hierarchy:detect",
+                "metrics:fairness:calculate"
+              ],
+              "namespaces": [
+                "agent",
+                "async_state",
+                "checkpoint",
+                "comparison",
+                "completion",
+                "composition",
+                "config",
+                "context",
+                "conversation",
+                "correlation",
+                "dev",
+                "error",
+                "evaluation",
+                "event",
+                "event_log",
+                "introspection",
+                "mcp",
+                "message",
+                "message_bus",
+                "metrics",
+                "module",
+                "monitor",
+                "observation",
+                "observe",
+                "optimization",
+                "permission",
+                "resource",
+                "router",
+                "routing",
+                "runtime",
+                "sandbox",
+                "scheduler",
+                "shutdown",
+                "state",
+                "system",
+                "test",
+                "transformer",
+                "transport",
+                "workflow"
+              ]
+            }
+          }
+        },
+        {
+          "name": "health_scheduler",
+          "passed": false,
+          "duration": 0.0009500980377197266,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "status": "error",
+            "error": "Unknown event: scheduler:health",
+            "details": {
+              "similar": [
+                "scheduler:list",
+                "scheduler:cancel",
+                "scheduler:status"
+              ],
+              "namespaces": [
+                "agent",
+                "async_state",
+                "checkpoint",
+                "comparison",
+                "completion",
+                "composition",
+                "config",
+                "context",
+                "conversation",
+                "correlation",
+                "dev",
+                "error",
+                "evaluation",
+                "event",
+                "event_log",
+                "introspection",
+                "mcp",
+                "message",
+                "message_bus",
+                "metrics",
+                "module",
+                "monitor",
+                "observation",
+                "observe",
+                "optimization",
+                "permission",
+                "resource",
+                "router",
+                "routing",
+                "runtime",
+                "sandbox",
+                "scheduler",
+                "shutdown",
+                "state",
+                "system",
+                "test",
+                "transformer",
+                "transport",
+                "workflow"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

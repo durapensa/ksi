@@ -1,0 +1,498 @@
+{
+  "timestamp": "2025-08-29T16:11:18.726852",
+  "summary": {
+    "total_suites": 5,
+    "total_tests": 17,
+    "total_passed": 12,
+    "total_failed": 5,
+    "overall_pass_rate": 0.7058823529411765,
+    "total_duration": 0.011384010314941406
+  },
+  "suites": [
+    {
+      "name": "Validators",
+      "passed": 9,
+      "failed": 0,
+      "pass_rate": 1.0,
+      "duration": 0.00028514862060546875,
+      "tests": [
+        {
+          "name": "movement_valid_walk",
+          "passed": true,
+          "duration": 4.1961669921875e-05,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "distance": 5.0,
+            "max_distance": 5.0
+          }
+        },
+        {
+          "name": "movement_invalid_distance",
+          "passed": true,
+          "duration": 4.76837158203125e-06,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "distance": 14.14,
+            "max_distance": 5.0
+          }
+        },
+        {
+          "name": "movement_pathfinding",
+          "passed": true,
+          "duration": 6.818771362304688e-05,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "path_length": 6
+          }
+        },
+        {
+          "name": "resource_valid_transfer",
+          "passed": true,
+          "duration": 5.698204040527344e-05,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "amount": 20,
+            "sender_balance": 100
+          }
+        },
+        {
+          "name": "resource_insufficient_funds",
+          "passed": true,
+          "duration": 2.86102294921875e-06,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "requested": 100,
+            "available": 50
+          }
+        },
+        {
+          "name": "resource_fairness_check",
+          "passed": true,
+          "duration": 2.5033950805664062e-05,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "gini_impact": 0.022222222222222365,
+            "exploitation": true
+          }
+        },
+        {
+          "name": "interaction_valid_trade",
+          "passed": true,
+          "duration": 1.0013580322265625e-05,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "distance": 1.41,
+            "max_range": 2.0
+          }
+        },
+        {
+          "name": "interaction_out_of_range",
+          "passed": true,
+          "duration": 5.245208740234375e-06,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "distance": 14.14,
+            "max_range": 2.0
+          }
+        },
+        {
+          "name": "interaction_cooperation",
+          "passed": true,
+          "duration": 8.821487426757812e-06,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "participants": 3,
+            "required": 3
+          }
+        }
+      ]
+    },
+    {
+      "name": "Service Health",
+      "passed": 1,
+      "failed": 0,
+      "pass_rate": 1.0,
+      "duration": 0.0028946399688720703,
+      "tests": [
+        {
+          "name": "daemon_health",
+          "passed": true,
+          "duration": 0.0028667449951171875,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "status": "healthy",
+            "uptime": 95226.63154816628,
+            "version": "3.0.0",
+            "modules_loaded": 45,
+            "services_registered": 0,
+            "events_registered": 265,
+            "background_tasks": 2,
+            "modules": [
+              "ksi_daemon.event_system",
+              "ksi_daemon.core.state",
+              "ksi_daemon.daemon_core",
+              "ksi_daemon.core.health",
+              "ksi_daemon.core.correlation",
+              "ksi_daemon.core.discovery",
+              "ksi_daemon.core.monitor",
+              "ksi_daemon.core.checkpoint",
+              "ksi_daemon.core.event_log_handlers",
+              "ksi_daemon.system_error_handler",
+              "ksi_daemon.transport.unix_socket",
+              "ksi_daemon.transport.websocket",
+              "ksi_daemon.completion.litellm",
+              "ksi_daemon.completion.completion_service",
+              "ksi_daemon.permissions.permission_service",
+              "ksi_daemon.agent.agent_service",
+              "ksi_daemon.observation.observation_manager",
+              "ksi_daemon.observation.replay",
+              "ksi_daemon.observation.historical",
+              "ksi_daemon.messaging.message_bus",
+              "ksi_daemon.transformer.checkpoint_handlers",
+              "ksi_daemon.transformer.transformer_service",
+              "ksi_daemon.composition.composition_service",
+              "ksi_daemon.conversation.conversation_service",
+              "ksi_daemon.conversation.conversation_lock",
+              "ksi_daemon.config.config_service",
+              "ksi_daemon.config.runtime_config",
+              "ksi_daemon.mcp.mcp_service",
+              "ksi_daemon.evaluation.evaluation_events",
+              "ksi_daemon.evaluation.evaluation_async",
+              "ksi_daemon.optimization.integrated_optimization_events",
+              "ksi_daemon.optimization.optimization_service",
+              "ksi_daemon.metrics.fairness_service",
+              "ksi_daemon.metrics.hierarchy_service",
+              "ksi_daemon.metrics.atomic_transfer_service",
+              "ksi_daemon.scheduler.scheduler_service",
+              "ksi_daemon.core.context_service",
+              "ksi_daemon.introspection.event_genealogy",
+              "ksi_daemon.routing.routing_service",
+              "ksi_daemon.routing.routing_events",
+              "ksi_daemon.routing.parent_cleanup_handlers",
+              "ksi_daemon.test_error_handlers",
+              "ksi_daemon.test_simple_handler",
+              "ksi_common.checkpoint_participation",
+              "ksi_daemon.routing.routing_introspection"
+            ],
+            "_ksi_context": {
+              "_timestamp": 1756498278.717458,
+              "_response_id": "resp_e1d6e2d0",
+              "_event_id": "evt_719e352e",
+              "_correlation_id": "corr_55362ba3",
+              "_parent_event_id": "evt_719e352e",
+              "_root_event_id": "evt_5ec86009",
+              "_event_depth": 3
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Service Integration",
+      "passed": 0,
+      "failed": 4,
+      "pass_rate": 0.0,
+      "duration": 0.006164073944091797,
+      "tests": [
+        {
+          "name": "spatial_initialize",
+          "passed": false,
+          "duration": 0.0012290477752685547,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "status": "error",
+            "error": "Unknown event: spatial:initialize",
+            "details": {
+              "similar": [
+                "optimization:initialize"
+              ],
+              "namespaces": [
+                "agent",
+                "async_state",
+                "checkpoint",
+                "comparison",
+                "completion",
+                "composition",
+                "config",
+                "context",
+                "conversation",
+                "correlation",
+                "dev",
+                "error",
+                "evaluation",
+                "event",
+                "event_log",
+                "introspection",
+                "mcp",
+                "message",
+                "message_bus",
+                "metrics",
+                "module",
+                "monitor",
+                "observation",
+                "observe",
+                "optimization",
+                "permission",
+                "resource",
+                "router",
+                "routing",
+                "runtime",
+                "sandbox",
+                "scheduler",
+                "shutdown",
+                "state",
+                "system",
+                "test",
+                "transformer",
+                "transport",
+                "workflow"
+              ]
+            }
+          }
+        },
+        {
+          "name": "spatial_add_entity",
+          "passed": false,
+          "duration": 0.0014920234680175781,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "status": "error",
+            "error": "Unknown event: spatial:entity:add",
+            "details": {
+              "similar": [
+                "state:entity:updated",
+                "state:entity:deleted",
+                "state:entity:update"
+              ],
+              "namespaces": [
+                "agent",
+                "async_state",
+                "checkpoint",
+                "comparison",
+                "completion",
+                "composition",
+                "config",
+                "context",
+                "conversation",
+                "correlation",
+                "dev",
+                "error",
+                "evaluation",
+                "event",
+                "event_log",
+                "introspection",
+                "mcp",
+                "message",
+                "message_bus",
+                "metrics",
+                "module",
+                "monitor",
+                "observation",
+                "observe",
+                "optimization",
+                "permission",
+                "resource",
+                "router",
+                "routing",
+                "runtime",
+                "sandbox",
+                "scheduler",
+                "shutdown",
+                "state",
+                "system",
+                "test",
+                "transformer",
+                "transport",
+                "workflow"
+              ]
+            }
+          }
+        },
+        {
+          "name": "resource_create",
+          "passed": false,
+          "duration": 0.001699686050415039,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "status": "error",
+            "error": "Unknown event: resource:create",
+            "details": {
+              "similar": [
+                "transport:create",
+                "resource:transfer",
+                "sandbox:create"
+              ],
+              "namespaces": [
+                "agent",
+                "async_state",
+                "checkpoint",
+                "comparison",
+                "completion",
+                "composition",
+                "config",
+                "context",
+                "conversation",
+                "correlation",
+                "dev",
+                "error",
+                "evaluation",
+                "event",
+                "event_log",
+                "introspection",
+                "mcp",
+                "message",
+                "message_bus",
+                "metrics",
+                "module",
+                "monitor",
+                "observation",
+                "observe",
+                "optimization",
+                "permission",
+                "resource",
+                "router",
+                "routing",
+                "runtime",
+                "sandbox",
+                "scheduler",
+                "shutdown",
+                "state",
+                "system",
+                "test",
+                "transformer",
+                "transport",
+                "workflow"
+              ]
+            }
+          }
+        },
+        {
+          "name": "episode_create",
+          "passed": false,
+          "duration": 0.0016930103302001953,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "status": "error",
+            "error": "Unknown event: episode:create",
+            "details": {
+              "similar": [
+                "sandbox:create",
+                "transport:create"
+              ],
+              "namespaces": [
+                "agent",
+                "async_state",
+                "checkpoint",
+                "comparison",
+                "completion",
+                "composition",
+                "config",
+                "context",
+                "conversation",
+                "correlation",
+                "dev",
+                "error",
+                "evaluation",
+                "event",
+                "event_log",
+                "introspection",
+                "mcp",
+                "message",
+                "message_bus",
+                "metrics",
+                "module",
+                "monitor",
+                "observation",
+                "observe",
+                "optimization",
+                "permission",
+                "resource",
+                "router",
+                "routing",
+                "runtime",
+                "sandbox",
+                "scheduler",
+                "shutdown",
+                "state",
+                "system",
+                "test",
+                "transformer",
+                "transport",
+                "workflow"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Scenario Basics",
+      "passed": 0,
+      "failed": 1,
+      "pass_rate": 0.0,
+      "duration": 0.001934051513671875,
+      "tests": [
+        {
+          "name": "pd_minimal_scenario",
+          "passed": false,
+          "duration": 0.0019240379333496094,
+          "error": "Episode creation failed: Unknown event: episode:create",
+          "warnings": [],
+          "details": {}
+        }
+      ]
+    },
+    {
+      "name": "Fairness Mechanisms",
+      "passed": 2,
+      "failed": 0,
+      "pass_rate": 1.0,
+      "duration": 0.00010609626770019531,
+      "tests": [
+        {
+          "name": "strategic_diversity",
+          "passed": true,
+          "duration": 1.6689300537109375e-06,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "strategies": [
+              "cooperate",
+              "defect",
+              "tit_for_tat",
+              "random"
+            ],
+            "unique": 4,
+            "diversity_score": 1.0
+          }
+        },
+        {
+          "name": "consent_mechanism",
+          "passed": true,
+          "duration": 8.7738037109375e-05,
+          "error": null,
+          "warnings": [],
+          "details": {
+            "transfer_type": "gift",
+            "consent_checked": true,
+            "consented": true
+          }
+        }
+      ]
+    }
+  ]
+}
