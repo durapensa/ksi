@@ -186,6 +186,9 @@ class EventDaemonCore:
         # Composition modules
         import ksi_daemon.composition.composition_service
         
+        # Data extraction modules  
+        import ksi_daemon.data_extraction_service
+        
         # Conversation modules
         import ksi_daemon.conversation.conversation_service
         import ksi_daemon.conversation.conversation_lock
