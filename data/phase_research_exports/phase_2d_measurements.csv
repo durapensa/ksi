@@ -1,0 +1,5 @@
+entity_id,created_at,above_threshold,classification,communication_level,cooperation_rate,grid_point,population_size,reputation_coverage,rounds
+measure_p_44,1757085868.731051,True,synergy_zone,0.4,0.88,p_44,50,0.5,100
+measure_p_22,1757085868.726916,True,cooperation_zone,0.2,0.58,p_22,50,0.25,100
+measure_p_00,1757085868.722549,False,exploitation_desert,0.0,0.12,p_00,50,0.0,100
+

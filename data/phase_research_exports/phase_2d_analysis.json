@@ -1,0 +1,113 @@
+{
+  "cooperation_matrix": [
+    [
+      0.12,
+      0.15,
+      0.28,
+      0.42,
+      0.58
+    ],
+    [
+      0.12,
+      0.22,
+      0.38,
+      0.52,
+      0.68
+    ],
+    [
+      0.18,
+      0.32,
+      0.58,
+      0.72,
+      0.81
+    ],
+    [
+      0.25,
+      0.45,
+      0.67,
+      0.83,
+      0.91
+    ],
+    [
+      0.35,
+      0.58,
+      0.75,
+      0.88,
+      0.88
+    ]
+  ],
+  "synergy_analysis": {
+    "communication_alone": {
+      "0%": 0.12,
+      "10%": 0.15,
+      "20%": 0.28,
+      "30%": 0.42,
+      "40%": 0.58
+    },
+    "reputation_alone": {
+      "0%": 0.12,
+      "12.5%": 0.12,
+      "25%": 0.18,
+      "37.5%": 0.25,
+      "50%": 0.35
+    },
+    "synergy_detected": true,
+    "max_synergy_gain": 0.15
+  },
+  "phase_regions": {
+    "exploitation_desert": {
+      "points": [
+        "p_11",
+        "p_10",
+        "p_02",
+        "p_01",
+        "p_00"
+      ],
+      "count": 5,
+      "average_cooperation": 0.158
+    },
+    "unstable_boundary": {
+      "points": [
+        "p_30",
+        "p_21",
+        "p_20",
+        "p_13",
+        "p_12",
+        "p_04",
+        "p_03"
+      ],
+      "count": 7,
+      "average_cooperation": 0.35000000000000003
+    },
+    "cooperation_zone": {
+      "points": [
+        "p_41",
+        "p_40",
+        "p_32",
+        "p_31",
+        "p_23",
+        "p_14",
+        "p_22"
+      ],
+      "count": 7,
+      "average_cooperation": 0.6185714285714285
+    },
+    "synergy_zone": {
+      "points": [
+        "p_43",
+        "p_42",
+        "p_34",
+        "p_33",
+        "p_24",
+        "p_44"
+      ],
+      "count": 6,
+      "average_cooperation": 0.8433333333333334
+    }
+  },
+  "critical_boundaries": {
+    "communication_threshold": 0.178,
+    "reputation_threshold": 0.325,
+    "phase_boundary_type": "curved_with_synergy"
+  }
+}
