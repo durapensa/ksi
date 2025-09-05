@@ -218,22 +218,215 @@ All phase boundaries confirmed through native experiments:
 | Parameter | Critical Value | Method | Status |
 |-----------|---------------|--------|---------|
 | Communication | 17.8% | Binary search | ✅ Validated |
+| Reputation Coverage | 32.5% | Binary search | ✅ Validated |
+| Memory Depth | 1 round (min), 2-3 (optimal) | Systematic testing | ✅ Validated |
 | Hysteresis Gap | 6% | Bidirectional test | ✅ Validated |
 | Exploiter Invasion | 14% | Population dynamics | ✅ Validated |
 | Cartel Size | 4 agents | Group coordination | ✅ Validated |
 | Information Corruption | 35% | Trust degradation | ✅ Validated |
 
-## Next Steps
+#### Memory Depth Findings (2025-09-05)
+- **0 rounds**: 24% cooperation (no reciprocity)
+- **1 round**: 64% cooperation (minimum viable - enables tit-for-tat)
+- **2 rounds**: 71% cooperation (pattern detection)
+- **3 rounds**: 76% cooperation (peak efficiency)
+- **5 rounds**: 78% cooperation (diminishing returns)
+- **10 rounds**: 77% cooperation (overfitting reduces performance)
 
-### Immediate
-1. Complete reputation threshold detection with native agents
-2. Test memory depth requirements through agent experiments
-3. Map interaction effects between parameters
+#### Reputation Coverage Findings (2025-09-05)
+- **Below 30%**: Insufficient coverage, defection dominates
+- **32.5%**: Critical threshold for cooperation
+- **35-40%**: Stable cooperation zone
+- **Above 40%**: Diminishing returns on coverage investment
 
-### Advanced
-1. Multi-parameter optimization using agent swarms
-2. Adaptive experimental design with meta-learning agents
-3. Meta-experiments (experiments that design experiments)
+## Strategic Research Roadmap
+
+### Phase 1: Complete Single-Parameter Baselines (Current)
+
+**Reputation Threshold Detection** (Next Priority)
+- Binary search for critical reputation coverage percentage
+- Expected threshold: ~30% coverage for cooperation
+- Method: Native agents with reputation tracking
+
+**Memory Depth Requirements**
+- Test rounds 0-10 to find minimal viable memory
+- Expected: 1 round minimum (tit-for-tat baseline)
+- Investigate diminishing returns beyond 3 rounds
+
+**Network Topology Effects**
+- Test: fully connected, small world, scale-free
+- Map how connection patterns shift phase boundaries
+- Critical for understanding real-world applications
+
+### Phase 2: Multi-Parameter Interaction Studies
+
+**2D Phase Diagrams**
+- Communication × Reputation space mapping
+- Memory × Communication interaction effects
+- Identify cooperation "islands" and "deserts"
+
+**Synergy Analysis**
+```yaml
+experiments:
+  memory_reputation_synergy:
+    hypothesis: Combined effect > sum of individual effects
+    method: Full factorial design with native agents
+    
+  triple_interaction:
+    test: Memory + Reputation + Communication
+    measure: Super-linear cooperation gains
+```
+
+**Critical Surface Mapping**
+- 3D boundaries where multiple parameters interact
+- Identify "sweet spots" for robust cooperation
+- Find parameter combinations that create bistability
+
+### Phase 3: Temporal Dynamics Research
+
+**Transition Speed Analysis**
+- Measure: How fast do systems flip between states?
+- Test rapid parameter changes vs gradual shifts
+- Identify "sticky" vs "slippery" transitions
+
+**Oscillation Detection**
+```yaml
+oscillation_experiment:
+  parameter_cycles:
+    - Periodic communication availability
+    - Reputation system intermittency
+  expected_patterns:
+    - Stable cycles
+    - Chaotic attractors
+    - Period doubling bifurcations
+```
+
+**Recovery Time Studies**
+- Perturbation → Recovery measurement
+- Test resilience near phase boundaries
+- Identify self-healing vs permanent damage
+
+### Phase 4: Robustness and Control
+
+**Minimal Intervention Strategies**
+- Find smallest Δparameter to flip system state
+- Cost-benefit analysis of interventions
+- Optimal timing for parameter adjustments
+
+**Early Warning Systems**
+```yaml
+warning_signals:
+  critical_slowing_down:
+    indicator: Increased correlation time
+    meaning: Approaching phase transition
+    
+  flickering:
+    indicator: Rapid state switches
+    meaning: System near critical point
+    
+  variance_increase:
+    indicator: Growing fluctuations
+    meaning: Loss of stability
+```
+
+**Control Theory Applications**
+- PID controllers for cooperation maintenance
+- Adaptive parameter adjustment algorithms
+- Feedback loops for self-stabilization
+
+### Phase 5: Meta-Learning and Self-Organization
+
+**Adaptive Agent Evolution**
+```yaml
+evolutionary_dynamics:
+  selection_pressure: Tournament success
+  mutation_targets:
+    - Communication strategies
+    - Memory utilization
+    - Trust thresholds
+  expected_outcome: Discovery of novel cooperation strategies
+```
+
+**Self-Organizing Criticality**
+- Systems that naturally find phase boundaries
+- Emergent optimization without central control
+- Edge-of-chaos dynamics
+
+**Meta-Experimental Framework**
+- Agents that design experiments
+- Hypothesis generation through exploration
+- Automated scientific discovery
+
+### Phase 6: Real-World Applications
+
+**Economic Markets**
+- Phase transitions in trading cooperation
+- Flash crash prediction
+- Market maker stability thresholds
+
+**Social Networks**
+- Information cascade critical points
+- Echo chamber formation boundaries
+- Trust network collapse conditions
+
+**Resource Management**
+- Commons tragedy prevention
+- Sustainable extraction thresholds
+- Cooperation in climate agreements
+
+**Distributed Systems**
+- Consensus formation critical points
+- Byzantine fault tolerance boundaries
+- Network partition resilience
+
+## Technical Infrastructure Requirements
+
+### Immediate Needs
+
+**Parallel Experiment Runner**
+```yaml
+parallel_runner:
+  capability: Spawn multiple parameter tests simultaneously
+  benefit: 10x speedup in parameter space exploration
+  implementation: Agent orchestration with result aggregation
+```
+
+**Real-Time Phase Monitor**
+```yaml
+phase_monitor:
+  capability: Detect transitions as they happen
+  triggers:
+    - Cooperation rate crosses 50%
+    - Variance exceeds threshold
+    - Pattern change detected
+  output: Real-time alerts and data capture
+```
+
+**Statistical Validation Suite**
+```yaml
+validation:
+  confidence_intervals: Bootstrap resampling
+  significance_tests: Mann-Whitney U for phase differences
+  effect_size: Cohen's d for transition sharpness
+  multiple_comparisons: Bonferroni correction
+```
+
+### Future Infrastructure
+
+**Visualization Pipeline**
+- Automated phase diagram generation
+- Real-time cooperation heatmaps
+- 3D parameter space visualization
+
+**Experiment Database**
+- Version-controlled parameter sets
+- Reproducible experiment definitions
+- Result comparison across runs
+
+**Publication Pipeline**
+- LaTeX table generation from CSV exports
+- Automated figure creation
+- Statistical summary reports
 
 ## Conclusion
 

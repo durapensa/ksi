@@ -1,0 +1,8 @@
+entity_id,created_at,memory_depth,population_size,strategy,test_parameters
+mem_test_depth_10,1757085347.5097852,10,50,deep_pattern_analysis,"{""rounds"": 100, ""noise_level"": 0.05, ""forgiveness"": 0.3, ""pattern_complexity"": ""very_high"", ""overfitting_risk"": ""moderate""}"
+mem_test_depth_5,1757085347.502083,5,50,complex_pattern_matching,"{""rounds"": 100, ""noise_level"": 0.05, ""forgiveness"": 0.25, ""pattern_complexity"": ""high""}"
+mem_test_depth_3,1757085347.494143,3,50,pattern_matching,"{""rounds"": 100, ""noise_level"": 0.05, ""forgiveness"": 0.2, ""pattern_complexity"": ""moderate""}"
+mem_test_depth_2,1757085347.483517,2,50,generous_tit_for_tat,"{""rounds"": 100, ""noise_level"": 0.05, ""forgiveness"": 0.15, ""pattern_detection"": true}"
+mem_test_depth_1,1757085347.4631839,1,50,tit_for_tat,"{""rounds"": 100, ""noise_level"": 0.05, ""forgiveness"": 0.1, ""initial_cooperation"": 0.8}"
+mem_test_depth_0,1757085347.449808,0,50,random_fixed,"{""rounds"": 100, ""noise_level"": 0.05, ""strategy_types"": [""always_cooperate"", ""always_defect"", ""random""]}"
+

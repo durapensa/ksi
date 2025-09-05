@@ -1,0 +1,7 @@
+entity_id,created_at,agents_with_reputation,population_size,reputation_coverage,test_parameters
+rep_test_0.325,1757085213.1467352,16,50,0.325,"{""rounds"": 100, ""strategy"": ""discriminator"", ""reputation_update"": ""immediate""}"
+rep_test_0.35,1757085213.138505,18,50,0.35,"{""rounds"": 100, ""strategy"": ""discriminator"", ""reputation_update"": ""immediate""}"
+rep_test_0.30,1757085213.129,15,50,0.3,"{""rounds"": 100, ""strategy"": ""discriminator"", ""reputation_update"": ""immediate""}"
+rep_test_0.40,1757085213.1193988,20,50,0.4,"{""rounds"": 100, ""strategy"": ""discriminator"", ""reputation_update"": ""immediate""}"
+rep_test_0.20,1757085213.10929,10,50,0.2,"{""rounds"": 100, ""strategy"": ""discriminator"", ""reputation_update"": ""immediate""}"
+
