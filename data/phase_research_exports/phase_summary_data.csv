@@ -1,0 +1,3 @@
+entity_id,created_at,detailed_findings,experiments_completed,key_finding,status,thresholds
+summary_001,1757079902.961448,"{""communication"": {""threshold_range"": ""0.16875-0.1875"", ""midpoint"": 0.178125, ""cooperation_level"": 0.52, ""tests_completed"": 4, ""finding"": ""Phase boundary detected: cooperation emerges above ~0.178 communication level""}}",1,Sharp phase transition exists at communication level ~0.178,partial_data_collected,"{""communication"": 0.178125, ""memory"": ""not_tested"", ""reputation"": ""not_tested""}"
+

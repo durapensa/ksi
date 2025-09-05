@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Test native KSI phase boundary detection with actual experiments."""
+"""VALIDATION SCRIPT: Tests native KSI phase boundary detection implementation.
+
+This script validates that phase transition research can be conducted entirely
+through native KSI agents and state entities, with no external orchestration.
+It serves as a test harness to verify the native approach works correctly.
+
+NOT FOR PRODUCTION USE - This is a validation/testing script only.
+Actual experiments should use native KSI agents directly.
+"""
 
 import json
 import time

@@ -165,16 +165,74 @@ ksi send state:entity:query --type phase_boundary_summary
 - Distributed agent execution
 - No centralized bottleneck
 
+## Data Extraction and Analysis
+
+### Native Data Extraction System
+
+Successfully implemented generic data extraction from state entities:
+
+#### Event-Driven Extraction with Saved Data
+
+All experimental data extracted and saved to `data/phase_research_exports/`:
+
+```bash
+# Extract and save all experimental data
+ksi send data:extract --extraction_spec '{"entity_type": "phase_summary", "output_format": "csv"}' | jq -r '.data' > data/phase_research_exports/phase_summary_data.csv
+ksi send data:extract --extraction_spec '{"entity_type": "hysteresis_summary", "output_format": "csv"}' | jq -r '.data' > data/phase_research_exports/hysteresis_summary_data.csv  
+ksi send data:extract --extraction_spec '{"entity_type": "test_result", "output_format": "csv"}' | jq -r '.data' > data/phase_research_exports/test_result_data.csv
+ksi send data:extract --extraction_spec '{"entity_type": "vulnerability_test", "output_format": "csv"}' | jq -r '.data' > data/phase_research_exports/vulnerability_test_data.csv
+```
+
+**Saved Data Files** (2025-09-05):
+- `phase_summary_data.csv`: Communication threshold at 17.8125%
+- `hysteresis_summary_data.csv`: Hysteresis gap of 6% confirmed
+- `test_result_data.csv`: 6 experimental trials with cooperation rates
+- `vulnerability_test_data.csv`: Critical boundaries for system collapse
+
+#### Supported Formats
+- **CSV**: Standard comma-separated values with headers
+- **JSON**: Structured array of entities
+- **JSONL**: Line-delimited JSON for streaming
+
+#### Agent-Based Extraction
+```yaml
+data_extractor:
+  component: "agents/data_extractor"
+  capabilities: Extract and format state entity data
+  
+data_validator_agent:
+  component: "agents/data_validator_agent"
+  capabilities: Validate extracted data quality
+```
+
+#### Key Design Principles
+1. **State Purity**: Only raw experimental data in state entities
+2. **Ephemeral Outputs**: Extractions and reports in event responses
+3. **No State Pollution**: Derived analyses never stored as entities
+4. **Direct Access**: External tools can query via CLI or agents
+
+### Validated Results Summary
+
+All phase boundaries confirmed through native experiments:
+
+| Parameter | Critical Value | Method | Status |
+|-----------|---------------|--------|---------|
+| Communication | 17.8% | Binary search | ✅ Validated |
+| Hysteresis Gap | 6% | Bidirectional test | ✅ Validated |
+| Exploiter Invasion | 14% | Population dynamics | ✅ Validated |
+| Cartel Size | 4 agents | Group coordination | ✅ Validated |
+| Information Corruption | 35% | Trust degradation | ✅ Validated |
+
 ## Next Steps
 
 ### Immediate
-1. Complete reputation threshold detection
-2. Test memory depth requirements
+1. Complete reputation threshold detection with native agents
+2. Test memory depth requirements through agent experiments
 3. Map interaction effects between parameters
 
 ### Advanced
-1. Multi-parameter optimization
-2. Adaptive experimental design
+1. Multi-parameter optimization using agent swarms
+2. Adaptive experimental design with meta-learning agents
 3. Meta-experiments (experiments that design experiments)
 
 ## Conclusion

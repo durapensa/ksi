@@ -1,0 +1,8 @@
+entity_id,created_at,agents_spawned,communication_level,cooperation_threshold_met,events_emitted,expected_cooperation_rate,findings,notes,pattern_validated,status,success_rate,test_type
+test_comm_16875_result,1757079873.5594099,20,0.16875,False,,0.45,,45% cooperation - below 50% threshold. Phase boundary between 0.16875-0.1875,,,,
+test_comm_1875_result,1757079838.2737129,20,0.1875,True,,0.55,,55% cooperation - above threshold. Boundary between 0.15-0.1875,,,,
+test_comm_225_result,1757079794.9928179,20,0.225,True,,0.7,,Above 50% cooperation threshold - threshold is between 0.15 and 0.225,,,,
+test_comm_015_result,1757079759.7349272,20,0.15,False,,0.3,,Below 50% cooperation threshold - need to test higher values,,,,
+test_result_batch_001,1753735960.943478,,,,4,,,,ksi_tool_use,,100%,tool_use_validation
+orch_eba5bd0f_hello_context_test,1753195679.7774541,,,,,,"[""agent_id variable properly substituted"", ""component composition working"", ""cache system operational"", ""metadata properly structured""]",,,passed,,context_references
+

@@ -675,6 +675,37 @@ This pattern enables agents to effectively "optimize" components without fightin
 - **Validate assumptions** - Don't assume something works without testing
 - **Verify actual behavior** - Check logs, don't trust agent claims
 
+### Data Export Methodology (Scientific Rigor)
+
+**When** conducting experiments and research in KSI:
+- **Then** ALWAYS export experimental data to files for reproducibility
+- **Then** Create a `data/` directory for all exported datasets
+- **Then** Use descriptive filenames with timestamps or experiment IDs
+- **Then** Save the COMPLETE dataset, not just summaries
+
+**Export Process**:
+```bash
+# Extract experimental data and save to file
+ksi send data:extract --extraction_spec '{"entity_type": "experiment_results", "output_format": "csv"}' | jq -r '.data' > data/experiment_$(date +%Y%m%d).csv
+```
+
+**Documentation Requirements**:
+- Reference the actual saved data files in documentation
+- Include file paths and brief descriptions of contents
+- Preserve raw data for future validation
+- Never rely only on summarized results
+
+**Example from Phase Research**:
+```
+data/phase_research_exports/
+├── phase_summary_data.csv       # Critical thresholds discovered
+├── hysteresis_summary_data.csv  # Bidirectional test results
+├── test_result_data.csv        # All experimental trials
+└── vulnerability_test_data.csv  # System collapse boundaries
+```
+
+This ensures scientific rigor and enables independent verification of results.
+
 ### Code Quality
 - **Clean as you go** - Remove dead code immediately
 - **Complete migrations** - When moving features, remove old code
