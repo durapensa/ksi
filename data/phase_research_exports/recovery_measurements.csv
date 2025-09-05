@@ -1,0 +1,3 @@
+entity_id,created_at,distance_from_boundary,initial_state,perturbation,recovery_metrics,recovery_speed
+recovery_001,1757086871.655906,0.05,cooperation,"{""type"": ""inject_defectors"", ""magnitude"": ""20% population"", ""duration"": ""5 rounds""}","{""time_to_50_percent"": 8, ""time_to_90_percent"": 22, ""full_recovery"": true, ""final_level"": 0.73}",slow_near_critical
+

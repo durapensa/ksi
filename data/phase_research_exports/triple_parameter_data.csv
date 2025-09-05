@@ -1,0 +1,5 @@
+entity_id,created_at,classification,communication_level,cooperation_rate,memory_depth,pairwise_predictions,population_size,reputation_coverage,rounds,test_point,triple_synergy
+measure_m4_c40_r50,1757087063.390111,saturated_cooperation,0.4,0.94,4,"{""mem_comm_only"": 0.89, ""mem_rep_only"": 0.91, ""comm_rep_only"": 0.87}",50,0.5,100,m4_c40_r50,0.03
+measure_m2_c20_r25,1757087063.384869,super_synergy,0.2,0.82,2,"{""mem_comm_only"": 0.71, ""mem_rep_only"": 0.68, ""comm_rep_only"": 0.58}",50,0.25,100,m2_c20_r25,0.11
+measure_m0_c0_r0,1757087063.379136,baseline,0.0,0.12,0,"{""mem_comm_only"": 0.12, ""mem_rep_only"": 0.12, ""comm_rep_only"": 0.12}",50,0.0,100,m0_c0_r0,0.0
+

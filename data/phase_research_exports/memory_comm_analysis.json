@@ -1,0 +1,63 @@
+{
+  "cooperation_matrix": [
+    [
+      0.24,
+      0.26,
+      0.28,
+      0.3,
+      0.32
+    ],
+    [
+      0.64,
+      0.66,
+      0.68,
+      0.7,
+      0.72
+    ],
+    [
+      0.68,
+      0.71,
+      0.73,
+      0.76,
+      0.78
+    ],
+    [
+      0.7,
+      0.73,
+      0.76,
+      0.79,
+      0.82
+    ],
+    [
+      0.71,
+      0.74,
+      0.77,
+      0.8,
+      0.83
+    ],
+    [
+      0.71,
+      0.74,
+      0.77,
+      0.8,
+      0.83
+    ]
+  ],
+  "discontinuous_jump": {
+    "location": "memory_0_to_1",
+    "magnitude": 0.4,
+    "percentage_increase": "167%"
+  },
+  "saturation_point": 3,
+  "optimal_range": [
+    2,
+    3
+  ],
+  "synergy_type": "multiplicative",
+  "key_findings": [
+    "Memory depth 1 is THE critical threshold",
+    "Memory amplifies weak communication signals",
+    "Saturation occurs at memory depth 3-4",
+    "Effect is multiplicative, not additive"
+  ]
+}

@@ -1,0 +1,3 @@
+entity_id,created_at,amplitude,mean_cooperation,mechanism,oscillation_detected,parameter_setting,pattern,period
+oscillation_001,1757086871.637814,0.18,0.51,Near critical point causes bistability,True,"{""communication"": 0.15, ""reputation"": 0.3, ""memory"": 2}",cooperation ↔ exploitation cycles,12
+

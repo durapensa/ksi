@@ -1,0 +1,3 @@
+entity_id,created_at,alert_level,composite_score,confidence,estimated_time_to_transition,individual_signals,recommended_actions,timestamp
+warning_composite_001,1757087094.515997,CRITICAL,0.88,0.92,5-15 rounds,"{""autocorrelation"": ""high"", ""variance"": ""critical"", ""flickering"": ""high"", ""recovery_time"": ""critical""}","[""Increase monitoring frequency"", ""Prepare for state change"", ""Consider parameter adjustment""]",round_500
+
