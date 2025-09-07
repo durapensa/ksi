@@ -1,0 +1,5 @@
+entity_id,created_at,agent_count,confidence,cooperation_rates,difference,discontinuity_preserved,jump_magnitude,jump_percentage,original_jump,original_threshold,parameter,scale_effect,scale_invariant,test_values,threshold_at_500
+reputation_test_500,1757275658.99088,500,0.93,"[0.38, 0.43, 0.48, 0.52, 0.56, 0.62]",-0.005,,,,,0.325,reputation_coverage,,True,"[0.2, 0.25, 0.3, 0.325, 0.35, 0.4]",0.32
+memory_test_500,1757275658.9863381,500,,"[0.23, 0.65, 0.69, 0.71, 0.72]",,True,0.42,183,167,,memory_depth,Jump slightly amplified at scale,,"[0, 1, 2, 3, 4]",
+comm_test_500,1757275658.98115,500,0.95,"[0.41, 0.44, 0.47, 0.51, 0.54, 0.57, 0.61]",-0.001,,,,,0.178,communication,,True,"[0.15, 0.16, 0.17, 0.178, 0.18, 0.19, 0.2]",0.177
+
