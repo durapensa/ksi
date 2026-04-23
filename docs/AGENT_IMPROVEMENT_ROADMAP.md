@@ -563,4 +563,34 @@ The goal is not just self-improvement, but **self-correcting self-improvement** 
 
 ---
 
+## TODO: Agent Spawn CLAUDE.md Integration
+
+**Added**: 2026-03-24
+**Status**: Planning
+**Context**: KSI system prompt and component architecture redesign
+
+The agent spawn machinery needs to generate and place composite `CLAUDE.md` files into each Claude agent's sandbox subdirectory at spawn time. This complements the model-agnostic prompt composition system with Claude Code-specific environmental guidance.
+
+### Tasks
+
+- [ ] **Template system for sandbox CLAUDE.md**: Create a `templates/claude_md/` directory with composable snippets:
+  - `base.md` — minimal sandbox conventions (every Claude agent)
+  - `developer.md` — KSI codebase development patterns
+  - `optimization.md` — MIPRO/SIMBA usage
+  - `coordination.md` — multi-agent coordination patterns
+  - Additional snippets as needed per agent purpose
+- [ ] **Spawn machinery update**: Modify `agent_service.py` to assemble and write composite `CLAUDE.md` from base + role-relevant snippets into the agent's sandbox directory at spawn time
+- [ ] **Capability-to-snippet mapping**: Define which CLAUDE.md snippets correspond to which agent capabilities (e.g., `optimization` capability → `optimization.md` snippet)
+- [ ] **Provider-aware spawn path**: Ensure CLAUDE.md generation only occurs for Claude Code agents; other providers (Gemini, Ollama) skip this step and rely solely on composed prompts
+- [ ] **Migrate Claude-specific content out of composed prompts**: Audit existing components for Claude Code-specific guidance that belongs in CLAUDE.md rather than in model-agnostic composed prompts
+
+### Design Notes
+
+- The new `core/ksi_agent_identity` component provides model-agnostic agent orientation
+- The new `behaviors/providers/claude_code_sandbox` component provides Claude Code-specific conventions as a composed prompt layer
+- Sandbox CLAUDE.md is the *thinnest* layer — only what Claude Code specifically needs that can't be delivered through the composition system
+- The `behaviors/providers/` directory is the future home for other provider-specific behavioral overlays
+
+---
+
 *"Errors are not failures; they are the system's teachers. Documentation is not static; it is the system's memory. Together, they create a system that learns."* - KSI Engineering Philosophy

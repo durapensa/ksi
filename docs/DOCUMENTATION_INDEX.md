@@ -1,136 +1,89 @@
-# KSI Documentation Index
+# KSI Documentation
 
-## 🎯 Primary Discovery: Empirical Laboratory
+## Core
 
-### [KSI as an Empirical Laboratory](KSI_AS_EMPIRICAL_LABORATORY.md) ⭐
-**THE FUNDAMENTAL ANSWER**: Exploitation is NOT inherent to intelligence - it's a failure mode when specific conditions are violated.
+- **[KSI as an Empirical Laboratory](KSI_AS_EMPIRICAL_LABORATORY.md)** — The fundamental finding: exploitation is not inherent to intelligence, but a failure mode when specific conditions are violated. Phase transitions between cooperation and exploitation states.
+- **[KSI Philosophy: Elegant Architecture](KSI_PHILOSOPHY_ELEGANT_ARCHITECTURE.md)** — System as enabler, not controller. Compositional patterns, data flow integrity, no workarounds.
+- **[Future Directions](FUTURE_DIRECTIONS.md)** — Six proposals for KSI's evolution: agent self-development, multi-model collaboration, daemon simplification, agent memory, and more.
+- **[Transparency & Alignment Enhancements](KSI_TRANSPARENCY_ALIGNMENT_ENHANCEMENTS.md)** — KSI as an AI safety research platform.
 
-### Core Research Documents
-- [Findings Validation Plan](FINDINGS_VALIDATION_PLAN.md) - Rigorous testing protocol for our discovery
-- [Empirical Fairness Research Plan](EMPIRICAL_FAIRNESS_RESEARCH_PLAN.md) - Publication strategy
-- [Future Roadmap V2](KSI_FUTURE_ROADMAP_V2.md) - Updated based on revolutionary findings
+## Roadmaps
 
-### Laboratory Development
-- [Development Plan Phase 1](DEVELOPMENT_PLAN_EMPIRICAL_LABORATORY_PHASE1.md) - Initial implementation
-- [Metrics Proposal](EMPIRICAL_LABORATORY_METRICS_PROPOSAL.md) - Measurement framework
-- [Technical Architecture](EMPIRICAL_LABORATORY_TECHNICAL_ARCHITECTURE.md) - System design
-- [Phase 1 Baseline](PHASE_1_BASELINE_DYNAMICS.md) - Foundation experiments
+- **[Future Roadmap V2](KSI_FUTURE_ROADMAP_V2.md)** — Strategic roadmap based on the intelligence-fairness discovery. Phases from validation through societal impact.
+- **[Agent Improvement Roadmap](AGENT_IMPROVEMENT_ROADMAP.md)** — Bottom-up agent development layers. Includes CLAUDE.md spawn integration TODO.
 
-## 📊 Experimental Results & Analysis
+## Architecture
 
-### Latest Results
-- [Melting Pot Session Results Aug 2025](MELTING_POT_SESSION_RESULTS_AUG2025.md) ⭐ - **Agents choose cooperation over exploitation**
-- [Agent-Directed Architecture Fixes](AGENT_DIRECTED_ARCHITECTURE_FIXES.md) - Critical session & transformer fixes
+- **[Dynamic Routing Architecture](DYNAMIC_ROUTING_ARCHITECTURE.md)** — Agent-driven routing rules replacing static orchestration.
+- **[Progressive Component System](PROGRESSIVE_COMPONENT_SYSTEM.md)** — Component types, organization, and composition patterns.
+- **[Context Reference Architecture](CONTEXT_REFERENCE_ARCHITECTURE.md)** — Reference-based event context with 70.6% storage reduction.
 
-### Historical Results
-All detailed experimental results are in [`/experiments/`](../experiments/):
-- Scale Validation Analysis (500 agents)
-- Final Laboratory Report
-- GEPA Implementation Analysis
-- Paradigm Shift Documentation
+## Research
 
-## 🏗️ Architecture & Design
+Detailed findings from KSI's empirical research program.
 
-### Core Architecture
-- [`architecture/`](architecture/) - Federated, Progressive, and Unified systems
-- [Dynamic Routing Architecture](DYNAMIC_ROUTING_ARCHITECTURE.md) - Agent coordination
-- [Discovery System Architecture](DISCOVERY_SYSTEM_ARCHITECTURE.md) - Event discovery
-- [Agent-Directed Architecture Fixes](AGENT_DIRECTED_ARCHITECTURE_FIXES.md) ⚡ - Critical session & transformer fixes
+- **[Phase Transition Research Complete](research/PHASE_TRANSITION_RESEARCH_COMPLETE.md)** — Critical thresholds, synergistic interactions, and control mechanisms.
+- **[Phase Transition Dynamics Synthesis](research/PHASE_TRANSITION_DYNAMICS_SYNTHESIS.md)** — Cooperation-exploitation attractor landscape and phase diagram.
+- **[Cooperation Dynamics: Complete Journey](research/COOPERATION_DYNAMICS_COMPLETE_JOURNEY.md)** — Infrastructure through meta-coordination, full research timeline.
+- **[Communication Evolution Findings](research/COMMUNICATION_EVOLUTION_FINDINGS.md)** — Communication increases cooperation from 42.4% to 96.5%.
+- **[Cognitive Overhead Comprehensive Findings](research/COGNITIVE_OVERHEAD_COMPREHENSIVE_FINDINGS.md)** — Cross-model validation of cognitive overhead patterns.
+- **[Complexity Amplification Theory](research/COMPLEXITY_AMPLIFICATION_THEORY.md)** — Complexity amplification in LLMs.
+- **[Native KSI Melting Pot Findings](research/NATIVE_KSI_MELTING_POT_FINDINGS.md)** — Agent-directed game theory experimentation.
+- **[KSI vs Concordia](research/KSI_VS_CONCORDIA_LLM_COOPERATION.md)** — Comparison with DeepMind's Concordia framework.
 
-### Philosophy & Principles
-- [KSI Philosophy: Elegant Architecture](KSI_PHILOSOPHY_ELEGANT_ARCHITECTURE.md)
-- [Transparency & Alignment Enhancements](KSI_TRANSPARENCY_ALIGNMENT_ENHANCEMENTS.md)
+### External Perspectives
 
-## 🔬 Research Publications
+- **[o3 on Latent Attractor States](research/o3-on-latent-attractor-states.md)** — Latent attractor states in LLMs, domain-driven attention.
+- **[o3 on Computational Overhead](research/o3-on-computational-overhead.md)** — Computational overhead analysis.
+- **[o3 on Claude 4 Attractor Hypothesis](research/o3-on-claude-4-attractor-hypothesis.md)** — Model-specific attractor phenomena.
 
-### Cognitive Overhead Research
-- [Publication Quality Research Plan V3](PUBLICATION_QUALITY_RESEARCH_PLAN_V3.md) - arXiv strategy
-- [Comprehensive Findings](COGNITIVE_OVERHEAD_COMPREHENSIVE_FINDINGS.md)
-- [Paper Drafts V1-V4](PAPER_DRAFT_CONTEXT_SWITCHING_VERBOSITY_V4_COMPLETE.md)
-- [Statistical Analysis Plan](STATISTICAL_ANALYSIS_PLAN.md)
+## Papers
 
-### Theoretical Contributions
-- [Complexity Amplification Theory](COMPLEXITY_AMPLIFICATION_THEORY.md)
-- [Personal Interest Attractor Results](PERSONAL_INTEREST_ATTRACTOR_RESULTS.md)
+- **[Context-Switching Verbosity (V4 Complete)](papers/PAPER_DRAFT_CONTEXT_SWITCHING_VERBOSITY_V4_COMPLETE.md)** — ~5x token amplification under context switching. Hart & Opus, January 2025.
+- **[Cognitive Overhead in LLMs](papers/PAPER_DRAFT_COGNITIVE_OVERHEAD_IN_LLMS.md)** — Turn count as cognitive overhead metric. Hart & Opus, August 2025.
 
-## 🛠️ Implementation & Operations
+## Guides
 
-### Component System
-- [Progressive Component System](PROGRESSIVE_COMPONENT_SYSTEM.md)
-- [Component Certification Standards](COMPONENT_CERTIFICATION_STANDARDS.md)
-- [Behavioral Component Library](BEHAVIORAL_COMPONENT_LIBRARY.md)
-- [Deprecation Process](COMPONENT_DEPRECATION_PROCESS.md)
+- **[Dynamic Routing Quick Start](guides/DYNAMIC_ROUTING_QUICKSTART.md)** — Getting started with dynamic routing rules.
+- **[KSI Tool Use Patterns](guides/KSI_TOOL_USE_PATTERNS.md)** — JSON event emission via tool call format.
+- **[Capability System Usage](guides/CAPABILITY_SYSTEM_USAGE.md)** — Hierarchical permissions and agent profiles.
+- **[Component Certification Standards](guides/COMPONENT_CERTIFICATION_STANDARDS.md)** — Quality standards for components.
+- **[Behavioral Component Library](guides/BEHAVIORAL_COMPONENT_LIBRARY.md)** — Available behavioral components and usage.
+- **[Behavioral Override Insights](guides/BEHAVIORAL_OVERRIDE_INSIGHTS.md)** — Patterns for behavioral composition.
+- **[Claude Prompting Guide](guides/CLAUDE_PROMPTING_GUIDE.md)** — Effective prompting techniques for Claude in KSI.
+- **[Production Deployment Guide](guides/PRODUCTION_DEPLOYMENT_GUIDE.md)** — Safe deployment workflow with validation.
 
-### Optimization
-- [DSPy Capabilities](DSPY_CAPABILITIES_OVERVIEW.md)
-- [Hybrid Optimization Runbook](HYBRID_OPTIMIZATION_RUNBOOK.md)
-- [Optimization Metrics Guide](OPTIMIZATION_METRICS_GUIDE.md)
+## Reference
 
-### Event System
-- [Event Transformer Vision](EVENT_TRANSFORMER_VISION.md)
-- [Universal Response Architecture](UNIVERSAL_RESPONSE_ARCHITECTURE.md)
-- [Parameter Parsing Guide](PARAMETER_PARSING_GUIDE.md)
+- **[`reference/`](reference/)** — Compact event documentation.
 
-## 📚 Reference Documentation
+## Other Subdirectories
 
-### Quick References
-- [`reference/`](reference/) - Compact event documentation
-- [Documentation Formats](DOCUMENTATION_FORMATS.md) - Standards
-- [Claude Prompting Guide](CLAUDE_PROMPTING_GUIDE.md)
+- **[`architecture/`](architecture/)** — Federated architecture, template integration.
+- **[`features/`](features/)** — Identity system, multidimensional compression.
+- **[`plans/`](plans/)** — Active development plans.
+- **[`reports/`](reports/)** — Code audit and other reports.
+- **[`unfinished_work/`](unfinished_work/)** — In-progress designs.
 
-### Migration & Guides
-- [Production Deployment Guide](PRODUCTION_DEPLOYMENT_GUIDE.md)
-- [Deprecated Components Migration](DEPRECATED_COMPONENTS_MIGRATION_GUIDE.md)
+## Archive
 
-## 🗄️ Archive
+**[`archive/`](archive/)** contains historical documentation organized by category:
 
-### [`archive/`](archive/) - Historical Documentation
-- **analysis/** - System analysis documents
-- **declined_plans/** - Proposals not implemented
-- **deprecated/** - Outdated documentation
-- **forensic_analysis/** - Incident reports
-- **implemented/** - Completed features
-- **migration_guides/** - Legacy migrations
-- **reports/** - Various reports
-
-## 📋 Status Reports
-
-### Completed Milestones
-- [Week 1 Completion Summary](WEEK_1_COMPLETION_SUMMARY.md)
-- [Phase 1 Completion Report](PHASE_1_COMPLETION_REPORT.md)
-- [Phase 2 Certification Complete](PHASE_2_CERTIFICATION_COMPLETE.md)
-
-### Current Development
-- [`plans/`](plans/) - Active development plans
-- [`unfinished_work/`](unfinished_work/) - In-progress features
-
-## 🚀 Key Achievements
-
-1. **Empirical Discovery**: Strategic intelligence promotes fairness
-2. **Scale Validation**: Confirmed at 10, 100, and 500 agent scales
-3. **GEPA Implementation**: Genetic optimizer for fair ecosystems
-4. **Zero Race Conditions**: Atomic transfer service operational
-5. **98.3% Success Rate**: At all scales tested
-
-## 📈 Next Priority Items
-
-1. **Publication**: Submit findings to Nature Machine Intelligence
-2. **1000-Agent Validation**: Extreme scale testing
-3. **GEPA Enhancement**: Large-scale optimization runs
-4. **Real-World Applications**: Market mechanism design
+- **analysis/** — System design analysis documents
+- **chat_logs/** — Conversation logs
+- **cognitive_overhead/** — Research variant documents
+- **declined_plans/** — Proposals not pursued
+- **deprecated/** — Outdated implementations
+- **forensic_analysis/** — Incident reports
+- **implemented/** — Completed and integrated features
+- **migration_guides/** — Legacy migration documentation
+- **old_research/** — Superseded research findings
+- **paper_drafts/** — Earlier paper draft versions
+- **pre_autonomous_agents/** — Pre-autonomous agent designs
+- **proposals/** — Architectural and feature proposals
+- **reports/** — One-time reports and completion summaries
+- **superseded_plans/** — Plans replaced by current approach
 
 ---
 
-### Navigation Tips
-
-- ⭐ **Start with**: [KSI as an Empirical Laboratory](KSI_AS_EMPIRICAL_LABORATORY.md)
-- 📊 **For results**: Check `/experiments/` directory
-- 🏗️ **For architecture**: See `architecture/` subdirectory
-- 🗄️ **For history**: Browse `archive/` subdirectory
-
----
-
-*Index Last Updated: January 27, 2025*
-*Total Documents: 200+*
-*Active Research: Empirical Fairness*
-*Status: Laboratory Complete, Publication Ready*
+*Last updated: 2026-03-24*
